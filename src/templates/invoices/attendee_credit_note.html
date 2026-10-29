@@ -119,6 +119,12 @@
         VAT may instead be due there.
       </div>
       {% endif %}
+      {% if invoice.out_of_scope_text and credit_note.has_out_of_scope_lines and not invoice.reverse_charge %}
+      {% if not is_export and not is_virtual_interim %}
+      <div class="footer-label" style="margin-top: 12px;">Tax Notice</div>
+      {% endif %}
+      <div class="notes-text">{{ invoice.out_of_scope_text }}</div>
+      {% endif %}
       {% if invoice.exempt_reason_text and credit_note.has_exempt_lines and not invoice.reverse_charge %}
       {% if not is_export and not is_virtual_interim %}
       <div class="footer-label" style="margin-top: 12px;">Tax Notice</div>

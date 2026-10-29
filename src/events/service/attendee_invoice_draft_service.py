@@ -23,7 +23,8 @@ from events.models.attendee_invoice import (
     InvoiceLineItemDict,
     SubmittedLineItem,
 )
-from events.service.attendee_invoice_service import _generate_and_save_pdf, _out_of_scope, invoice_compliance_decision
+from events.service.attendee_invoice_service import _generate_and_save_pdf, invoice_compliance_decision
+from events.service.attendee_vat_service import out_of_scope_for
 from events.utils.vat_category import (
     EXEMPT_FALLBACK_TEXT,
     VatCategory,
@@ -196,7 +197,7 @@ def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.
     """Derive the line-dependent columns of an edit from the post-PATCH state of the locked row.
 
     Reads the lines and flag from `invoice`, which must be the row re-read under `select_for_update`,
-    never the caller's possibly-stale instance: a reverse_charge-only PATCH would otherwise write
+    never the caller's possibly-stale instance: a reverse_charge- or buyer-country-only PATCH would otherwise write
     back stale lines over a concurrent line edit.
 
     Raises:
@@ -205,7 +206,8 @@ def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.
     """
     reverse_charge = bool(update_data.get("reverse_charge", invoice.reverse_charge))
     submitted = update_data.get("line_items", invoice.line_items)
-    out_of_scope = _out_of_scope(invoice.event, invoice.seller_vat_country, invoice.buyer_vat_country)
+    buyer_country = update_data.get("buyer_vat_country", invoice.buyer_vat_country)
+    out_of_scope = out_of_scope_for(invoice.event, invoice.seller_vat_country, buyer_country)
     line_items = _normalize_line_items(submitted, reverse_charge, out_of_scope)
     if reverse_charge and any(Decimal(i["vat_rate"]) or Decimal(i["vat_amount"]) for i in line_items):
         raise HttpError(422, str(_("A reverse-charge invoice can't charge VAT. Set the VAT of every line to 0.")))
@@ -239,7 +241,7 @@ def _apply_draft_update(invoice: AttendeeInvoice, update_data: dict[str, t.Any])
         if invoice.status != AttendeeInvoice.InvoiceStatus.DRAFT:
             raise HttpError(409, str(_("Only draft invoices can be edited.")))
 
-        if "line_items" in update_data or "reverse_charge" in update_data:
+        if {"line_items", "reverse_charge", "buyer_vat_country"} & update_data.keys():
             update_data.update(_derive_line_item_fields(invoice, update_data))
 
         for field, value in update_data.items():

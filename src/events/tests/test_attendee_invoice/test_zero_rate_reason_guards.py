@@ -186,3 +186,25 @@ class TestBillingInfoPatch:
         _tier(event)
         response = _patch(owner_client, org, {"vat_rate": "0", "vat_exemption_reason": "Art. 132"})
         assert response.status_code == 200
+
+
+class TestZeroRateExclusions:
+    """Tiers that can no longer sell never block enabling invoicing."""
+
+    def test_paused_tier_does_not_flag(self, organization: Organization, event: Event) -> None:
+        org = _org(organization, mode=Organization.InvoicingMode.NONE, vat_rate="0.00")
+        _tier(event, sales_paused=True)
+        assert zero_rate_tiers_missing_reason(org) is False
+
+    def test_tier_with_ended_sales_window_does_not_flag(self, organization: Organization, event: Event) -> None:
+        org = _org(organization, mode=Organization.InvoicingMode.NONE, vat_rate="0.00")
+        _tier(event, sales_end_at=timezone.now() - timedelta(hours=1))
+        assert zero_rate_tiers_missing_reason(org) is False
+        _tier(event, name="Open", sales_end_at=timezone.now() + timedelta(hours=1))
+        assert zero_rate_tiers_missing_reason(org) is True
+
+    def test_cancelled_event_does_not_flag(self, organization: Organization, event: Event) -> None:
+        org = _org(organization, mode=Organization.InvoicingMode.NONE, vat_rate="0.00")
+        _tier(event)
+        Event.objects.filter(pk=event.pk).update(status=Event.EventStatus.CANCELLED)
+        assert zero_rate_tiers_missing_reason(org) is False

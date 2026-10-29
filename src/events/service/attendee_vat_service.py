@@ -32,6 +32,7 @@ from common.service.vat_utils import TWO_PLACES, calculate_vat_inclusive
 from common.service.vies_service import VIES_TIMEOUT_SECONDS
 
 if t.TYPE_CHECKING:
+    from events.models.attendee_invoice import AttendeeInvoice
     from events.models.event import Event
     from events.models.organization import Organization
     from events.models.ticket import TicketTier
@@ -67,14 +68,30 @@ class BuyerVATContext:
 
 
 def is_outside_eu_vat_scope(is_virtual: bool, seller_country: str, buyer_country: str) -> bool:
-    """Whether a sale falls outside EU VAT scope: virtual attendance by a known non-EU buyer.
+    """Whether a sale falls outside EU VAT scope: virtual attendance by a non-EU buyer.
 
-    Greece's VAT prefix ``EL`` is normalized to ISO ``GR`` first, so Greek sales are never
-    misclassified as cross-border.
+    An empty buyer country counts as non-EU (checkout zero-rates it, #1234). Greece's VAT
+    prefix ``EL`` is normalized to ISO ``GR`` first, so Greek sales are never misclassified
+    as cross-border.
     """
     seller = normalize_country_code(seller_country)
     buyer = normalize_country_code(buyer_country)
-    return is_virtual and bool(buyer) and buyer not in EU_MEMBER_STATES and buyer != seller
+    return is_virtual and buyer not in EU_MEMBER_STATES and buyer != seller
+
+
+def out_of_scope_for(event: "Event | None", seller_country: str, buyer_country: str) -> bool:
+    """Whether the sale is outside EU VAT scope, decided by the same rule checkout applies (0% lines only)."""
+    return event is not None and is_outside_eu_vat_scope(event.is_virtual, seller_country, buyer_country)
+
+
+def invoice_out_of_scope(invoice: "AttendeeInvoice") -> bool:
+    """Whether a credit note on ``invoice`` is out of scope: follows the invoice's own O lines.
+
+    Only a legacy invoice (no line carries a category) is re-derived from the current event state.
+    """
+    if any("vat_category" in line for line in invoice.line_items):
+        return any(line.get("vat_category") == "O" for line in invoice.line_items)
+    return out_of_scope_for(invoice.event, invoice.seller_vat_country, invoice.buyer_vat_country)
 
 
 def determine_attendee_vat(
@@ -123,15 +140,6 @@ def determine_attendee_vat(
 
     seller_country = normalize_country_code(seller_country)
     buyer_country = normalize_country_code(buyer_country)
-    if is_outside_eu_vat_scope(is_virtual, seller_country, buyer_country):
-        # Virtual, non-EU buyer: outside EU VAT scope
-        return AttendeeVATResult(
-            effective_price=breakdown.net_amount,
-            net_amount=breakdown.net_amount,
-            vat_amount=Decimal("0.00"),
-            vat_rate=Decimal("0.00"),
-            reverse_charge=False,
-        )
     if buyer_country == seller_country:
         return full_vat
 
@@ -149,8 +157,14 @@ def determine_attendee_vat(
     if buyer_country in EU_MEMBER_STATES:
         return full_vat
 
-    # Remaining: an empty buyer country, which is charged the seller's rate (safe default)
-    return full_vat
+    # Virtual, non-EU (or unknown) buyer: outside EU VAT scope
+    return AttendeeVATResult(
+        effective_price=breakdown.net_amount,
+        net_amount=breakdown.net_amount,
+        vat_amount=Decimal("0.00"),
+        vat_rate=Decimal("0.00"),
+        reverse_charge=False,
+    )
 
 
 def get_effective_vat_rate(tier: "TicketTier", org: "Organization") -> Decimal:

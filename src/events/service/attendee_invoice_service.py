@@ -29,13 +29,12 @@ from events.models.attendee_invoice import (
     BuyerBillingSnapshot,
     InvoiceLineItemDict,
 )
-from events.models.event import Event
 from events.models.organization import Organization
 from events.models.refund import Refund
 from events.models.skipped_fiscal_document import SkippedFiscalDocument
 from events.models.ticket import Payment
 from events.service import skipped_fiscal_document_service
-from events.service.attendee_vat_service import is_outside_eu_vat_scope
+from events.service.attendee_vat_service import invoice_out_of_scope, out_of_scope_for
 from events.service.payment_means_service import fetch_payment_means
 from events.service.zero_rate_guard_service import (
     raise_if_zero_rate_tiers_missing_reason,
@@ -176,11 +175,6 @@ def _build_line_items(
     return items
 
 
-def _out_of_scope(event: Event | None, seller_country: str, buyer_country: str) -> bool:
-    """Whether the sale is outside EU VAT scope, decided by the same rule checkout applies (0% lines only)."""
-    return event is not None and is_outside_eu_vat_scope(event.is_virtual, seller_country, buyer_country)
-
-
 def _exempt_reasons(payments: list[Payment], line_items: list[InvoiceLineItemDict], org: Organization) -> list[str]:
     """Collect the exemption reason of each exempt (E) line, in line order (tier's, else the org's)."""
     return [
@@ -303,7 +297,7 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
     reverse_charge = bool(billing_snapshot.get("reverse_charge", False))
     # The buyer (VAT-ID prefix + checkout VIES outcome) decides the BE/PL domestic-B2B case.
     buyer = BuyerContext.from_billing_snapshot(billing_snapshot)
-    out_of_scope = _out_of_scope(event, org.vat_country_code, billing_snapshot.get("vat_country_code", ""))
+    out_of_scope = out_of_scope_for(event, org.vat_country_code, billing_snapshot.get("vat_country_code", ""))
     decision = compliance.attendee_invoicing_for_sale(compliance.sale_nexus(org, [event]), buyer)
     if not decision.allowed:
         # Defense in depth for orgs that enabled invoicing before the gate, moved
@@ -471,11 +465,10 @@ def issue_blocked_reason(invoice: AttendeeInvoice) -> str:
 def _is_export(invoice: AttendeeInvoice) -> bool:
     """Whether the invoice prints the "Export of services" notice.
 
-    True for an out-of-scope (O) line, and for historical zero-rated rows that predate VAT
-    categories (they must re-render as issued; admission is no longer zero-rated, #868).
+    Only for historical zero-rated rows that predate VAT categories (they must re-render as
+    issued; admission is no longer zero-rated, #868). Classified rows print their stored
+    exemption text instead (``out_of_scope_text`` for O).
     """
-    if any(item.get("vat_category") == VatCategory.OUT_OF_SCOPE for item in invoice.line_items):
-        return True
     buyer_country = invoice.buyer_vat_country.upper() if invoice.buyer_vat_country else ""
     return bool(
         buyer_country
@@ -771,13 +764,13 @@ def _record_skipped_credit_note(
         # A skipped invoice has no reverse_charge column; the checkout snapshot on its payments is the source.
         if isinstance(source, AttendeeInvoice):
             reverse_charge = source.reverse_charge
-            out_of_scope = _out_of_scope(source.event, source.seller_vat_country, source.buyer_vat_country)
+            out_of_scope = invoice_out_of_scope(source)
         else:
             sale_payments = [r.payment for r in refund_rows] or list(refunded_payments)
             snapshot = (sale_payments[0].buyer_billing_snapshot or {}) if sale_payments else {}
             reverse_charge = bool(snapshot.get("reverse_charge"))
             sale_event = sale_payments[0].ticket.event if sale_payments else None
-            out_of_scope = _out_of_scope(
+            out_of_scope = out_of_scope_for(
                 sale_event,
                 sale_event.organization.vat_country_code if sale_event else "",
                 snapshot.get("vat_country_code", ""),
@@ -881,7 +874,7 @@ def generate_attendee_credit_note(
             AttendeeInvoiceCreditNote.objects.filter(invoice=invoice).prefetch_related("payments", "refunds")
         )
 
-        out_of_scope = _out_of_scope(invoice.event, invoice.seller_vat_country, invoice.buyer_vat_country)
+        out_of_scope = invoice_out_of_scope(invoice)
         build = (
             _build_from_refund_rows(refund_rows, existing_cns, invoice.reverse_charge, out_of_scope)
             if refund_ids

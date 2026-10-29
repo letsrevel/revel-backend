@@ -371,6 +371,11 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
         return str((self.vat_exemptions or {}).get("E", {}).get("text", ""))
 
     @property
+    def out_of_scope_text(self) -> str:
+        """The notice printed for out-of-scope (category O) lines, or ``""`` when none."""
+        return str((self.vat_exemptions or {}).get("O", {}).get("text", ""))
+
+    @property
     def exempt_reason_is_fallback(self) -> bool:
         """Whether the exempt text is the generic fallback rather than a stated reason."""
         return self.exempt_reason_text == EXEMPT_FALLBACK_TEXT
@@ -427,6 +432,11 @@ class AttendeeInvoiceCreditNote(EmailDeliverableMixin, TimeStampedModel):
     def has_exempt_lines(self) -> bool:
         """Whether any credited line is VAT-exempt (category E), i.e. the exempt notice applies."""
         return any(item.get("vat_category") == VatCategory.EXEMPT for item in self.line_items)
+
+    @property
+    def has_out_of_scope_lines(self) -> bool:
+        """Whether any credited line is out of EU VAT scope (category O), i.e. the O notice applies."""
+        return any(item.get("vat_category") == VatCategory.OUT_OF_SCOPE for item in self.line_items)
 
     def __str__(self) -> str:
         return f"{self.credit_note_number} (for {self.invoice.invoice_number})"

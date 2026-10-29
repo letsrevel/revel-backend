@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
+from events.models.event import Event
 from events.models.organization import Organization
 from events.models.ticket import TicketTier
 
@@ -19,7 +20,8 @@ def zero_rate_tiers_missing_reason(org: Organization) -> bool:
     """Whether a paid online tier that can still sell is 0% rated with no exemption reason anywhere.
 
     Such a tier would invoice as category E without the legal basis the notice must state. One
-    DB-side `.exists()`: tiers of events that already ended can no longer sell, so they never flag.
+    DB-side `.exists()`: tiers that can no longer sell (event ended or cancelled, sales window over,
+    sales paused -- resuming is guarded) never flag.
     Reads `vat_rate` and `vat_exemption_reason` from `org` as given, so a not-yet-saved candidate
     state can be checked before it is persisted.
 
@@ -37,14 +39,22 @@ def zero_rate_tiers_missing_reason(org: Organization) -> bool:
     zero_rate = Q(vat_rate=0)
     if org.vat_rate == 0:
         zero_rate |= Q(vat_rate__isnull=True)  # inheriting tiers take the org default
-    return TicketTier.objects.filter(
-        paid,
-        zero_rate,
-        event__organization=org,
-        event__end__gte=timezone.now(),
-        payment_method=TicketTier.PaymentMethod.ONLINE,
-        vat_exemption_reason__regex=r"^\s*$",
-    ).exists()
+    now = timezone.now()
+    can_still_sell = Q(sales_end_at__isnull=True) | Q(sales_end_at__gte=now)
+    return (
+        TicketTier.objects.filter(
+            paid,
+            zero_rate,
+            can_still_sell,
+            sales_paused=False,
+            event__organization=org,
+            event__end__gte=now,
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+            vat_exemption_reason__regex=r"^\s*$",
+        )
+        .exclude(event__status=Event.EventStatus.CANCELLED)
+        .exists()
+    )
 
 
 def assert_billing_update_keeps_zero_rate_reasons(org: Organization, update_data: dict[str, t.Any]) -> None:

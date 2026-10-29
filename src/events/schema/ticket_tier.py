@@ -480,7 +480,7 @@ class TicketTierDetailSchema(ModelSchema):
     venue: VenueSchema | None = None
     sector: VenueSectorSchema | None = None
     vat_rate: Decimal | None = None
-    vat_exemption_reason: str = ""
+    vat_exemption_reason: str = ""  # declared (not in Meta.fields) so ModelSchema doesn't make it nullable
     invoicing_available: bool = False
     refund_policy: RefundPolicySchema | None = None
     category_prices: CategoryPriceMap = Field(default_factory=dict)
@@ -519,7 +519,6 @@ class TicketTierDetailSchema(ModelSchema):
             "max_tickets_per_user",
             "display_order",
             "vat_rate",
-            "vat_exemption_reason",
             "allow_user_cancellation",
             "cancellation_deadline_hours",
         ]

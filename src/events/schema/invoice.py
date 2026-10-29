@@ -77,8 +77,12 @@ class InvoicingModeUpdateSchema(Schema):
     mode: Organization.InvoicingMode
 
 
-class InvoiceLineItemSchema(Schema):
-    """Schema for a single line item in an attendee invoice."""
+class InvoiceLineItemInputSchema(Schema):
+    """A line item as submitted in a DRAFT edit.
+
+    ``vat_category`` is derived server-side (EN 16931), so it is not part of the input: a
+    submitted value is ignored (the schema's default ``extra`` handling drops it).
+    """
 
     description: str
     unit_price_gross: Decimal
@@ -86,7 +90,11 @@ class InvoiceLineItemSchema(Schema):
     net_amount: Decimal
     vat_amount: Decimal
     vat_rate: Decimal
-    # Derived server-side (EN 16931); ignored when submitted in an edit.
+
+
+class InvoiceLineItemSchema(InvoiceLineItemInputSchema):
+    """Schema for a single line item in an attendee invoice response."""
+
     vat_category: VatCategory | None = None
 
 
@@ -211,7 +219,7 @@ class UpdateAttendeeInvoiceSchema(Schema):
     currency: str | None = None
     reverse_charge: bool | None = None
     discount_code_text: str | None = None
-    line_items: list[InvoiceLineItemSchema] | None = None
+    line_items: list[InvoiceLineItemInputSchema] | None = None
 
     @field_validator("buyer_country_code")
     @classmethod

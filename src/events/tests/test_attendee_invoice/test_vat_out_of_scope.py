@@ -44,7 +44,7 @@ def test_derive_and_exemptions_for_out_of_scope() -> None:
         (True, "AT", "US", True),
         (False, "AT", "US", False),
         (True, "AT", "DE", False),
-        (True, "AT", "", False),
+        (True, "AT", "", True),
         (True, "GR", "EL", False),
         (True, "AT", "AT", False),
     ],
@@ -73,7 +73,7 @@ def _payment(user: RevelUser, event: Event, tier: TicketTier, session: str, buye
 @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
 @patch(MOCK_SEND_EMAIL)
 class TestOutOfScope:
-    def test_virtual_non_eu_buyer_is_o_with_export_pdf(
+    def test_virtual_non_eu_buyer_is_o_with_o_notice_pdf(
         self,
         _mail: t.Any,
         _pdf: t.Any,
@@ -88,9 +88,11 @@ class TestOutOfScope:
         assert invoice is not None
         assert [li["vat_category"] for li in invoice.line_items] == ["O"]
         assert invoice.vat_exemptions == {"O": O_EXEMPTION}
-        assert _is_export(invoice) is True
-        html = render_to_string("invoices/attendee_invoice.html", {"invoice": invoice, "is_export": True})
-        assert "Export of services" in html
+        assert _is_export(invoice) is False
+        assert invoice.out_of_scope_text == O_EXEMPTION["text"]
+        html = render_to_string("invoices/attendee_invoice.html", {"invoice": invoice, "is_export": False})
+        assert O_EXEMPTION["text"] in html
+        assert "Export of services" not in html
         assert "Exempt from VAT" not in html
         assert "VAT exempt" not in html
 
@@ -140,3 +142,65 @@ class TestOutOfScope:
         cn = generate_attendee_credit_note("cs_cn_o", [payment.id])
         assert cn is not None
         assert [li["vat_category"] for li in cn.line_items] == ["O"]
+        assert cn.has_out_of_scope_lines is True
+        html = render_to_string("invoices/attendee_credit_note.html", {"credit_note": cn, "invoice": cn.invoice})
+        assert O_EXEMPTION["text"] in html
+        assert "Export of services" not in html
+
+
+class TestDraftBuyerCountryPatch:
+    def test_buyer_country_only_patch_rederives_categories(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        from events.service.attendee_invoice_draft_service import update_draft_invoice
+        from events.tests.test_attendee_invoice._helpers import _create_draft
+
+        event.is_virtual = True
+        event.save()
+        organization.vat_country_code = "AT"
+        organization.save()
+        inv = _create_draft(organization, event, member_user)
+        inv.seller_vat_country = "AT"
+        inv.buyer_vat_country = "AT"
+        inv.line_items = [{**inv.line_items[0], "vat_rate": "0.00", "vat_amount": "0.00", "vat_category": "S"}]
+        inv.save()
+
+        updated = update_draft_invoice(inv, {"buyer_vat_country": "US"})
+
+        updated.refresh_from_db()
+        assert [li["vat_category"] for li in updated.line_items] == ["O"]
+        assert "O" in updated.vat_exemptions
+
+
+@patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+@patch(MOCK_SEND_EMAIL)
+def test_credit_note_follows_the_invoice_not_current_event_state(
+    _mail: t.Any,
+    _pdf: t.Any,
+    organization: Organization,
+    event: Event,
+    event_ticket_tier: TicketTier,
+    member_user: RevelUser,
+) -> None:
+    _setup(organization, event, virtual=True)
+    payment = _payment(member_user, event, event_ticket_tier, "cs_cn_flip", "US", zero=True)
+    assert generate_attendee_invoice("cs_cn_flip") is not None
+    event.is_virtual = False
+    event.save()
+    cn = generate_attendee_credit_note("cs_cn_flip", [payment.id])
+    assert cn is not None
+    assert [li["vat_category"] for li in cn.line_items] == ["O"]
+
+
+def test_legacy_export_row_still_prints_export_wording(
+    organization: Organization, event: Event, member_user: RevelUser
+) -> None:
+    from events.tests.test_attendee_invoice._helpers import _create_draft
+
+    inv = _create_draft(organization, event, member_user)
+    inv.buyer_vat_country = "US"
+    inv.total_vat = Decimal("0.00")
+    inv.line_items = [{k: v for k, v in inv.line_items[0].items() if k != "vat_category"}]
+    assert _is_export(inv) is True
+    html = render_to_string("invoices/attendee_invoice.html", {"invoice": inv, "is_export": True})
+    assert "Export of services" in html
