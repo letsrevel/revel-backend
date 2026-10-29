@@ -127,6 +127,47 @@ jobs:
         if: always()
         run: docker compose -f docker-compose-ci.yml down
 
+  einvoice-conformance:
+    name: EN 16931 conformance (Factur-X)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup backend environment
+        uses: ./.github/actions/setup-backend
+
+      # `euinvoice[validate]` (saxonche) lives in the dev group: Schematron runs only here, never in prod.
+      - name: Install the validation extra
+        run: uv sync --locked --group dev
+
+      - name: Read the pinned euinvoice version
+        id: euinvoice
+        run: |
+          version=$(awk '/^name = "euinvoice"$/ { getline; sub(/^version = "/, ""); sub(/"$/, ""); print; exit }' uv.lock)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # The official CEN/XRechnung/Peppol artifacts are pinned per euinvoice release, so the
+      # version is the whole cache key.
+      - name: Restore euinvoice validation artifacts
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/euinvoice
+          key: euinvoice-artifacts-${{ steps.euinvoice.outputs.version }}
+
+      - name: Fetch euinvoice validation artifacts
+        run: uv run python -m euinvoice artifacts fetch
+
+      - name: Spin up docker
+        run: docker compose -f docker-compose-ci.yml up -d
+
+      - name: Validate generated Factur-X documents against the CEN rules
+        run: uv run pytest -m einvoice_conformance src/events/tests/test_einvoice/test_conformance.py
+
+      - name: Teardown docker
+        if: always()
+        run: docker compose -f docker-compose-ci.yml down
+
   coverage:
     name: Combined coverage gate
     runs-on: ubuntu-24.04

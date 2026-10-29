@@ -332,6 +332,7 @@ addopts = "-m 'not integration'"
 markers = [
     "integration: slow tests that hit real external services (LLM, etc.) — run explicitly with pytest -m integration",
     "real_payment_means: opt out of the autouse fetch_payment_means stub (tests the real function)",
+    "einvoice_conformance: validate generated Factur-X XML against the official CEN rules (needs `python -m euinvoice artifacts fetch`; skipped otherwise)",
 ]
 norecursedirs = [
     ".*",

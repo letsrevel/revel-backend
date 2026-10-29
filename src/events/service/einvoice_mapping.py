@@ -17,6 +17,7 @@ from euinvoice.model import (
     Buyer,
     BuyerPostalAddress,
     DeliveryInformation,
+    Identifier,
     InvoiceDraft,
     InvoicingPeriod,
     ItemInformation,
@@ -133,8 +134,11 @@ def _not_subject_to_vat(lines: list[InvoiceLineItemDict]) -> bool:
 
 
 def _seller(invoice: AttendeeInvoice, address: PostalAddress, *, vat_id: bool) -> Seller:
+    # BR-CO-26 wants BT-29, BT-30 or BT-31 on every seller. Where BR-O-02 forbids the VAT identifier
+    # (BT-31), the same number stays the one registered identifier we hold, carried as BT-29.
     return Seller(
         name=invoice.seller_name,
+        identifiers=() if vat_id else (Identifier(value=invoice.seller_vat_id),),
         vat_identifier=_opt(invoice.seller_vat_id) if vat_id else None,
         postal_address=SellerPostalAddress(
             address_line_1=_opt(address.line1),

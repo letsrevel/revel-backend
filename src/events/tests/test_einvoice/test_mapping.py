@@ -219,9 +219,11 @@ class TestLines:
         )
         draft = mapping.invoice_draft_for(invoice)
         assert draft.lines[0].vat_information.rate is None
-        # BR-O-02: no seller or buyer VAT identifier on a document not subject to VAT.
+        # BR-O-02: no seller or buyer VAT identifier on a document not subject to VAT; the seller's
+        # number moves to BT-29 so the seller stays identifiable (BR-CO-26).
         assert draft.seller.vat_identifier is None
         assert draft.buyer.vat_identifier is None
+        assert [identifier.value for identifier in draft.seller.identifiers] == [invoice.seller_vat_id]
 
 
 class TestExemptions:
