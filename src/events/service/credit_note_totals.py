@@ -5,11 +5,13 @@ A credit note corrects one invoice, so it is figured the way that invoice was:
 - a ``legacy`` invoice gets the pre-EN 16931 arithmetic (the sums of the lines as built,
   which are the payment figures on the payment path and the pro-rata VAT on the refund-row
   path), no rounding, and is stamped ``legacy``;
-- an ``en16931`` invoice gets EN 16931 totals on the credit note's own lines, except the
-  **closing** credit note -- the one after which every cent of the invoice is credited --
-  which instead carries, per ``(category, rate)`` group, whatever net, VAT and rounding
-  the earlier credit notes left uncredited. Credited one ticket at a time, the credit
-  notes therefore add back up to the invoice's net, VAT and rounding exactly.
+- an ``en16931`` invoice gets **telescoping** per-group totals: for each ``(category, rate)``
+  group on the note, the cumulative gross credited so far (prior notes plus this one) is
+  turned into a cumulative net and VAT -- the invoice's own stored figures once the whole
+  group is credited, EN 16931 figures for that cumulative gross before -- and the note
+  carries the difference from what the prior notes already credited. Each group therefore
+  closes exactly when its last cent is credited, whatever the refund order, so credited
+  one ticket at a time the notes add back up to the invoice's net, VAT and rounding.
 
 Pure: the caller loads the invoice and its prior credit notes (under the invoice row lock).
 """
@@ -18,13 +20,7 @@ import typing as t
 from decimal import Decimal
 
 from events.models.attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote, InvoiceLineItemDict, TotalsMethod
-from events.service.en16931_totals_service import (
-    ZERO,
-    GroupKey,
-    compute_en16931_totals,
-    group_lines,
-    spread_group_lines,
-)
+from events.service.en16931_totals_service import ZERO, GroupKey, group_lines, group_net_vat, spread_group_lines
 
 
 class CreditNoteTotals(t.NamedTuple):
@@ -38,6 +34,15 @@ class CreditNoteTotals(t.NamedTuple):
     totals_method: TotalsMethod
 
 
+class _GroupSum(t.NamedTuple):
+    gross: Decimal
+    net: Decimal
+    vat: Decimal
+
+
+_NOTHING = _GroupSum(ZERO, ZERO, ZERO)
+
+
 def _legacy(lines: list[InvoiceLineItemDict]) -> CreditNoteTotals:
     return CreditNoteTotals(
         lines=lines,
@@ -49,10 +54,11 @@ def _legacy(lines: list[InvoiceLineItemDict]) -> CreditNoteTotals:
     )
 
 
-def _group_sums(lines: list[InvoiceLineItemDict], reverse_charge: bool) -> dict[GroupKey, tuple[Decimal, Decimal]]:
-    """``(net, vat)`` per group of ``lines``."""
+def _group_sums(lines: list[InvoiceLineItemDict], reverse_charge: bool) -> dict[GroupKey, _GroupSum]:
+    """Stored ``(gross, net, vat)`` per group of ``lines``."""
     return {
-        key: (
+        key: _GroupSum(
+            sum((Decimal(lines[i]["unit_price_gross"]) for i in indexes), ZERO),
             sum((Decimal(lines[i]["net_amount"]) for i in indexes), ZERO),
             sum((Decimal(lines[i]["vat_amount"]) for i in indexes), ZERO),
         )
@@ -60,26 +66,36 @@ def _group_sums(lines: list[InvoiceLineItemDict], reverse_charge: bool) -> dict[
     }
 
 
-def _closing(
+def _telescoping(
     invoice: AttendeeInvoice, lines: list[InvoiceLineItemDict], prior: t.Sequence[AttendeeInvoiceCreditNote]
 ) -> CreditNoteTotals:
-    """Per group, credit what the invoice carries minus what the prior credit notes already credited."""
-    remaining = _group_sums(invoice.line_items, invoice.reverse_charge)
+    invoice_groups = _group_sums(invoice.line_items, invoice.reverse_charge)
+    credited: dict[GroupKey, _GroupSum] = {}
     for credit_note in prior:
-        for key, (net, vat) in _group_sums(credit_note.line_items, invoice.reverse_charge).items():
-            left_net, left_vat = remaining.get(key, (ZERO, ZERO))
-            remaining[key] = (left_net - net, left_vat - vat)
+        for key, group in _group_sums(credit_note.line_items, invoice.reverse_charge).items():
+            before = credited.get(key, _NOTHING)
+            credited[key] = _GroupSum(before.gross + group.gross, before.net + group.net, before.vat + group.vat)
 
     out_lines = [line.copy() for line in lines]
     amount_net = amount_vat = rounding_amount = ZERO
     for key, indexes in group_lines(lines, invoice.reverse_charge).items():
         grosses = [Decimal(lines[i]["unit_price_gross"]) for i in indexes]
-        net, vat = remaining.get(key, (ZERO, ZERO))
-        # ponytail: the closing note's VAT is the invoice's remainder, not round(net x rate), so its
-        # own BR-CO-17 can be a cent off -- within the CEN +/-1 tolerance -- in exchange for the
-        # credit notes footing to the invoice. A group fully credited by earlier partial notes
-        # (none of its lines here) cannot be closed and keeps its cent of drift.
-        rounding = sum(grosses, ZERO) - net - vat
+        gross = sum(grosses, ZERO)
+        before = credited.get(key, _NOTHING)
+        cumulative_gross = before.gross + gross
+        on_invoice = invoice_groups.get(key)
+        if on_invoice is not None and cumulative_gross == on_invoice.gross:
+            # The group is now fully credited: land exactly on the invoice's stored figures. A group
+            # the invoice does not carry, or whose gross never matches (a DRAFT edited before
+            # issuing), can only ever get EN 16931 figures of its own.
+            cumulative_net, cumulative_vat = on_invoice.net, on_invoice.vat
+        else:
+            cumulative_net, cumulative_vat, _unused = group_net_vat(cumulative_gross, key[1])
+        net, vat = cumulative_net - before.net, cumulative_vat - before.vat
+        # ponytail: a note's VAT is a difference of cumulative figures, not round(net x rate), so
+        # its own BR-CO-17 can be a cent off (within the CEN +/-1 tolerance) in exchange for the
+        # notes footing to the invoice, group by group, in any refund order.
+        rounding = gross - net - vat
         for i, (line_net, line_vat) in zip(indexes, spread_group_lines(net, rounding, grosses), strict=True):
             out_lines[i]["net_amount"] = str(line_net)
             out_lines[i]["vat_amount"] = str(line_vat)
@@ -112,15 +128,4 @@ def credit_note_totals(
     """
     if invoice.totals_method != TotalsMethod.EN16931:
         return _legacy(lines)
-    totals = compute_en16931_totals(lines, invoice.reverse_charge)
-    credited = sum((credit_note.amount_gross for credit_note in prior), ZERO)
-    if credited + totals.total_gross == invoice.total_gross:
-        return _closing(invoice, lines, prior)
-    return CreditNoteTotals(
-        lines=totals.lines,
-        amount_gross=totals.total_gross,
-        amount_net=totals.total_net,
-        amount_vat=totals.total_vat,
-        rounding_amount=totals.rounding_amount,
-        totals_method=TotalsMethod.EN16931,
-    )
+    return _telescoping(invoice, lines, prior)
