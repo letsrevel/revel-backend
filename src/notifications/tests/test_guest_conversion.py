@@ -1,5 +1,7 @@
 """Guest -> account conversion resets notification preferences to regular defaults (#1248)."""
 
+import typing as t
+
 import pytest
 
 from accounts.models import RevelUser
@@ -20,6 +22,20 @@ def test_plain_conversion_gives_regular_defaults(guest_user: RevelUser) -> None:
     guest_user.save()
 
     assert _settings(guest_user) == get_default_notification_type_settings()
+
+
+def test_conversion_with_guest_in_update_fields(guest_user: RevelUser) -> None:
+    """A partial save that includes the guest flag still triggers the reset."""
+    guest_user.guest = False
+    guest_user.save(update_fields=["guest"])
+
+    assert _settings(guest_user) == get_default_notification_type_settings()
+
+
+def test_partial_save_without_guest_skips_lookup(user: RevelUser, django_assert_num_queries: t.Any) -> None:
+    """A save that can't touch the guest flag (e.g. last_login on login) costs no extra query."""
+    with django_assert_num_queries(1):
+        user.save(update_fields=["last_login"])
 
 
 def test_explicit_values_are_preserved(guest_user: RevelUser) -> None:

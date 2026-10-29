@@ -49,6 +49,9 @@ def capture_guest_flag_before_save(sender: type[RevelUser], instance: RevelUser,
     """Remember a True guest flag in the DB when the instance is being saved as a non-guest."""
     if instance._state.adding or instance.guest:
         return
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "guest" not in update_fields:
+        return  # e.g. the last_login save on every login: the guest flag can't change
     was_guest = RevelUser.objects.filter(pk=instance.pk, guest=True).exists()
     if was_guest:
         instance._was_guest = True  # type: ignore[attr-defined]
