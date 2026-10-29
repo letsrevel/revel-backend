@@ -53,8 +53,8 @@ def agreement_mismatch(document: Document, invoice: Invoice) -> str | None:
 
     Runs after :func:`apply_our_vat`, which already made BT-117, BT-112 and BT-115 follow our VAT, so
     only what the override cannot fix is left: BT-109 must equal our printed net, BT-110 (by now the sum
-    of our line VAT) our printed VAT header, and BT-115 must be 0 (paid in full). The XML and the PDF come from one snapshot, so any
-    difference is a bug on one side and the XML is refused.
+    of our line VAT) our printed VAT header, and BT-115 must be 0 (paid in full). The XML and the PDF
+    come from one snapshot, so any difference is a bug on one side and the XML is refused.
 
     Returns:
         ``"BT-109"``, ``"BT-110"`` or ``"BT-115"``, or ``None`` when all agree.
