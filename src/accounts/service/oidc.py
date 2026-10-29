@@ -395,6 +395,9 @@ def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser
             user.email_verified = True
             user.is_active = True
             user.save(update_fields=["guest", "email_verified", "is_active"])
+            from notifications.signals.user import clear_guest_notification_defaults
+
+            clear_guest_notification_defaults(user)
             referral_application_service.try_enroll_invitee(user)
         elif not user.email_verified:
             user.email_verified = True

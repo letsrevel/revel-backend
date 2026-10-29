@@ -52,6 +52,32 @@ def _get_guest_notification_type_settings() -> dict[str, t.Any]:
     return {notification_type: {"enabled": False} for notification_type in disabled_types}
 
 
+def clear_guest_notification_defaults(user: RevelUser) -> None:
+    """Drop the guest-default notification overrides when a guest becomes a full account.
+
+    Removes only entries whose key is a guest-default type and whose value is still exactly the
+    guest default (``{"enabled": False}``). Any other value is an explicit user choice and is kept.
+    No-op when the user has no preferences or nothing matches.
+
+    # ponytail: a guest who explicitly disabled a guest-default type to exactly
+    # ``{"enabled": False}`` (e.g. via an unsubscribe link) is indistinguishable from the default
+    # and gets it cleared. Upgrade path: record the origin of each override.
+
+    Args:
+        user: The user just converted from guest to full account.
+    """
+    prefs = NotificationPreference.objects.filter(user=user).first()
+    if prefs is None:
+        return
+    guest_defaults = {str(k): v for k, v in _get_guest_notification_type_settings().items()}
+    current = prefs.notification_type_settings
+    kept = {k: v for k, v in current.items() if guest_defaults.get(str(k)) != v}
+    if len(kept) == len(current):
+        return
+    prefs.notification_type_settings = kept
+    prefs.save(update_fields=["notification_type_settings"])
+
+
 @receiver(post_save, sender=RevelUser)
 def create_notification_preferences(
     sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: object

@@ -399,6 +399,9 @@ def _apply_password_reset(user: RevelUser, token: str, new_password: str) -> Rev
         user.email_verified = True
         user.save(update_fields=["password", "credentials_changed_at", "guest", "email_verified"])
         logger.info("guest_user_converted_to_full_user", user_id=str(user.id), email=user.email)
+        from notifications.signals.user import clear_guest_notification_defaults
+
+        clear_guest_notification_defaults(user)
         referral_application_service.try_enroll_invitee(user)
     else:
         user.save(update_fields=["password", "credentials_changed_at"])
