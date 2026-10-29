@@ -15,6 +15,7 @@ from stripe.checkout import Session
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
+from common.postal_address import PostalAddress
 from common.service.exchange_rate_service import convert as convert_currency
 from common.service.stripe_config import configure_stripe
 from common.service.stripe_connect_service import (
@@ -59,6 +60,10 @@ from events.service.pending_checkout import (
     resume_pending_checkout as resume_pending_checkout,
 )
 from events.service.seating.pricing import TicketPrice
+from events.service.stripe_address_service import (
+    apply_postal_address,
+    postal_address_from_stripe,
+)
 from events.service.stripe_incidents import record_session_total_mismatch
 from events.service.vat_service import (
     calculate_platform_fee_vat,
@@ -137,6 +142,8 @@ def stripe_verify_account(organization: Organization) -> Organization:
             organization.billing_address = full_address
             update_fields.append("billing_address")
 
+    update_fields += apply_postal_address(organization, postal_address_from_stripe(account))
+
     if not organization.vat_country_code and account.get("country"):
         organization.vat_country_code = account["country"]
         update_fields.append("vat_country_code")
@@ -168,6 +175,12 @@ def _build_billing_snapshot(
         billing_address=billing_info.billing_address,
         billing_email=billing_info.billing_email,
         reverse_charge=reverse_charge,
+        billing_address_line1=billing_info.billing_address_line1,
+        billing_address_line2=billing_info.billing_address_line2,
+        billing_postal_code=billing_info.billing_postal_code,
+        billing_city=billing_info.billing_city,
+        billing_subdivision=billing_info.billing_subdivision,
+        billing_country_code=billing_info.billing_country_code,
     )
 
 
@@ -176,10 +189,14 @@ def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSch
     from accounts.models import UserBillingProfile
 
     profile, _ = UserBillingProfile.objects.get_or_create(user=user)
-    fields_to_update = ["billing_name", "billing_address", "billing_email"]
+    address = PostalAddress.from_fields(billing_info, "billing_").to_fields("billing_")
+    structured = {f: v for f, v in address.items() if f in billing_info.model_fields_set}  # sent fields only
+    fields_to_update = ["billing_name", "billing_address", "billing_email", *structured]
     profile.billing_name = billing_info.billing_name
     profile.billing_address = billing_info.billing_address
     profile.billing_email = billing_info.billing_email
+    for field, value in structured.items():
+        setattr(profile, field, value)
     if billing_info.vat_id:
         profile.vat_id = billing_info.vat_id
         profile.vat_country_code = billing_info.vat_country_code

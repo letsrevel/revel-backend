@@ -17,6 +17,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from common.constants import EU_MEMBER_STATES
+from common.postal_address import PostalAddress
 from common.service.invoice_utils import get_next_sequential_number, render_pdf
 from common.utils import apex_email_domain, is_reserved_mailbox
 from events.compliance import BuyerContext, Decision
@@ -33,6 +34,7 @@ from events.models.refund import Refund
 from events.models.skipped_fiscal_document import SkippedFiscalDocument
 from events.models.ticket import Payment
 from events.service import skipped_fiscal_document_service
+from events.utils.billing_address import snapshot_buyer_postal_address
 from notifications.service.org_sender import org_reply_to
 
 if t.TYPE_CHECKING:
@@ -46,8 +48,32 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def validate_invoicing_prerequisites(org: Organization) -> None:
+def einvoice_missing_fields(org: Organization) -> list[str]:
+    """Return the organization fields still missing for compliant e-invoicing.
+
+    Covers the structured address, then the legal name and a VIES-validated VAT ID.
+
+    Returns:
+        Organization field names (e.g. ``"billing_city"``), in a stable order; ``"vat_id"``
+        stands for "VAT ID not VIES-validated".
+    """
+    missing = [
+        f"billing_{PostalAddress.FIELD_SUFFIXES[name]}" for name in org.billing_postal_address().missing_fields()
+    ]
+    if not org.billing_name:
+        missing.append("billing_name")
+    if not org.vat_id_validated:
+        missing.append("vat_id")
+    return missing
+
+
+def validate_invoicing_prerequisites(org: Organization, *, require_structured_address: bool = True) -> None:
     """Validate that an organization meets all requirements for attendee invoicing.
+
+    Args:
+        org: The organization.
+        require_structured_address: Whether the structured billing address is required. Only turning
+            invoicing on needs it; an org that already invoices may keep a legacy text address.
 
     Raises:
         HttpError 422: If any prerequisite is not met.
@@ -63,8 +89,8 @@ def validate_invoicing_prerequisites(org: Organization) -> None:
     if not org.billing_name:
         missing.append(str(_("Billing name (legal entity name) is required")))
 
-    if not org.billing_address:
-        missing.append(str(_("Billing address is required")))
+    if require_structured_address and not org.billing_postal_address().is_complete:
+        missing.append(str(_("Billing address (street, postal code, city and country) is required")))
 
     if missing:
         raise HttpError(422, "; ".join(missing))
@@ -82,7 +108,9 @@ def set_invoicing_mode(org: Organization, mode: Organization.InvoicingMode) -> O
     """
     if mode != Organization.InvoicingMode.NONE:
         compliance.assert_attendee_invoicing_allowed(org)
-        validate_invoicing_prerequisites(org)
+        validate_invoicing_prerequisites(
+            org, require_structured_address=org.invoicing_mode == Organization.InvoicingMode.NONE
+        )
 
     org.invoicing_mode = mode
     org.save(update_fields=["invoicing_mode", "updated_at"])
@@ -289,12 +317,14 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             seller_vat_id=org.vat_id,
             seller_vat_country=org.vat_country_code.upper() if event.is_virtual else event.effective_vat_country,
             seller_address=org.billing_address,
+            **org.billing_postal_address().to_fields("seller_"),
             seller_email=org.billing_email or org.contact_email or "",
             # Buyer snapshot
             buyer_name=billing_snapshot.get("billing_name", ""),
             buyer_vat_id=billing_snapshot.get("vat_id", ""),
             buyer_vat_country=billing_snapshot.get("vat_country_code", ""),
             buyer_address=billing_snapshot.get("billing_address", ""),
+            **snapshot_buyer_postal_address(billing_snapshot).to_fields("buyer_"),
             buyer_email=billing_snapshot.get("billing_email", ""),
             issued_at=timezone.now() if initial_status == AttendeeInvoice.InvoiceStatus.ISSUED else None,
         )

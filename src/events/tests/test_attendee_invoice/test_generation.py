@@ -15,6 +15,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+from django.template.loader import render_to_string
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
@@ -88,7 +89,7 @@ class TestValidateInvoicingPrerequisites:
     def test_fails_when_billing_address_missing(self, organization: Organization) -> None:
         """Missing billing address should fail."""
         org = _make_org_invoicing_ready(organization)
-        org.billing_address = ""
+        org.billing_address_line1 = ""
         org.save()
         with pytest.raises(HttpError) as exc_info:
             validate_invoicing_prerequisites(org)
@@ -457,3 +458,159 @@ class TestIsExport:
     def test_eu_buyer_zero_vat_invoice_is_not_export(self) -> None:
         """A zero-VAT invoice for an EU buyer (e.g. 0% org rate) is not an export."""
         assert _is_export(self._invoice(buyer_vat_country="DE")) is False
+
+
+class TestStructuredAddressSnapshot:
+    """Structured seller and buyer addresses are snapshotted onto the invoice."""
+
+    @staticmethod
+    def _hybrid_org(organization: Organization) -> Organization:
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.HYBRID
+        org.save()
+        return org
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_invoice_snapshots_structured_addresses(
+        self,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Org and buyer structured addresses are copied into the invoice columns."""
+        org = self._hybrid_org(organization)
+        org.billing_address_line2 = "Stock 2"
+        org.billing_subdivision = "RM"
+        org.save()
+        snapshot = _default_billing_snapshot()
+        snapshot.update(
+            billing_address_line1="Berliner Str. 1",
+            billing_address_line2="Hinterhaus",
+            billing_postal_code="10115",
+            billing_city="Berlin",
+            billing_subdivision="BE",
+            billing_country_code="DE",
+        )
+        _create_payment(
+            user=member_user, event=event, tier=event_ticket_tier, session_id="cs_addr", buyer_billing_snapshot=snapshot
+        )
+        invoice = generate_attendee_invoice("cs_addr")
+        assert invoice is not None
+        assert (
+            invoice.seller_address_line1,
+            invoice.seller_address_line2,
+            invoice.seller_postal_code,
+            invoice.seller_city,
+            invoice.seller_subdivision,
+            invoice.seller_country_code,
+        ) == ("Via Roma 1", "Stock 2", "00100", "Roma", "RM", "IT")
+        assert (
+            invoice.buyer_address_line1,
+            invoice.buyer_address_line2,
+            invoice.buyer_postal_code,
+            invoice.buyer_city,
+            invoice.buyer_subdivision,
+            invoice.buyer_country_code,
+        ) == ("Berliner Str. 1", "Hinterhaus", "10115", "Berlin", "BE", "DE")
+        assert invoice.seller_postal_address.is_complete
+        assert invoice.buyer_postal_address.is_complete
+        assert invoice.seller_address_lines == ["Via Roma 1", "Stock 2", "00100 Roma", "RM", "IT"]
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_legacy_org_address_renders_as_before(
+        self,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """An org with only the legacy text address still renders both lines."""
+        org = self._hybrid_org(organization)
+        org.billing_address = "Musterstraße 42\nAT-1010 Wien"
+        org.billing_address_line1 = ""
+        org.billing_postal_code = ""
+        org.billing_city = ""
+        org.billing_country_code = ""
+        org.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_legacy",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+        )
+        invoice = generate_attendee_invoice("cs_legacy")
+        assert invoice is not None
+        assert invoice.seller_address_lines == ["Musterstraße 42", "AT-1010 Wien"]
+        html = render_to_string("invoices/attendee_invoice.html", {"invoice": invoice})
+        assert "Musterstraße 42" in html
+        assert "AT-1010 Wien" in html
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_legacy_org_address_with_only_country_keeps_legacy_text(
+        self,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """A country-only structured seller address must not shadow the legacy text address."""
+        org = self._hybrid_org(organization)
+        org.billing_address = "Musterstraße 42\nAT-1010 Wien"
+        org.billing_address_line1 = ""
+        org.billing_postal_code = ""
+        org.billing_city = ""
+        org.billing_country_code = "AT"
+        org.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_legacy_country",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+        )
+        invoice = generate_attendee_invoice("cs_legacy_country")
+        assert invoice is not None
+        assert invoice.seller_address_lines == ["Musterstraße 42", "AT-1010 Wien"]
+
+    def test_buyer_legacy_text_with_only_country_keeps_legacy_text(self) -> None:
+        """Old-FE B2B checkout: legacy buyer text plus only the VAT-fallback country renders the text."""
+        invoice = AttendeeInvoice(buyer_address="Kundenweg 7\n\n1010 Wien", buyer_country_code="AT")
+        assert invoice.buyer_address_lines == ["Kundenweg 7", "1010 Wien"]
+
+    def test_country_only_without_legacy_text_renders_country(self) -> None:
+        """With no legacy text, a country-only address still prints its country."""
+        invoice = AttendeeInvoice(buyer_address="", buyer_country_code="AT")
+        assert invoice.buyer_address_lines == ["AT"]
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_seller_country_is_establishment_not_place_of_supply(
+        self,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """A physical event in DE for an AT org: address country AT, VAT country DE."""
+        org = self._hybrid_org(organization)
+        org.billing_country_code = "AT"
+        org.vat_country_code = "AT"
+        org.save()
+        event.vat_country_code = "DE"
+        event.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_estab",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+        )
+        invoice = generate_attendee_invoice("cs_estab")
+        assert invoice is not None
+        assert invoice.seller_country_code == "AT"
+        assert invoice.seller_vat_country == "DE"

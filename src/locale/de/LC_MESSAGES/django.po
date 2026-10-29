@@ -2170,6 +2170,9 @@ msgstr "Der Rechnungsname (Name der juristischen Person) ist erforderlich"
 msgid "Billing address is required"
 msgstr "Die Rechnungsadresse ist erforderlich"
 
+msgid "Billing address (street, postal code, city and country) is required"
+msgstr "Die Rechnungsadresse (Straße, Postleitzahl, Ort und Land) ist erforderlich"
+
 msgid "Provide either seat_ids or price_category_id, not both."
 msgstr "Gib entweder seat_ids oder price_category_id an, nicht beides."
 

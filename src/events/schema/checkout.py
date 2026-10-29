@@ -1,10 +1,11 @@
 """Checkout payloads and responses for ticket purchases."""
 
+import typing as t
 from decimal import Decimal
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import EmailStr, Field, field_validator
+from pydantic import EmailStr, Field, StringConstraints, field_validator
 
 # --- Stripe Schemas ---
 # StripeOnboardingLinkSchema and StripeAccountStatusSchema live in common.schema
@@ -53,9 +54,15 @@ class BuyerBillingInfoSchema(Schema):
     vat_country_code: str = Field("", max_length=2)
     billing_address: str = ""
     billing_email: str = ""
+    billing_address_line1: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] = ""
+    billing_address_line2: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] = ""
+    billing_postal_code: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=20)] = ""
+    billing_city: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] = ""
+    billing_subdivision: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] = ""
+    billing_country_code: t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, max_length=2)] = ""
     save_to_profile: bool = False
 
-    @field_validator("vat_country_code")
+    @field_validator("vat_country_code", "billing_country_code")
     @classmethod
     def validate_vat_country_code(cls, v: str) -> str:
         """Validate ISO 3166-1 alpha-2 country code or allow empty."""

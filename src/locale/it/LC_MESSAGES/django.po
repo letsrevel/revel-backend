@@ -2137,6 +2137,9 @@ msgstr "Il nome di fatturazione (ragione sociale) è obbligatorio"
 msgid "Billing address is required"
 msgstr "L'indirizzo di fatturazione è obbligatorio"
 
+msgid "Billing address (street, postal code, city and country) is required"
+msgstr "L'indirizzo di fatturazione (via, CAP, città e paese) è obbligatorio"
+
 msgid "Provide either seat_ids or price_category_id, not both."
 msgstr "Fornisci seat_ids oppure price_category_id, non entrambi."
 

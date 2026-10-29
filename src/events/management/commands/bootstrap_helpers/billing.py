@@ -30,11 +30,11 @@ def configure_platform_billing() -> SiteSettings:
     logger.info("Configuring platform billing settings...")
 
     site = SiteSettings.get_solo()
-    site.platform_business_name = "Revel Technologies S.r.l."
-    site.platform_business_address = "Via della Conciliazione 44, 00193 Roma RM, Italy"
-    site.platform_vat_id = "IT12345678903"
-    site.platform_vat_country = "IT"
-    site.platform_vat_rate = Decimal("22.00")
+    site.platform_business_name = "Revel Platform Services e.U."
+    site.platform_business_address = "Stephansplatz 1, 1010 Wien, Austria"
+    site.platform_vat_id = "ATU00000000"
+    site.platform_vat_country = "AT"
+    site.platform_vat_rate = Decimal("20.00")
     site.platform_invoice_bcc_email = "accounting@letsrevel.io"
     site.save()
 
@@ -56,6 +56,10 @@ def configure_organization_billing(state: BootstrapState) -> None:
     org_alpha.vies_request_identifier = "WAPIAAAAXxx0TEST"
     org_alpha.billing_name = "Revel Events Collective GmbH"
     org_alpha.billing_address = "Musterstraße 42\nAT-1010 Wien"
+    org_alpha.billing_address_line1 = "Musterstraße 42"
+    org_alpha.billing_postal_code = "1010"
+    org_alpha.billing_city = "Wien"
+    org_alpha.billing_country_code = "AT"
     org_alpha.billing_email = "billing@revelcollective.example.com"
     org_alpha.save()
 
@@ -75,6 +79,10 @@ def configure_organization_billing(state: BootstrapState) -> None:
     org_beta.vies_request_identifier = "WAPIAAAAYdd3O5ab"
     org_beta.billing_name = "Tech Innovators Network e.V."
     org_beta.billing_address = "Friedrichstraße 123\n10117 Berlin, Germany"
+    org_beta.billing_address_line1 = "Friedrichstraße 123"
+    org_beta.billing_postal_code = "10117"
+    org_beta.billing_city = "Berlin"
+    org_beta.billing_country_code = "DE"
     org_beta.billing_email = "billing@techinnovators.example.com"
     org_beta.save()
 
@@ -174,7 +182,7 @@ def create_payments_and_invoice(state: BootstrapState) -> None:
     first_of_previous = last_of_previous.replace(day=1)
 
     # Find a ticketed event from org_alpha with an ONLINE paid EUR tier
-    # Prefer EUR since the platform is in Italy
+    # Prefer EUR since the platform is in Austria
     event = None
     tier = None
     for evt_key in ("seated_concert", "wellness_retreat", "summer_festival"):
@@ -296,6 +304,10 @@ def create_referral_payouts(state: BootstrapState) -> None:
         vat_id_validated_at=timezone.now() - timedelta(days=10),
         vies_request_identifier="WAPIAAAAZzz1TEST",
         billing_address="Leopoldstraße 27\n80802 München, Germany",
+        billing_address_line1="Leopoldstraße 27",
+        billing_postal_code="80802",
+        billing_city="München",
+        billing_country_code="DE",
         billing_email="invoice@mueller-consulting.example.com",
         self_billing_agreed=True,
     )
@@ -332,6 +344,10 @@ def create_referral_payouts(state: BootstrapState) -> None:
         vat_id="",
         vat_country_code="AT",
         billing_address="Mariahilfer Str. 88\n1070 Wien, Austria",
+        billing_address_line1="Mariahilfer Str. 88",
+        billing_postal_code="1070",
+        billing_city="Wien",
+        billing_country_code="AT",
         billing_email="sophie.berger@example.com",
         self_billing_agreed=True,
     )

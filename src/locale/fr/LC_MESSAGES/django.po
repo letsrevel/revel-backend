@@ -2165,6 +2165,9 @@ msgstr "Le nom de facturation (dénomination sociale) est requis"
 msgid "Billing address is required"
 msgstr "L'adresse de facturation est requise"
 
+msgid "Billing address (street, postal code, city and country) is required"
+msgstr "L'adresse de facturation (rue, code postal, ville et pays) est requise"
+
 msgid "Provide either seat_ids or price_category_id, not both."
 msgstr "Fournis soit seat_ids, soit price_category_id, pas les deux."
 
