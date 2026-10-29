@@ -87,6 +87,13 @@
         <span>{{ credit_note.amount_vat|format_currency:invoice.currency }}</span>
       </div>
       {% endif %}
+      {% if credit_note.rounding_amount %}
+      {# The credit note's own EN 16931 BT-114 (#1234), independent of the invoice's. #}
+      <div class="totals-row vat">
+        <span>Rounding</span>
+        <span>{{ credit_note.rounding_amount|format_currency:invoice.currency }}</span>
+      </div>
+      {% endif %}
       <div class="totals-row total">
         <span>Total Credited</span>
         <span>{{ credit_note.amount_gross|format_currency:invoice.currency }}</span>
