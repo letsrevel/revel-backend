@@ -8,7 +8,7 @@ which stays put so the render_pdf patch target every test uses is unchanged.
 """
 
 import typing as t
-from decimal import Decimal
+from decimal import Decimal, DivisionByZero, InvalidOperation
 
 import structlog
 from django.db import transaction
@@ -22,9 +22,11 @@ from events.models.attendee_invoice import (
     DerivedTotals,
     InvoiceLineItemDict,
     SubmittedLineItem,
+    TotalsMethod,
 )
 from events.service.attendee_invoice_service import _generate_and_save_pdf, invoice_compliance_decision
 from events.service.attendee_vat_service import out_of_scope_for
+from events.service.en16931_totals_service import compute_en16931_totals, sum_line_amounts
 from events.utils.vat_category import (
     EXEMPT_FALLBACK_TEXT,
     VatCategory,
@@ -130,28 +132,49 @@ def _recompute_vat_exemptions(
     return build_vat_exemptions((VatCategory(item["vat_category"]) for item in line_items), reasons)
 
 
-def _derive_totals(line_items: list[InvoiceLineItemDict]) -> DerivedTotals:
-    """Compute an invoice's header money columns from its line items.
+def _derive_totals(
+    line_items: list[InvoiceLineItemDict], method: str, reverse_charge: bool
+) -> tuple[list[InvoiceLineItemDict], DerivedTotals, Decimal]:
+    """Compute an invoice's header money columns from its line items, by the row's method.
 
-    Mirrors :func:`generate_attendee_invoice`, which sums the same per-payment
-    amounts :func:`_build_line_items` writes into each line -- so a recomputed header
-    is identical to a freshly generated one, no rounding or tolerance involved.
-    ``vat_rate`` inherits its lossy "first payment's rate" convention; consult
+    ``legacy`` sums the stored per-line amounts, exactly as generation did before #1234,
+    with no rounding: the lines come back unchanged and the rounding is zero.
+    ``en16931`` runs the lines through :func:`compute_en16931_totals`, which rewrites every
+    line's net and VAT from its gross and rate -- so on such a row only the submitted
+    gross, rate and description matter -- and books the unreachable cent as rounding.
+    ``vat_rate`` inherits its lossy "first payment's rate" convention either way; consult
     ``has_mixed_vat_rates`` before rendering it.
 
     Reads the four keys ``vat_breakdown`` reads, so a row malformed enough to break
     one breaks both. ``discount_amount`` -- the one key the breakdown never touches
     -- is read defensively: this runs in the issuance guard on rows nobody
     normalized, where a missing key would be a 500 on the document it must judge.
+
+    Returns:
+        The (possibly rebalanced) lines, the header totals, and ``rounding_amount``.
     """
     zero = Decimal("0.00")
-    return DerivedTotals(
-        total_gross=sum((Decimal(item["unit_price_gross"]) for item in line_items), zero),
-        total_net=sum((Decimal(item["net_amount"]) for item in line_items), zero),
-        total_vat=sum((Decimal(item["vat_amount"]) for item in line_items), zero),
-        discount_amount_total=sum((Decimal(item.get("discount_amount", "0.00")) for item in line_items), zero),
-        vat_rate=Decimal(line_items[0]["vat_rate"]) if line_items else zero,
+    discount_amount_total = sum((Decimal(item.get("discount_amount", "0.00")) for item in line_items), zero)
+    vat_rate = Decimal(line_items[0]["vat_rate"]) if line_items else zero
+    if method == TotalsMethod.EN16931:
+        totals = compute_en16931_totals(line_items, reverse_charge)
+        derived = DerivedTotals(
+            total_gross=totals.total_gross,
+            total_net=totals.total_net,
+            total_vat=totals.total_vat,
+            discount_amount_total=discount_amount_total,
+            vat_rate=vat_rate,
+        )
+        return totals.lines, derived, totals.rounding_amount
+    total_gross, total_net, total_vat = sum_line_amounts(line_items)
+    derived = DerivedTotals(
+        total_gross=total_gross,
+        total_net=total_net,
+        total_vat=total_vat,
+        discount_amount_total=discount_amount_total,
+        vat_rate=vat_rate,
     )
+    return line_items, derived, zero
 
 
 def _assert_totals_reconcile(invoice: AttendeeInvoice) -> None:
@@ -166,31 +189,44 @@ def _assert_totals_reconcile(invoice: AttendeeInvoice) -> None:
     ``line_items`` read-only -- so revisit this before relaxing that admin.
     Recovery is a PATCH of ``line_items``, which recomputes the header.
 
-    Only the three figures a buyer is billed on are checked: ``vat_rate`` is a lossy
+    Only the figures a buyer is billed on are checked: ``vat_rate`` is a lossy
     scalar guarded by ``has_mixed_vat_rates`` and ``discount_amount_total`` is
     informational, so refusing a correct invoice over either would be disproportionate.
+    An en16931 row is also held to its ``rounding_amount`` (BT-114) and to the invariant
+    ``total_net + total_vat + rounding_amount == total_gross``; a legacy row has no rounding.
 
     Raises:
-        HttpError 422: If any reconciled total differs from its line-item sum.
+        HttpError 422: If any reconciled total differs from what its line items derive.
     """
-    derived = _derive_totals(invoice.line_items)
+    message = _("Invoice totals do not reconcile with its line items: {details}")
+    try:
+        _lines, derived, rounding = _derive_totals(invoice.line_items, invoice.totals_method, invoice.reverse_charge)
+    except (InvalidOperation, DivisionByZero) as exc:
+        # Input validation bounds what the API accepts, not what a raw write stored: a rate of -100
+        # divides by zero and a 1E+30 gross cannot be quantized. Still a 422 on the row, not a 500.
+        raise HttpError(422, str(message).format(details=f"line_items ({type(exc).__name__})")) from exc
+    checks: list[tuple[str, Decimal, Decimal]] = [
+        ("total_gross", invoice.total_gross, derived["total_gross"]),
+        ("total_net", invoice.total_net, derived["total_net"]),
+        ("total_vat", invoice.total_vat, derived["total_vat"]),
+    ]
+    if invoice.totals_method == TotalsMethod.EN16931:
+        checks.append(("rounding_amount", invoice.rounding_amount, rounding))
+        checks.append(
+            (
+                "total_net + total_vat + rounding_amount",
+                invoice.total_net + invoice.total_vat + invoice.rounding_amount,
+                invoice.total_gross,
+            )
+        )
     mismatched = [
         # Symbolic, not prose: the message around it is translated, this is not.
         f"{name} ({actual} != {expected})"
-        for name, actual, expected in (
-            ("total_gross", invoice.total_gross, derived["total_gross"]),
-            ("total_net", invoice.total_net, derived["total_net"]),
-            ("total_vat", invoice.total_vat, derived["total_vat"]),
-        )
+        for name, actual, expected in checks
         if actual != expected
     ]
     if mismatched:
-        raise HttpError(
-            422,
-            str(_("Invoice totals do not reconcile with its line items: {details}")).format(
-                details="; ".join(mismatched)
-            ),
-        )
+        raise HttpError(422, str(message).format(details="; ".join(mismatched)))
 
 
 def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.Any]) -> dict[str, t.Any]:
@@ -211,6 +247,8 @@ def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.
     line_items = _normalize_line_items(submitted, reverse_charge, out_of_scope)
     if reverse_charge and any(Decimal(i["vat_rate"]) or Decimal(i["vat_amount"]) for i in line_items):
         raise HttpError(422, str(_("A reverse-charge invoice can't charge VAT. Set the VAT of every line to 0.")))
+    # An en16931 row's lines come back rebalanced (net/VAT from gross and rate); a legacy row's as submitted.
+    line_items, totals, rounding_amount = _derive_totals(line_items, invoice.totals_method, reverse_charge)
     derived: dict[str, t.Any] = {
         "line_items": line_items,
         "vat_exemptions": _recompute_vat_exemptions(invoice, line_items),
@@ -218,7 +256,8 @@ def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.
     if "line_items" in update_data:
         # Recomputed only on an edit that touches the lines: doing it unconditionally would
         # zero the totals of any row with empty line_items.
-        derived.update(_derive_totals(line_items))
+        derived.update(totals)
+        derived["rounding_amount"] = rounding_amount
     return derived
 
 

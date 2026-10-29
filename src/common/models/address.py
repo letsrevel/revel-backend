@@ -12,12 +12,12 @@ class BillingPostalAddressMixin(models.Model):
     without a billing address. Use :meth:`billing_postal_address` to get the value type.
     """
 
-    billing_address_line1 = models.CharField(max_length=255, blank=True, default="")
-    billing_address_line2 = models.CharField(max_length=255, blank=True, default="")
-    billing_postal_code = models.CharField(max_length=20, blank=True, default="")
-    billing_city = models.CharField(max_length=100, blank=True, default="")
-    billing_subdivision = models.CharField(max_length=100, blank=True, default="")
-    billing_country_code = models.CharField(max_length=2, blank=True, default="")
+    billing_address_line1 = models.CharField(max_length=255, blank=True, default="", db_default="")
+    billing_address_line2 = models.CharField(max_length=255, blank=True, default="", db_default="")
+    billing_postal_code = models.CharField(max_length=20, blank=True, default="", db_default="")
+    billing_city = models.CharField(max_length=100, blank=True, default="", db_default="")
+    billing_subdivision = models.CharField(max_length=100, blank=True, default="", db_default="")
+    billing_country_code = models.CharField(max_length=2, blank=True, default="", db_default="")
 
     class Meta:
         abstract = True

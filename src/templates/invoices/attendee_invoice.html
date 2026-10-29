@@ -118,6 +118,13 @@
         <span>{{ invoice.total_vat|format_currency:invoice.currency }}</span>
       </div>
       {% endif %}
+      {% if invoice.rounding_amount %}
+      {# EN 16931 BT-114 (#1234): the cent no 2-dp net reaches at this rate, so Subtotal + VAT + Rounding = Total. #}
+      <div class="totals-row vat">
+        <span>Rounding</span>
+        <span>{{ invoice.rounding_amount|format_currency:invoice.currency }}</span>
+      </div>
+      {% endif %}
       <div class="totals-row total">
         <span>Total</span>
         <span>{{ invoice.total_gross|format_currency:invoice.currency }}</span>

@@ -367,7 +367,7 @@ class TestGenerateAttendeeCreditNote:
         event_ticket_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """A refund-row-keyed credit note uses the refund's amount with pro-rata VAT."""
+        """A refund-row-keyed credit note uses the refund's amount, with VAT from that amount and the rate (#1234)."""
         org = _make_org_invoicing_ready(organization)
         org.invoicing_mode = Organization.InvoicingMode.AUTO
         org.save()
@@ -395,8 +395,10 @@ class TestGenerateAttendeeCreditNote:
         cn = generate_attendee_credit_note("cs_cn_refund_row", [payment.id], refund_ids=[row.id])
         assert cn is not None
         assert cn.amount_gross == Decimal("10.00")
-        assert cn.amount_vat == Decimal("1.67")
-        assert cn.amount_net == Decimal("8.33")
+        # EN 16931: 10.00 at the payment's 22% is 8.20 + 1.80, not a pro-rata share of a checkout VAT.
+        assert cn.amount_vat == Decimal("1.80")
+        assert cn.amount_net == Decimal("8.20")
+        assert cn.rounding_amount == Decimal("0.00")
         assert list(cn.refunds.all()) == [row]
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
@@ -527,8 +529,9 @@ class TestGenerateAttendeeCreditNote:
         cn = generate_attendee_credit_note("cs_cn_legacy", [payment.id])
         assert cn is not None
         assert cn.amount_gross == Decimal("40.00")
-        assert cn.amount_vat == Decimal("6.67")
-        assert cn.amount_net == Decimal("33.33")
+        # EN 16931 totals (#1234): 40.00 at the payment's 22% is 32.79 + 7.21.
+        assert cn.amount_vat == Decimal("7.21")
+        assert cn.amount_net == Decimal("32.79")
         assert list(cn.refunds.all()) == []
         invoice.refresh_from_db()
         assert invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED

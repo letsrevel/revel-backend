@@ -49,6 +49,8 @@ class AttendeeInvoiceAdmin(ModelAdmin, EmailDeliveryAdminMixin, OrganizationLink
         "total_gross",
         "total_net",
         "total_vat",
+        "rounding_amount",
+        "totals_method",
         "vat_rate",
         "currency",
         "reverse_charge",
@@ -99,7 +101,18 @@ class AttendeeInvoiceAdmin(ModelAdmin, EmailDeliveryAdminMixin, OrganizationLink
         ),
         (
             "Amounts",
-            {"fields": ["total_net", "total_vat", "vat_rate", "total_gross", "currency", "reverse_charge"]},
+            {
+                "fields": [
+                    "total_net",
+                    "total_vat",
+                    "rounding_amount",
+                    "total_gross",
+                    "totals_method",
+                    "vat_rate",
+                    "currency",
+                    "reverse_charge",
+                ]
+            },
         ),
         (
             "Discount",
@@ -210,6 +223,8 @@ class AttendeeInvoiceCreditNoteAdmin(ModelAdmin, EmailDeliveryAdminMixin):  # ty
         "amount_gross",
         "amount_net",
         "amount_vat",
+        "rounding_amount",
+        "totals_method",
         "line_items",
         "issued_at",
         "email_sent_at",

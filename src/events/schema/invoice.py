@@ -6,10 +6,10 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import AwareDatetime, ConfigDict, StringConstraints, field_validator
+from pydantic import AwareDatetime, ConfigDict, Field, StringConstraints, field_validator
 
 from common.schema import validate_country_code
-from events.models.attendee_invoice import AttendeeInvoiceStatus
+from events.models.attendee_invoice import AttendeeInvoiceStatus, TotalsMethod
 from events.models.invoice import PlatformFeeInvoice
 from events.models.organization import Organization
 from events.models.skipped_fiscal_document import (
@@ -77,6 +77,12 @@ class InvoicingModeUpdateSchema(Schema):
     mode: Organization.InvoicingMode
 
 
+# Bounded like the model columns (``DecimalField(10, 2)`` money, ``DecimalField(5, 2)`` rate, #1251 review):
+# a rate of -100 or a 1E+30 gross would otherwise reach the EN 16931 arithmetic and raise a decimal error.
+_Money = t.Annotated[Decimal, Field(ge=0, max_digits=10, decimal_places=2)]
+_VatRate = t.Annotated[Decimal, Field(ge=0, le=100, max_digits=5, decimal_places=2)]
+
+
 class InvoiceLineItemInputSchema(Schema):
     """A line item as submitted in a DRAFT edit.
 
@@ -85,11 +91,11 @@ class InvoiceLineItemInputSchema(Schema):
     """
 
     description: str
-    unit_price_gross: Decimal
-    discount_amount: Decimal = Decimal("0.00")
-    net_amount: Decimal
-    vat_amount: Decimal
-    vat_rate: Decimal
+    unit_price_gross: _Money
+    discount_amount: _Money = Decimal("0.00")
+    net_amount: _Money
+    vat_amount: _Money
+    vat_rate: _VatRate
 
 
 class InvoiceLineItemSchema(InvoiceLineItemInputSchema):
@@ -139,6 +145,9 @@ class AttendeeInvoiceSchema(Schema):
     line_items: list[InvoiceLineItemSchema]
     discount_code_text: str
     discount_amount_total: Decimal
+    # EN 16931 BT-114 and how the header was derived (#1234): legacy rows carry 0 / "legacy".
+    rounding_amount: Decimal
+    totals_method: TotalsMethod
     issued_at: AwareDatetime | None = None
     created_at: AwareDatetime
 
@@ -237,6 +246,8 @@ class AttendeeInvoiceCreditNoteSchema(Schema):
     amount_gross: Decimal
     amount_net: Decimal
     amount_vat: Decimal
+    rounding_amount: Decimal
+    totals_method: TotalsMethod
     issued_at: AwareDatetime | None = None
     created_at: AwareDatetime
 

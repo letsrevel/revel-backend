@@ -11,6 +11,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Value
 
 from common.fields import ProtectedFileField
 from common.models import EmailDeliverableMixin, TimeStampedModel
@@ -189,6 +190,20 @@ class AttendeeInvoiceStatus(models.TextChoices):
     CANCELLED = "cancelled"
 
 
+class TotalsMethod(models.TextChoices):
+    """How a document's header totals were derived from its lines (#1234).
+
+    ``LEGACY`` sums the per-ticket checkout figures; ``EN16931`` computes VAT per
+    ``(category, rate)`` group and books any unreachable cent as ``rounding_amount``
+    (BT-114). The column default keeps every pre-existing row legacy, byte for byte;
+    generation stamps new rows ``EN16931`` explicitly. Module-level under a
+    collision-free name for the same OpenAPI reason as :class:`AttendeeInvoiceStatus`.
+    """
+
+    LEGACY = "legacy", "Legacy"
+    EN16931 = "en16931", "EN 16931"
+
+
 class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     """Invoice issued to an attendee on behalf of an organizer.
 
@@ -240,6 +255,11 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     total_gross = models.DecimalField(max_digits=10, decimal_places=2)
     total_net = models.DecimalField(max_digits=10, decimal_places=2)
     total_vat = models.DecimalField(max_digits=10, decimal_places=2)
+    # EN 16931 BT-114: total_net + total_vat + rounding_amount == total_gross (#1234).
+    rounding_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, db_default=0)
+    totals_method = models.CharField(
+        max_length=10, choices=TotalsMethod.choices, default=TotalsMethod.LEGACY, db_default=TotalsMethod.LEGACY
+    )
     # A snapshot of the FIRST payment's rate, not an invoice-wide fact: a
     # multi-tier cart (#846) mixes rates and this column names only one of them.
     # Consult ``has_mixed_vat_rates`` before rendering it; ``vat_breakdown`` has
@@ -268,26 +288,26 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     line_items = models.JSONField(default=list, blank=True)
     # EN 16931 exemption texts keyed by VAT category ({"E": {"text", "code"}, ...}), derived from the
     # lines at generation and on DRAFT line edits. Empty on invoices issued before it existed.
-    vat_exemptions = models.JSONField(default=dict, blank=True)
+    vat_exemptions = models.JSONField(default=dict, blank=True, db_default=Value({}, output_field=models.JSONField()))
     # BT-72 / BG-14: event start date (and end date for multi-day events) in the event's timezone.
     supply_date = models.DateField(null=True, blank=True)
     supply_period_end = models.DateField(null=True, blank=True)
     # BT-81 / BT-82 / BG-18 snapshot from the Stripe charge at generation. Blank on legacy invoices.
-    payment_means_code = models.CharField(max_length=3, blank=True, default="")
-    payment_method_label = models.CharField(max_length=100, blank=True, default="")
-    card_last4 = models.CharField(max_length=4, blank=True, default="")
+    payment_means_code = models.CharField(max_length=3, blank=True, default="", db_default="")
+    payment_method_label = models.CharField(max_length=100, blank=True, default="", db_default="")
+    card_last4 = models.CharField(max_length=4, blank=True, default="", db_default="")
 
     # Seller snapshot (org at time of purchase — NOT editable)
     seller_name = models.CharField(max_length=255)
     seller_vat_id = models.CharField(max_length=20, blank=True, default="")
     seller_vat_country = models.CharField(max_length=2, blank=True, default="")
     seller_address = models.TextField(blank=True, default="")
-    seller_address_line1 = models.CharField(max_length=255, blank=True, default="")
-    seller_address_line2 = models.CharField(max_length=255, blank=True, default="")
-    seller_postal_code = models.CharField(max_length=20, blank=True, default="")
-    seller_city = models.CharField(max_length=100, blank=True, default="")
-    seller_subdivision = models.CharField(max_length=100, blank=True, default="")
-    seller_country_code = models.CharField(max_length=2, blank=True, default="")
+    seller_address_line1 = models.CharField(max_length=255, blank=True, default="", db_default="")
+    seller_address_line2 = models.CharField(max_length=255, blank=True, default="", db_default="")
+    seller_postal_code = models.CharField(max_length=20, blank=True, default="", db_default="")
+    seller_city = models.CharField(max_length=100, blank=True, default="", db_default="")
+    seller_subdivision = models.CharField(max_length=100, blank=True, default="", db_default="")
+    seller_country_code = models.CharField(max_length=2, blank=True, default="", db_default="")
     seller_email = models.EmailField(blank=True, default="")
 
     # Buyer snapshot (editable in DRAFT)
@@ -295,12 +315,12 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     buyer_vat_id = models.CharField(max_length=20, blank=True, default="")
     buyer_vat_country = models.CharField(max_length=2, blank=True, default="")
     buyer_address = models.TextField(blank=True, default="")
-    buyer_address_line1 = models.CharField(max_length=255, blank=True, default="")
-    buyer_address_line2 = models.CharField(max_length=255, blank=True, default="")
-    buyer_postal_code = models.CharField(max_length=20, blank=True, default="")
-    buyer_city = models.CharField(max_length=100, blank=True, default="")
-    buyer_subdivision = models.CharField(max_length=100, blank=True, default="")
-    buyer_country_code = models.CharField(max_length=2, blank=True, default="")
+    buyer_address_line1 = models.CharField(max_length=255, blank=True, default="", db_default="")
+    buyer_address_line2 = models.CharField(max_length=255, blank=True, default="", db_default="")
+    buyer_postal_code = models.CharField(max_length=20, blank=True, default="", db_default="")
+    buyer_city = models.CharField(max_length=100, blank=True, default="", db_default="")
+    buyer_subdivision = models.CharField(max_length=100, blank=True, default="", db_default="")
+    buyer_country_code = models.CharField(max_length=2, blank=True, default="", db_default="")
     buyer_email = models.EmailField(blank=True, default="")
 
     issued_at = models.DateTimeField(null=True, blank=True)
@@ -408,6 +428,11 @@ class AttendeeInvoiceCreditNote(EmailDeliverableMixin, TimeStampedModel):
     amount_gross = models.DecimalField(max_digits=10, decimal_places=2)
     amount_net = models.DecimalField(max_digits=10, decimal_places=2)
     amount_vat = models.DecimalField(max_digits=10, decimal_places=2)
+    # The credit note's own BT-114 and method, independent of the invoice's (#1234).
+    rounding_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, db_default=0)
+    totals_method = models.CharField(
+        max_length=10, choices=TotalsMethod.choices, default=TotalsMethod.LEGACY, db_default=TotalsMethod.LEGACY
+    )
 
     line_items = models.JSONField(default=list, blank=True)
     payments = models.ManyToManyField(
