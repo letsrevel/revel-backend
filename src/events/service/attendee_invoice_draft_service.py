@@ -8,7 +8,7 @@ which stays put so the render_pdf patch target every test uses is unchanged.
 """
 
 import typing as t
-from decimal import Decimal
+from decimal import Decimal, DivisionByZero, InvalidOperation
 
 import structlog
 from django.db import transaction
@@ -26,7 +26,7 @@ from events.models.attendee_invoice import (
 )
 from events.service.attendee_invoice_service import _generate_and_save_pdf, invoice_compliance_decision
 from events.service.attendee_vat_service import out_of_scope_for
-from events.service.en16931_totals_service import compute_en16931_totals
+from events.service.en16931_totals_service import compute_en16931_totals, sum_line_amounts
 from events.utils.vat_category import (
     EXEMPT_FALLBACK_TEXT,
     VatCategory,
@@ -166,10 +166,11 @@ def _derive_totals(
             vat_rate=vat_rate,
         )
         return totals.lines, derived, totals.rounding_amount
+    total_gross, total_net, total_vat = sum_line_amounts(line_items)
     derived = DerivedTotals(
-        total_gross=sum((Decimal(item["unit_price_gross"]) for item in line_items), zero),
-        total_net=sum((Decimal(item["net_amount"]) for item in line_items), zero),
-        total_vat=sum((Decimal(item["vat_amount"]) for item in line_items), zero),
+        total_gross=total_gross,
+        total_net=total_net,
+        total_vat=total_vat,
         discount_amount_total=discount_amount_total,
         vat_rate=vat_rate,
     )
@@ -197,7 +198,13 @@ def _assert_totals_reconcile(invoice: AttendeeInvoice) -> None:
     Raises:
         HttpError 422: If any reconciled total differs from what its line items derive.
     """
-    _lines, derived, rounding = _derive_totals(invoice.line_items, invoice.totals_method, invoice.reverse_charge)
+    message = _("Invoice totals do not reconcile with its line items: {details}")
+    try:
+        _lines, derived, rounding = _derive_totals(invoice.line_items, invoice.totals_method, invoice.reverse_charge)
+    except (InvalidOperation, DivisionByZero) as exc:
+        # Input validation bounds what the API accepts, not what a raw write stored: a rate of -100
+        # divides by zero and a 1E+30 gross cannot be quantized. Still a 422 on the row, not a 500.
+        raise HttpError(422, str(message).format(details=f"line_items ({type(exc).__name__})")) from exc
     checks: list[tuple[str, Decimal, Decimal]] = [
         ("total_gross", invoice.total_gross, derived["total_gross"]),
         ("total_net", invoice.total_net, derived["total_net"]),
@@ -219,12 +226,7 @@ def _assert_totals_reconcile(invoice: AttendeeInvoice) -> None:
         if actual != expected
     ]
     if mismatched:
-        raise HttpError(
-            422,
-            str(_("Invoice totals do not reconcile with its line items: {details}")).format(
-                details="; ".join(mismatched)
-            ),
-        )
+        raise HttpError(422, str(message).format(details="; ".join(mismatched)))
 
 
 def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.Any]) -> dict[str, t.Any]:

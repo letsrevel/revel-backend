@@ -121,9 +121,53 @@ class TestIssuanceGuard:
         invoice.refresh_from_db()
         assert invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT
 
+    def test_issue_turns_a_decimal_error_on_a_stored_row_into_422(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        """PR #1251 review: a raw-written rate of -100 divides by zero in the en16931 derivation; still a 422."""
+        invoice = _en16931_draft(organization, event, member_user)
+        AttendeeInvoice.objects.filter(pk=invoice.pk).update(
+            line_items=[{**invoice.line_items[0], "vat_rate": "-100", "vat_category": "S"}]
+        )
+        invoice.refresh_from_db()
+        with pytest.raises(HttpError) as exc_info:
+            issue_draft_invoice(invoice)
+        assert exc_info.value.status_code == 422
+        assert "do not reconcile" in str(exc_info.value)
+        assert "line_items" in str(exc_info.value)
+
     def test_legacy_guard_ignores_rounding(
         self, organization: Organization, event: Event, member_user: RevelUser
     ) -> None:
         """A legacy row is judged on its three sums only; its rounding column is not part of the method."""
         invoice = _create_draft(organization, event, member_user)
         assert issue_draft_invoice(invoice).status == AttendeeInvoice.InvoiceStatus.ISSUED
+
+
+class TestLineInputBounds:
+    """PR #1251 review: absurd line inputs are a 422 from the schema, never a 500 from the en16931 math."""
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [("vat_rate", "-100"), ("vat_rate", "101"), ("unit_price_gross", "1E+30"), ("unit_price_gross", "-10")],
+    )
+    def test_out_of_range_line_values_are_422(
+        self, organization: Organization, event: Event, member_user: RevelUser, field: str, value: str
+    ) -> None:
+        import orjson
+        from django.test.client import Client
+        from django.urls import reverse
+        from ninja_jwt.tokens import RefreshToken
+
+        invoice = _en16931_draft(organization, event, member_user)
+        refresh = RefreshToken.for_user(organization.owner)
+        client = Client(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token!s}")  # type: ignore[attr-defined]
+        url = reverse("api:update_attendee_invoice", kwargs={"slug": organization.slug, "invoice_id": str(invoice.id)})
+        line = {k: str(v) for k, v in _NONSENSE_LINE.items()} | {field: value}
+
+        response = client.patch(url, data=orjson.dumps({"line_items": [line]}), content_type="application/json")
+
+        assert response.status_code == 422, response.content
+        assert field in response.content.decode()
+        invoice.refresh_from_db()
+        assert invoice.total_gross == Decimal("100.00")
