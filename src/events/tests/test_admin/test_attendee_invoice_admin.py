@@ -7,10 +7,17 @@ guard the PDF totals row carries.
 import typing as t
 from decimal import Decimal
 
+import pytest
 from django.contrib.admin.sites import AdminSite
+from django.test import override_settings
+from django.test.client import Client
+from django.urls import reverse
+from django.utils import timezone
 
 from events.admin.attendee_invoice import AttendeeInvoiceAdmin
-from events.models.attendee_invoice import AttendeeInvoice, InvoiceLineItemDict
+from events.models import Event, Organization
+from events.models.attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote, InvoiceLineItemDict
+from events.tests.test_attendee_invoice._helpers import _create_issued
 
 
 def _line(rate: str) -> InvoiceLineItemDict:
@@ -68,3 +75,46 @@ class TestVatDisplay:
         )
 
         assert _admin().vat_display(invoice) == "RC"
+
+
+_PLAIN_STATIC = {
+    "STORAGES": {
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
+}
+
+
+@pytest.mark.django_db
+class TestEn16931ColumnsInTheChangeViews:
+    """PR #1251 review: ``rounding_amount`` and ``totals_method`` are shown, and never editable (#1234)."""
+
+    @staticmethod
+    def _assert_read_only(html: str) -> None:
+        assert "Rounding amount" in html
+        assert "Totals method" in html
+        assert 'name="rounding_amount"' not in html
+        assert 'name="totals_method"' not in html
+
+    @override_settings(**_PLAIN_STATIC)
+    def test_invoice_change_view(self, admin_client: Client, organization: Organization, event: Event) -> None:
+        invoice = _create_issued(organization, event, organization.owner)
+        response = admin_client.get(reverse("admin:events_attendeeinvoice_change", args=[invoice.pk]))
+        assert response.status_code == 200
+        self._assert_read_only(response.content.decode())
+
+    @override_settings(**_PLAIN_STATIC)
+    def test_credit_note_change_view(self, admin_client: Client, organization: Organization, event: Event) -> None:
+        invoice = _create_issued(organization, event, organization.owner)
+        credit_note = AttendeeInvoiceCreditNote.objects.create(
+            invoice=invoice,
+            credit_note_number="ADMIN-CN-000001",
+            amount_gross=Decimal("100.00"),
+            amount_net=Decimal("81.97"),
+            amount_vat=Decimal("18.03"),
+            line_items=invoice.line_items,
+            issued_at=timezone.now(),
+        )
+        response = admin_client.get(reverse("admin:events_attendeeinvoicecreditnote_change", args=[credit_note.pk]))
+        assert response.status_code == 200
+        self._assert_read_only(response.content.decode())
