@@ -7,8 +7,8 @@ Issue: [#1232](https://github.com/letsrevel/revel-backend/issues/1232)
 ## Status
 
 **No restriction. Revel issues eligible attendee invoices as ZUGFeRD / Factur-X EN 16931 documents, so
-German organizers meet the E-Rechnung duty for domestic B2B sales once the transition ends on
-1 January 2027.**
+German organizers invoicing through Revel (which today requires an EU VAT ID) meet the E-Rechnung
+duty for domestic B2B sales once the transition ends on 1 January 2027.**
 
 Since 1 January 2025, an invoice for a supply between two businesses established in Germany must be an
 *E-Rechnung*: a structured invoice conforming to EN 16931, such as XRechnung or ZUGFeRD from the EN 16931
@@ -56,9 +56,12 @@ Not covered:
   backfilled; they gain XML only when re-rendered. Conformance is checked in CI against the official
   CEN EN 16931 rules through euinvoice.
 - **Not covered:** Revel cannot know an organizer's turnover, so it does not gate anything on the
-  800,000 EUR threshold; every eligible document gets the XML. Organizers without an EU VAT ID
-  (*Kleinunternehmer*, [#1244](https://github.com/letsrevel/revel-backend/issues/1244)) get the plain
-  PDF, which §34a UStDV allows them.
+  800,000 EUR threshold; every eligible document gets the XML. Organizers without an EU VAT ID cannot
+  enable Revel invoicing today, because it requires a VIES-validated VAT ID. That covers *Kleinunternehmer*
+  (§19 UStG; §34a UStDV spares them the E-Rechnung) and also VAT-charging organizers who identify only by
+  their *Steuernummer* (§14 Abs. 4 UStG), who are not exempt. Supporting both, with the tax number as
+  BT-32, is tracked in [#1244](https://github.com/letsrevel/revel-backend/issues/1244). Until then this is
+  an open limitation.
 - The [common ticket content](index.md#common-ticket-content) applies.
 
 ## Legal basis
