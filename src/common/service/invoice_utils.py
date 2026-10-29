@@ -75,7 +75,7 @@ def get_next_sequential_number(
     return f"{full_prefix}{1:06d}"
 
 
-def render_pdf(template_name: str, context: dict[str, t.Any]) -> bytes:
+def render_pdf(template_name: str, context: dict[str, t.Any], *, pdf_a3: bool = False) -> bytes:
     """Render a Django template as a PDF via WeasyPrint.
 
     Automatically injects ``font_dir`` and ``brand_logo`` into the context so
@@ -85,6 +85,7 @@ def render_pdf(template_name: str, context: dict[str, t.Any]) -> bytes:
     Args:
         template_name: Path to the Django template (e.g. ``"invoices/foo.html"``).
         context: Template context dict.
+        pdf_a3: Write a PDF/A-3b document, the container Factur-X / ZUGFeRD needs (#1235).
 
     Returns:
         The rendered PDF as bytes.
@@ -96,5 +97,6 @@ def render_pdf(template_name: str, context: dict[str, t.Any]) -> bytes:
     brand_context.update(context)
     html_content = render_to_string(template_name, brand_context)
     pdf_buffer = BytesIO()
-    HTML(string=html_content).write_pdf(pdf_buffer)
+    options: dict[str, t.Any] = {"pdf_variant": "pdf/a-3b"} if pdf_a3 else {}
+    HTML(string=html_content).write_pdf(pdf_buffer, **options)
     return pdf_buffer.getvalue()
