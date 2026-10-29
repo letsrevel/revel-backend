@@ -139,6 +139,9 @@ class AttendeeInvoiceSchema(Schema):
     line_items: list[InvoiceLineItemSchema]
     discount_code_text: str
     discount_amount_total: Decimal
+    # EN 16931 BT-114 and how the header was derived (#1234): legacy rows carry 0 / "legacy".
+    rounding_amount: Decimal
+    totals_method: TotalsMethod
     issued_at: AwareDatetime | None = None
     created_at: AwareDatetime
 
@@ -147,9 +150,6 @@ class AttendeeInvoiceDetailSchema(AttendeeInvoiceSchema):
     """Extended schema with full seller/buyer info for org admin views."""
 
     vat_exemptions: dict[VatCategory, VatExemptionSchema]
-    # EN 16931 BT-114 and how the header was derived (#1234): legacy rows carry 0 / "legacy".
-    rounding_amount: Decimal
-    totals_method: TotalsMethod
     supply_date: datetime.date | None = None
     supply_period_end: datetime.date | None = None
     payment_means_code: str

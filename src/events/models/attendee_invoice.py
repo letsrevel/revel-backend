@@ -199,8 +199,8 @@ class TotalsMethod(models.TextChoices):
     collision-free name for the same OpenAPI reason as :class:`AttendeeInvoiceStatus`.
     """
 
-    LEGACY = "legacy"
-    EN16931 = "en16931"
+    LEGACY = "legacy", "Legacy"
+    EN16931 = "en16931", "EN 16931"
 
 
 class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):

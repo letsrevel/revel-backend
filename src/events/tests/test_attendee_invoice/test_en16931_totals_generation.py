@@ -113,6 +113,24 @@ class TestGeneration:
         assert data["totals_method"] == "en16931"
         assert Decimal(data["rounding_amount"]) == Decimal("-0.01")
 
+    def test_buyer_and_list_api_expose_rounding(
+        self, auto_org: Organization, event: Event, event_ticket_tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        """Review fix 4: the base invoice schema carries BT-114, so the buyer and list payloads have it too."""
+        _sale(member_user, event, event_ticket_tier, "cs_en_5", "24.90", "13.00")
+        assert generate_attendee_invoice("cs_en_5") is not None
+        for user, url in (
+            (member_user, reverse("api:dashboard_invoices")),
+            (auto_org.owner, reverse("api:list_attendee_invoices", kwargs={"slug": auto_org.slug})),
+        ):
+            refresh = RefreshToken.for_user(user)
+            client = Client(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token!s}")  # type: ignore[attr-defined]
+            response = client.get(url)
+            assert response.status_code == 200
+            payload = response.json()["results"][0]
+            assert Decimal(payload["rounding_amount"]) == Decimal("-0.01")
+            assert payload["totals_method"] == "en16931"
+
     def test_vat_breakdown_matches_groups(
         self, auto_org: Organization, event: Event, event_ticket_tier: TicketTier, member_user: RevelUser
     ) -> None:
