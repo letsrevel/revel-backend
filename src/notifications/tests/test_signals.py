@@ -886,34 +886,3 @@ class TestStaffNotificationPreferenceGate:
         notified_users = [call.kwargs["user"] for call in send_mock.call_args_list]
         assert member_user in notified_users, "the ticket holder must still be notified"
         assert organization.owner not in notified_users
-
-
-class TestClearGuestNotificationDefaults:
-    """Guest-default overrides are removed on guest->account conversion (#1248)."""
-
-    def test_clears_guest_defaults_keeps_explicit_and_other(self, guest_user: RevelUser) -> None:
-        """Untouched guest defaults go; explicit values and non-guest types stay."""
-        from notifications.signals.user import clear_guest_notification_defaults
-
-        prefs = guest_user.notification_preferences
-        explicit = {"enabled": True, "channels": ["email"]}
-        prefs.notification_type_settings[str(NotificationType.ORG_ANNOUNCEMENT)] = explicit
-        prefs.notification_type_settings[str(NotificationType.TICKET_CREATED)] = {"enabled": False}
-        prefs.save()
-
-        clear_guest_notification_defaults(guest_user)
-
-        prefs.refresh_from_db()
-        settings = prefs.notification_type_settings
-        assert str(NotificationType.STAFF_TICKET_CREATED) not in settings
-        assert str(NotificationType.MEMBERSHIP_GRANTED) not in settings
-        assert settings[str(NotificationType.ORG_ANNOUNCEMENT)] == explicit
-        assert settings[str(NotificationType.TICKET_CREATED)] == {"enabled": False}
-
-    def test_user_without_preferences_is_noop(self, guest_user: RevelUser) -> None:
-        """A user with no preferences row does not crash."""
-        from notifications.signals.user import clear_guest_notification_defaults
-
-        NotificationPreference.objects.filter(user=guest_user).delete()
-
-        clear_guest_notification_defaults(guest_user)

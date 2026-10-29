@@ -433,8 +433,8 @@ class TestSystemAnnouncementGuestPreferences:
 
     def test_system_announcement_not_in_guest_disabled_types(self) -> None:
         """SYSTEM_ANNOUNCEMENT should not be in the guest disabled types list."""
-        from notifications.signals.user import _get_guest_notification_type_settings
+        from notifications.service.preferences import get_guest_notification_type_settings
 
-        disabled_settings = _get_guest_notification_type_settings()
+        disabled_settings = get_guest_notification_type_settings()
 
         assert NotificationType.SYSTEM_ANNOUNCEMENT not in disabled_settings

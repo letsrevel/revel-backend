@@ -9,7 +9,7 @@ from django.apps import apps
 from accounts.models import RevelUser
 from notifications.enums import DeliveryChannel, NotificationType
 from notifications.models import NotificationPreference, get_default_notification_type_settings
-from notifications.signals.user import _get_guest_notification_type_settings
+from notifications.service.preferences import get_guest_notification_type_settings
 
 pytestmark = pytest.mark.django_db
 
@@ -43,7 +43,7 @@ def test_frozen_defaults_match_current_defaults() -> None:
     # Staff alert types (#1127) postdate the frozen snapshot.
     # STAFF_PAYMENT_DISPUTED (#1245) postdates it too.
     staff_types = {str(v) for v in STAFF_TYPE_FOR.values()} | {"staff_payment_disputed"}
-    current_guest = {str(k): v for k, v in _get_guest_notification_type_settings().items() if str(k) not in staff_types}
+    current_guest = {str(k): v for k, v in get_guest_notification_type_settings().items() if str(k) not in staff_types}
     assert migration.GUEST_DEFAULTS == current_guest
 
 
@@ -74,7 +74,7 @@ def test_guest_pin_restored_to_guest_defaults(guest_user: RevelUser) -> None:
 
     _run()
 
-    assert _settings(guest_user) == {str(k): v for k, v in _get_guest_notification_type_settings().items()}
+    assert _settings(guest_user) == {str(k): v for k, v in get_guest_notification_type_settings().items()}
 
 
 def test_empty_channel_pin_restored(regular_user: RevelUser) -> None:
