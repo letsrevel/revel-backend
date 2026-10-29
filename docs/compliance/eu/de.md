@@ -6,8 +6,9 @@ Issue: [#1232](https://github.com/letsrevel/revel-backend/issues/1232)
 
 ## Status
 
-**No restriction yet. The transition for issuing domestic B2B E-Rechnungen ends on 1 January 2027 for
-larger issuers, and Revel does not handle it yet.**
+**No restriction. Revel issues eligible attendee invoices as ZUGFeRD / Factur-X EN 16931 documents, so
+German organizers meet the E-Rechnung duty for domestic B2B sales once the transition ends on
+1 January 2027.**
 
 Since 1 January 2025, an invoice for a supply between two businesses established in Germany must be an
 *E-Rechnung*: a structured invoice conforming to EN 16931, such as XRechnung or ZUGFeRD from the EN 16931
@@ -34,15 +35,27 @@ Not covered:
 
 ## What Revel does
 
-- No country-specific restriction today: attendee invoicing and online/offline payments are allowed.
-- **Gap from 1 January 2027:** when a German organizer has attendee invoicing enabled and a buyer
-  with a German VAT ID places an order above 250 EUR gross, Revel issues a plain PDF on the
-  organizer's behalf. For organizers above the turnover threshold, that PDF is no longer a valid
-  invoice. Revel cannot know an organizer's turnover. Two options are tracked in
-  [#1232](https://github.com/letsrevel/revel-backend/issues/1232): issue ZUGFeRD (Factur-X EN 16931)
-  invoices via euinvoice ([#1234](https://github.com/letsrevel/revel-backend/issues/1234),
-  [#1235](https://github.com/letsrevel/revel-backend/issues/1235)), or, as a fallback, gate those
-  invoices as `SkippedFiscalDocument`, as for Belgium.
+- No country-specific restriction: attendee invoicing and online/offline payments are allowed.
+- **ZUGFeRD / Factur-X EN 16931 attendee invoices**
+  ([#1235](https://github.com/letsrevel/revel-backend/issues/1235)). An eligible issued attendee
+  invoice or credit note is stored as a PDF/A-3 with the EN 16931 CII XML embedded (Factur-X
+  conformance level `EN 16931`, ZUGFeRD "COMFORT"), which the BMF accepts as an E-Rechnung; the XML
+  prevails over the visual PDF. The document is eligible when all of the following hold:
+  - it is issued (drafts carry a watermark and never get XML) with EN 16931 totals
+    ([#1234](https://github.com/letsrevel/revel-backend/issues/1234));
+  - the seller snapshot has a VAT ID (BT-31) and a country (BT-40), and the buyer a country (BT-55);
+  - every line has a VAT category, and a reverse-charge line (AE) comes with a buyer VAT ID (BR-AE-02);
+  - a credit note additionally has EN 16931 totals of its own.
+  The XML is written only when euinvoice's totals agree with the printed ones and its pre-flight
+  passes; otherwise, and for every legacy, draft or otherwise ineligible document, the plain PDF of
+  before is issued. Issuing and sending are never blocked by e-invoicing. A global switch
+  (`SiteSettings.einvoice_facturx_enabled`) turns the embedding off. Already-issued documents are not
+  backfilled; they gain XML only when re-rendered. Conformance is checked in CI against the official
+  CEN EN 16931 rules through euinvoice.
+- **Not covered:** Revel cannot know an organizer's turnover, so it does not gate anything on the
+  800,000 EUR threshold; every eligible document gets the XML. Organizers without an EU VAT ID
+  (*Kleinunternehmer*, [#1244](https://github.com/letsrevel/revel-backend/issues/1244)) get the plain
+  PDF, which §34a UStDV allows them.
 - The [common ticket content](index.md#common-ticket-content) applies.
 
 ## Legal basis
@@ -71,6 +84,8 @@ Not covered:
 - **KassenSichV**: the technical security device (TSE) requirement covers electronic recording systems
   with cash functions only; online shops are out of scope. Source: AEAO zu §146a AO.
 - Summary and further sources: [euinvoice country notes](https://letsrevel.github.io/euinvoice/countries/#germany)
+- What the Factur-X EN 16931 profile validates against, and the Factur-X Schematron still to be
+  pinned: [euinvoice compliance](https://letsrevel.github.io/euinvoice/compliance/)
 
 ## Open questions
 
@@ -88,8 +103,10 @@ Not covered:
 
 ## Later layers
 
-- ZUGFeRD attendee invoices via euinvoice ([#1235](https://github.com/letsrevel/revel-backend/issues/1235)),
-  on the EN 16931 data foundations ([#1234](https://github.com/letsrevel/revel-backend/issues/1234)).
-- Fallback gate if that misses 1 January 2027 ([#1232](https://github.com/letsrevel/revel-backend/issues/1232)).
+- ZUGFeRD attendee invoices via euinvoice are in place
+  ([#1235](https://github.com/letsrevel/revel-backend/issues/1235), on the EN 16931 data foundations
+  of [#1234](https://github.com/letsrevel/revel-backend/issues/1234)). The fallback gate of
+  [#1232](https://github.com/letsrevel/revel-backend/issues/1232) is not needed unless the duty widens.
+- The Factur-X 1.0 Schematron on top of the CEN rules, once euinvoice pins it.
 
 See [#1232](https://github.com/letsrevel/revel-backend/issues/1232).
