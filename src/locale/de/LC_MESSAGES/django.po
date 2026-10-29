@@ -7025,3 +7025,69 @@ msgstr ""
 
 msgid "Disputes"
 msgstr "Streitigkeiten"
+
+msgid "Bank cannot process"
+msgstr "Bank kann nicht verarbeiten"
+
+msgid "Check returned"
+msgstr "Scheck zurückgegeben"
+
+msgid "Credit not processed"
+msgstr "Gutschrift nicht verarbeitet"
+
+msgid "Customer initiated"
+msgstr "Vom Kunden veranlasst"
+
+msgid "Debit not authorized"
+msgstr "Lastschrift nicht autorisiert"
+
+msgid "Duplicate"
+msgstr "Duplikat"
+
+msgid "Fraudulent"
+msgstr "Betrügerisch"
+
+msgid "General"
+msgstr "Allgemein"
+
+msgid "Incorrect account details"
+msgstr "Falsche Kontodaten"
+
+msgid "Insufficient funds"
+msgstr "Unzureichende Deckung"
+
+msgid "Lost"
+msgstr "Verloren"
+
+msgid "Needs response"
+msgstr "Antwort erforderlich"
+
+msgid "Prevented"
+msgstr "Verhindert"
+
+msgid "Product not received"
+msgstr "Produkt nicht erhalten"
+
+msgid "Product unacceptable"
+msgstr "Produkt nicht akzeptabel"
+
+msgid "Subscription canceled"
+msgstr "Abonnement gekündigt"
+
+msgid "Under review"
+msgstr "In Prüfung"
+
+msgid "Unrecognized"
+msgstr "Nicht erkannt"
+
+msgid "Warning: closed"
+msgstr "Warnung: geschlossen"
+
+msgid "Warning: needs response"
+msgstr "Warnung: Antwort erforderlich"
+
+msgid "Warning: under review"
+msgstr "Warnung: in Prüfung"
+
+msgid "Won"
+msgstr "Gewonnen"

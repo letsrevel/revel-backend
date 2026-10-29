@@ -6876,3 +6876,69 @@ msgstr ""
 
 msgid "Disputes"
 msgstr "Disputas"
+
+msgid "Bank cannot process"
+msgstr "O banco não pode processar"
+
+msgid "Check returned"
+msgstr "Cheque devolvido"
+
+msgid "Credit not processed"
+msgstr "Crédito não processado"
+
+msgid "Customer initiated"
+msgstr "Iniciado pelo cliente"
+
+msgid "Debit not authorized"
+msgstr "Débito não autorizado"
+
+msgid "Duplicate"
+msgstr "Duplicado"
+
+msgid "Fraudulent"
+msgstr "Fraudulento"
+
+msgid "General"
+msgstr "Geral"
+
+msgid "Incorrect account details"
+msgstr "Dados da conta incorretos"
+
+msgid "Insufficient funds"
+msgstr "Fundos insuficientes"
+
+msgid "Lost"
+msgstr "Perdida"
+
+msgid "Needs response"
+msgstr "Resposta necessária"
+
+msgid "Prevented"
+msgstr "Evitada"
+
+msgid "Product not received"
+msgstr "Produto não recebido"
+
+msgid "Product unacceptable"
+msgstr "Produto inaceitável"
+
+msgid "Subscription canceled"
+msgstr "Subscrição cancelada"
+
+msgid "Under review"
+msgstr "Em análise"
+
+msgid "Unrecognized"
+msgstr "Não reconhecido"
+
+msgid "Warning: closed"
+msgstr "Aviso: encerrado"
+
+msgid "Warning: needs response"
+msgstr "Aviso: resposta necessária"
+
+msgid "Warning: under review"
+msgstr "Aviso: em análise"
+
+msgid "Won"
+msgstr "Ganha"
