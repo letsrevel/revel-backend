@@ -1,12 +1,14 @@
 """Generated Factur-X invoices validate against the official CEN EN 16931 rules (#1235).
 
-Needs the pinned validation artifacts (``python -m euinvoice artifacts fetch``); skipped without them.
+Needs the pinned validation artifacts (``python -m euinvoice artifacts fetch``); skipped without them
+unless ``EINVOICE_CONFORMANCE_REQUIRED=1`` (set by the CI job), which fails instead.
 Validated under ``profiles.FACTURX_EN16931`` so the euinvoice 0.3 bump adds the Factur-X Schematron
 without a code change here. The documents are built with the same arithmetic generation uses
 (:mod:`events.tests.test_einvoice._fixtures`) and rendered through the real PDF path.
 """
 
 import datetime
+import os
 import typing as t
 from collections.abc import Callable
 
@@ -90,6 +92,8 @@ def test_generated_document_is_en16931_conformant(
     try:
         report = validate(extracted.xml, profiles.FACTURX_EN16931)
     except ArtifactsNotAvailableError as exc:
+        if os.environ.get("EINVOICE_CONFORMANCE_REQUIRED") == "1":  # the CI conformance job must never skip
+            pytest.fail(f"euinvoice validation artifacts missing in a job that requires them ({exc})")
         pytest.skip(f"euinvoice validation artifacts missing; run `python -m euinvoice artifacts fetch` ({exc})")
     failed = [
         f"{f.rule_id} ({f.severity}) at {f.location}: {f.message}"

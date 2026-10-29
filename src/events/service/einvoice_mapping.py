@@ -9,8 +9,8 @@ exactly and euinvoice derives the VAT breakdown from the same figures we printed
 import datetime
 import typing as t
 from decimal import Decimal
-from zoneinfo import ZoneInfo
 
+from django.utils import timezone
 from euinvoice import profiles
 from euinvoice.calc import ExemptionReason
 from euinvoice.model import (
@@ -41,7 +41,6 @@ from events.models.attendee_invoice import (
     TotalsMethod,
 )
 from events.service.payment_means_service import CARD_CODE
-from events.utils import get_event_timezone
 from events.utils.vat_category import VatCategory, build_vat_exemptions
 
 INVOICE_TYPE_CODE: t.Final = "380"
@@ -74,6 +73,9 @@ def _lines_reason(lines: list[InvoiceLineItemDict], buyer_vat_id: str) -> str | 
         return "line_without_category"
     if not buyer_vat_id and any(item.get("vat_category") == VatCategory.REVERSE_CHARGE for item in lines):
         return "reverse_charge_without_buyer_vat_id"  # BR-AE-02
+    categories = {item["vat_category"] for item in lines}
+    if VatCategory.OUT_OF_SCOPE in categories and len(categories) > 1:
+        return "out_of_scope_mixed"  # BR-O-11..14: category O stands alone in the invoice
     return None
 
 
@@ -81,13 +83,12 @@ def ineligibility_reason(invoice: AttendeeInvoice) -> str | None:
     """Return why ``invoice`` gets no EN 16931 XML, or ``None`` when it is eligible.
 
     Drafts (watermarked) and legacy rows never carry XML; the rest needs the seller VAT ID
-    (BT-31), both countries (BT-40, BT-55), a category on every line, and a buyer VAT ID when
-    any line is reverse-charged.
+    (BT-31), both countries (BT-40, BT-55), a category on every line, a buyer VAT ID when
+    any line is reverse-charged, and no out-of-scope line next to another category. A CANCELLED invoice
+    (a full credit note cancelled it) stays eligible so a re-render matches the original.
     """
     if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
         return "draft"
-    if invoice.status != AttendeeInvoice.InvoiceStatus.ISSUED:
-        return "cancelled"
     if not invoice.issued_at:
         return "missing_issued_at"
     return _snapshot_reason(invoice) or _lines_reason(invoice.line_items, invoice.buyer_vat_id)
@@ -118,10 +119,9 @@ def _opt(value: str) -> str | None:
     return value or None
 
 
-def _issue_date(issued_at: datetime.datetime, invoice: AttendeeInvoice) -> datetime.date:
-    """BT-2: the issue instant as a calendar date in the event's timezone (UTC without an event)."""
-    tz = get_event_timezone(invoice.event) if invoice.event else ZoneInfo("UTC")
-    return issued_at.astimezone(tz).date()
+def _issue_date(issued_at: datetime.datetime) -> datetime.date:
+    """BT-2 / BT-26: the calendar date the PDF templates print (``issued_at|date``, the active timezone)."""
+    return timezone.localdate(issued_at)
 
 
 def line_rate(item: InvoiceLineItemDict) -> Decimal | None:
@@ -218,7 +218,7 @@ def _draft(
     vat_ids = not _not_subject_to_vat(lines)
     return InvoiceDraft(
         number=number,
-        issue_date=_issue_date(issued_at, invoice),
+        issue_date=_issue_date(issued_at),
         type_code=type_code,
         currency_code=invoice.currency,
         process_control=ProcessControl(specification_identifier=profiles.FACTURX_EN16931.specification_identifier),
@@ -255,9 +255,7 @@ def credit_note_draft_for(credit_note: AttendeeInvoiceCreditNote) -> InvoiceDraf
     """
     invoice = credit_note.invoice
     assert invoice.issued_at is not None and credit_note.issued_at is not None  # eligibility
-    reference = PrecedingInvoiceReference(
-        reference=invoice.invoice_number, issue_date=_issue_date(invoice.issued_at, invoice)
-    )
+    reference = PrecedingInvoiceReference(reference=invoice.invoice_number, issue_date=_issue_date(invoice.issued_at))
     return _draft(
         invoice,
         number=credit_note.credit_note_number,

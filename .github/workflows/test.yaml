@@ -112,6 +112,7 @@ jobs:
             --cov=src \
             --cov-report= \
             --cov-branch \
+            -m "not integration and not einvoice_conformance" \
             src
 
       - name: Upload coverage data
@@ -137,10 +138,7 @@ jobs:
       - name: Setup backend environment
         uses: ./.github/actions/setup-backend
 
-      # `euinvoice[validate]` (saxonche) lives in the dev group: Schematron runs only here, never in prod.
-      - name: Install the validation extra
-        run: uv sync --locked --group dev
-
+      # `euinvoice[validate]` (saxonche) lives in the dev group, which setup-backend's `uv sync` installs.
       - name: Read the pinned euinvoice version
         id: euinvoice
         run: |
@@ -162,6 +160,8 @@ jobs:
         run: docker compose -f docker-compose-ci.yml up -d
 
       - name: Validate generated Factur-X documents against the CEN rules
+        env:
+          EINVOICE_CONFORMANCE_REQUIRED: "1"  # a missing artifact fails the job instead of skipping
         run: uv run pytest -m einvoice_conformance src/events/tests/test_einvoice/test_conformance.py
 
       - name: Teardown docker

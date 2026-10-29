@@ -13,6 +13,7 @@ from decimal import Decimal
 
 import structlog
 from euinvoice import calc, facturx, profiles, to_xml
+from euinvoice.errors import PreflightError
 from euinvoice.model import Invoice
 
 from common.models import SiteSettings
@@ -118,7 +119,9 @@ def facturx_pdf_for(document: Document, render: Callable[[bool], bytes]) -> byte
         # #1235. euinvoice raises PreflightError, ModelError, PdfError and, on hostile input, whatever
         # pypdf raises; the PDF/A-3 render itself can fail too. Each one means the plain PDF, logged
         # with ids only so the bug can be chased without exposing the document.
+        # Rule ids (never ``str(exc)``, which can echo document values) are what lets a PreflightError be chased.
+        extra = {"rule_ids": [f.rule_id for f in exc.findings]} if isinstance(exc, PreflightError) else {}
         logger.warning(
-            "einvoice_skipped", document_id=str(document.pk), kind=kind, reason=f"error:{type(exc).__name__}"
+            "einvoice_skipped", document_id=str(document.pk), kind=kind, reason=f"error:{type(exc).__name__}", **extra
         )
     return render(False)

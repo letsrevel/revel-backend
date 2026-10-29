@@ -16,7 +16,12 @@ from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import Event, Organization
 from events.models.attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote, TotalsMethod
-from events.service.attendee_invoice_service import _generate_and_save_pdf, _generate_credit_note_pdf
+from events.service.attendee_invoice_service import (
+    _generate_and_save_pdf,
+    _generate_credit_note_pdf,
+    deliver_attendee_invoice,
+    deliver_credit_note,
+)
 from events.service.einvoice_service import facturx_pdf_for
 from events.tests.test_einvoice._fixtures import line, make_credit_note, make_invoice
 
@@ -144,12 +149,71 @@ class TestPlainFallback:
         _is_plain(_saved(invoice))
         assert logs[0]["reason"] == "error:PreflightError"
         assert logs[0]["log_level"] == "warning"
+        assert logs[0]["rule_ids"] == ["BR-X"]
+        assert "boom" not in str(logs)
 
     def test_embed_error_falls_back(self, invoice: AttendeeInvoice) -> None:
-        with patch("events.service.einvoice_service.facturx.embed", side_effect=RuntimeError("boom")):
+        with (
+            patch("events.service.einvoice_service.facturx.embed", side_effect=RuntimeError("boom")),
+            capture_logs() as logs,
+        ):
             render = _SpyRender(a3_pdf=b"%PDF-a3")
             assert facturx_pdf_for(invoice, render) == PLAIN
         assert render.calls == [True, False]
+        (entry,) = logs
+        assert entry["event"] == "einvoice_skipped"
+        assert entry["reason"] == "error:RuntimeError"
+        assert entry["log_level"] == "warning"
+        assert "boom" not in str(logs)
+
+    def test_out_of_scope_mixed_stays_plain(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        mixed = make_invoice(
+            organization,
+            event,
+            member_user,
+            lines=[line("24.90", "13.00"), line("100.00", "0.00", "O")],
+            buyer_country="US",
+            buyer_vat_id="",
+        )
+        render = _SpyRender()
+        with capture_logs() as logs:
+            assert facturx_pdf_for(mixed, render) == PLAIN
+        assert render.calls == [False]
+        assert logs[0]["reason"] == "out_of_scope_mixed"
+        assert logs[0]["log_level"] == "info"
+
+    def test_cancelled_invoice_rerenders_as_facturx(self, invoice: AttendeeInvoice) -> None:
+        """A full credit note cancels the invoice; ensure_pdf_exists on it must still embed the XML."""
+        invoice.status = AttendeeInvoice.InvoiceStatus.CANCELLED
+        invoice.save()
+        _generate_and_save_pdf(invoice)
+        assert facturx.extract(_saved(invoice)).conformance_level == "EN 16931"
+
+    def test_invoice_still_delivered_after_forced_fallback(self, invoice: AttendeeInvoice) -> None:
+        """Review focus 2: a PreflightError never blocks delivery; the plain PDF is what gets emailed."""
+        with (
+            patch("events.service.einvoice_service.to_xml", side_effect=_PREFLIGHT),
+            patch("common.tasks.send_email") as send,
+        ):
+            deliver_attendee_invoice(invoice)
+        send.assert_called_once()
+        invoice.refresh_from_db()
+        assert invoice.email_sent_at is not None
+        _is_plain(_saved(invoice))
+
+    def test_credit_note_still_generated_and_delivered_after_forced_fallback(self, invoice: AttendeeInvoice) -> None:
+        note = make_credit_note(invoice, [line("24.90", "13.00")])
+        with (
+            patch("events.service.einvoice_service.to_xml", side_effect=_PREFLIGHT),
+            patch("common.tasks.send_email") as send,
+        ):
+            deliver_credit_note(note)
+        send.assert_called_once()
+        note.refresh_from_db()
+        assert note.email_sent_at is not None
+        _is_plain(_saved(note))
 
     def test_kill_switch_off(self, invoice: AttendeeInvoice) -> None:
         """Review focus 4."""

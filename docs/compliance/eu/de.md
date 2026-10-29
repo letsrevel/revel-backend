@@ -45,6 +45,8 @@ Not covered:
     ([#1234](https://github.com/letsrevel/revel-backend/issues/1234));
   - the seller snapshot has a VAT ID (BT-31) and a country (BT-40), and the buyer a country (BT-55);
   - every line has a VAT category, and a reverse-charge line (AE) comes with a buyer VAT ID (BR-AE-02);
+  - an out-of-scope line (O, not subject to VAT) is invoice-wide: it may not sit next to a line of
+    another category (BR-O-11..14). Standard and exempt lines (S + E, with rounding) mix freely;
   - a credit note additionally has EN 16931 totals of its own.
   The XML is written only when euinvoice's totals agree with the printed ones and its pre-flight
   passes; otherwise, and for every legacy, draft or otherwise ineligible document, the plain PDF of

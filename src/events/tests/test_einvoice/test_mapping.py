@@ -2,7 +2,6 @@
 
 import datetime
 from decimal import Decimal
-from zoneinfo import ZoneInfo
 
 import pytest
 from euinvoice import calc
@@ -13,6 +12,7 @@ from events.models import Event, Organization
 from events.models.attendee_invoice import AttendeeInvoice, TotalsMethod
 from events.service import einvoice_mapping as mapping
 from events.tests.test_einvoice._fixtures import CARD, OTHER, line, make_credit_note, make_invoice
+from geo.models import City
 
 pytestmark = pytest.mark.django_db
 
@@ -32,7 +32,6 @@ class TestEligibility:
         ("overrides", "reason"),
         [
             ({"status": AttendeeInvoice.InvoiceStatus.DRAFT}, "draft"),
-            ({"status": AttendeeInvoice.InvoiceStatus.CANCELLED}, "cancelled"),
             ({"totals_method": TotalsMethod.LEGACY}, "legacy_totals"),
             ({"seller_vat_id": ""}, "missing_seller_vat_id"),
             ({"seller_country": ""}, "missing_seller_country"),
@@ -62,6 +61,33 @@ class TestEligibility:
             organization, event, member_user, lines=[line("100.00", "0.00", "AE")], reverse_charge=True, buyer_vat_id=""
         )
         assert mapping.ineligibility_reason(invoice) == "reverse_charge_without_buyer_vat_id"
+
+    def test_out_of_scope_mixed_with_another_category(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        """BR-O-11..14: category O is invoice-wide, so S + O gets the plain PDF."""
+        invoice = make_invoice(
+            organization,
+            event,
+            member_user,
+            lines=[line("24.90", "13.00"), line("100.00", "0.00", "O")],
+            buyer_country="US",
+            buyer_vat_id="",
+        )
+        assert mapping.ineligibility_reason(invoice) == "out_of_scope_mixed"
+
+    def test_cancelled_invoice_stays_eligible(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        """A full credit note cancels the invoice; its re-render must still carry the XML."""
+        invoice = make_invoice(
+            organization,
+            event,
+            member_user,
+            lines=[line("24.90", "13.00")],
+            status=AttendeeInvoice.InvoiceStatus.CANCELLED,
+        )
+        assert mapping.ineligibility_reason(invoice) is None
 
     def test_line_without_category(self, organization: Organization, event: Event, member_user: RevelUser) -> None:
         invoice = make_invoice(organization, event, member_user, lines=[line("24.90", "13.00")])
@@ -97,26 +123,39 @@ class TestHeader:
         invoice = make_invoice(organization, event, member_user, lines=[line("24.90", "13.00")], issued_at=_UTC_LATE)
         draft = mapping.invoice_draft_for(invoice)
         assert draft.number == invoice.invoice_number
-        assert draft.issue_date == datetime.date(2026, 3, 1)  # no event city: UTC
+        assert draft.issue_date == datetime.date(2026, 3, 2)  # the date the PDF prints (Europe/Vienna)
         assert draft.type_code == "380"
         assert draft.currency_code == "EUR"
         assert draft.process_control.specification_identifier == "urn:cen.eu:en16931:2017"
 
-    def test_issue_date_in_event_timezone(
-        self, organization: Organization, event: Event, member_user: RevelUser, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(mapping, "get_event_timezone", lambda event: ZoneInfo("Europe/Vienna"))
-        invoice = make_invoice(organization, event, member_user, lines=[line("24.90", "13.00")], issued_at=_UTC_LATE)
-        assert mapping.invoice_draft_for(invoice).issue_date == datetime.date(2026, 3, 2)
-
-    def test_issue_date_without_event_is_utc(
+    def test_issue_date_matches_printed_date(
         self, organization: Organization, event: Event, member_user: RevelUser
     ) -> None:
-        """A deleted event leaves ``event`` NULL (SET_NULL); the date then falls back to UTC."""
+        """BT-2 is the date the template prints (active timezone), with or without an event or event timezone."""
         invoice = make_invoice(organization, event, member_user, lines=[line("24.90", "13.00")], issued_at=_UTC_LATE)
+        assert mapping.invoice_draft_for(invoice).issue_date == datetime.date(2026, 3, 2)
+        city = City(
+            name="New York",
+            ascii_name="New York",
+            country="United States",
+            iso2="US",
+            iso3="USA",
+            timezone="America/New_York",
+        )
+        assert invoice.event is not None
+        invoice.event.city = city
+        assert mapping.invoice_draft_for(invoice).issue_date == datetime.date(2026, 3, 2)
         AttendeeInvoice.objects.filter(pk=invoice.pk).update(event=None)
         invoice.refresh_from_db()
-        assert mapping.invoice_draft_for(invoice).issue_date == datetime.date(2026, 3, 1)
+        assert mapping.invoice_draft_for(invoice).issue_date == datetime.date(2026, 3, 2)
+
+    def test_preceding_invoice_date_matches_printed_date(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        invoice = make_invoice(organization, event, member_user, lines=[line("24.90", "13.00")], issued_at=_UTC_LATE)
+        note = make_credit_note(invoice, [line("24.90", "13.00")])
+        draft = mapping.credit_note_draft_for(note)
+        assert draft.preceding_invoice_references[0].issue_date == datetime.date(2026, 3, 2)
 
     def test_parties(self, organization: Organization, event: Event, member_user: RevelUser) -> None:
         invoice = make_invoice(organization, event, member_user, lines=[line("24.90", "13.00")])
