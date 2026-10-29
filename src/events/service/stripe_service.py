@@ -189,7 +189,12 @@ def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSch
     from accounts.models import UserBillingProfile
 
     profile, _ = UserBillingProfile.objects.get_or_create(user=user)
-    structured = PostalAddress.from_fields(billing_info, "billing_").to_fields("billing_")
+    # Only structured fields the client sent: an older client must not wipe a saved address.
+    structured = {
+        field: value
+        for field, value in PostalAddress.from_fields(billing_info, "billing_").to_fields("billing_").items()
+        if field in billing_info.model_fields_set
+    }
     fields_to_update = ["billing_name", "billing_address", "billing_email", *structured]
     profile.billing_name = billing_info.billing_name
     profile.billing_address = billing_info.billing_address

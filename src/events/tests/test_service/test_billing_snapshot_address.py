@@ -78,3 +78,32 @@ def test_save_to_profile_stores_structured_address(django_user_model: type[Revel
     assert profile.billing_address_line1 == "Mariahilfer Str. 1"
     assert profile.billing_postal_code == "1070"
     assert profile.billing_country_code == "AT"
+
+
+@pytest.mark.django_db
+def test_save_to_profile_keeps_structured_address_when_client_sends_none(
+    django_user_model: type[RevelUser],
+) -> None:
+    """An older client that omits the structured fields must not wipe the saved profile address."""
+    user = django_user_model.objects.create_user(username="old@example.com", email="old@example.com", password="p")
+    _save_billing_to_profile(user, _info(**ADDRESS))
+
+    _save_billing_to_profile(user, _info(billing_address="Free text 1"))
+
+    profile = UserBillingProfile.objects.get(user=user)
+    assert profile.billing_address == "Free text 1"
+    assert profile.billing_address_line1 == "Mariahilfer Str. 1"
+    assert profile.billing_city == "Vienna"
+    assert profile.billing_country_code == "AT"
+
+
+@pytest.mark.django_db
+def test_save_to_profile_updates_only_the_structured_fields_sent(django_user_model: type[RevelUser]) -> None:
+    user = django_user_model.objects.create_user(username="new@example.com", email="new@example.com", password="p")
+    _save_billing_to_profile(user, _info(**ADDRESS))
+
+    _save_billing_to_profile(user, _info(billing_city="Graz"))
+
+    profile = UserBillingProfile.objects.get(user=user)
+    assert profile.billing_city == "Graz"
+    assert profile.billing_address_line1 == "Mariahilfer Str. 1"
