@@ -41,7 +41,8 @@ def test_frozen_defaults_match_current_defaults() -> None:
     """The migration's inline copies must equal the defaults at the time it was written."""
     assert migration.REGULAR_DEFAULTS == {str(k): dict(v) for k, v in get_default_notification_type_settings().items()}
     # Staff alert types (#1127) postdate the frozen snapshot.
-    staff_types = {str(v) for v in STAFF_TYPE_FOR.values()}
+    # STAFF_PAYMENT_DISPUTED (#1245) postdates it too.
+    staff_types = {str(v) for v in STAFF_TYPE_FOR.values()} | {"staff_payment_disputed"}
     current_guest = {str(k): v for k, v in _get_guest_notification_type_settings().items() if str(k) not in staff_types}
     assert migration.GUEST_DEFAULTS == current_guest
 

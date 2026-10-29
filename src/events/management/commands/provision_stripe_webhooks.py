@@ -34,6 +34,10 @@ PLATFORM_EVENTS: tuple[str, ...] = (
     # Abandoned membership checkouts: frees the PENDING row's cap slot.
     "checkout.session.expired",
     "charge.refunded",
+    # Card disputes: recorded next to the payment, organizers notified (#1245).
+    "charge.dispute.created",
+    "charge.dispute.updated",
+    "charge.dispute.closed",
     "payment_intent.canceled",
     # Membership subscriptions live on connected accounts (direct charges,
     # ADR-0012), but a host-as-org binding (#495) routes the same events

@@ -124,6 +124,29 @@ class StaffTicketRefundedContext(TicketRefundedContext):
     ticket_holder_email: str
 
 
+class StaffPaymentDisputedContext(BaseNotificationContext):
+    """Context for STAFF_PAYMENT_DISPUTED notification (to org staff/owners).
+
+    ``status`` and ``reason`` are raw Stripe codes; the template resolves their translated
+    labels per recipient. ``outcome`` is ``opened`` or ``closed``. Deliberately carries no buyer
+    identity: amount, event and the dispute reason are enough to act on in the
+    Stripe Dashboard.
+    """
+
+    organization_id: str
+    organization_name: str
+    dispute_id: str
+    outcome: str
+    status: str
+    amount: str
+    currency: str
+    reason: str
+    evidence_due_by: str  # User-friendly format; empty when Stripe gave no deadline
+    dashboard_url: str
+    event_id: t.NotRequired[str]
+    event_name: t.NotRequired[str]
+
+
 class RefundUnmatchedCandidate(t.TypedDict):
     """One ticket an unmatched inbound refund could have applied to."""
 
@@ -833,6 +856,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.STAFF_TICKET_REFUNDED: StaffTicketRefundedContext,
     NotificationType.TICKET_CHECKED_IN: TicketCheckedInContext,
     NotificationType.PAYMENT_CONFIRMATION: PaymentConfirmationContext,
+    NotificationType.STAFF_PAYMENT_DISPUTED: StaffPaymentDisputedContext,
     NotificationType.REFUND_UNMATCHED: RefundUnmatchedContext,
     NotificationType.EVENT_REFUND_SUMMARY: EventRefundSummaryContext,
     NotificationType.FISCAL_DOCUMENT_SKIPPED: FiscalDocumentSkippedContext,
