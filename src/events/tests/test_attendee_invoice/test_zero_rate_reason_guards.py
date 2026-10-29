@@ -15,7 +15,7 @@ from ninja.errors import HttpError
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
-from events.models import Event, Organization, TicketTier
+from events.models import Event, Organization, PriceCategory, TicketTier, Venue, VenueSector
 from events.service.attendee_invoice_service import set_invoicing_mode
 from events.service.zero_rate_guard_service import zero_rate_tiers_missing_reason
 from events.tests.test_attendee_invoice._helpers import _make_org_invoicing_ready
@@ -81,6 +81,20 @@ class TestZeroRateTiersMissingReason:
             price_type=TicketTier.PriceType.PWYC,
             pwyc_min=Decimal("5"),
             vat_rate=Decimal("0"),
+        )
+        assert zero_rate_tiers_missing_reason(org) is True
+
+    def test_category_priced_seated_tier_counts_as_paid(self, organization: Organization, event: Event) -> None:
+        org = _org(organization, mode=Organization.InvoicingMode.NONE, vat_rate="0.00")
+        venue = Venue.objects.create(organization=organization, name="V", capacity=10)
+        cat = PriceCategory.objects.create(venue=venue, name="P", color="#aa0000", display_order=0)
+        _tier(
+            event,
+            price=0,
+            venue=venue,
+            sector=VenueSector.objects.create(venue=venue, name="S"),
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+            category_prices={str(cat.id): "25.00"},
         )
         assert zero_rate_tiers_missing_reason(org) is True
 

@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 from ninja.errors import HttpError
 
-from events.models import Event, Organization, TicketTier
+from events.models import Event, Organization, PriceCategory, TicketTier, Venue, VenueSector
 from events.schema import TicketTierCreateSchema, TicketTierUpdateSchema
 from events.service import ticket_service
 from events.utils.vat_category import effective_vat_exemption_reason, is_paid_online
@@ -186,3 +186,76 @@ def test_price_change_of_legacy_online_zero_rate_tier_without_reason_is_422(
 )
 def test_is_paid_online(fields: dict[str, str | None], expected: bool) -> None:
     assert is_paid_online(TicketTier(**fields)) is expected
+
+
+# --- seated tiers priced only through category_prices (#1247) ---
+
+
+@pytest.fixture
+def category(event: Event) -> PriceCategory:
+    venue = Venue.objects.create(organization=event.organization, name="Theatre", capacity=100)
+    return PriceCategory.objects.create(venue=venue, name="Premium", color="#aa0000", display_order=0)
+
+
+def _online_seated(event: Event, category: PriceCategory, **kwargs: object) -> TicketTier:
+    """A seated ONLINE tier with base price 0 and a 25.00 category price.
+
+    Created through the ORM: the create/update schemas force an ONLINE base price >= 1, so such a tier
+    only exists as legacy/imported data, which is exactly what the guard must still catch.
+    """
+    sector = VenueSector.objects.create(venue=category.venue, name="Stalls")
+    return TicketTier.objects.create(
+        event=event,
+        name="Seated",
+        price=Decimal("0"),
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        venue=category.venue,
+        sector=sector,
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+        category_prices={str(category.id): "25.00"},
+        vat_rate=Decimal("10"),
+        **kwargs,
+    )
+
+
+def test_seated_category_priced_zero_rate_tier_requires_reason(
+    event: Event, invoicing_org: Organization, category: PriceCategory
+) -> None:
+    tier = _online_seated(event, category)
+    with pytest.raises(HttpError) as exc_info:
+        ticket_service.update_ticket_tier(tier, TicketTierUpdateSchema(vat_rate=Decimal("0")))  # type: ignore[call-arg]
+    assert exc_info.value.status_code == 422
+    assert MESSAGE in str(exc_info.value)
+
+
+def test_seated_category_priced_zero_rate_tier_with_reason_is_saved(
+    event: Event, invoicing_org: Organization, category: PriceCategory
+) -> None:
+    tier = _online_seated(event, category)
+    updated = ticket_service.update_ticket_tier(
+        tier,
+        TicketTierUpdateSchema(vat_rate=Decimal("0"), vat_exemption_reason="Art. 132"),  # type: ignore[call-arg]
+    )
+    assert updated.vat_rate == Decimal("0")
+
+
+def test_category_prices_update_triggers_the_recheck(
+    event: Event, invoicing_org: Organization, category: PriceCategory
+) -> None:
+    tier = _online_seated(event, category)
+    TicketTier.objects.filter(pk=tier.pk).update(vat_rate=Decimal("0"))
+    tier.refresh_from_db()
+    with pytest.raises(HttpError):
+        ticket_service.update_ticket_tier(
+            tier,
+            TicketTierUpdateSchema(category_prices={str(category.id): "30.00"}),  # type: ignore[call-arg]
+        )
+
+
+def test_is_paid_online_with_category_prices() -> None:
+    base: dict[str, object] = {"payment_method": "online", "price": "0"}
+    cid = "6f1c1d0a-0000-4000-8000-000000000001"
+    assert is_paid_online(TicketTier(**base, category_prices={cid: "25.00"})) is True  # type: ignore[arg-type]
+    assert is_paid_online(TicketTier(**base, category_prices={cid: "0.00"})) is False  # type: ignore[arg-type]
+    assert is_paid_online(TicketTier(**base, category_prices={})) is False  # type: ignore[arg-type]
+    assert is_paid_online(TicketTier(**base, category_prices=None)) is False  # type: ignore[arg-type]
