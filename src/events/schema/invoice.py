@@ -9,7 +9,7 @@ from ninja import Schema
 from pydantic import AwareDatetime, ConfigDict, StringConstraints, field_validator
 
 from common.schema import validate_country_code
-from events.models.attendee_invoice import AttendeeInvoiceStatus
+from events.models.attendee_invoice import AttendeeInvoiceStatus, TotalsMethod
 from events.models.invoice import PlatformFeeInvoice
 from events.models.organization import Organization
 from events.models.skipped_fiscal_document import (
@@ -147,6 +147,9 @@ class AttendeeInvoiceDetailSchema(AttendeeInvoiceSchema):
     """Extended schema with full seller/buyer info for org admin views."""
 
     vat_exemptions: dict[VatCategory, VatExemptionSchema]
+    # EN 16931 BT-114 and how the header was derived (#1234): legacy rows carry 0 / "legacy".
+    rounding_amount: Decimal
+    totals_method: TotalsMethod
     supply_date: datetime.date | None = None
     supply_period_end: datetime.date | None = None
     payment_means_code: str
@@ -237,6 +240,8 @@ class AttendeeInvoiceCreditNoteSchema(Schema):
     amount_gross: Decimal
     amount_net: Decimal
     amount_vat: Decimal
+    rounding_amount: Decimal
+    totals_method: TotalsMethod
     issued_at: AwareDatetime | None = None
     created_at: AwareDatetime
 

@@ -189,6 +189,20 @@ class AttendeeInvoiceStatus(models.TextChoices):
     CANCELLED = "cancelled"
 
 
+class TotalsMethod(models.TextChoices):
+    """How a document's header totals were derived from its lines (#1234).
+
+    ``LEGACY`` sums the per-ticket checkout figures; ``EN16931`` computes VAT per
+    ``(category, rate)`` group and books any unreachable cent as ``rounding_amount``
+    (BT-114). The column default keeps every pre-existing row legacy, byte for byte;
+    generation stamps new rows ``EN16931`` explicitly. Module-level under a
+    collision-free name for the same OpenAPI reason as :class:`AttendeeInvoiceStatus`.
+    """
+
+    LEGACY = "legacy"
+    EN16931 = "en16931"
+
+
 class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     """Invoice issued to an attendee on behalf of an organizer.
 
@@ -240,6 +254,9 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     total_gross = models.DecimalField(max_digits=10, decimal_places=2)
     total_net = models.DecimalField(max_digits=10, decimal_places=2)
     total_vat = models.DecimalField(max_digits=10, decimal_places=2)
+    # EN 16931 BT-114: total_net + total_vat + rounding_amount == total_gross (#1234).
+    rounding_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    totals_method = models.CharField(max_length=10, choices=TotalsMethod.choices, default=TotalsMethod.LEGACY)
     # A snapshot of the FIRST payment's rate, not an invoice-wide fact: a
     # multi-tier cart (#846) mixes rates and this column names only one of them.
     # Consult ``has_mixed_vat_rates`` before rendering it; ``vat_breakdown`` has
@@ -408,6 +425,9 @@ class AttendeeInvoiceCreditNote(EmailDeliverableMixin, TimeStampedModel):
     amount_gross = models.DecimalField(max_digits=10, decimal_places=2)
     amount_net = models.DecimalField(max_digits=10, decimal_places=2)
     amount_vat = models.DecimalField(max_digits=10, decimal_places=2)
+    # The credit note's own BT-114 and method, independent of the invoice's (#1234).
+    rounding_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    totals_method = models.CharField(max_length=10, choices=TotalsMethod.choices, default=TotalsMethod.LEGACY)
 
     line_items = models.JSONField(default=list, blank=True)
     payments = models.ManyToManyField(

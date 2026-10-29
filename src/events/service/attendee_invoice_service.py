@@ -28,6 +28,7 @@ from events.models.attendee_invoice import (
     AttendeeInvoiceCreditNote,
     BuyerBillingSnapshot,
     InvoiceLineItemDict,
+    TotalsMethod,
 )
 from events.models.organization import Organization
 from events.models.refund import Refund
@@ -35,6 +36,7 @@ from events.models.skipped_fiscal_document import SkippedFiscalDocument
 from events.models.ticket import Payment
 from events.service import skipped_fiscal_document_service
 from events.service.attendee_vat_service import invoice_out_of_scope, out_of_scope_for
+from events.service.en16931_totals_service import compute_en16931_totals
 from events.service.payment_means_service import fetch_payment_means
 from events.service.zero_rate_guard_service import (
     raise_if_zero_rate_tiers_missing_reason,
@@ -323,10 +325,9 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
 
     supply_date, supply_period_end = supply_dates_for(event)
 
-    # Aggregate totals from payments
-    total_gross = sum(p.amount for p in payments)
-    total_net = sum(p.net_amount or p.amount for p in payments)
-    total_vat = sum(p.vat_amount or Decimal("0.00") for p in payments)
+    # EN 16931 totals (#1234): VAT per (category, rate) group from the charged gross; the
+    # per-ticket checkout figures on the lines are rebalanced, the gross is never changed.
+    totals = compute_en16931_totals(line_items, reverse_charge)
 
     # Dominant VAT rate (from first payment). A multi-tier cart (#846) can mix
     # rates; the rendered totals label then drops the rate entirely
@@ -357,15 +358,17 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             stripe_session_id=stripe_session_id,
             invoice_number=invoice_number,
             status=initial_status,
-            total_gross=total_gross,
-            total_net=total_net,
-            total_vat=total_vat,
+            total_gross=totals.total_gross,
+            total_net=totals.total_net,
+            total_vat=totals.total_vat,
+            rounding_amount=totals.rounding_amount,
+            totals_method=TotalsMethod.EN16931,
             vat_rate=vat_rate,
             currency=first_payment.currency,
             reverse_charge=reverse_charge,
             discount_code_text=", ".join(sorted(discount_codes)),
             discount_amount_total=discount_amount_total,
-            line_items=line_items,
+            line_items=totals.lines,
             vat_exemptions=vat_exemptions,
             supply_date=supply_date,
             supply_period_end=supply_period_end,

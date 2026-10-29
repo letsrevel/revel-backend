@@ -429,7 +429,11 @@ class TestGenerateAttendeeInvoice:
         event_ticket_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """Invoice totals should be aggregated from all payments in the session."""
+        """Invoice totals cover all payments in the session, as one EN 16931 group per rate (#1234).
+
+        Two 100.00 tickets at 22% summed per ticket to 163.94 net; the group net is
+        163.93 (200.00 is unreachable from any 2-dp net at 22%) and BT-114 carries the cent.
+        """
         org = _make_org_invoicing_ready(organization)
         org.invoicing_mode = Organization.InvoicingMode.HYBRID
         org.save()
@@ -445,7 +449,9 @@ class TestGenerateAttendeeInvoice:
         invoice = generate_attendee_invoice("cs_multi")
         assert invoice is not None
         assert invoice.total_gross == Decimal("200.00")
-        assert invoice.total_net == Decimal("163.94")
+        assert invoice.total_net == Decimal("163.93")
+        assert invoice.total_vat == Decimal("36.06")
+        assert invoice.rounding_amount == Decimal("0.01")
         assert len(invoice.line_items) == 2
 
 
