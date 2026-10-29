@@ -1,0 +1,114 @@
+"""Notification preference defaults for new users and guest -> account conversion (#1248)."""
+
+import typing as t
+
+from django.db import transaction
+
+from accounts.models import RevelUser
+from notifications.enums import DeliveryChannel, NotificationType
+from notifications.models import NotificationPreference, get_default_notification_type_settings
+
+# Both guest and regular users get in-app + email channels
+# (Guest users can't login to see in-app, but we enable it anyway)
+DEFAULT_ENABLED_CHANNELS = [DeliveryChannel.IN_APP, DeliveryChannel.EMAIL]
+
+
+def get_guest_notification_type_settings() -> dict[NotificationType, t.Any]:
+    """Get conservative notification type settings for guest users.
+
+    Guest users only receive notifications strictly necessary for event participation.
+    They do NOT receive: event discovery, org announcements, membership, potluck, etc.
+
+    Returns:
+        Dictionary with notification types disabled for guests
+    """
+    # Disable all notification types except those essential for event participation
+    disabled_types = [
+        NotificationType.EVENT_OPEN,  # Can't browse events
+        NotificationType.POTLUCK_ITEM_CREATED,  # Typically not participating
+        NotificationType.POTLUCK_ITEM_CREATED_AND_CLAIMED,
+        NotificationType.POTLUCK_ITEM_UPDATED,
+        NotificationType.POTLUCK_ITEM_CLAIMED,
+        NotificationType.POTLUCK_ITEM_UNCLAIMED,
+        NotificationType.QUESTIONNAIRE_SUBMITTED,  # For staff, not guests
+        NotificationType.INVITATION_REQUEST_CREATED,  # For organizers, not guests
+        NotificationType.MEMBERSHIP_REQUEST_CREATED,  # For organizers, not guests
+        NotificationType.MEMBERSHIP_GRANTED,  # Can't be members
+        NotificationType.MEMBERSHIP_PROMOTED,
+        NotificationType.MEMBERSHIP_REMOVED,
+        NotificationType.MEMBERSHIP_CARD_UPDATED,
+        NotificationType.MEMBERSHIP_REQUEST_APPROVED,
+        NotificationType.MEMBERSHIP_REQUEST_REJECTED,
+        NotificationType.ORG_ANNOUNCEMENT,  # Not members
+        NotificationType.ORG_CONTACT_MESSAGE_RECEIVED,  # For org admins, not guests
+        NotificationType.STAFF_TICKET_CREATED,  # Staff alerts: guests can't be staff
+        NotificationType.STAFF_TICKET_CANCELLED,
+        NotificationType.STAFF_TICKET_REFUNDED,
+        NotificationType.STAFF_PAYMENT_DISPUTED,
+        NotificationType.STAFF_SERIES_PASS_PURCHASED,
+        NotificationType.STAFF_SERIES_PASS_CANCELLED,
+    ]
+
+    return {notification_type: {"enabled": False} for notification_type in disabled_types}
+
+
+def create_default_preferences(user: RevelUser) -> tuple[NotificationPreference, bool]:
+    """Get or create the user's preferences with guest or regular defaults.
+
+    Args:
+        user: The user to create preferences for.
+
+    Returns:
+        ``(preferences, created)``.
+    """
+    # Guest users get restricted notification types (only event participation essentials)
+    # Regular users get the regular defaults
+    notification_type_settings = (
+        get_guest_notification_type_settings() if user.guest else get_default_notification_type_settings()
+    )
+    # get_or_create handles race conditions and duplicate signals
+    return NotificationPreference.objects.get_or_create(
+        user=user,
+        defaults={
+            "enabled_channels": DEFAULT_ENABLED_CHANNELS,
+            "notification_type_settings": notification_type_settings,
+        },
+    )
+
+
+def reset_converted_guest_preferences(user: RevelUser) -> None:
+    """Give a just-converted guest the regular notification defaults.
+
+    Guest-default overrides whose value is still exactly the guest default are replaced with the
+    regular default for that key (or removed if there is none), and regular-default keys the guest
+    row never had are added. Any other value is an explicit user choice and is kept. A missing
+    preferences row is created with the regular defaults.
+
+    # ponytail: a guest who explicitly disabled a guest-default type to exactly
+    # ``{"enabled": False}`` (e.g. via an unsubscribe link) is indistinguishable from the default
+    # and gets it reset. Upgrade path: record the origin of each override.
+
+    Args:
+        user: The user just converted from guest to full account (``user.guest`` is False).
+    """
+    with transaction.atomic():
+        prefs = NotificationPreference.objects.select_for_update().filter(user=user).first()
+        if prefs is None:
+            create_default_preferences(user)
+            return
+        guest_defaults = get_guest_notification_type_settings()
+        regular_defaults = get_default_notification_type_settings()
+        current = dict(prefs.notification_type_settings)
+        updated = dict(current)
+        for key, guest_value in guest_defaults.items():
+            if updated.get(key) == guest_value:
+                if key in regular_defaults:
+                    updated[key] = regular_defaults[key]
+                else:
+                    del updated[key]
+        for key, regular_value in regular_defaults.items():
+            updated.setdefault(key, regular_value)
+        if updated == current:
+            return
+        prefs.notification_type_settings = updated
+        prefs.save(update_fields=["notification_type_settings", "updated_at"])
