@@ -281,10 +281,8 @@ class TestGenerateAttendeeInvoice:
         assert inv1.id == inv2.id
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
-    @patch("events.service.attendee_invoice_service.fetch_payment_means")
     def test_retry_for_an_existing_invoice_does_not_call_stripe(
         self,
-        mock_fetch: t.Any,
         mock_pdf: t.Any,
         organization: Organization,
         event: Event,
@@ -303,9 +301,9 @@ class TestGenerateAttendeeInvoice:
             buyer_billing_snapshot=_default_billing_snapshot(),
         )
         first = generate_attendee_invoice("cs_idemp_stripe")
-        mock_fetch.reset_mock()
 
-        again = generate_attendee_invoice("cs_idemp_stripe")
+        with patch("events.service.attendee_invoice_service.fetch_payment_means") as mock_fetch:
+            again = generate_attendee_invoice("cs_idemp_stripe")
 
         assert first is not None and again is not None and first.id == again.id
         mock_fetch.assert_not_called()
