@@ -6819,3 +6819,60 @@ msgstr "j M Y"
 msgctxt "wallet full datetime format"
 msgid "M d, Y h:i A"
 msgstr "j M Y, H:i"
+
+#, python-format
+msgid ""
+"A payment dispute of <strong>%(amount)s %(currency)s</strong> has been "
+"closed: <strong>%(status)s</strong>."
+msgstr ""
+"Uma disputa de pagamento de <strong>%(amount)s %(currency)s</strong> foi "
+"encerrada: <strong>%(status)s</strong>."
+
+#, python-format
+msgid ""
+"A payment dispute of <strong>%(amount)s %(currency)s</strong> has been "
+"opened."
+msgstr ""
+"Foi aberta uma disputa de pagamento de <strong>%(amount)s "
+"%(currency)s</strong>."
+
+msgid "Dispute Information"
+msgstr "Informações da disputa"
+
+msgid "Open the dispute in Stripe"
+msgstr "Abrir a disputa no Stripe"
+
+#, python-format
+msgid ""
+"A payment dispute of %(amount)s %(currency)s has been closed: %(status)s."
+msgstr ""
+"Uma disputa de pagamento de %(amount)s %(currency)s foi encerrada: "
+"%(status)s."
+
+#, python-format
+msgid "A payment dispute of %(amount)s %(currency)s has been opened."
+msgstr "Foi aberta uma disputa de pagamento de %(amount)s %(currency)s."
+
+msgid "Dispute Information:"
+msgstr "Informações da disputa:"
+
+#, python-format
+msgid "Payment dispute closed: %(status)s"
+msgstr "Disputa de pagamento encerrada: %(status)s"
+
+#, python-format
+msgid "Payment dispute opened: %(amount)s %(currency)s"
+msgstr "Disputa de pagamento aberta: %(amount)s %(currency)s"
+
+msgid "Evidence due by:"
+msgstr "Provas a enviar até:"
+
+msgid ""
+"Disputes are answered in your Stripe Dashboard. Submit your evidence before"
+" the deadline above."
+msgstr ""
+"As disputas são respondidas no seu painel do Stripe. Envie as suas provas "
+"antes do prazo indicado acima."
+
+msgid "Disputes"
+msgstr "Disputas"
