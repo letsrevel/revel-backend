@@ -32,10 +32,13 @@ from events.models.attendee_invoice import (
 from events.models.organization import Organization
 from events.models.refund import Refund
 from events.models.skipped_fiscal_document import SkippedFiscalDocument
-from events.models.ticket import Payment, TicketTier
+from events.models.ticket import Payment
 from events.service import skipped_fiscal_document_service
 from events.service.payment_means_service import fetch_payment_means
-from events.service.vat_service import get_effective_vat_rate
+from events.service.zero_rate_guard_service import (
+    raise_if_zero_rate_tiers_missing_reason,
+    zero_rate_tiers_missing_reason,
+)
 from events.utils.billing_address import snapshot_buyer_postal_address
 from events.utils.supply_date import supply_dates_for
 from events.utils.vat_category import (
@@ -43,7 +46,6 @@ from events.utils.vat_category import (
     build_vat_exemptions,
     derive_vat_category,
     effective_vat_exemption_reason,
-    is_paid_online,
 )
 from notifications.service.org_sender import org_reply_to
 
@@ -75,31 +77,23 @@ def einvoice_missing_fields(org: Organization) -> list[str]:
         missing.append("billing_name")
     if not org.vat_id_validated:
         missing.append("vat_id")
-    if _has_zero_rate_tier_without_reason(org):
+    if zero_rate_tiers_missing_reason(org):
         missing.append("vat_exemption_reason")
     return missing
 
 
-def _has_zero_rate_tier_without_reason(org: Organization) -> bool:
-    """Whether an online paid tier of the org is 0% rated with no exemption reason (it would invoice as E)."""
-    tiers = TicketTier.objects.filter(event__organization=org, payment_method=TicketTier.PaymentMethod.ONLINE).only(
-        "payment_method", "price", "price_type", "pwyc_min", "pwyc_max", "vat_rate", "vat_exemption_reason"
-    )
-    return any(
-        is_paid_online(tier)
-        and get_effective_vat_rate(tier.vat_rate, org.vat_rate) == 0
-        and not effective_vat_exemption_reason(tier, org)
-        for tier in tiers
-    )
-
-
-def validate_invoicing_prerequisites(org: Organization, *, require_structured_address: bool = True) -> None:
+def validate_invoicing_prerequisites(
+    org: Organization, *, require_structured_address: bool = True, require_zero_rate_reasons: bool = True
+) -> None:
     """Validate that an organization meets all requirements for attendee invoicing.
 
     Args:
         org: The organization.
         require_structured_address: Whether the structured billing address is required. Only turning
             invoicing on needs it; an org that already invoices may keep a legacy text address.
+        require_zero_rate_reasons: Whether a paid online 0% tier without an exemption reason is refused.
+            Like the address, only turning invoicing on needs it; later edits are guarded where tiers
+            and the org default change.
 
     Raises:
         HttpError 422: If any prerequisite is not met.
@@ -121,6 +115,9 @@ def validate_invoicing_prerequisites(org: Organization, *, require_structured_ad
     if missing:
         raise HttpError(422, "; ".join(missing))
 
+    if require_zero_rate_reasons:
+        raise_if_zero_rate_tiers_missing_reason(org)
+
 
 def set_invoicing_mode(org: Organization, mode: Organization.InvoicingMode) -> Organization:
     """Set the invoicing mode for an organization.
@@ -134,8 +131,9 @@ def set_invoicing_mode(org: Organization, mode: Organization.InvoicingMode) -> O
     """
     if mode != Organization.InvoicingMode.NONE:
         compliance.assert_attendee_invoicing_allowed(org)
+        turning_on = org.invoicing_mode == Organization.InvoicingMode.NONE
         validate_invoicing_prerequisites(
-            org, require_structured_address=org.invoicing_mode == Organization.InvoicingMode.NONE
+            org, require_structured_address=turning_on, require_zero_rate_reasons=turning_on
         )
 
     org.invoicing_mode = mode

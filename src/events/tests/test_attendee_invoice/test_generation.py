@@ -281,6 +281,36 @@ class TestGenerateAttendeeInvoice:
         assert inv1.id == inv2.id
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch("events.service.attendee_invoice_service.fetch_payment_means")
+    def test_retry_for_an_existing_invoice_does_not_call_stripe(
+        self,
+        mock_fetch: t.Any,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """The idempotent early return happens before the Stripe payment-means lookup."""
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.HYBRID
+        org.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_idemp_stripe",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+        )
+        first = generate_attendee_invoice("cs_idemp_stripe")
+        mock_fetch.reset_mock()
+
+        again = generate_attendee_invoice("cs_idemp_stripe")
+
+        assert first is not None and again is not None and first.id == again.id
+        mock_fetch.assert_not_called()
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     def test_line_items_built_correctly(
         self,
         mock_pdf: t.Any,

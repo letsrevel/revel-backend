@@ -18,7 +18,12 @@ from common.signing import get_file_url
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import IsOrganizationOwner
-from events.service import attendee_invoice_service, skipped_fiscal_document_service, vies_service
+from events.service import (
+    attendee_invoice_service,
+    skipped_fiscal_document_service,
+    vies_service,
+    zero_rate_guard_service,
+)
 
 from .base import OrganizationAdminBaseController
 
@@ -58,6 +63,7 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         update_data = payload.model_dump(exclude_unset=True)
         if not update_data:
             return organization
+        zero_rate_guard_service.assert_billing_update_keeps_zero_rate_reasons(organization, update_data)
         vies_service.update_org_billing_info(organization, update_data)
         return organization
 

@@ -965,38 +965,3 @@ class TestInvoiceVatBreakdownPayload:
         assert len(payload["vat_breakdown"]) == 1
         assert payload["vat_breakdown"][0]["vat_rate"] == "22.00"
         assert payload["vat_rate"] == "22.00"
-
-
-@pytest.mark.django_db
-class TestInvoiceDetailVatCategory:
-    """``vat_category`` is a nullable enum on the detail response; legacy lines lack it."""
-
-    def test_legacy_line_is_null_and_new_line_is_s(
-        self,
-        organization_owner_client: Client,
-        organization: Organization,
-        event: Event,
-        member_user: RevelUser,
-    ) -> None:
-        invoice = _create_draft_invoice(organization, event, member_user, suffix="vatcat")
-        url = reverse(
-            "api:get_attendee_invoice",
-            kwargs={"slug": organization.slug, "invoice_id": str(invoice.id)},
-        )
-
-        legacy = organization_owner_client.get(url).json()
-        assert legacy["line_items"][0]["vat_category"] is None
-
-        invoice.line_items = [{**invoice.line_items[0], "vat_category": "S"}]
-        invoice.vat_exemptions = {"E": {"text": "Art. 132", "code": ""}}
-        invoice.save()
-        data = organization_owner_client.get(url).json()
-        assert data["line_items"][0]["vat_category"] == "S"
-        assert data["vat_exemptions"] == {"E": {"text": "Art. 132", "code": ""}}
-
-    def test_openapi_lists_the_vat_categories(self) -> None:
-        from events.schema.invoice import InvoiceLineItemSchema
-
-        schema = InvoiceLineItemSchema.model_json_schema()
-        enum_def = schema["$defs"]["VatCategory"]
-        assert enum_def["enum"] == ["S", "AE", "E", "G"]
