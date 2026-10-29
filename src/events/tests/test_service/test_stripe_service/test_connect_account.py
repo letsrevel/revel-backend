@@ -343,3 +343,55 @@ class TestVerifyAccountStructuredAddress:
         assert result.billing_address_line1 == "Mine 5"
         assert result.billing_city == "Graz"
         assert result.billing_postal_code == ""
+
+    @patch("stripe.Account.retrieve")
+    def test_verify_never_overwrites_partial_manual_address(
+        self, mock_retrieve: Mock, organization: Organization
+    ) -> None:
+        """A hand-entered postal code/city without line 1 is not wiped by the Stripe fill."""
+        mock_retrieve.return_value = self._account(company={"address": self._ADDRESS})
+        organization.stripe_account_id = "acct_1"
+        organization.billing_postal_code = "8010"
+        organization.billing_city = "Graz"
+        organization.save()
+
+        result = stripe_service.stripe_verify_account(organization)
+
+        result.refresh_from_db()
+        assert (result.billing_address_line1, result.billing_postal_code, result.billing_city) == ("", "8010", "Graz")
+        assert result.billing_country_code == ""
+
+    @patch("stripe.Account.retrieve")
+    def test_verify_skips_structured_fill_when_a_value_is_too_long(
+        self, mock_retrieve: Mock, organization: Organization
+    ) -> None:
+        """An over-long Stripe value must not 400 the verify: structured fill skipped, legacy fill kept."""
+        address = {**self._ADDRESS, "postal_code": "P" * 30}
+        mock_retrieve.return_value = self._account(company={"address": address})
+        organization.stripe_account_id = "acct_1"
+
+        result = stripe_service.stripe_verify_account(organization)
+
+        result.refresh_from_db()
+        assert result.billing_postal_address().is_empty
+        assert "Hauptstrasse 1" in result.billing_address  # legacy text fill still happens
+
+    def test_postal_address_from_stripe_prefers_source_with_line1(self) -> None:
+        """A country-only company address does not shadow a full individual address."""
+        from events.service.stripe_address_service import postal_address_from_stripe
+
+        address = postal_address_from_stripe(
+            {"company": {"address": {"country": "AT"}}, "individual": {"address": self._ADDRESS}}
+        )
+
+        assert address.line1 == "Hauptstrasse 1"
+        assert address.country_code == "AT"
+
+    def test_postal_address_from_stripe_falls_back_to_first_non_empty_without_line1(self) -> None:
+        from events.service.stripe_address_service import postal_address_from_stripe
+
+        address = postal_address_from_stripe(
+            {"company": {"address": {"country": "AT"}}, "individual": {"address": {"city": "Graz"}}}
+        )
+
+        assert (address.line1, address.city, address.country_code) == ("", "", "AT")

@@ -148,3 +148,32 @@ def test_backfill_validation_error_is_reported_and_continues(mock_retrieve: Mock
     assert f"{other.id} filled" in output
     other.refresh_from_db()
     assert other.billing_address_line1 == "Secretstrasse 9"
+
+
+@patch("stripe.Account.retrieve")
+def test_backfill_partial_stripe_address_is_reported_partial(mock_retrieve: Mock, stripe_org: Organization) -> None:
+    """A Stripe address without line 1 only adds partial data and is not counted as filled."""
+    mock_retrieve.return_value = {"company": {"address": {"city": "Wien", "country": "AT"}}}
+
+    output = _run()
+
+    stripe_org.refresh_from_db()
+    assert stripe_org.billing_city == "Wien"
+    assert f"{stripe_org.id} partial" in output
+    assert "filled=0" in output
+    assert "partial=1" in output
+
+
+@patch("stripe.Account.retrieve")
+def test_backfill_org_with_manual_partial_address_is_skipped(mock_retrieve: Mock, stripe_org: Organization) -> None:
+    """A hand-entered postal code/city (no line 1) is left alone and reported skipped."""
+    mock_retrieve.return_value = _ACCOUNT
+    stripe_org.billing_postal_code = "8010"
+    stripe_org.billing_city = "Graz"
+    stripe_org.save(update_fields=["billing_postal_code", "billing_city", "updated_at"])
+
+    output = _run()
+
+    stripe_org.refresh_from_db()
+    assert (stripe_org.billing_address_line1, stripe_org.billing_city) == ("", "Graz")
+    assert f"{stripe_org.id} skipped" in output

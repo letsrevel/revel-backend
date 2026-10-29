@@ -29,7 +29,7 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true", help="Report outcomes without saving.")
 
     def handle(self, *args: t.Any, **options: t.Any) -> None:
-        """Process every connected organization that has no structured line 1."""
+        """Process every connected organization that has no structured line 1 (partial manual entries are skipped)."""
         configure_stripe()
         dry_run: bool = options["dry_run"]
         counts: Counter[str] = Counter()
@@ -39,10 +39,12 @@ class Command(BaseCommand):
             outcome = self._process(org, dry_run)
             counts[outcome] += 1
             self.stdout.write(f"{org.id} {outcome}")
-        self.stdout.write(" ".join(f"{k}={counts[k]}" for k in ("filled", "country_only", "skipped", "error")))
+        self.stdout.write(
+            " ".join(f"{k}={counts[k]}" for k in ("filled", "partial", "country_only", "skipped", "error"))
+        )
 
     def _process(self, org: Organization, dry_run: bool) -> str:
-        if org.billing_address_line1:
+        if not org.billing_postal_address().is_empty:  # hand-entered data wins
             return "skipped"
         try:
             account = stripe.Account.retrieve(str(org.stripe_account_id))
@@ -50,7 +52,7 @@ class Command(BaseCommand):
             logger.warning("backfill_org_billing_address_stripe_error", org_id=str(org.id))
             return "error"
         fields = apply_postal_address(org, postal_address_from_stripe(account))
-        outcome = "filled"
+        outcome = "filled" if org.billing_address_line1 else "partial"
         if not fields:
             if not (org.vat_country_code and not org.billing_country_code):
                 return "skipped"
