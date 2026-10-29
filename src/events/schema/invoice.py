@@ -185,11 +185,11 @@ class UpdateAttendeeInvoiceSchema(Schema):
     buyer_vat_id: str | None = None
     buyer_vat_country: str | None = None
     buyer_address: str | None = None
-    buyer_address_line1: str | None = None
-    buyer_address_line2: str | None = None
-    buyer_postal_code: str | None = None
-    buyer_city: str | None = None
-    buyer_subdivision: str | None = None
+    buyer_address_line1: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] | None = None
+    buyer_address_line2: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] | None = None
+    buyer_postal_code: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=20)] | None = None
+    buyer_city: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] | None = None
+    buyer_subdivision: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] | None = None
     buyer_country_code: str | None = None
     buyer_email: str | None = None
     currency: str | None = None

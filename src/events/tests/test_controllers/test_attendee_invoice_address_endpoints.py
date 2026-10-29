@@ -87,3 +87,55 @@ class TestUpdateAttendeeInvoiceAddressEndpoint:
             url, data=orjson.dumps({"buyer_city": "Berlin"}), content_type="application/json"
         )
         assert response.status_code == 409
+
+
+class TestUpdateAttendeeInvoiceAddressLimits:
+    """Length limits on the draft PATCH buyer address mirror the model columns."""
+
+    @pytest.mark.parametrize(
+        "field,limit",
+        [
+            ("buyer_address_line1", 255),
+            ("buyer_address_line2", 255),
+            ("buyer_postal_code", 20),
+            ("buyer_city", 100),
+            ("buyer_subdivision", 100),
+        ],
+    )
+    def test_overlong_value_is_422_naming_the_field(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+        field: str,
+        limit: int,
+    ) -> None:
+        invoice = _create_draft_invoice(organization, event, member_user, suffix=f"lim-{field}")
+        url = reverse(
+            "api:update_attendee_invoice",
+            kwargs={"slug": organization.slug, "invoice_id": str(invoice.id)},
+        )
+        response = organization_owner_client.patch(
+            url, data=orjson.dumps({field: "x" * (limit + 1)}), content_type="application/json"
+        )
+        assert response.status_code == 422
+        assert field in response.content.decode()
+
+    def test_values_are_stripped(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        invoice = _create_draft_invoice(organization, event, member_user, suffix="lim-strip")
+        url = reverse(
+            "api:update_attendee_invoice",
+            kwargs={"slug": organization.slug, "invoice_id": str(invoice.id)},
+        )
+        response = organization_owner_client.patch(
+            url, data=orjson.dumps({"buyer_city": "  Berlin  "}), content_type="application/json"
+        )
+        assert response.status_code == 200
+        assert response.json()["buyer_city"] == "Berlin"
