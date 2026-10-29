@@ -85,6 +85,15 @@ class InvoiceLineItemSchema(Schema):
     net_amount: Decimal
     vat_amount: Decimal
     vat_rate: Decimal
+    # Derived server-side (EN 16931); ignored when submitted in an edit.
+    vat_category: str = ""
+
+
+class VatExemptionSchema(Schema):
+    """Exemption text and code printed for a VAT category (EN 16931 BT-120/BT-121)."""
+
+    text: str
+    code: str
 
 
 class InvoiceVatBucketSchema(Schema):
@@ -128,6 +137,7 @@ class AttendeeInvoiceSchema(Schema):
 class AttendeeInvoiceDetailSchema(AttendeeInvoiceSchema):
     """Extended schema with full seller/buyer info for org admin views."""
 
+    vat_exemptions: dict[str, VatExemptionSchema]
     seller_vat_id: str
     seller_vat_country: str
     seller_address: str

@@ -65,6 +65,8 @@ class InvoiceLineItemDict(t.TypedDict):
     net_amount: str
     vat_amount: str
     vat_rate: str
+    # EN 16931 category (VatCategory value); absent on lines stored before it existed.
+    vat_category: t.NotRequired[str]
 
 
 class SubmittedLineItem(t.TypedDict, total=False):
@@ -80,6 +82,7 @@ class SubmittedLineItem(t.TypedDict, total=False):
     net_amount: Decimal
     vat_amount: Decimal
     vat_rate: Decimal
+    vat_category: t.NotRequired[str]
 
 
 class DerivedTotals(t.TypedDict):
@@ -262,6 +265,9 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     # unit_price_gross is the amount actually charged, post-discount (net + vat);
     # discount_amount is informational only.
     line_items = models.JSONField(default=list, blank=True)
+    # EN 16931 exemption texts keyed by VAT category ({"E": {"text", "code"}, ...}), derived from the
+    # lines at generation and on DRAFT line edits. Empty on invoices issued before it existed.
+    vat_exemptions = models.JSONField(default=dict, blank=True)
 
     # Seller snapshot (org at time of purchase — NOT editable)
     seller_name = models.CharField(max_length=255)
@@ -350,6 +356,11 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
         breakdown would go stale on exactly those rows.
         """
         return vat_breakdown_of(self.line_items)
+
+    @property
+    def exempt_reason_text(self) -> str:
+        """The VAT exemption reason printed for exempt (category E) lines, or ``""`` when none."""
+        return str((self.vat_exemptions or {}).get("E", {}).get("text", ""))
 
     @property
     def has_mixed_vat_rates(self) -> bool:

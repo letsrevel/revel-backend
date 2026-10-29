@@ -117,6 +117,11 @@
         Depending on your country of residence,<br>
         VAT may instead be due there.
       </div>
+      {% elif invoice.exempt_reason_text %}
+      <div class="footer-label" style="margin-top: 12px;">Tax Notice</div>
+      <div class="notes-text">
+        VAT exempt: {{ invoice.exempt_reason_text }}
+      </div>
       {% endif %}
     </div>
   </div>
