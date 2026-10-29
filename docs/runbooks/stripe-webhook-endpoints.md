@@ -14,7 +14,7 @@ events are disjoint by construction.
 
 | Endpoint | `connect` | Subscribed events | Delivers |
 |---|---|---|---|
-| Platform ("Your account") | `false` | `checkout.session.completed`, `charge.refunded`, `payment_intent.canceled` | Events on `STRIPE_ACCOUNT` itself — i.e. the host-bound organization's sales |
+| Platform ("Your account") | `false` | `checkout.session.completed`, `charge.refunded`, `charge.dispute.*`, `payment_intent.canceled` | Events on `STRIPE_ACCOUNT` itself — i.e. the host-bound organization's sales |
 | Connect ("Connected accounts") | `true` | same + `account.updated` | Events on organizations' connected accounts (`event.account` is set) |
 
 Both endpoints are pinned to `STRIPE_API_VERSION` — webhook payload shapes
@@ -87,3 +87,24 @@ double-binding.
   `stripe_webhook_signature_failed` (no secret matched → 403; investigate if
   persistent), `stripe_webhook_unhandled_event` (subscribed-but-unmapped type).
 - Stripe side: Workbench → Webhooks shows per-endpoint delivery success rates.
+
+## Adding event types to existing endpoints
+
+`provision_stripe_webhooks` only **creates** endpoints; it never edits ones that
+already exist. When a release adds event types to `PLATFORM_EVENTS` (for example
+`charge.dispute.created`, `charge.dispute.updated` and `charge.dispute.closed`,
+which feed the organizer dispute records), the already-provisioned endpoints
+keep their old subscription list until you update them by hand. Do this for
+**both** the platform and the Connect endpoint:
+
+- **Dashboard:** Workbench → Webhooks → select the endpoint → **Update details**
+  (or "Edit destination") → add the new event types → save. The signing secret
+  does not change.
+- **API:** `stripe.WebhookEndpoint.modify("we_...", enabled_events=[...])` with the
+  full desired list (the call replaces the list, it does not append). Use
+  `PLATFORM_EVENTS` for the platform endpoint and `CONNECT_EVENTS` for the
+  Connect endpoint.
+
+Until an endpoint is updated, its new events simply never arrive, so nothing is
+recorded and no error is raised. Verify with a Dashboard test event or the
+event log at `/admin/events/stripewebhookevent/`.

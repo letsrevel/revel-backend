@@ -460,6 +460,23 @@ class StaffTicketRefundedTemplate(NotificationTemplate):
         return self.get_in_app_title(notification)
 
 
+class StaffPaymentDisputedTemplate(NotificationTemplate):
+    """Template for STAFF_PAYMENT_DISPUTED notification (to org staff/owners)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        if notification.context.get("outcome") == "closed":
+            return _("Payment dispute closed: %(status)s") % {"status": notification.context.get("status_label", "")}
+        return _("Payment dispute opened: %(amount)s %(currency)s") % {
+            "amount": notification.context.get("amount", ""),
+            "currency": notification.context.get("currency", ""),
+        }
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        return self.get_in_app_title(notification)
+
+
 class RefundUnmatchedTemplate(NotificationTemplate):
     """Template for REFUND_UNMATCHED notification (to org staff)."""
 
@@ -495,6 +512,7 @@ register_template(NotificationType.TICKET_REFUNDED, TicketUpdatedTemplate())
 register_template(NotificationType.STAFF_TICKET_CREATED, StaffTicketCreatedTemplate())
 register_template(NotificationType.STAFF_TICKET_CANCELLED, StaffTicketCancelledTemplate())
 register_template(NotificationType.STAFF_TICKET_REFUNDED, StaffTicketRefundedTemplate())
+register_template(NotificationType.STAFF_PAYMENT_DISPUTED, StaffPaymentDisputedTemplate())
 register_template(NotificationType.TICKET_CHECKED_IN, TicketCheckedInTemplate())
 register_template(NotificationType.PAYMENT_CONFIRMATION, PaymentConfirmationTemplate())
 register_template(NotificationType.REFUND_UNMATCHED, RefundUnmatchedTemplate())

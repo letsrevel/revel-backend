@@ -44,6 +44,7 @@ def _get_guest_notification_type_settings() -> dict[str, t.Any]:
         NotificationType.STAFF_TICKET_CREATED,  # Staff alerts: guests can't be staff
         NotificationType.STAFF_TICKET_CANCELLED,
         NotificationType.STAFF_TICKET_REFUNDED,
+        NotificationType.STAFF_PAYMENT_DISPUTED,
         NotificationType.STAFF_SERIES_PASS_PURCHASED,
         NotificationType.STAFF_SERIES_PASS_CANCELLED,
     ]
