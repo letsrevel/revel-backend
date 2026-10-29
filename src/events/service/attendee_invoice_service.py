@@ -626,11 +626,12 @@ def deliver_attendee_invoice(invoice: AttendeeInvoice) -> None:
 
 
 class _CreditNoteBuild(t.NamedTuple):
-    """Computed fields ready to hand to ``AttendeeInvoiceCreditNote.objects.create()``."""
+    """The lines and coverage of a credit note still to be created (or recorded as skipped).
 
-    amount_gross: Decimal
-    amount_net: Decimal
-    amount_vat: Decimal
+    Carries no totals: a Revel credit note derives its own EN 16931 totals from these lines
+    at creation (#1234), while a skipped record sums them as they are.
+    """
+
     line_items: list[InvoiceLineItemDict]
     payments: t.Collection[Payment]
     refund_rows: list[Refund] | None
@@ -661,9 +662,6 @@ def _build_from_payments(
         return None
 
     return _CreditNoteBuild(
-        amount_gross=sum((p.amount for p in refunded_payments), Decimal("0.00")),
-        amount_net=sum((p.net_amount or p.amount for p in refunded_payments), Decimal("0.00")),
-        amount_vat=sum((p.vat_amount or Decimal("0.00") for p in refunded_payments), Decimal("0.00")),
         line_items=_build_line_items(refunded_payments, reverse_charge, out_of_scope),
         payments=refunded_payments,
         refund_rows=None,
@@ -706,12 +704,7 @@ def _build_from_refund_rows(
     if not refund_rows:
         return None
 
-    amount_gross = sum((r.amount for r in refund_rows), Decimal("0.00"))
-    amount_vat = sum((_refund_vat_portion(r) for r in refund_rows), Decimal("0.00"))
     return _CreditNoteBuild(
-        amount_gross=amount_gross,
-        amount_net=amount_gross - amount_vat,
-        amount_vat=amount_vat,
         line_items=_build_refund_line_items(refund_rows, reverse_charge, out_of_scope),
         payments={r.payment for r in refund_rows},
         refund_rows=refund_rows,
@@ -896,13 +889,17 @@ def generate_attendee_credit_note(
             AttendeeInvoiceCreditNote, cn_prefix, year, "credit_note_number"
         )
 
+        # A new document gets EN 16931 totals of its own (#1234), whatever the invoice's method.
+        totals = compute_en16931_totals(build.line_items, invoice.reverse_charge)
         credit_note = AttendeeInvoiceCreditNote.objects.create(
             invoice=invoice,
             credit_note_number=credit_note_number,
-            amount_gross=build.amount_gross,
-            amount_net=build.amount_net,
-            amount_vat=build.amount_vat,
-            line_items=build.line_items,
+            amount_gross=totals.total_gross,
+            amount_net=totals.total_net,
+            amount_vat=totals.total_vat,
+            rounding_amount=totals.rounding_amount,
+            totals_method=TotalsMethod.EN16931,
+            line_items=totals.lines,
             issued_at=timezone.now(),
         )
         credit_note.payments.set(build.payments)
