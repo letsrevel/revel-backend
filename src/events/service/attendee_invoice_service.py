@@ -54,7 +54,8 @@ def einvoice_missing_fields(org: Organization) -> list[str]:
     Covers the structured address, then the legal name and a VIES-validated VAT ID.
 
     Returns:
-        Organization field names (e.g. ``"billing_city"``), in a stable order.
+        Organization field names (e.g. ``"billing_city"``), in a stable order; ``"vat_id"``
+        stands for "VAT ID not VIES-validated".
     """
     missing = [
         f"billing_{PostalAddress.FIELD_SUFFIXES[name]}" for name in org.billing_postal_address().missing_fields()
