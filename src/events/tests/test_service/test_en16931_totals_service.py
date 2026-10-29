@@ -4,6 +4,8 @@ import copy
 import random
 from decimal import ROUND_HALF_UP, Decimal
 
+import pytest
+
 from events.models.attendee_invoice import InvoiceLineItemDict
 from events.service.en16931_totals_service import compute_en16931_totals, group_net_vat
 from events.utils.vat_category import derive_vat_category
@@ -82,6 +84,39 @@ class TestComputeEn16931Totals:
         assert [line["unit_price_gross"] for line in totals.lines] == ["24.90", "5.10"]
         assert all(out is not src for out, src in zip(totals.lines, lines, strict=True))
 
+    def test_every_line_foots_when_the_group_is_reachable(self) -> None:
+        """Review fix 1: two 7.99 @ 10% lines (15.98 is reachable) print rows where net + VAT == gross."""
+        totals = compute_en16931_totals(
+            [_line("7.99", "10.00", "S"), _line("7.99", "10.00", "S")], reverse_charge=False
+        )
+        assert totals.rounding_amount == Decimal("0.00")
+        for line in totals.lines:
+            assert Decimal(line["net_amount"]) + Decimal(line["vat_amount"]) == Decimal("7.99")
+        assert sum(Decimal(line["vat_amount"]) for line in totals.lines) == totals.total_vat
+
+    def test_group_rounding_lands_on_the_largest_gross_line(self) -> None:
+        """An unreachable group puts its BT-114 cent on exactly one line: the largest gross, first on ties."""
+        lines = [
+            _line("5.00", "13.00", "S", "small"),
+            _line("9.95", "13.00", "S", "big"),
+            _line("9.95", "13.00", "S", "tie"),
+        ]
+        totals = compute_en16931_totals(lines, reverse_charge=False)
+        rounding = totals.groups[0].rounding
+        assert rounding == Decimal("-0.01")  # 24.90 at 13% is unreachable
+        off = [
+            line
+            for line in totals.lines
+            if Decimal(line["net_amount"]) + Decimal(line["vat_amount"]) != Decimal(line["unit_price_gross"])
+        ]
+        assert [line["description"] for line in off] == ["big"]
+        assert Decimal(off[0]["net_amount"]) + Decimal(off[0]["vat_amount"]) + rounding == Decimal("9.95")
+
+    def test_reverse_charge_line_with_vat_rate_is_rejected(self) -> None:
+        """Review fix 5: an AE line never carries a rate; the function refuses rather than invent a VAT."""
+        with pytest.raises(ValueError, match="reverse-charge line with non-zero VAT rate"):
+            compute_en16931_totals([_line("100.00", "20.00", "AE")], reverse_charge=True)
+
     def test_reverse_charge_lines_are_ae_zero(self) -> None:
         """A reverse-charge line has no stored category here, so the key is derived: AE at 0%."""
         totals = compute_en16931_totals([_line("100.00", "0.00")], reverse_charge=True)
@@ -113,3 +148,11 @@ class TestComputeEn16931Totals:
                     if (line["vat_category"], Decimal(line["vat_rate"])) == (group.category, group.rate)
                 ]
                 assert sum(Decimal(line["net_amount"]) for line in members) == group.net
+                assert sum(Decimal(line["vat_amount"]) for line in members) == group.vat
+                # Review fix 1: every row foots, except at most one per group carrying that group's cent.
+                off_by = [
+                    Decimal(line["net_amount"]) + Decimal(line["vat_amount"]) - Decimal(line["unit_price_gross"])
+                    for line in members
+                ]
+                non_footing = [delta for delta in off_by if delta != 0]
+                assert non_footing == ([-group.rounding] if group.rounding != 0 else [])
