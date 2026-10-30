@@ -175,7 +175,8 @@ def _recompute_vat_exemptions(
     """
     org = invoice.organization
     org_reason = org.vat_exemption_reason if org else ""
-    exempt = [item for item in line_items if item["vat_category"] == VatCategory.EXEMPT]
+    # ``.get``: at issue the stored lines come in as they are, and a legacy row's carry no category.
+    exempt = [item for item in line_items if item.get("vat_category") == VatCategory.EXEMPT]
     tiers = {
         str(tier.pk): tier
         for tier in TicketTier.objects.filter(pk__in={item["tier_id"] for item in exempt if "tier_id" in item})
@@ -467,9 +468,19 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
             # invoice exists to recover a failed PDF generation, and that recovery
             # must stay available even for a row that drifted before #911 landed.
             _assert_totals_reconcile(invoice)
+            update_fields = ["status", "issued_at", "updated_at"]
+            if (
+                invoice.organization is not None
+                and is_small_business(invoice.organization)
+                and all("vat_category" in item for item in invoice.line_items)  # a legacy row has no map to redo
+            ):
+                # A draft generated before the scheme was declared carries no statutory note yet (#1244):
+                # stamp the exemption map now, lines untouched, so the issued document states the exemption.
+                invoice.vat_exemptions = _recompute_vat_exemptions(invoice, invoice.line_items)
+                update_fields.append("vat_exemptions")
             invoice.status = AttendeeInvoice.InvoiceStatus.ISSUED
             invoice.issued_at = timezone.now()
-            invoice.save(update_fields=["status", "issued_at", "updated_at"])
+            invoice.save(update_fields=update_fields)
 
     # (Re-)generate PDF without DRAFT watermark. Outside the lock: WeasyPrint is
     # slow, and once the status commits no edit can land -- update_draft_invoice

@@ -133,7 +133,8 @@ def tax_number_is_valid(country: str, number: str) -> bool:
     lengths = _TAX_NUMBER_DIGITS.get(country.upper())
     if lengths is None:
         return True
-    return digits.isdigit() and len(digits) in lengths
+    # ASCII digits only: ``str.isdigit`` also accepts other scripts' digits, which must not reach BT-32 or the PDF.
+    return digits.isascii() and digits.isdigit() and len(digits) in lengths
 
 
 def scheme_matches_country(scheme: str, country: str) -> bool:

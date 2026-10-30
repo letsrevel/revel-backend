@@ -33,6 +33,7 @@ from events.tests.test_attendee_invoice._helpers import (
 )
 from events.tests.test_attendee_invoice.test_small_business_scheme import _make_small_business
 from events.tests.test_einvoice._fixtures import line, make_invoice
+from events.utils.small_business import tax_number_is_valid
 
 pytestmark = pytest.mark.django_db
 
@@ -332,3 +333,74 @@ def test_draft_line_guard_uses_decimal_and_rejects_garbage(organization: Organiz
     with pytest.raises(HttpError) as exc_info:
         service.assert_draft_lines_exempt(org, [{"vat_rate": "abc"}])
     assert exc_info.value.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# CodeRabbit: ASCII digits only; the statutory note is stamped at issue
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("number", ["١٢٣٤٥٦٧٨٩٠", "１２３４５６７８９０", "12/345/6789٠"])
+def test_tax_number_rejects_non_ascii_digits(number: str) -> None:
+    assert tax_number_is_valid("DE", number) is False
+    assert tax_number_is_valid("DE", "1234567890") is True
+
+
+class TestStatutoryNoteAtIssue:
+    def _exempt_draft(
+        self, organization: Organization, event: Event, tier: TicketTier, user: RevelUser, reason: str
+    ) -> AttendeeInvoice:
+        tier.vat_exemption_reason = reason
+        tier.save()
+        invoice = _create_draft(organization, event, user)
+        line = {
+            **invoice.line_items[0],
+            "vat_rate": "0.00",
+            "vat_amount": "0.00",
+            "net_amount": "100.00",
+            "vat_category": "E",
+            "line_id": "1",
+            "tier_id": str(tier.pk),
+        }
+        invoice.line_items = [line]
+        invoice.total_vat = Decimal("0.00")
+        invoice.total_net = Decimal("100.00")
+        invoice.vat_exemptions = {"E": {"text": reason, "code": ""}}
+        invoice.save()
+        return invoice
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_pre_scheme_exempt_draft_gets_the_note_when_issued(
+        self,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Generated before the scheme (E lines, a tier reason); the scheme is declared, then it is issued."""
+        draft = self._exempt_draft(organization, event, event_ticket_tier, member_user, "Art. 132(1)(n) VAT Directive")
+        _make_small_business(organization)
+        event.vat_country_code = "DE"
+        event.save()
+        issued = issue_draft_invoice(draft)
+        issued.refresh_from_db()
+        text = issued.vat_exemptions["E"]["text"]
+        assert text.startswith("Steuerbefreit gemäß § 19 UStG")
+        assert "Art. 132(1)(n) VAT Directive" in text
+        assert issued.line_items == draft.line_items  # the lines themselves are untouched
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_non_scheme_draft_is_unchanged(
+        self,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        _make_org_invoicing_ready(organization)
+        draft = self._exempt_draft(organization, event, event_ticket_tier, member_user, "Art. 132(1)(n) VAT Directive")
+        issued = issue_draft_invoice(draft)
+        issued.refresh_from_db()
+        assert issued.vat_exemptions == {"E": {"text": "Art. 132(1)(n) VAT Directive", "code": ""}}
