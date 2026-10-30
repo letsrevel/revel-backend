@@ -307,7 +307,7 @@ def _check_per_user_usage(dc: DiscountCode, user: RevelUser, batch_size: int) ->
     user_usage = Ticket.objects.filter(
         discount_code=dc,
         user=user,
-        status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
+        status__in=Ticket.HELD_STATUSES,
     ).count()
     if user_usage + batch_size > dc.max_uses_per_user:
         raise HttpError(400, str(_("You have already used this discount code the maximum number of times.")))
@@ -616,7 +616,7 @@ def apply_discount(discount_code: DiscountCode, user: RevelUser, batch_size: int
     user_usage = Ticket.objects.filter(
         discount_code=dc,
         user=user,
-        status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
+        status__in=Ticket.HELD_STATUSES,
     ).count()
     if user_usage > dc.max_uses_per_user:
         raise HttpError(400, str(_("You have already used this discount code the maximum number of times.")))

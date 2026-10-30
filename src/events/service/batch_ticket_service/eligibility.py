@@ -252,7 +252,7 @@ class PurchaseEligibilityMixin(BatchTicketContext):
         qs = Ticket.objects.filter(
             event=self.event,
             user=self.user,
-            status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
+            status__in=Ticket.HELD_STATUSES,
         )
         if tier is not None:
             qs = qs.filter(tier=tier)
@@ -369,7 +369,7 @@ class PurchaseEligibilityMixin(BatchTicketContext):
                 event=self.event,
                 user=self.user,
                 tier_id__in=capped_tier_ids,
-                status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
+                status__in=Ticket.HELD_STATUSES,
             )
             .values("tier_id")
             .annotate(count=Count("id"))

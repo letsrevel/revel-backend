@@ -90,6 +90,23 @@ class TestGetUserTicketCount:
         service = BatchTicketService(event, tier, member_user)
         assert service.get_user_ticket_count(tier) == 1
 
+    def test_counts_checked_in_tickets(
+        self,
+        event: Event,
+        tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """A checked-in ticket is still held and counts toward the per-user limit."""
+        Ticket.objects.create(
+            event=event,
+            tier=tier,
+            user=member_user,
+            status=Ticket.TicketStatus.CHECKED_IN,
+            guest_name="Guest 1",
+        )
+        service = BatchTicketService(event, tier, member_user)
+        assert service.get_user_ticket_count(tier) == 1
+
     def test_excludes_cancelled_tickets(
         self,
         event: Event,
