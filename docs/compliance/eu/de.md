@@ -102,13 +102,16 @@ Not covered:
   a line cannot be edited to carry VAT, a draft cannot be switched to reverse charge, and issuing a draft
   runs the two gates. Credit notes do not: a credit note reverses the invoice it corrects as issued (an
   invoice issued with VAT before the scheme was declared is credited with that VAT), whatever the
-  organizer's scheme or the event's venue have become since. Once invoicing is on, a German scheme
-  organizer cannot delete or replace its USt-IdNr. (a VIES failure would leave it unidentifiable, and
-  unlike an Austrian Kleinunternehmer it has no tax-number fallback): it turns invoicing off first. The
-  Steuernummer may be blanked or changed freely. Should VIES revalidation flip the USt-IdNr. to not
-  validated, generation skips the organizer's invoices (reason `seller_identity_missing`) and a draft
-  cannot be issued until it is validated again; a draft that still carries VAT lines cannot be issued
-  either. An organizer without a scheme whose validation lapsed keeps today's behaviour and is still
+  organizer's scheme or the event's venue have become since. The German scheme is declared and kept
+  only with a VIES-validated USt-IdNr., whatever the invoicing mode: a billing PATCH that would leave
+  `de_19` without one is refused (422 with the message above), and so is deleting the USt-IdNr. (leave
+  the scheme first); the Steuernummer may be blanked or changed freely. Replacing the USt-IdNr. is
+  decided on the actual VIES outcome, so an organizer whose monthly revalidation lapsed recovers by
+  resubmitting a valid USt-IdNr.: valid → stored and validated; invalid → 422 and nothing is written;
+  VIES down → 503 and nothing is written. While a lapse is unresolved, generation skips the
+  organizer's invoices (reason `seller_identity_missing`), a draft cannot be issued, and the platform
+  fee for that period falls back to Austrian VAT (Art. 18 IR 282/2011); a draft that still carries VAT
+  lines cannot be issued either. An organizer without a scheme whose validation lapsed keeps today's behaviour and is still
   invoiced with its stored VAT ID. The tier flag `invoicing_available` and the event's compliance block
   (`blocked`) follow the same gates, so checkout never promises an invoice generation would skip. A
   credit note on a scheme-issued invoice stays exempt even where it has to fall back to the payment (a
@@ -120,14 +123,17 @@ Not covered:
   with a VIES-validated USt-IdNr., a Kleinunternehmer included, is a B2B service supplied in Germany and
   **reverse-charged** (Art. 44 and 196 of the VAT Directive): no Austrian VAT, the organizer accounts for
   German VAT under §13b UStG (a Kleinunternehmer cannot deduct it; §19 Abs. 1 S. 2 UStG does not exclude
-  §13b). A German organizer *without* a validated USt-IdNr. (not a scheme organizer, since the scheme
-  requires one) is treated as a non-taxable customer under Art. 18 of Implementing Regulation 282/2011
-  and charged Austrian VAT, as before. Pinned by tests so a change is deliberate.
+  §13b). A German organizer *without* a validated USt-IdNr. is treated as a non-taxable customer under
+  Art. 18 of Implementing Regulation 282/2011 and charged Austrian VAT, as before; a scheme organizer
+  is in that position only while a VIES revalidation lapse is unresolved, since the scheme cannot be
+  declared or kept without a validated USt-IdNr. Pinned by tests so a change is deliberate.
 - **Third-party issuance.** Revel issues attendee invoices and credit notes in the organizer's name
   and on its behalf, which Art. 220(1) of the VAT Directive and §14 Abs. 2 S. 7 UStG allow. Every such
-  PDF carries the line "Issued by *platform legal name* in the name and on behalf of *organizer*" (the
-  legal name is `SiteSettings.platform_business_name`), so the document is unambiguously the
-  organizer's. An invoicing mandate in the organizer terms is a separate ToS step.
+  PDF carries the line "Issued by *platform legal name* in the name and on behalf of *organizer*", and
+  the Factur-X XML the same sentence as the invoice note (BT-22), so the document is unambiguously the
+  organizer's. The legal name (`SiteSettings.platform_business_name`) is snapshotted on the invoice
+  and on the credit note when each is created (`issuer_name`); documents from before the snapshot
+  name the current operator. An invoicing mandate in the organizer terms is a separate ToS step.
 - **Not covered:** Revel cannot know an organizer's turnover, so it does not gate anything on the
   800,000 EUR threshold or on the §19 thresholds (25,000 EUR prior year, 100,000 EUR current year);
   every eligible document gets the XML, and the organizer is responsible for the scheme it declares.
@@ -136,8 +142,10 @@ Not covered:
   cannot tell a taxable person from a consumer, and the USt-IdNr. is free from the BZSt. This is a
   documented limitation, not a planned feature.
 - The [common ticket content](index.md#common-ticket-content) applies. Tickets and wallet passes print
-  the organization's VAT ID when one is set, so a German Kleinunternehmer's tickets carry its USt-IdNr.
-  The Steuernummer is printed only for an organizer with no VAT ID at all, a declared scheme and a
+  the organization's VAT ID when one is set (for a scheme organizer: once VIES-validated, as on its
+  invoices), so a German Kleinunternehmer's tickets carry its USt-IdNr. and print no tax ID while a
+  validation lapse is unresolved. The Steuernummer is printed only for an organizer with no VAT ID at
+  all, a declared scheme and a
   complete scheme identity, which after [#1258](https://github.com/letsrevel/revel-backend/issues/1258)
   is the Austrian scheme only (the German scheme's identity is never complete without the USt-IdNr.).
 

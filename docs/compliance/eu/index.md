@@ -18,8 +18,9 @@ takes effect. No country restricts offline payment.
 Every ticket PDF and Apple/Google Wallet pass carries the following, whatever the country:
 
 - **Organizer**: the organization's billing name, or its display name if no billing name is set.
-- **Tax ID**: the organization's VAT ID, when one is set; otherwise, for an organization with no VAT
-  ID at all, a declared small-business scheme and a complete scheme identity (scheme, establishment in
+- **Tax ID**: the organization's VAT ID, when one is set (a small-business organizer's only once it is
+  VIES-validated, as on its invoices); otherwise, for an organization with no validated VAT ID, a
+  declared small-business scheme and a complete scheme identity (scheme, establishment in
   the scheme's country, format-valid tax number), its national tax registration number with the
   country's label (`Steuernummer: 12-345/6789`), as on the invoices
   ([#1260](https://github.com/letsrevel/revel-backend/issues/1260)). In practice that is the Austrian
@@ -74,8 +75,11 @@ order, with the issue time set to their creation time.
   in [de.md](de.md) and [at.md](at.md).
 - Every attendee invoice and credit-note PDF states that it was issued by the platform operator in the
   name and on behalf of the organizer (Art. 220(1) of Directive 2006/112/EC: third-party issuance; AT
-  UStR Rz 1505, 1530–1532; DE § 14 Abs. 2 S. 7 UStG). The operator's legal name is
-  `SiteSettings.platform_business_name`.
+  UStR Rz 1505, 1530–1532; DE § 14 Abs. 2 S. 7 UStG), and the Factur-X XML carries the same sentence
+  as the invoice note (BT-22). The operator's legal name (`SiteSettings.platform_business_name`) is
+  snapshotted on each document when it is created (`issuer_name`), like the seller fields, so a later
+  rename never rewrites an issued document; documents from before the snapshot name the current
+  operator.
 - The country of establishment is the declared VAT country, else the VAT ID's prefix, else the
   structured billing address's country, else the organization's city. Every country policy keys on it.
 - Revel's own platform-fee invoices are B2B invoices from an Austrian business and are not affected by
@@ -83,7 +87,9 @@ order, with the issue time set to their creation time.
   Rz 638o), so the fee follows the ordinary B2B rules: **reverse charge** (Art. 44/196) for an organizer
   in another member state with a validated VAT ID, German Kleinunternehmer included; **Austrian VAT**
   for Austrian organizers (domestic, Kleinunternehmer included) and for EU organizers without a
-  validated VAT ID (Art. 18 IR 282/2011; a German scheme organizer cannot be in this group). Still with
+  validated VAT ID (Art. 18 IR 282/2011; a German scheme organizer only lands here while a VIES
+  revalidation lapse is unresolved, since the scheme cannot be declared or kept without a validated
+  USt-IdNr.). Still with
   the tax advisor: whether the fee is an e-service and the EUR 10,000 OSS threshold, and the Art. 9a IR
   282/2011 deemed-supplier risk for on-demand virtual content ([de.md](de.md#open-questions)).
 

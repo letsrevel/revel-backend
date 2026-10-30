@@ -70,13 +70,15 @@ merchant of record they remain responsible for their tax and invoicing duties.
   Pinned by a test.
 - **Third-party issuance.** Revel issues attendee invoices and credit notes in the organizer's name
   and on its behalf (Art. 220(1) of the Directive; UStR Rz 1505, 1530–1532). Every such PDF carries the
-  line "Issued by *platform legal name* in the name and on behalf of *organizer*"
-  (`SiteSettings.platform_business_name`). An invoicing mandate in the organizer terms is a separate
-  ToS step.
+  line "Issued by *platform legal name* in the name and on behalf of *organizer*", and the Factur-X XML
+  the same sentence as BT-22; the legal name (`SiteSettings.platform_business_name`) is snapshotted on
+  the document (`issuer_name`) when it is created. An invoicing mandate in the organizer terms is a
+  separate ToS step.
 - The [common ticket content](index.md#common-ticket-content) applies. Tickets and wallet passes print
   the Steuernummer as the tax ID for an organizer with no VAT ID at all, a declared scheme and a
-  complete scheme identity (scheme, establishment in Austria, format-valid Steuernummer); an organizer
-  with a UID prints the UID.
+  complete scheme identity (scheme, establishment in Austria, format-valid Steuernummer); a scheme
+  organizer with a UID prints the UID once it is VIES-validated (an unvalidated UID falls back to the
+  Steuernummer).
 
 ## Legal basis
 
