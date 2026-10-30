@@ -41,6 +41,7 @@ class TestSocialMediaSchemaEditMixin:
             ("instagram_url", "https://facebook.com/user", "Instagram"),
             ("instagram_url", "https://twitter.com/user", "Instagram"),
             ("instagram_url", "https://example.com/user", "Instagram"),
+            ("instagram_url", "https://example.com\\@instagram.com/user", "Instagram"),
             # Facebook invalid URLs
             ("facebook_url", "https://instagram.com/user", "Facebook"),
             ("facebook_url", "https://twitter.com/user", "Facebook"),
