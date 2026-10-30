@@ -2,6 +2,7 @@
 import typing as t
 
 import pytest
+from django.test import override_settings
 from django.test.client import Client
 from ninja_jwt.tokens import RefreshToken
 
@@ -145,3 +146,15 @@ def guest_user(django_user_model: t.Type[RevelUser]) -> RevelUser:
         is_active=True,
         password=make_password(None),
     )
+
+
+@pytest.fixture
+def no_manifest_storage() -> t.Iterator[None]:
+    """Rendering a full admin page needs a staticfiles manifest for whitenoise; use the plain storage."""
+    with override_settings(
+        STORAGES={
+            "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+            "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+        }
+    ):
+        yield

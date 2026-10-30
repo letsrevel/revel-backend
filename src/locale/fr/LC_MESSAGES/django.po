@@ -7080,3 +7080,18 @@ msgstr "Avertissement : en cours d'examen"
 
 msgid "Won"
 msgstr "Gagné"
+
+msgid "Convert guest to full account"
+msgstr "Convertir l'invité en compte complet"
+
+#, python-format
+msgid "Converted %d guest to a full account."
+msgid_plural "Converted %d guests to full accounts."
+msgstr[0] "%d invité converti en compte complet."
+msgstr[1] "%d invités convertis en comptes complets."
+
+#, python-format
+msgid "Skipped %d globally banned guest."
+msgid_plural "Skipped %d globally banned guests."
+msgstr[0] "%d invité banni ignoré."
+msgstr[1] "%d invités bannis ignorés."

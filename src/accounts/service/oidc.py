@@ -37,7 +37,7 @@ from accounts.exceptions import OIDCLoginError
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import check_blacklist, consume_one_shot_token, create_oidc_login_token, validate_oidc_login_token
 from accounts.models import ExternalIdentity, RevelUser
-from accounts.service import referral_application_service
+from accounts.service import account as account_service
 from common.models import SiteSettings
 from common.service.upload_service import safe_save_uploaded_file
 from common.utils import get_or_create_with_race_protection
@@ -391,11 +391,9 @@ def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser
         if not user.is_active and not user.guest:
             raise OIDCLoginError("inactive")
         if user.guest:
-            user.guest = False
-            user.email_verified = True
-            user.is_active = True
-            user.save(update_fields=["guest", "email_verified", "is_active"])
-            referral_application_service.try_enroll_invitee(user)
+            account_service.convert_guest(user, reactivate=True)
+            if not user.is_active:  # lost a race with a deactivation: values were copied back
+                raise OIDCLoginError("inactive")
         elif not user.email_verified:
             user.email_verified = True
             user.save(update_fields=["email_verified"])

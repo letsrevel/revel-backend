@@ -6954,3 +6954,18 @@ msgstr "Aviso: em análise"
 
 msgid "Won"
 msgstr "Ganha"
+
+msgid "Convert guest to full account"
+msgstr "Converter convidado em conta completa"
+
+#, python-format
+msgid "Converted %d guest to a full account."
+msgid_plural "Converted %d guests to full accounts."
+msgstr[0] "%d convidado convertido em conta completa."
+msgstr[1] "%d convidados convertidos em contas completas."
+
+#, python-format
+msgid "Skipped %d globally banned guest."
+msgid_plural "Skipped %d globally banned guests."
+msgstr[0] "%d convidado com bloqueio global ignorado."
+msgstr[1] "%d convidados com bloqueio global ignorados."
