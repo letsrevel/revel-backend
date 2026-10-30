@@ -261,7 +261,12 @@ def validate_category_prices(tier: "TicketTier") -> None:
         # Name whatever resolves — a category from another venue still has a name the admin
         # recognises, and a bare UUID is unrenderable in the tier form. Ids that match nothing
         # at all fall back to the raw value.
-        elsewhere = dict(PriceCategory.objects.filter(id__in=unknown).values_list("id", "name"))
+        # Scoped to the tier's own organization so another tenant's category name never leaks.
+        elsewhere = dict(
+            PriceCategory.objects.filter(id__in=unknown, venue__organization_id=tier.event.organization_id).values_list(
+                "id", "name"
+            )
+        )
         labels = sorted(elsewhere.get(cid, str(cid)) for cid in unknown)
         _fail(
             str(_("These price categories do not belong to the tier's venue: {categories}.")).format(

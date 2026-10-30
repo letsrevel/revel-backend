@@ -119,7 +119,9 @@ def create_organization_token_from_payload(
     if payload.grants_staff_status and organization.owner_id != requested_by.pk:
         raise OrganizationTokenStaffGrantForbidden
 
-    data = payload.model_dump(exclude_unset=True)
+    # Not ``exclude_unset``: omitted fields must take the schema's documented defaults
+    # (single use, 24h), not the constructor's unlimited/60-minute fallbacks.
+    data = payload.model_dump()
     tier_id = data.pop("membership_tier_id", None)
     membership_tier = _resolve_membership_tier(organization, tier_id)
 

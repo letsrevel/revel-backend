@@ -239,6 +239,21 @@ def test_foreign_venue_category_rejected(
     assert str(foreign.id) not in exc_info.value.message_dict["category_prices"][0]
 
 
+def test_other_organization_category_name_not_disclosed(
+    event: Event, organization: Organization, sector: VenueSector, premium: PriceCategory
+) -> None:
+    """A category belonging to another organization is rejected without revealing its name."""
+    other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization.owner)
+    other_venue = Venue.objects.create(organization=other_org, name="Elsewhere")
+    foreign = PriceCategory.objects.create(venue=other_venue, name="Secret Lounge", color="#aa0000")
+    paint(sector, "A1", premium)
+    tier = make_tier(event, sector, category_prices={str(premium.id): "50.00", str(foreign.id): "20.00"})
+    with pytest.raises(ValidationError) as exc_info:
+        tier.full_clean()
+    message = exc_info.value.message_dict["category_prices"][0]
+    assert "Secret Lounge" not in message
+
+
 def test_unknown_category_id_rejected(event: Event, sector: VenueSector) -> None:
     """A key that resolves to no category at all is a validation error."""
     tier = make_tier(event, sector, category_prices={str(uuid.uuid4()): "50.00"})

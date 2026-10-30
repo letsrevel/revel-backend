@@ -15,7 +15,12 @@ from common.service.upload_service import safe_save_uploaded_file
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
 from events import models, schema
-from events.controllers.permissions import CanDuplicateEvent, EventPermission, scope_allows
+from events.controllers.permissions import (
+    CanDuplicateEvent,
+    EventPermission,
+    require_series_pass_link_access,
+    scope_allows,
+)
 from events.service import event_service, refund_service
 from oauth.permissions import RequireScope
 
@@ -54,6 +59,8 @@ class EventAdminCoreController(EventAdminBaseController):
         ``is_template=False``.
         """
         event = self.get_one(event_id)
+        if payload.series_pass_links:
+            require_series_pass_link_access(t.cast(HttpRequest, self.context.request), event.organization)  # type: ignore[union-attr]
         return event_service.update_event(event, payload, requested_by=self.user())
 
     @route.delete(
@@ -165,6 +172,9 @@ class EventAdminCoreController(EventAdminBaseController):
             # conditional on the body, which a declarative ``permissions=`` entry cannot see.
             request = t.cast(HttpRequest, self.context.request)  # type: ignore[union-attr]
             scope_allows(request, "manage_tickets")
+            # Session principals: same org-permission the per-ticket refund route enforces.
+            if not event.organization.has_org_permission(self.user().id, "manage_tickets"):
+                raise HttpError(403, str(_("You do not have permission to refund tickets.")))
         return event_service.update_status(
             event,
             status,

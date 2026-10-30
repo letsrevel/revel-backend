@@ -1,5 +1,6 @@
 import typing as t
 
+from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import File, Query
@@ -14,7 +15,12 @@ from common.service.upload_service import safe_save_uploaded_file
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
 from events import models, schema
-from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
+from events.controllers.permissions import (
+    IsOrganizationOwner,
+    IsOrganizationStaff,
+    OrganizationPermission,
+    require_series_pass_link_access,
+)
 from events.service import event_service, organization_service, stripe_service
 from events.utils.brand_theme import BrandTheme
 from events.utils.branding import OrganizationBranding
@@ -315,5 +321,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
     def create_event(self, slug: str, payload: schema.EventCreateSchema) -> models.Event:
         """Create a new event."""
         organization = self.get_one(slug)
+        if payload.series_pass_links:
+            require_series_pass_link_access(t.cast(HttpRequest, self.context.request), organization)  # type: ignore[union-attr]
         event = event_service.create_event(organization, payload)
         return models.Event.objects.full().get(pk=event.pk)

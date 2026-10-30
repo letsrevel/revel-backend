@@ -189,7 +189,8 @@ def validate_events_coverable(series: EventSeries, events: t.Sequence[Event]) ->
         raise SeriesPassCoverageError(str(_("Series passes are not supported on recurring series.")))
     for event in events:
         if event.event_series_id != series.id:
-            raise SeriesPassCoverageError(str(_("Event '%s' does not belong to this series.") % event.name))
+            # Generic on purpose: ``events`` may be resolved globally, so a foreign event's name must not leak.
+            raise SeriesPassCoverageError(str(_("Event does not belong to this series.")))
         if event.status != Event.EventStatus.OPEN:
             raise SeriesPassCoverageError(str(_("Event '%s' is not open.") % event.name))
         if not event.requires_ticket:

@@ -579,3 +579,26 @@ class TestResolveVisibilityFast:
             staff_ids=set(),
         )
         assert resolve_visibility_fast(viewer, target, context) is False
+
+
+class TestVisibilityIgnoresInactiveMemberships:
+    """Cancelled/banned membership rows do not count as membership for visibility."""
+
+    @pytest.mark.parametrize(
+        "status", [OrganizationMember.MembershipStatus.CANCELLED, OrganizationMember.MembershipStatus.BANNED]
+    )
+    def test_inactive_viewer_membership_does_not_grant_to_members_visibility(
+        self, event: models.Event, viewer: RevelUser, target: RevelUser, status: str
+    ) -> None:
+        target.general_preferences.show_me_on_attendee_list = "to_members"
+        target.general_preferences.save()
+        models.OrganizationMember.objects.create(organization=event.organization, user=viewer, status=status)
+        models.OrganizationMember.objects.create(organization=event.organization, user=target)
+        owner_id = event.organization.owner_id
+
+        assert (
+            resolve_visibility(viewer=viewer, target=target, event=event, owner_id=owner_id, staff_ids=set()) is False
+        )
+
+        context = VisibilityContext.for_event(event=event, owner_id=owner_id, staff_ids=set())
+        assert context.are_both_org_members(viewer.id, target.id) is False

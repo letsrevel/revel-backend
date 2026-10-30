@@ -106,11 +106,14 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
         - Verify staff invitation tokens are properly restricted
         """
         organization = self.get_one(slug)
-        return params.filter(
-            models.OrganizationToken.objects.filter(organization=organization).select_related(
-                "organization", "membership_tier"
-            )
-        ).distinct()
+        qs = models.OrganizationToken.objects.filter(organization=organization).select_related(
+            "organization", "membership_tier"
+        )
+        if organization.owner_id != self.user().pk:
+            # Staff-granting tokens are owner-only to create/update/delete; the id is a
+            # bearer credential, so non-owners must not be able to read it either.
+            qs = qs.exclude(grants_staff_status=True)
+        return params.filter(qs).distinct()
 
     @route.post(
         "/tokens",
