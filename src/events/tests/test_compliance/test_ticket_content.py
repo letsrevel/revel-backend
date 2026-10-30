@@ -111,11 +111,21 @@ class TestCommonFields:
         scheme_org.tax_registration_number = "12/345/67890"
         scheme_org.save()
         assert "tax_id" not in {field.key for field in ticket_fields(ticket)}  # no USt-IdNr.: incomplete identity
-        scheme_org.vat_id = "DE811234567"
+        scheme_org.vat_id = "DE811234567"  # typed in, not (or no longer) VIES-validated: nothing is printed either
+        scheme_org.save()
+        assert "tax_id" not in {field.key for field in ticket_fields(ticket)}
         scheme_org.vat_id_validated = True
         scheme_org.save()
         fields = {field.key: field for field in ticket_fields(ticket)}
         assert (fields["tax_id"].label, fields["tax_id"].value) == ("Tax ID", "DE811234567")
+
+    def test_non_scheme_organizer_prints_its_stored_vat_id_as_before(
+        self, fiscal_org: Organization, ticket: Ticket
+    ) -> None:
+        fiscal_org.vat_id_validated = False
+        fiscal_org.save()
+        fields = {field.key: field for field in ticket_fields(ticket)}
+        assert fields["tax_id"].value == "ATU12345678"
 
     def test_free_text_tax_number_without_a_scheme_prints_nothing(
         self, scheme_org: Organization, ticket: Ticket

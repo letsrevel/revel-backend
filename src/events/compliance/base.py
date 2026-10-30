@@ -215,13 +215,16 @@ def common_ticket_fields(ticket: "Ticket") -> list[TicketComplianceField]:
 
     org = ticket.event.organization
     fields = [TicketComplianceField("organizer", str(_("Organizer")), org.billing_name or org.name)]
-    if org.vat_id:
+    # A scheme organizer's VAT ID counts only once VIES validated (#1258), as on its invoices; any other
+    # organizer's stored VAT ID is printed as before.
+    if org.vat_id and (org.vat_id_validated or not is_small_business(org)):
         fields.append(TicketComplianceField("tax_id", str(_("Tax ID")), org.vat_id))
     elif is_small_business(org) and scheme_identity_complete(
         org.small_business_scheme, org.vat_id_validated, resolve_org_country(org), org.tax_registration_number
     ):
-        # Small-business organizers (#1244/#1260) have no VAT ID; the invoice's identity rule decides. The label
-        # is the scheme country's statutory term ("Steuernummer" for DE/AT), deliberately not translated.
+        # Small-business organizers (#1244/#1260) identified by their tax number (AT; a DE identity is never
+        # complete without the USt-IdNr.). The label is the scheme country's statutory term ("Steuernummer"
+        # for DE/AT), deliberately not translated.
         label = tax_number_label(scheme_country(org.small_business_scheme))
         fields.append(TicketComplianceField("tax_id", label, org.tax_registration_number))
     if number := format_ticket_number(ticket):
