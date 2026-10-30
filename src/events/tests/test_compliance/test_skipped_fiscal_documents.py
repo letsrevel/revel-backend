@@ -335,3 +335,44 @@ class TestCreditNoteSkips:
 
         assert generate_attendee_credit_note("cs_test_123", [payment.id]) is None
         assert not SkippedFiscalDocument.objects.exists()
+
+    def test_skipped_credit_notes_prorate_cumulatively(
+        self, organization: Organization, sale: t.Callable[..., Payment]
+    ) -> None:
+        """Two partial refunds recorded as skipped notes add up to the invoice line to the cent."""
+        _ready_in(organization, "BE")
+        payment = sale(_consumer(), amount=Decimal("3.00"), net_amount=Decimal("2.46"), vat_amount=Decimal("0.54"))
+        invoice = generate_attendee_invoice("cs_test_123")
+        assert invoice is not None
+        invoice.line_items = [
+            {**invoice.line_items[0], "unit_price_gross": "10.00", "net_amount": "8.20", "vat_amount": "1.80"}
+        ]
+        invoice.buyer_vat_id = "BE0123456789"  # the buyer turned out to be a domestic business: now gated
+        invoice.save(update_fields=["line_items", "buyer_vat_id"])
+        for _ in range(2):
+            row = _refund(payment, "1.00")
+            assert generate_attendee_credit_note("cs_test_123", [payment.id], refund_ids=[row.id]) is None
+
+        grosses = [
+            doc.line_items[0]["unit_price_gross"] for doc in SkippedFiscalDocument.objects.order_by("created_at")
+        ]
+        assert grosses == ["3.33", "3.34"]  # cumulative 3.33, 6.67 of the 10.00 line
+
+    def test_skipped_invoice_credit_notes_follow_its_lines(
+        self, organization: Organization, sale: t.Callable[..., Payment]
+    ) -> None:
+        """Partial refunds on a skipped invoice are prorated from its stored lines: VAT adds up to the cent."""
+        _ready_in(organization, "BE")
+        payment = sale(
+            _business("BE0123456789"), amount=Decimal("3.00"), net_amount=Decimal("2.48"), vat_amount=Decimal("0.52")
+        )
+        assert generate_attendee_invoice("cs_test_123") is None
+        (skipped_invoice,) = SkippedFiscalDocument.objects.filter(kind=Kind.INVOICE)
+        line = skipped_invoice.line_items[0]
+        for _ in range(3):
+            row = _refund(payment, "1.00")
+            assert generate_attendee_credit_note("cs_test_123", [payment.id], refund_ids=[row.id]) is None
+
+        notes = SkippedFiscalDocument.objects.filter(kind=Kind.CREDIT_NOTE)
+        assert sum(Decimal(n.line_items[0]["vat_amount"]) for n in notes) == Decimal(line["vat_amount"])
+        assert sum(Decimal(n.line_items[0]["unit_price_gross"]) for n in notes) == Decimal(line["unit_price_gross"])

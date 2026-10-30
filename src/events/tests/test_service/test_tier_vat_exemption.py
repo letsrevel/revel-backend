@@ -261,6 +261,14 @@ def test_is_paid_online_with_category_prices() -> None:
     assert is_paid_online(TicketTier(**base, category_prices=None)) is False
 
 
+def test_is_paid_online_pwyc_tier_with_category_prices() -> None:
+    """An ORM-written PWYC tier with a priced category still sells online (#1242)."""
+    cid = "6f1c1d0a-0000-4000-8000-000000000001"
+    fields: dict[str, object] = {"payment_method": "online", "price": "0", "price_type": "pwyc", "pwyc_min": "0"}
+    assert is_paid_online(TicketTier(**fields, category_prices={cid: "25.00"})) is True
+    assert is_paid_online(TicketTier(**fields, category_prices={})) is False
+
+
 def _paused_legacy_zero_tier(event: Event, org: Organization) -> TicketTier:
     tier = _legacy_zero_tier(event, org)
     tier.sales_paused = True
@@ -288,3 +296,25 @@ def test_pausing_zero_rate_tier_without_reason_succeeds(event: Event, invoicing_
     tier = _legacy_zero_tier(event, invoicing_org)
     updated = ticket_service.update_ticket_tier(tier, TicketTierUpdateSchema(sales_paused=True))  # type: ignore[call-arg]
     assert updated.sales_paused is True
+
+
+def test_sql_zero_rate_guard_agrees_with_is_paid_online_for_pwyc_category_prices(
+    event: Event, invoicing_org: Organization
+) -> None:
+    """A PWYC tier with a priced category is paid online for the Python rule and the SQL guard alike (#1242)."""
+    from events.service.zero_rate_guard_service import zero_rate_tiers_missing_reason
+
+    cid = "6f1c1d0a-0000-4000-8000-000000000001"
+    tier = TicketTier(  # the API forbids this combination, so it is written around validation
+        event=event,
+        name="P",
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        price=0,
+        price_type=TicketTier.PriceType.PWYC,
+        pwyc_min=0,
+        vat_rate=Decimal("0"),
+        category_prices={cid: "25.00"},
+    )
+    TicketTier.objects.bulk_create([tier])
+    assert is_paid_online(tier) is True
+    assert zero_rate_tiers_missing_reason(invoicing_org) is True

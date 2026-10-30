@@ -11,18 +11,43 @@ import datetime
 import os
 import typing as t
 from collections.abc import Callable
+from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
 from euinvoice import facturx, profiles, validate
 from euinvoice.errors import ArtifactsNotAvailableError
 
 from accounts.models import RevelUser
-from events.models import Event, Organization
+from events.models import Event, Organization, Payment, Refund, TicketTier
 from events.models.attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote
-from events.service.attendee_invoice_service import _generate_and_save_pdf, _generate_credit_note_pdf
+from events.service.attendee_invoice_draft_service import issue_draft_invoice, update_draft_invoice
+from events.service.attendee_invoice_service import (
+    _generate_and_save_pdf,
+    _generate_credit_note_pdf,
+    generate_attendee_credit_note,
+    generate_attendee_invoice,
+)
+from events.tests.test_attendee_invoice._helpers import (
+    MOCK_SEND_EMAIL,
+    _create_payment,
+    _default_billing_snapshot,
+    _make_org_invoicing_ready,
+)
 from events.tests.test_einvoice._fixtures import CARD, OTHER, line, make_credit_note, make_invoice
 
 pytestmark = [pytest.mark.django_db, pytest.mark.einvoice_conformance]
+
+
+def _refund(payment: Payment, amount: str) -> Refund:
+    return Refund.objects.create(
+        payment=payment,
+        amount=Decimal(amount),
+        currency="EUR",
+        status=Refund.RefundStatus.SUCCEEDED,
+        source=Refund.Source.ORGANIZER_API,
+    )
+
 
 Build = Callable[[Organization, Event, RevelUser], AttendeeInvoice | AttendeeInvoiceCreditNote]
 
@@ -83,11 +108,7 @@ FIXTURES: dict[str, Build] = {
 }
 
 
-@pytest.mark.parametrize("name", sorted(FIXTURES))
-def test_generated_document_is_en16931_conformant(
-    name: str, organization: Organization, event: Event, member_user: RevelUser
-) -> None:
-    document = FIXTURES[name](organization, event, member_user)
+def _assert_conformant(document: AttendeeInvoice | AttendeeInvoiceCreditNote) -> None:
     if isinstance(document, AttendeeInvoice):
         _generate_and_save_pdf(document)
     else:
@@ -109,3 +130,48 @@ def test_generated_document_is_en16931_conformant(
         if f.severity != "information"
     ]
     assert report.ok, "\n".join(failed)
+
+
+@pytest.mark.parametrize("name", sorted(FIXTURES))
+def test_generated_document_is_en16931_conformant(
+    name: str, organization: Organization, event: Event, member_user: RevelUser
+) -> None:
+    _assert_conformant(FIXTURES[name](organization, event, member_user))
+
+
+def test_credit_notes_of_a_rate_edited_draft_are_conformant(
+    organization: Organization, event: Event, member_user: RevelUser
+) -> None:
+    """#1250: a DRAFT edited from 20 % to 10 %, then partially and fully credited, validates end to end."""
+    organization = _make_org_invoicing_ready(organization)
+    organization.invoicing_mode = Organization.InvoicingMode.HYBRID
+    organization.save()
+    tier = TicketTier.objects.create(
+        event=event, name="General", price=Decimal("24.90"), payment_method=TicketTier.PaymentMethod.ONLINE
+    )
+    payment = _create_payment(
+        user=member_user,
+        event=event,
+        tier=tier,
+        session_id="cs_conf_edit",
+        amount=Decimal("24.90"),
+        net_amount=Decimal("20.75"),
+        vat_amount=Decimal("4.15"),
+        vat_rate=Decimal("20.00"),
+        buyer_billing_snapshot=_default_billing_snapshot(),
+    )
+    invoice = generate_attendee_invoice("cs_conf_edit")
+    assert invoice is not None
+    edited = {**invoice.line_items[0], "vat_rate": "10.00"}
+    with patch(MOCK_SEND_EMAIL):
+        invoice = issue_draft_invoice(update_draft_invoice(invoice, {"line_items": [edited]}))
+    notes = [
+        generate_attendee_credit_note("cs_conf_edit", [payment.id], refund_ids=[row.id])
+        for row in (_refund(payment, "10.00"), _refund(payment, "14.90"))
+    ]
+    assert all(notes)
+    _assert_conformant(invoice)
+    for note in notes:
+        assert note is not None
+        assert [li["vat_rate"] for li in note.line_items] == ["10.00"]
+        _assert_conformant(note)

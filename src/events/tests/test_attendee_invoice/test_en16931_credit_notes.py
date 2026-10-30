@@ -207,7 +207,7 @@ class TestEditedDrafts:
         org.invoicing_mode = Organization.InvoicingMode.HYBRID
         org.save()
 
-    def test_rate_edited_draft_refund_never_takes_the_invoice_remainder(
+    def test_rate_edited_draft_refund_reverses_the_edited_rate(
         self, auto_org: Organization, event: Event, event_ticket_tier: TicketTier, member_user: RevelUser
     ) -> None:
         self._hybrid(auto_org)
@@ -221,9 +221,11 @@ class TestEditedDrafts:
         cn = generate_attendee_credit_note("cs_cn_en_edit", [payment.id])
         assert cn is not None
         assert cn.totals_method == "en16931"
-        assert abs(cn.rounding_amount) <= Decimal("0.01")
-        # EN 16931 on its own 20% lines: 24.90 = 20.75 + 4.15, nothing borrowed from the 10% invoice.
-        assert (cn.amount_net, cn.amount_vat) == (Decimal("20.75"), Decimal("4.15"))
+        # The note copies the invoice's edited 10% line (#1250), not the payment's 20%, and so
+        # lands exactly on the invoice's own figures.
+        assert [li["vat_rate"] for li in cn.line_items] == ["10.00"]
+        assert (cn.amount_net, cn.amount_vat) == (invoice.total_net, invoice.total_vat)
+        assert cn.rounding_amount == invoice.rounding_amount
         _invariant(cn)
 
     def test_reverse_charge_draft_refund_builds_zero_rate_lines(

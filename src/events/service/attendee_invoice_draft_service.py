@@ -24,6 +24,8 @@ from events.models.attendee_invoice import (
     SubmittedLineItem,
     TotalsMethod,
 )
+from events.models.ticket import TicketTier
+from events.service.attendee_invoice_lines import ProvenanceDict
 from events.service.attendee_invoice_service import _generate_and_save_pdf, invoice_compliance_decision
 from events.service.attendee_vat_service import out_of_scope_for
 from events.service.en16931_totals_service import compute_en16931_totals, sum_line_amounts
@@ -33,6 +35,7 @@ from events.utils.vat_category import (
     VatExemptionDict,
     build_vat_exemptions,
     derive_vat_category,
+    effective_vat_exemption_reason,
 )
 
 logger = structlog.get_logger(__name__)
@@ -90,16 +93,55 @@ _BLANKABLE_STRING_FIELDS = frozenset(
 )
 
 
+def _carry_provenance(submitted: list[SubmittedLineItem], stored: list[InvoiceLineItemDict]) -> list[ProvenanceDict]:
+    """The ids each submitted line keeps from the draft's stored lines (#1242, #1250).
+
+    A line's provenance (``payment_id``, ``tier_id``) is whatever the server wrote on its stored line
+    at generation. A submitted line inherits it only by echoing that line's server-issued ``line_id``
+    (each stored line at most once, the first claimant wins); ``line_id``, ``payment_id`` and
+    ``tier_id`` are all copied from the stored line, never taken from the client. A line with no,
+    an unknown or a repeated ``line_id`` was added by hand and carries nothing. Matching on position
+    or content instead would hand a reordered or edited line another payment's ids, or drop its own.
+    """
+    by_id = {line["line_id"]: line for line in stored if "line_id" in line}
+    claimed: set[str] = set()
+    origins: list[InvoiceLineItemDict | None] = []
+    for item in submitted:
+        line_id = str(item["line_id"]) if item.get("line_id") else ""
+        origin = by_id.get(line_id) if line_id not in claimed else None
+        if origin is not None:
+            claimed.add(line_id)
+        origins.append(origin)
+    return [_ids_of(origin) for origin in origins]
+
+
+def _ids_of(line: InvoiceLineItemDict | None) -> ProvenanceDict:
+    ids = ProvenanceDict()
+    if line is not None:
+        ids["line_id"] = line["line_id"]
+        if "payment_id" in line:
+            ids["payment_id"] = line["payment_id"]
+        if "tier_id" in line:
+            ids["tier_id"] = line["tier_id"]
+    return ids
+
+
 def _normalize_line_items(
-    line_items: list[SubmittedLineItem], reverse_charge: bool, out_of_scope: bool = False
+    line_items: list[SubmittedLineItem],
+    reverse_charge: bool,
+    out_of_scope: bool = False,
+    stored: list[InvoiceLineItemDict] | None = None,
 ) -> list[InvoiceLineItemDict]:
     """Coerce submitted line items to the stored shape: every key present, every amount a string.
 
     ``vat_category`` is derived from each line's rate and ``reverse_charge``, never taken from the client.
+    ``line_id``/``payment_id``/``tier_id`` are re-attached from the ``stored`` lines (see
+    :func:`_carry_provenance`).
 
     The schema parses amounts as ``Decimal``; the JSON column stores strings, and
     both :func:`_derive_totals` and ``vat_breakdown`` read them back that way.
     """
+    provenance = _carry_provenance(line_items, stored or [])
     return [
         InvoiceLineItemDict(
             description=item.get("description", ""),
@@ -111,8 +153,9 @@ def _normalize_line_items(
             vat_category=str(
                 derive_vat_category(Decimal(str(item.get("vat_rate", "0.00"))), reverse_charge, out_of_scope)
             ),
+            **ids,
         )
-        for item in line_items
+        for item, ids in zip(line_items, provenance, strict=True)
     ]
 
 
@@ -121,14 +164,32 @@ def _recompute_vat_exemptions(
 ) -> dict[str, VatExemptionDict]:
     """Rebuild the exemption map for edited lines.
 
-    An exempt text already stored on the draft (a tier's reason, possibly joined) is kept; the
-    generic fallback is not, so it is re-resolved from the organization's default instead.
+    Each exempt (E) line resolves its reason afresh from its own tier (the tier's reason, else the
+    organization's), so a corrected tier or organization reason replaces the stored text and text
+    that described lines no longer there cannot survive (#1242). A line without a tier (added by
+    hand, or whose tier is gone) takes the organization's. Only on a legacy invoice, whose lines
+    carry no ids at all, is the exempt text already stored kept (the generic fallback excepted).
     """
+    org_reason = invoice.organization.vat_exemption_reason if invoice.organization else ""
+    exempt = [item for item in line_items if item["vat_category"] == VatCategory.EXEMPT]
+    tiers = {
+        str(tier.pk): tier
+        for tier in TicketTier.objects.filter(pk__in={item["tier_id"] for item in exempt if "tier_id" in item})
+    }
+    # From the stored lines: an invoice that ever had ids never drops to the legacy path.
+    has_provenance = any("line_id" in item for item in invoice.line_items)
     stored = invoice.vat_exemptions.get("E", {}).get("text", "")
-    if stored and stored != EXEMPT_FALLBACK_TEXT:
-        reasons = [stored]
-    else:
-        reasons = [invoice.organization.vat_exemption_reason] if invoice.organization else []
+    legacy_reason = stored if stored and stored != EXEMPT_FALLBACK_TEXT else org_reason
+    reasons = []
+    for item in exempt:
+        if (tier := tiers.get(item.get("tier_id", ""))) is not None:
+            reasons.append(
+                effective_vat_exemption_reason(tier, invoice.organization)
+                if invoice.organization
+                else tier.vat_exemption_reason
+            )
+        else:
+            reasons.append(org_reason if has_provenance else legacy_reason)
     return build_vat_exemptions((VatCategory(item["vat_category"]) for item in line_items), reasons)
 
 
@@ -244,7 +305,7 @@ def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.
     submitted = update_data.get("line_items", invoice.line_items)
     buyer_country = update_data.get("buyer_vat_country", invoice.buyer_vat_country)
     out_of_scope = out_of_scope_for(invoice.event, invoice.seller_vat_country, buyer_country)
-    line_items = _normalize_line_items(submitted, reverse_charge, out_of_scope)
+    line_items = _normalize_line_items(submitted, reverse_charge, out_of_scope, invoice.line_items)
     if reverse_charge and any(Decimal(i["vat_rate"]) or Decimal(i["vat_amount"]) for i in line_items):
         raise HttpError(422, str(_("A reverse-charge invoice can't charge VAT. Set the VAT of every line to 0.")))
     # An en16931 row's lines come back rebalanced (net/VAT from gross and rate); a legacy row's as submitted.

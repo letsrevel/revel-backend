@@ -8,6 +8,7 @@ as an intermediary generating and delivering invoices.
 import enum
 import typing as t
 from decimal import Decimal, InvalidOperation
+from uuid import UUID
 
 from django.conf import settings
 from django.db import models
@@ -69,6 +70,13 @@ class InvoiceLineItemDict(t.TypedDict):
     vat_rate: str
     # EN 16931 category (VatCategory value); absent on lines stored before it existed.
     vat_category: t.NotRequired[str]
+    # Provenance snapshotted at generation (#1242, #1250); absent on lines stored before it existed
+    # and on lines an organizer added to a DRAFT. ``payment_id`` is the Payment the line charges,
+    # ``tier_id`` the ticket's tier (absent when the ticket had none).
+    payment_id: t.NotRequired[str]
+    tier_id: t.NotRequired[str]
+    # Server-issued stable identity of the line; a DRAFT edit echoes it to keep the line's provenance.
+    line_id: t.NotRequired[str]
 
 
 class SubmittedLineItem(t.TypedDict, total=False):
@@ -85,6 +93,8 @@ class SubmittedLineItem(t.TypedDict, total=False):
     vat_amount: Decimal
     vat_rate: Decimal
     vat_category: t.NotRequired[str]
+    # Echoed back by the client; only honoured when it names a stored line (see _carry_provenance).
+    line_id: t.NotRequired[UUID | str | None]
 
 
 class DerivedTotals(t.TypedDict):

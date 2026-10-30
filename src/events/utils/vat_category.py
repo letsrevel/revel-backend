@@ -120,13 +120,16 @@ def is_paid_online(tier: "TicketTier") -> bool:
     strings on an unsaved tier built from a JSON payload, hence the ``Decimal(str(...))`` coercion.
 
     Returns:
-        ``True`` for an ONLINE tier with a positive fixed price, or a pay-what-you-can tier with
-        a positive minimum or maximum, or a seated tier with any positive category price.
+        ``True`` for an ONLINE tier with a positive fixed price, a pay-what-you-can tier with
+        a positive minimum or maximum, or a seated tier with any positive category price. A category
+        price counts under any price type: the API keeps PWYC and category prices exclusive, but an
+        admin or ORM write need not.
     """
     if tier.payment_method != "online":  # TicketTier.PaymentMethod.ONLINE; models are not imported here
         return False
     if tier.price_type == "pwyc":
-        return any(Decimal(str(v)) > 0 for v in (tier.pwyc_min, tier.pwyc_max) if v is not None)
-    if Decimal(str(tier.price)) > 0:
+        if any(Decimal(str(v)) > 0 for v in (tier.pwyc_min, tier.pwyc_max) if v is not None):
+            return True
+    elif Decimal(str(tier.price)) > 0:
         return True
     return any(price > 0 for price in parse_price_map(tier.category_prices).values())

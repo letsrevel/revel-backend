@@ -12,7 +12,7 @@ from freezegun import freeze_time
 from accounts.models import RevelUser
 from events.compliance.base import country_name
 from events.exceptions import CountryComplianceError
-from events.models import Event, Organization, TicketTier
+from events.models import Event, Organization, SkippedFiscalDocument, TicketTier
 from events.models.attendee_invoice import AttendeeInvoice
 from events.service.attendee_invoice_draft_service import issue_draft_invoice
 from events.service.attendee_invoice_service import (
@@ -253,12 +253,15 @@ class TestExistingDocuments:
         draft = _create_draft(organization, event, member_user)
         draft.seller_vat_country = "HR"
         draft.save(update_fields=["seller_vat_country"])
+        skipped_before = SkippedFiscalDocument.objects.count()
 
         with pytest.raises(CountryComplianceError, match="Croatia"):
             issue_draft_invoice(draft)
 
         draft.refresh_from_db()
         assert draft.status == AttendeeInvoice.InvoiceStatus.DRAFT
+        # A refused draft is not a skipped document (#1238): nothing is recorded, it stays a draft.
+        assert SkippedFiscalDocument.objects.count() == skipped_before
 
     def test_pre_gate_issued_invoice_gets_no_credit_note(
         self,

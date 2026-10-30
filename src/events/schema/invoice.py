@@ -96,6 +96,10 @@ class InvoiceLineItemInputSchema(Schema):
     net_amount: _Money
     vat_amount: _Money
     vat_rate: _VatRate
+    # Opaque identity of a line the server issued. Echo it back unchanged on a DRAFT edit so the line
+    # keeps what it was generated from (credit notes and the exemption reason follow it); a line
+    # without a known one is treated as added by hand.
+    line_id: UUID | None = None
 
 
 class InvoiceLineItemSchema(InvoiceLineItemInputSchema):
