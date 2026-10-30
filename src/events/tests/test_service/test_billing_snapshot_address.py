@@ -3,6 +3,7 @@
 import typing as t
 
 import pytest
+from django.utils import timezone
 
 from accounts.models import RevelUser, UserBillingProfile
 from events.models.attendee_invoice import BuyerBillingSnapshot
@@ -114,3 +115,35 @@ def test_greek_billing_country_is_stored_as_iso_gr() -> None:
     snapshot = _snapshot(_info(billing_country_code="el"))
 
     assert snapshot["billing_country_code"] == "GR"
+
+
+@pytest.mark.django_db
+def test_save_to_profile_resets_vies_state_when_vat_id_changes(django_user_model: type[RevelUser]) -> None:
+    """A different VAT ID must not inherit the previous one's validated flag."""
+    user = django_user_model.objects.create_user(username="vat@example.com", email="vat@example.com", password="p")
+    UserBillingProfile.objects.create(
+        user=user,
+        vat_id="ATU12345678",
+        vat_country_code="AT",
+        vat_id_validated=True,
+        vat_id_validated_at=timezone.now(),
+        vies_request_identifier="req",
+    )
+
+    _save_billing_to_profile(user, _info(vat_id="DE123456789", vat_country_code="DE"))
+
+    profile = UserBillingProfile.objects.get(user=user)
+    assert profile.vat_id == "DE123456789"
+    assert profile.vat_id_validated is False
+    assert profile.vat_id_validated_at is None
+    assert profile.vies_request_identifier == ""
+
+
+@pytest.mark.django_db
+def test_save_to_profile_keeps_vies_state_when_vat_id_unchanged(django_user_model: type[RevelUser]) -> None:
+    user = django_user_model.objects.create_user(username="vat2@example.com", email="vat2@example.com", password="p")
+    UserBillingProfile.objects.create(user=user, vat_id="ATU12345678", vat_country_code="AT", vat_id_validated=True)
+
+    _save_billing_to_profile(user, _info(vat_id="ATU12345678", vat_country_code="AT"))
+
+    assert UserBillingProfile.objects.get(user=user).vat_id_validated is True

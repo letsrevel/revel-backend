@@ -199,6 +199,12 @@ def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSch
     for field, value in structured.items():
         setattr(profile, field, value)
     if billing_info.vat_id:
+        if billing_info.vat_id != profile.vat_id:
+            # A different VAT ID has not been checked against VIES: drop the old ID's state.
+            profile.vat_id_validated = False
+            profile.vat_id_validated_at = None
+            profile.vies_request_identifier = ""
+            fields_to_update.extend(["vat_id_validated", "vat_id_validated_at", "vies_request_identifier"])
         profile.vat_id = billing_info.vat_id
         profile.vat_country_code = billing_info.vat_country_code
         fields_to_update.extend(["vat_id", "vat_country_code"])
