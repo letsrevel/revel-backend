@@ -5,6 +5,7 @@ numbering, no PDF, no delivery.
 """
 
 import typing as t
+import uuid
 from decimal import ROUND_HALF_UP, Decimal
 
 from events.models.attendee_invoice import InvoiceLineItemDict
@@ -19,6 +20,7 @@ ZERO = Decimal("0.00")
 class ProvenanceDict(t.TypedDict, total=False):
     """The optional provenance keys of an :class:`InvoiceLineItemDict`."""
 
+    line_id: str
     payment_id: str
     tier_id: str
 
@@ -33,7 +35,7 @@ def _description(ticket: Ticket) -> str:
 
 def _provenance(payment: Payment) -> ProvenanceDict:
     """The ids a line snapshots so a later edit or credit note can find what it charged (#1242, #1250)."""
-    ids = ProvenanceDict(payment_id=str(payment.id))
+    ids = ProvenanceDict(line_id=str(uuid.uuid4()), payment_id=str(payment.id))
     if payment.ticket.tier_id:
         ids["tier_id"] = str(payment.ticket.tier_id)
     return ids

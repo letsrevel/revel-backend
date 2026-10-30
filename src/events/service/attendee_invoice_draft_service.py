@@ -35,6 +35,7 @@ from events.utils.vat_category import (
     VatExemptionDict,
     build_vat_exemptions,
     derive_vat_category,
+    effective_vat_exemption_reason,
 )
 
 logger = structlog.get_logger(__name__)
@@ -93,42 +94,31 @@ _BLANKABLE_STRING_FIELDS = frozenset(
 
 
 def _carry_provenance(submitted: list[SubmittedLineItem], stored: list[InvoiceLineItemDict]) -> list[ProvenanceDict]:
-    """The ``payment_id``/``tier_id`` each submitted line keeps from the draft's stored lines (#1242, #1250).
+    """The ids each submitted line keeps from the draft's stored lines (#1242, #1250).
 
-    The API never lets a client state a tier or payment. A submitted line is tied to a stored line
-    (each stored line at most once) (a) by a submitted ``payment_id`` that names an unclaimed stored
-    line, else (b), only if it states no id, by content: the first unclaimed stored line with the same
-    ``description`` and ``unit_price_gross`` (a client that only knows the fields it displays). Otherwise it is a
-    hand-added line and carries nothing. Never by position: a reordered or reshaped list would
-    hand a line another payment's id. The tier is always read from the matched stored line.
+    A line's provenance (``payment_id``, ``tier_id``) is whatever the server wrote on its stored line
+    at generation. A submitted line inherits it only by echoing that line's server-issued ``line_id``
+    (each stored line at most once, the first claimant wins); ``line_id``, ``payment_id`` and
+    ``tier_id`` are all copied from the stored line, never taken from the client. A line with no,
+    an unknown or a repeated ``line_id`` was added by hand and carries nothing. Matching on position
+    or content instead would hand a reordered or edited line another payment's ids, or drop its own.
     """
-    with_ids = [line for line in stored if "payment_id" in line]
-    by_id = {line["payment_id"]: line for line in with_ids}
-    origins: list[InvoiceLineItemDict | None] = [None] * len(submitted)
+    by_id = {line["line_id"]: line for line in stored if "line_id" in line}
     claimed: set[str] = set()
-    for i, item in enumerate(submitted):  # ids first, so a content match never steals an id-claimed line
-        payment_id = str(item["payment_id"]) if item.get("payment_id") else ""
-        if payment_id in by_id and payment_id not in claimed:
-            claimed.add(payment_id)
-            origins[i] = by_id[payment_id]
-    for i, item in enumerate(submitted):
-        if origins[i] is not None or item.get("payment_id"):
-            continue  # matched by id, or claims an id that is not a stored line's: nothing to guess
-        for line in with_ids:
-            if (
-                line["payment_id"] not in claimed
-                and line["description"] == item.get("description", "")
-                and Decimal(line["unit_price_gross"]) == Decimal(str(item.get("unit_price_gross", "0.00")))
-            ):
-                claimed.add(line["payment_id"])
-                origins[i] = line
-                break
+    origins: list[InvoiceLineItemDict | None] = []
+    for item in submitted:
+        line_id = str(item["line_id"]) if item.get("line_id") else ""
+        origin = by_id.get(line_id) if line_id not in claimed else None
+        if origin is not None:
+            claimed.add(line_id)
+        origins.append(origin)
     return [_ids_of(origin) for origin in origins]
 
 
 def _ids_of(line: InvoiceLineItemDict | None) -> ProvenanceDict:
     ids = ProvenanceDict()
     if line is not None:
+        ids["line_id"] = line["line_id"]
         if "payment_id" in line:
             ids["payment_id"] = line["payment_id"]
         if "tier_id" in line:
@@ -145,7 +135,7 @@ def _normalize_line_items(
     """Coerce submitted line items to the stored shape: every key present, every amount a string.
 
     ``vat_category`` is derived from each line's rate and ``reverse_charge``, never taken from the client.
-    ``payment_id``/``tier_id`` are re-attached from the ``stored`` lines, never taken from the client (see
+    ``line_id``/``payment_id``/``tier_id`` are re-attached from the ``stored`` lines (see
     :func:`_carry_provenance`).
 
     The schema parses amounts as ``Decimal``; the JSON column stores strings, and
@@ -187,13 +177,17 @@ def _recompute_vat_exemptions(
         for tier in TicketTier.objects.filter(pk__in={item["tier_id"] for item in exempt if "tier_id" in item})
     }
     # From the stored lines: an invoice that ever had ids never drops to the legacy path.
-    has_provenance = any("payment_id" in item or "tier_id" in item for item in invoice.line_items)
+    has_provenance = any("line_id" in item for item in invoice.line_items)
     stored = invoice.vat_exemptions.get("E", {}).get("text", "")
     legacy_reason = stored if stored and stored != EXEMPT_FALLBACK_TEXT else org_reason
     reasons = []
     for item in exempt:
         if (tier := tiers.get(item.get("tier_id", ""))) is not None:
-            reasons.append(tier.vat_exemption_reason.strip() or org_reason)
+            reasons.append(
+                effective_vat_exemption_reason(tier, invoice.organization)
+                if invoice.organization
+                else tier.vat_exemption_reason
+            )
         else:
             reasons.append(org_reason if has_provenance else legacy_reason)
     return build_vat_exemptions((VatCategory(item["vat_category"]) for item in line_items), reasons)

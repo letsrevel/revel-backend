@@ -75,6 +75,8 @@ class InvoiceLineItemDict(t.TypedDict):
     # ``tier_id`` the ticket's tier (absent when the ticket had none).
     payment_id: t.NotRequired[str]
     tier_id: t.NotRequired[str]
+    # Server-issued stable identity of the line; a DRAFT edit echoes it to keep the line's provenance.
+    line_id: t.NotRequired[str]
 
 
 class SubmittedLineItem(t.TypedDict, total=False):
@@ -91,8 +93,8 @@ class SubmittedLineItem(t.TypedDict, total=False):
     vat_amount: Decimal
     vat_rate: Decimal
     vat_category: t.NotRequired[str]
-    # Echoed back by the client; only honoured when they match a stored line (see _carry_provenance).
-    payment_id: t.NotRequired[UUID | str | None]
+    # Echoed back by the client; only honoured when it names a stored line (see _carry_provenance).
+    line_id: t.NotRequired[UUID | str | None]
 
 
 class DerivedTotals(t.TypedDict):

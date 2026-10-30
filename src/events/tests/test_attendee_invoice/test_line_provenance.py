@@ -3,6 +3,7 @@
 import typing as t
 from decimal import Decimal
 from unittest.mock import patch
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -21,7 +22,7 @@ from events.tests.test_attendee_invoice._helpers import (
 
 pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("_no_pdf")]
 
-_IDS = ("payment_id", "tier_id")
+_IDS = ("line_id", "payment_id", "tier_id")
 
 
 @pytest.fixture
@@ -93,6 +94,7 @@ class TestGenerationSnapshot:
         assert invoice is not None
         assert invoice.line_items[0]["payment_id"] == str(payment.id)
         assert invoice.line_items[0]["tier_id"] == str(tier.id)
+        assert UUID(invoice.line_items[0]["line_id"])
 
 
 class TestDraftExemptionFromTier:
@@ -129,23 +131,22 @@ class TestDraftExemptionFromTier:
         invoice = update_draft_invoice(invoice, {"line_items": [_zero(second)]})
         assert invoice.vat_exemptions["E"]["text"] == "Org default reason"
 
-    def test_forged_or_foreign_ids_are_ignored(self, org: Organization, event: Event, member_user: RevelUser) -> None:
+    def test_unknown_line_id_gives_no_provenance(self, org: Organization, event: Event, member_user: RevelUser) -> None:
         invoice, t1 = self._draft(member_user, event)
         first, second = invoice.line_items
-        forged = {**_zero(second), "payment_id": "00000000-0000-0000-0000-000000000001", "tier_id": str(t1.id)}
+        forged = {**_zero(second), "line_id": str(uuid4()), "tier_id": str(t1.id)}
         invoice = update_draft_invoice(invoice, {"line_items": [first, forged]})
-        assert "payment_id" not in invoice.line_items[1]
-        assert "tier_id" not in invoice.line_items[1]
+        assert not {"line_id", "payment_id", "tier_id"} & invoice.line_items[1].keys()
         assert invoice.vat_exemptions["E"]["text"] == "Org default reason"
 
-    def test_client_echoing_no_ids_keeps_provenance_by_position(
+    def test_client_echoing_no_line_id_gives_no_provenance(
         self, org: Organization, event: Event, member_user: RevelUser
     ) -> None:
         invoice, _t1 = self._draft(member_user, event)
-        before = [li["payment_id"] for li in invoice.line_items]
         invoice = update_draft_invoice(invoice, {"line_items": [_without_ids(_zero(li)) for li in invoice.line_items]})
-        assert [li["payment_id"] for li in invoice.line_items] == before
-        assert invoice.vat_exemptions["E"]["text"] == "Art. 132 tier one; Org default reason"
+        assert not any(k in li for li in invoice.line_items for k in ("line_id", "payment_id", "tier_id"))
+        # The invoice had ids before the edit, so it never drops to the legacy path: org default only.
+        assert invoice.vat_exemptions["E"]["text"] == "Org default reason"
 
     def test_legacy_lines_keep_the_stored_text(self, org: Organization, event: Event, member_user: RevelUser) -> None:
         invoice, _t1 = self._draft(member_user, event)
@@ -158,27 +159,72 @@ class TestDraftExemptionFromTier:
 
 
 class TestProvenanceMatching:
-    """Review: provenance is matched by id, then by content -- never by position."""
+    """Provenance rides on the server-issued ``line_id``: never position, content or a client-stated payment."""
 
-    def _two(self, user: RevelUser, event: Event) -> tuple[AttendeeInvoice, Payment, Payment]:
+    def _two(self, user: RevelUser, event: Event, gross_b: str = "50.00") -> tuple[AttendeeInvoice, Payment, Payment]:
         t1, t2 = _tier(event, "T1", "R1"), _tier(event, "T2", "R2")
         pa = _pay(user, event, t1, "cs_prov_m", "A", "24.90")
-        pb = _pay(user, event, t2, "cs_prov_m", "B", "50.00")
+        pb = _pay(user, event, t2, "cs_prov_m", "B", gross_b)
         invoice = generate_attendee_invoice("cs_prov_m")
         assert invoice is not None
         return invoice, pa, pb
 
     @staticmethod
-    def _ids(invoice: AttendeeInvoice) -> dict[str, str | None]:
+    def _by_gross(invoice: AttendeeInvoice) -> dict[str, str | None]:
         return {li["unit_price_gross"]: li.get("payment_id") for li in invoice.line_items}
 
-    def test_reorder_without_ids_keeps_each_lines_own_ids(
+    def test_reorder_with_echoed_line_ids_keeps_each_lines_own_ids(
         self, org: Organization, event: Event, member_user: RevelUser
     ) -> None:
         invoice, pa, pb = self._two(member_user, event)
         a, b = invoice.line_items
-        invoice = update_draft_invoice(invoice, {"line_items": [_without_ids(b), _without_ids(a)]})
-        assert self._ids(invoice) == {"24.90": str(pa.id), "50.00": str(pb.id)}
+        invoice = update_draft_invoice(invoice, {"line_items": [b, a]})
+        assert self._by_gross(invoice) == {"24.90": str(pa.id), "50.00": str(pb.id)}
+
+    def test_reorder_of_identical_lines_keeps_per_payment_rates(
+        self, org: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        invoice, pa, pb = self._two(member_user, event, gross_b="24.90")
+        a, b = invoice.line_items
+        a = {**a, "description": "Same", "vat_rate": "10.00"}
+        b = {**b, "description": "Same", "vat_rate": "20.00"}
+        invoice = update_draft_invoice(invoice, {"line_items": [a, b]})
+        invoice = update_draft_invoice(invoice, {"line_items": [invoice.line_items[1], invoice.line_items[0]]})
+        assert [(li["payment_id"], li["vat_rate"]) for li in invoice.line_items] == [
+            (str(pb.id), "20.00"),
+            (str(pa.id), "10.00"),
+        ]
+
+    def test_editing_description_and_rate_with_the_line_id_keeps_provenance_and_credit_reverses_it(
+        self, org: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        invoice, pa, _pb = self._two(member_user, event)
+        a, b = invoice.line_items
+        edited = {**a, "description": "Totally different", "unit_price_gross": "24.90", "vat_rate": "10.00"}
+        invoice = issue_draft_invoice(update_draft_invoice(invoice, {"line_items": [edited, b]}))
+        assert invoice.line_items[0]["payment_id"] == str(pa.id)
+        note = generate_attendee_credit_note("cs_prov_m", [pa.id])
+        assert note is not None
+        assert [li["vat_rate"] for li in note.line_items] == ["10.00"]
+
+    def test_a_client_cannot_state_a_payment_or_tier(
+        self, org: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        invoice, pa, pb = self._two(member_user, event)
+        a, b = invoice.line_items
+        # A's line_id with B's payment/tier: this is an edit of line A, whatever else it claims.
+        moved = {**a, "payment_id": b["payment_id"], "tier_id": b["tier_id"], "description": "B's content"}
+        invoice = update_draft_invoice(invoice, {"line_items": [moved, b]})
+        assert invoice.line_items[0]["payment_id"] == str(pa.id)
+        assert invoice.line_items[0]["tier_id"] == a["tier_id"]
+        assert invoice.line_items[1]["payment_id"] == str(pb.id)
+
+    def test_duplicate_line_id_is_honoured_once(self, org: Organization, event: Event, member_user: RevelUser) -> None:
+        invoice, pa, _pb = self._two(member_user, event)
+        a, _b = invoice.line_items
+        invoice = update_draft_invoice(invoice, {"line_items": [a, {**a, "description": "copy"}]})
+        assert invoice.line_items[0]["payment_id"] == str(pa.id)
+        assert not {"line_id", "payment_id", "tier_id"} & invoice.line_items[1].keys()
 
     def test_delete_and_add_gives_the_new_line_nothing(
         self, org: Organization, event: Event, member_user: RevelUser
@@ -186,25 +232,16 @@ class TestProvenanceMatching:
         invoice, _pa, pb = self._two(member_user, event)
         _a, b = invoice.line_items
         hand_made = {**_without_ids(b), "description": "Hand made", "unit_price_gross": "7.00"}
-        invoice = update_draft_invoice(invoice, {"line_items": [hand_made, _without_ids(b)]})
-        assert self._ids(invoice) == {"7.00": None, "50.00": str(pb.id)}
+        invoice = update_draft_invoice(invoice, {"line_items": [hand_made, b]})
+        assert self._by_gross(invoice) == {"7.00": None, "50.00": str(pb.id)}
 
-    def test_all_forged_ids_give_nothing(self, org: Organization, event: Event, member_user: RevelUser) -> None:
-        invoice, _pa, _pb = self._two(member_user, event)
-        forged = [
-            {**li, "description": "x", "payment_id": f"00000000-0000-0000-0000-00000000000{i}"}
-            for i, li in enumerate(invoice.line_items, 1)
-        ]
-        invoice = update_draft_invoice(invoice, {"line_items": forged})
-        assert self._ids(invoice) == {"24.90": None, "50.00": None}
-
-    def test_removing_a_line_without_ids_keeps_the_rest_off_the_legacy_path(
+    def test_removing_a_line_keeps_the_rest_off_the_legacy_path(
         self, org: Organization, event: Event, member_user: RevelUser
     ) -> None:
         invoice, _pa, _pb = self._two(member_user, event)
         a, b = invoice.line_items
-        invoice = update_draft_invoice(invoice, {"line_items": [_without_ids(_zero(a)), _without_ids(_zero(b))]})
-        invoice = update_draft_invoice(invoice, {"line_items": [_without_ids(_zero(a))]})
+        invoice = update_draft_invoice(invoice, {"line_items": [_zero(a), _zero(b)]})
+        invoice = update_draft_invoice(invoice, {"line_items": [invoice.line_items[0]]})
         assert invoice.vat_exemptions["E"]["text"] == "R1"
         # An invoice that once had ids never drops to the legacy path, even if every line is replaced.
         replaced = {**_without_ids(_zero(a)), "description": "new"}

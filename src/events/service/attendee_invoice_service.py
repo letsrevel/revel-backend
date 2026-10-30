@@ -604,6 +604,7 @@ def _build_from_refund_rows(
     reverse_charge: bool = False,
     out_of_scope: bool = False,
     invoice_lines: list[InvoiceLineItemDict] | None = None,
+    skipped_before: t.Sequence[SkippedFiscalDocument] | None = None,
 ) -> AttendeeInvoiceCreditNote | _CreditNoteBuild | None:
     """Amount-aware, refund-row-keyed path: pro-rata VAT, exact-set idempotency on refund ids.
 
@@ -613,12 +614,23 @@ def _build_from_refund_rows(
     """
     already_credited_refund_ids: set["UUID"] = set()
     legacy_credited_payment_ids: set["UUID"] = set()
+    already_refunded: dict["UUID", Decimal] = {}  # per payment, for cumulative proration
     for existing_cn in existing_cns:
-        cn_refund_ids = {r.id for r in existing_cn.refunds.all()}
-        if cn_refund_ids:
-            already_credited_refund_ids.update(cn_refund_ids)
+        cn_refunds = list(existing_cn.refunds.all())
+        if cn_refunds:
+            already_credited_refund_ids.update(r.id for r in cn_refunds)
         else:
             legacy_credited_payment_ids.update(p.id for p in existing_cn.payments.all())
+        for refund in cn_refunds:
+            already_refunded[refund.payment_id] = (
+                already_refunded.get(refund.payment_id, Decimal("0.00")) + refund.amount
+            )
+    # Refunds already recorded as skipped notes count towards the proration too.
+    for doc in skipped_before or []:
+        for refund in doc.refunds.all():
+            already_refunded[refund.payment_id] = (
+                already_refunded.get(refund.payment_id, Decimal("0.00")) + refund.amount
+            )
 
     # Exact-match idempotency on the refund-id set
     requested_refund_id_set = {r.id for r in refund_rows}
@@ -634,13 +646,6 @@ def _build_from_refund_rows(
     ]
     if not refund_rows:
         return None
-
-    already_refunded: dict["UUID", Decimal] = {}
-    for existing_cn in existing_cns:
-        for refund in existing_cn.refunds.all():
-            already_refunded[refund.payment_id] = (
-                already_refunded.get(refund.payment_id, Decimal("0.00")) + refund.amount
-            )
 
     return _CreditNoteBuild(
         line_items=credit_lines_for_refunds(
@@ -718,7 +723,7 @@ def _record_skipped_credit_note(
                 r for r in refund_rows if r.id not in covered_refund_ids and r.payment_id not in covered_payment_ids
             ]
             build = (
-                _build_from_refund_rows(rows, existing_cns, reverse_charge, out_of_scope, invoice_lines)
+                _build_from_refund_rows(rows, existing_cns, reverse_charge, out_of_scope, invoice_lines, prior)
                 if rows
                 else None
             )
