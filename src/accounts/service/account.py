@@ -20,6 +20,7 @@ from accounts.models import Referral, ReferralCode, RevelUser
 from accounts.password_validation import validate_password
 from accounts.service import referral_application_service
 from accounts.service.referral_cleanup import assess_referral_forfeiture
+from accounts.signals import guest_converted
 from common.testing import (
     TOKEN_TYPE_DELETION,
     TOKEN_TYPE_EMAIL_CHANGE,
@@ -27,7 +28,6 @@ from common.testing import (
     TOKEN_TYPE_VERIFICATION,
     store_test_token,
 )
-from notifications.service.preferences import reset_converted_guest_preferences
 
 logger = structlog.get_logger(__name__)
 
@@ -388,28 +388,39 @@ def reset_password(token: str, new_password: str) -> RevelUser:
 
 
 @transaction.atomic
-def convert_guest(user: RevelUser) -> None:
+def convert_guest(user: RevelUser, *, verify_email: bool = True) -> None:
     """Convert a guest into a full account: the single place every conversion path goes through.
 
-    In one transaction: clears ``guest``, marks the email verified, enrolls an approved referral
-    invitee and resets the notification preferences to the regular defaults (#1248). Nothing is
-    swallowed except the referral enrollment, which by design never blocks (see
-    ``try_enroll_invitee``): a preference failure propagates and rolls the conversion back.
+    In one transaction: re-reads the user under a row lock (a concurrent or repeated conversion
+    sees a non-guest and returns), clears ``guest``, optionally marks the email verified, enrolls
+    an approved referral invitee and sends ``guest_converted`` (the notifications app resets the
+    preferences to the regular defaults, #1248). Nothing is swallowed except the referral
+    enrollment, which by design never blocks (see ``try_enroll_invitee``): a receiver failure
+    propagates and rolls the conversion back.
 
-    A non-guest is a no-op, so a concurrent or repeated conversion cannot re-run side effects.
-    Callers hold whatever row lock they need (e.g. ``select_for_update``) before calling.
+    # ponytail: bulk writes (``.update(guest=False)``, shell fixes) bypass this by design; always
+    # convert through this service.
+
+    A non-guest is a no-op. On return ``user``'s ``guest`` and ``email_verified`` reflect the DB.
 
     Args:
         user: The user to convert.
+        verify_email: Mark the email verified (default). The admin passes the form's own value.
     """
-    if not user.guest:
+    locked = RevelUser.objects.select_for_update().get(pk=user.pk)
+    user.guest, user.email_verified = locked.guest, locked.email_verified
+    if not locked.guest:
         return
-    user.guest = False
-    user.email_verified = True
-    user.save(update_fields=["guest", "email_verified"])
+    locked.guest = False
+    update_fields = ["guest"]
+    if verify_email:
+        locked.email_verified = True
+        update_fields.append("email_verified")
+    locked.save(update_fields=update_fields)
+    user.guest, user.email_verified = locked.guest, locked.email_verified
     logger.info("guest_user_converted_to_full_user", user_id=str(user.id), email=user.email)
     referral_application_service.try_enroll_invitee(user)
-    reset_converted_guest_preferences(user)
+    guest_converted.send(sender=RevelUser, user=user)
 
 
 @transaction.atomic

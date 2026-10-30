@@ -69,13 +69,16 @@ def test_converted_guest_with_legacy_pinned_channels_is_reset(guest_user: RevelU
 def test_explicit_value_on_converted_guest_is_kept(guest_user: RevelUser) -> None:
     explicit = {"enabled": True, "channels": ["email"]}
     prefs = guest_user.notification_preferences
-    prefs.notification_type_settings["org_announcement"] = explicit
+    prefs.notification_type_settings["membership_card_updated"] = explicit  # not an original key
     prefs.save()
     _convert_without_hook(guest_user)
 
     _run()
 
-    assert _settings(guest_user)["org_announcement"] == explicit
+    settings = _settings(guest_user)
+    assert settings["membership_card_updated"] == explicit
+    assert "org_announcement" not in settings  # the rest WAS reset
+    assert settings["org_contact_message_received"] == migration.REGULAR_DEFAULTS["org_contact_message_received"]
 
 
 def test_regular_row_is_untouched(regular_user: RevelUser) -> None:
@@ -105,42 +108,69 @@ def test_guest_row_is_untouched(guest_user: RevelUser) -> None:
     assert _settings(guest_user) == before
 
 
-def test_legacy_keys_are_the_original_17_subset() -> None:
-    assert len(migration.LEGACY_GUEST_KEYS) == 17
-    assert set(migration.LEGACY_GUEST_KEYS) < set(migration.GUEST_DEFAULT_KEYS)
-    assert not any(k.startswith("staff_") for k in migration.LEGACY_GUEST_KEYS)
-
-
-def test_realistic_legacy_converted_guest_row_is_reset(guest_user: RevelUser) -> None:
-    """Prod guests pre-#1127 have only the original 17 keys, no staff_* keys."""
-    prefs = guest_user.notification_preferences
-    prefs.notification_type_settings = {key: {"enabled": False} for key in migration.LEGACY_GUEST_KEYS}
+def _legacy_row(user: RevelUser, keys: t.Iterable[str]) -> None:
+    prefs = user.notification_preferences
+    prefs.notification_type_settings = {key: {"enabled": False} for key in keys}
     prefs.save()
-    _convert_without_hook(guest_user)
+    _convert_without_hook(user)
+
+
+def _regular_defaults() -> dict[str, t.Any]:
+    return {str(k): dict(v) for k, v in get_default_notification_type_settings().items()}
+
+
+def test_original_keys_are_a_subset_of_current_guest_keys() -> None:
+    assert len(migration.ORIGINAL_GUEST_KEYS) == 14
+    later = {"potluck_item_created_and_claimed", "org_contact_message_received", "membership_card_updated"}
+    assert set(migration.ORIGINAL_GUEST_KEYS) < set(migration.GUEST_DEFAULT_KEYS)
+    assert not later & set(migration.ORIGINAL_GUEST_KEYS)
+    assert not any(k.startswith("staff_") for k in migration.ORIGINAL_GUEST_KEYS)
+
+
+def test_pre_878_row_without_membership_card_updated_is_reset(guest_user: RevelUser) -> None:
+    """Realistic prod row: original keys only, no membership_card_updated, no staff_*."""
+    _legacy_row(guest_user, migration.ORIGINAL_GUEST_KEYS)
 
     _run()
 
-    assert _settings(guest_user) == {str(k): dict(v) for k, v in get_default_notification_type_settings().items()}
+    assert _settings(guest_user) == _regular_defaults()
 
 
-def test_legacy_row_with_pinned_channels_on_disabled_entries_is_reset(guest_user: RevelUser) -> None:
+def test_row_with_backfilled_enabled_keys_is_reset_and_keeps_them(guest_user: RevelUser) -> None:
+    """Migrations 0016/0021 wrote these two as ENABLED for already-converted users."""
+    _legacy_row(guest_user, migration.ORIGINAL_GUEST_KEYS)
     prefs = guest_user.notification_preferences
-    prefs.notification_type_settings = {
-        key: {"enabled": False, "channels": ["in_app", "email"]} for key in migration.LEGACY_GUEST_KEYS
+    prefs.notification_type_settings["potluck_item_created_and_claimed"] = {"enabled": True, "channels": ["in_app"]}
+    prefs.notification_type_settings["org_contact_message_received"] = {
+        "enabled": True,
+        "channels": ["in_app", "telegram"],
     }
     prefs.save()
-    _convert_without_hook(guest_user)
 
     _run()
 
-    assert _settings(guest_user) == {str(k): dict(v) for k, v in get_default_notification_type_settings().items()}
+    settings = _settings(guest_user)
+    assert settings == _regular_defaults()
+    assert "org_announcement" not in settings
 
 
-def test_regular_user_with_a_few_disabled_types_is_untouched_realistic(regular_user: RevelUser) -> None:
+def test_row_with_an_original_key_enabled_is_skipped(guest_user: RevelUser) -> None:
+    """An explicitly enabled original key is a deliberate user choice: leave the whole row alone."""
+    _legacy_row(guest_user, migration.ORIGINAL_GUEST_KEYS)
+    prefs = guest_user.notification_preferences
+    prefs.notification_type_settings["org_announcement"] = {"enabled": True}
+    prefs.save()
+    before = _settings(guest_user)
+
+    _run()
+
+    assert _settings(guest_user) == before
+
+
+def test_regular_user_with_a_few_disabled_types_is_untouched(regular_user: RevelUser) -> None:
     prefs = regular_user.notification_preferences
-    prefs.notification_type_settings["event_open"] = {"enabled": False}
-    prefs.notification_type_settings["org_announcement"] = {"enabled": False}
-    prefs.notification_type_settings["membership_granted"] = {"enabled": False}
+    for key in ("event_open", "org_announcement", "membership_granted"):
+        prefs.notification_type_settings[key] = {"enabled": False}
     prefs.save()
     before = _settings(regular_user)
 
@@ -149,16 +179,11 @@ def test_regular_user_with_a_few_disabled_types_is_untouched_realistic(regular_u
     assert _settings(regular_user) == before
 
 
-def test_already_reset_row_is_a_noop(guest_user: RevelUser) -> None:
-    """Rows 0037 (or convert_guest) already fixed are left alone; a second run changes nothing."""
-    prefs = guest_user.notification_preferences
-    prefs.notification_type_settings = {key: {"enabled": False} for key in migration.LEGACY_GUEST_KEYS}
-    prefs.save()
-    _convert_without_hook(guest_user)
+def test_rerun_is_idempotent(guest_user: RevelUser) -> None:
+    _legacy_row(guest_user, migration.ORIGINAL_GUEST_KEYS)
     _run()
     after_first = _settings(guest_user)
 
     _run()
 
-    assert _settings(guest_user) == after_first
-    assert after_first == {str(k): dict(v) for k, v in get_default_notification_type_settings().items()}
+    assert _settings(guest_user) == after_first == _regular_defaults()

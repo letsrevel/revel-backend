@@ -8,7 +8,6 @@ import typing as t
 
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
-from django.db import transaction
 from django.db.models import Count, Exists, IntegerField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
@@ -273,10 +272,9 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         converting = change and "guest" in form.changed_data and not obj.guest
         if converting:
             obj.guest = True  # save the other edits as a guest first; convert_guest flips the flag
-        with transaction.atomic():
-            super().save_model(request, obj, form, change)
-            if converting:
-                convert_guest(obj)
+        super().save_model(request, obj, form, change)
+        if converting:
+            convert_guest(obj, verify_email=obj.email_verified)
 
     @admin.action(description="Clear stale Stripe Connect account (superuser only)")
     def clear_stripe_connect_account(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:

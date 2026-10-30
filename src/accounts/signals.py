@@ -3,7 +3,7 @@
 import structlog
 from django.db import transaction
 from django.db.models.signals import post_save
-from django.dispatch import receiver
+from django.dispatch import Signal, receiver
 
 from accounts.models import GlobalBan, RevelUser
 from accounts.service import referral_application_service
@@ -11,6 +11,10 @@ from accounts.tasks import notify_admin_new_user_joined, notify_admin_new_user_j
 from common.models import SiteSettings
 
 logger = structlog.get_logger(__name__)
+
+# Sent by ``accounts.service.account.convert_guest`` (with ``.send``, not ``send_robust``) inside
+# its transaction, so a receiver failure rolls the conversion back. Kwargs: ``user``.
+guest_converted = Signal()
 
 
 @receiver(post_save, sender=RevelUser)

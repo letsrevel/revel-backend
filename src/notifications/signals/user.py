@@ -5,7 +5,8 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from accounts.models import RevelUser
-from notifications.service.preferences import create_default_preferences
+from accounts.signals import guest_converted
+from notifications.service.preferences import create_default_preferences, reset_converted_guest_preferences
 
 logger = structlog.get_logger(__name__)
 
@@ -40,3 +41,13 @@ def create_notification_preferences(
             "notification_preferences_already_exist",
             user_id=str(instance.id),
         )
+
+
+@receiver(guest_converted)
+def reset_preferences_on_guest_converted(sender: type[RevelUser], user: RevelUser, **kwargs: object) -> None:
+    """Give a converted guest the regular notification defaults (#1248).
+
+    Not robust on purpose: a failure propagates to ``convert_guest`` and rolls the conversion back.
+    """
+    if reset_converted_guest_preferences(user):
+        logger.info("guest_notification_preferences_reset", user_id=str(user.id))

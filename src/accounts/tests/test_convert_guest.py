@@ -31,13 +31,31 @@ def test_convert_guest_does_everything(guest_user: RevelUser) -> None:
 
 
 def test_preference_failure_rolls_the_conversion_back(guest_user: RevelUser) -> None:
-    with patch("accounts.service.account.reset_converted_guest_preferences", side_effect=RuntimeError("boom")):
+    with patch("notifications.signals.user.reset_converted_guest_preferences", side_effect=RuntimeError("boom")):
         with pytest.raises(RuntimeError):
             convert_guest(guest_user)
 
     guest_user.refresh_from_db()
     assert guest_user.guest is True
     assert guest_user.email_verified is False
+
+
+def test_second_call_is_a_noop_without_duplicate_enrolment(guest_user: RevelUser) -> None:
+    with patch(ENROLL) as enroll:
+        convert_guest(guest_user)
+        stale = RevelUser.objects.get(pk=guest_user.pk)
+        stale.guest = True  # a caller holding a stale in-memory copy
+        convert_guest(stale)
+
+    enroll.assert_called_once()
+    assert stale.guest is False  # fresh DB state is copied back
+
+
+def test_verify_email_false_keeps_email_unverified(guest_user: RevelUser) -> None:
+    convert_guest(guest_user, verify_email=False)
+
+    guest_user.refresh_from_db()
+    assert (guest_user.guest, guest_user.email_verified) == (False, False)
 
 
 def test_non_guest_is_a_noop(user: RevelUser) -> None:
@@ -63,7 +81,11 @@ def test_admin_unticking_guest_goes_through_convert_guest(guest_user: RevelUser)
         _admin_save(guest_user, ["guest", "first_name"])
 
     guest_user.refresh_from_db()
-    assert (guest_user.guest, guest_user.email_verified, guest_user.first_name) == (False, True, "Edited")
+    assert (guest_user.guest, guest_user.email_verified, guest_user.first_name) == (
+        False,
+        False,
+        "Edited",
+    )  # the form value is respected
     enroll.assert_called_once()
     assert _prefs(guest_user) == get_default_notification_type_settings()
 
@@ -86,3 +108,13 @@ def test_admin_edit_of_regular_user_works(user: RevelUser) -> None:
 
     user.refresh_from_db()
     assert user.first_name == "Edited"
+
+
+def test_admin_can_convert_without_verifying_email(guest_user: RevelUser) -> None:
+    guest_user.guest = False
+    guest_user.email_verified = False
+    with patch(ENROLL):
+        _admin_save(guest_user, ["guest"])
+
+    guest_user.refresh_from_db()
+    assert (guest_user.guest, guest_user.email_verified) == (False, False)
