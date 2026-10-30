@@ -28,8 +28,8 @@ def test_sector_seat_count_is_capped() -> None:
 
 def test_vat_preview_item_count_is_capped() -> None:
     with pytest.raises(ValidationError):
-        VATPreviewItemSchema(tier_id=uuid4(), count=10**8)  # type: ignore[call-arg]
-    assert VATPreviewItemSchema(tier_id=uuid4(), count=5).count == 5  # type: ignore[call-arg]
+        VATPreviewItemSchema(tier_id=uuid4(), count=10**8)
+    assert VATPreviewItemSchema(tier_id=uuid4(), count=5).count == 5
 
 
 def test_vat_preview_items_length_is_capped() -> None:
@@ -47,5 +47,5 @@ def test_membership_policy_days_are_capped(field: str) -> None:
 
 def test_recurrence_dtstart_lookback_is_bounded() -> None:
     with pytest.raises(ValidationError):
-        RecurrenceRuleCreateSchema(frequency="daily", dtstart=timezone.now() - timedelta(days=800))  # type: ignore[arg-type,call-arg]
-    RecurrenceRuleCreateSchema(frequency="daily", dtstart=timezone.now() - timedelta(days=30))  # type: ignore[arg-type,call-arg]
+        RecurrenceRuleCreateSchema(frequency="daily", dtstart=timezone.now() - timedelta(days=800))  # type: ignore[arg-type]
+    RecurrenceRuleCreateSchema(frequency="daily", dtstart=timezone.now() - timedelta(days=30))  # type: ignore[arg-type]
