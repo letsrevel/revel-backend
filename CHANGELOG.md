@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.28.1] - 2026-10-30
+
+### Added
+- `provision_stripe_webhooks --sync` updates the existing platform and Connect webhook endpoints at `--url`, so their subscribed events match the lists the code handles. It adds missing event types and removes stale ones, and leaves signing secrets and the API version unchanged. Run it with `--dry-run` first to see the diff.
+  - Endpoints are identified by the description set when they were created, or by whether `account.updated` is subscribed. `--platform-id` / `--connect-id` pin them explicitly.
+  - Disabled endpoints are ignored. It refuses to run on duplicates, missing endpoints, or wildcard endpoints.
+
+### Deployment notes
+- **Deploy v2.28.1 directly.** It contains everything in v2.28.0, and v2.28.0's deployment notes apply in full, except the Stripe webhook step.
+- **Stripe webhooks:** instead of editing the endpoints by hand, run `python manage.py provision_stripe_webhooks --url "$BASE_URL/api/stripe/webhook" --sync --dry-run`. Check that the only change on each endpoint is `+ charge.dispute.created/updated/closed`, then run the same command without `--dry-run`. This can run before or after the deploy.
+
 ## [2.28.0] - 2026-10-30
 
 ### Added
