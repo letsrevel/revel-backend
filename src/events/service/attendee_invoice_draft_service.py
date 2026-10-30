@@ -184,7 +184,7 @@ def _recompute_vat_exemptions(
     has_provenance = any("line_id" in item for item in invoice.line_items)
     stored = invoice.vat_exemptions.get("E", {}).get("text", "")
     legacy_reason = stored if stored and stored != EXEMPT_FALLBACK_TEXT else org_reason
-    reasons = [scheme_exemption_reason(org.small_business_scheme)] if org and is_small_business(org) else []
+    reasons = []
     for item in exempt:
         if (tier := tiers.get(item.get("tier_id", ""))) is not None:
             reasons.append(
@@ -194,6 +194,10 @@ def _recompute_vat_exemptions(
             )
         else:
             reasons.append(org_reason if has_provenance else legacy_reason)
+    note = scheme_exemption_reason(org.small_business_scheme) if org and is_small_business(org) else ""
+    # A legacy text may already carry the note (joined with a tier's reason): never print it twice.
+    if note and not any(note in reason for reason in reasons):
+        reasons.insert(0, note)
     return build_vat_exemptions((VatCategory(item["vat_category"]) for item in line_items), reasons)
 
 
@@ -311,7 +315,10 @@ def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.
     if reverse_charge and small_business:
         raise HttpError(422, str(_("An organizer under a small-business scheme can't issue a reverse-charge invoice.")))
     submitted = update_data.get("line_items", invoice.line_items)
-    small_business_scheme_service.assert_draft_lines_exempt(invoice.organization, submitted)  # no VAT shown, ever
+    # No VAT shown, ever. A draft generated with VAT before the scheme was declared is therefore stuck:
+    # any edit (even a buyer-only one) re-derives its stored VAT lines and is refused until the lines are
+    # zeroed; its E lines then take the current statutory note. Accepted edge case, deliberately not papered over.
+    small_business_scheme_service.assert_draft_lines_exempt(invoice.organization, submitted)
     buyer_country = update_data.get("buyer_vat_country", invoice.buyer_vat_country)
     # Every line of a small-business organizer is exempt (E), never out of scope (#1244).
     out_of_scope = not small_business and out_of_scope_for(invoice.event, invoice.seller_vat_country, buyer_country)

@@ -19,7 +19,7 @@ from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
 from events.compliance import AttendeeInvoicingCapability
-from events.compliance.enforcement import event_compliance
+from events.compliance.enforcement import attendee_invoicing_active, event_compliance
 from events.exceptions import CountryComplianceError
 from events.models import Event, Organization, Refund, SkippedFiscalDocument, TicketTier
 from events.models.attendee_invoice import AttendeeInvoice
@@ -145,6 +145,25 @@ class TestDraftLinesStayExempt:
         assert text.startswith(DE_REASON)
         assert "Tier wording" in text
 
+    def test_note_already_in_a_legacy_text_is_not_duplicated(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        _make_small_business(organization)
+        invoice = _create_draft(organization, event, member_user)
+        line = {
+            **invoice.line_items[0],
+            "vat_rate": "0.00",
+            "vat_amount": "0.00",
+            "net_amount": "100.00",
+            "vat_category": "E",
+        }
+        invoice.line_items = [line]
+        invoice.vat_exemptions = {"E": {"text": f"Own wording; {DE_REASON}", "code": ""}}
+        invoice.save()
+        updated = update_draft_invoice(invoice, {"line_items": [{**line, "description": "Edited"}]})
+        updated.refresh_from_db()
+        assert updated.vat_exemptions["E"]["text"].count(DE_REASON) == 1
+
 
 # ---------------------------------------------------------------------------
 # H2 / H3: scheme ↔ country, and no way out once invoicing is on
@@ -218,9 +237,13 @@ class TestSchemeConsistency:
         event_ticket_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """Defense in depth: a row edited behind the API's back never yields a VAT invoice with no identity."""
+        """Defense in depth: a scheme row edited behind the API's back never yields an invoice with no identity.
+
+        Dropping the scheme itself is the PATCH guard's job (N1): at generation an organizer without a
+        scheme is today's VIES case and is not second-guessed.
+        """
         org = _invoicing_small_business(organization)
-        Organization.objects.filter(pk=org.pk).update(small_business_scheme=Scheme.NONE, vat_rate=Decimal("19.00"))
+        Organization.objects.filter(pk=org.pk).update(tax_registration_number="")
         _create_payment(
             user=member_user,
             event=event,
@@ -275,6 +298,126 @@ class TestViesOrganizersKeepTodaysBehaviour:
         org.save()
         assert _patch(owner_client, org, {"billing_name": "Renamed SRL"}).status_code == 200
         assert _patch(owner_client, org, {"billing_country_code": "FR"}).status_code == 200
+
+
+class TestSchemeOrgWithRejectedVatId:
+    """N1: a VAT ID string VIES rejected does not take a scheme organizer off the guard."""
+
+    def _rejected_vat_id(self, organization: Organization) -> Organization:
+        org = _invoicing_small_business(organization)
+        org.vat_id = "DE999999999"  # typed in, VIES said no; kept by rollback_on_invalid=False
+        org.vat_id_validated = False
+        org.save()
+        return org
+
+    @pytest.mark.parametrize(
+        ("data", "fragment"),
+        [
+            ({"tax_registration_number": ""}, "tax registration number"),
+            ({"small_business_scheme": "none", "vat_rate": "19.00"}, "VAT ID must be validated"),
+        ],
+    )
+    def test_billing_guard_still_applies(
+        self, organization: Organization, owner_client: Client, data: dict[str, t.Any], fragment: str
+    ) -> None:
+        org = self._rejected_vat_id(organization)
+        response = _patch(owner_client, org, data)
+        assert response.status_code == 422, response.content
+        assert fragment in response.json()["detail"]
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_generation_still_skips_without_a_tax_number(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        org = self._rejected_vat_id(organization)
+        Organization.objects.filter(pk=org.pk).update(tax_registration_number="")
+        _zero_payment(member_user, event, event_ticket_tier, "cs_rej", _buyer("DE"))
+        assert generate_attendee_invoice("cs_rej") is None
+        assert (
+            SkippedFiscalDocument.objects.get(stripe_session_id="cs_rej").reason_code == Reason.SELLER_IDENTITY_MISSING
+        )
+
+
+class TestTierInvoicingFlag:
+    """N2: ``invoicing_available`` never promises an invoice generation would skip."""
+
+    def _tier(self, event: Event) -> TicketTier:
+        return TicketTier.objects.create(
+            event=event, name="Flag", price=10, payment_method=TicketTier.PaymentMethod.ONLINE
+        )
+
+    def test_physical_event_abroad(self, organization: Organization, event: Event) -> None:
+        _invoicing_small_business(organization)
+        event.vat_country_code = "AT"
+        event.save()
+        assert attendee_invoicing_active(event) is False
+        event.vat_country_code = "DE"
+        assert attendee_invoicing_active(event) is True
+
+    def test_missing_scheme_identity(self, organization: Organization, event: Event) -> None:
+        org = _invoicing_small_business(organization)
+        event.vat_country_code = "DE"
+        event.save()
+        Organization.objects.filter(pk=org.pk).update(tax_registration_number="")
+        event.organization.refresh_from_db()
+        assert attendee_invoicing_active(event) is False
+
+    def test_lapsed_vies_organizer_keeps_the_flag(self, organization: Organization, event: Event) -> None:
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.AUTO
+        org.vat_id_validated = False
+        org.save()
+        assert attendee_invoicing_active(event) is True
+
+
+class TestBuyerCountryOrder:
+    """N3: the VAT country wins over the billing address at generation and at draft issue alike."""
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_generation(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        _invoicing_small_business(organization)
+        event.is_virtual = True
+        event.save()
+        snapshot = {**_buyer("AT", "ATU12345678", "valid"), "billing_country_code": "DE"}
+        _zero_payment(member_user, event, event_ticket_tier, "cs_order", snapshot)
+        assert generate_attendee_invoice("cs_order") is None
+        assert (
+            SkippedFiscalDocument.objects.get(stripe_session_id="cs_order").reason_code
+            == Reason.SMALL_BUSINESS_VIRTUAL_CROSS_BORDER
+        )
+
+    def test_draft_issue(self, organization: Organization, event: Event, member_user: RevelUser) -> None:
+        _make_small_business(organization)
+        event.is_virtual = True
+        event.save()
+        invoice = _create_draft(organization, event, member_user)
+        invoice.buyer_vat_id = "ATU12345678"
+        invoice.buyer_vat_country = "AT"
+        invoice.buyer_country_code = "DE"
+        invoice.line_items = [
+            {**invoice.line_items[0], "vat_rate": "0.00", "vat_amount": "0.00", "net_amount": "100.00"}
+        ]
+        invoice.total_vat = Decimal("0.00")
+        invoice.total_net = Decimal("100.00")
+        invoice.save()
+        with pytest.raises(CountryComplianceError):
+            issue_draft_invoice(invoice)
 
 
 # ---------------------------------------------------------------------------
@@ -433,7 +576,6 @@ class TestZeroVatChokePoint:
         org = _make_small_business(organization)
         tier = TicketTier(event=event, name="T", price=Decimal("10.00"), vat_rate=Decimal("19.00"))
         assert attendee_vat_service.get_effective_vat_rate(tier, org) == 0
-        assert vat_service.get_effective_vat_rate(tier.vat_rate, org.vat_rate, small_business=True) == 0
         assert vat_service.get_effective_vat_rate(tier.vat_rate, org.vat_rate) == Decimal("19.00")
 
     def test_checkout_without_buyer_country_on_a_duplicated_vat_tier(

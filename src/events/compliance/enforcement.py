@@ -28,6 +28,7 @@ from events.compliance.base import (
 from events.compliance.registry import (
     get_policy,
     get_policy_for_country,
+    resolve_org_country,
     resolve_org_jurisdiction,
 )
 from events.exceptions import CountryComplianceError
@@ -93,6 +94,29 @@ def attendee_invoicing_active(event: "Event") -> bool:
     return (
         org.invoicing_mode != Organization.InvoicingMode.NONE
         and attendee_invoicing_for_sale(sale_nexus(org, [event]), BuyerContext()).allowed
+        # #1244: the buyer-independent scheme gates generation applies (venue abroad; incomplete scheme identity).
+        and not small_business.scheme_sale_block(
+            org.small_business_scheme,
+            is_virtual=event.is_virtual,
+            venue_country=event.effective_vat_country,
+            buyer_country="",
+        )
+        and _scheme_identity_complete(org)
+    )
+
+
+def _scheme_identity_complete(org: Organization) -> bool:
+    """Whether a scheme organizer without a validated VAT ID can be identified on an invoice (BT-32).
+
+    Mirrors ``small_business_scheme_service.scheme_path_identity_errors`` for the current state: a
+    validated VAT ID or no scheme means today's behaviour; a declared scheme needs the matching country
+    of establishment and a format-valid tax registration number.
+    """
+    country = small_business.scheme_country(org.small_business_scheme)
+    if org.vat_id_validated or not country:
+        return True
+    return resolve_org_country(org) == country and small_business.tax_number_is_valid(
+        country, org.tax_registration_number
     )
 
 

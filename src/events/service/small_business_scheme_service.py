@@ -92,15 +92,21 @@ def seller_identity_errors(org: Organization) -> list[str]:
     return [error for error in (_scheme_country_error(org), _tax_number_error(org)) if error]
 
 
-def scheme_path_identity_errors(org: Organization) -> list[str]:
-    """The identity problems this feature introduced: an organizer with no VAT ID at all relying on the scheme path.
+def scheme_path_identity_errors(org: Organization, candidate: Organization | None = None) -> list[str]:
+    """The identity problems this feature introduced, for the running guards.
 
-    Empty for anyone holding a VAT ID: a VIES organizer whose validation lapsed keeps today's behaviour
-    (invoices are still issued). An organizer without any VAT ID needs a complete scheme declaration.
+    An organizer is off the guard only with a VIES-validated VAT ID, or when neither its current
+    state nor ``candidate`` (the post-PATCH state, when checking an update) is on the scheme path:
+    that is the VIES organizer whose validation lapsed, which keeps today's behaviour (invoices are
+    still issued). A scheme organizer without a validated VAT ID stays guarded whatever VAT ID string
+    it stores (VIES may have rejected it), and so does a PATCH that drops its scheme.
     """
-    if org.vat_id_validated or org.vat_id.strip():
+    candidate = candidate or org
+    if org.vat_id_validated:
         return []
-    return seller_identity_errors(org)
+    if not is_small_business(org) and not is_small_business(candidate):
+        return []
+    return seller_identity_errors(candidate)
 
 
 def seller_identity_missing_fields(org: Organization) -> list[str]:
@@ -191,7 +197,9 @@ def prepare_billing_update(org: Organization, update_data: dict[str, t.Any]) -> 
                 422,
                 str(_("Some ticket tiers still charge VAT. Set them to 0% before declaring a small-business scheme.")),
             )
-    if org.invoicing_mode != Organization.InvoicingMode.NONE and (errors := scheme_path_identity_errors(candidate)):
+    if org.invoicing_mode != Organization.InvoicingMode.NONE and (
+        errors := scheme_path_identity_errors(org, candidate)
+    ):
         raise HttpError(422, str(INVOICING_WOULD_STOP_MESSAGE).format(details="; ".join(errors)))
     reason = _exemption_reason_after(org, candidate)
     if reason != str(candidate.vat_exemption_reason or ""):
@@ -234,9 +242,17 @@ def seller_identity_decision(org: Organization) -> Decision:
     )
 
 
+def buyer_country(vat_country: str | None, billing_country: str | None) -> str:
+    """The buyer's country for the scheme gates: the VAT country first, else the structured billing address's.
+
+    One order for generation (from the checkout snapshot) and for issuing a draft (from the invoice).
+    """
+    return normalize_country_code(vat_country or billing_country or "")
+
+
 def buyer_country_from_snapshot(snapshot: BuyerBillingSnapshot) -> str:
-    """The buyer's country as declared at checkout: the VAT country, else the structured billing address's."""
-    return normalize_country_code(snapshot.get("vat_country_code") or snapshot.get("billing_country_code") or "")
+    """:func:`buyer_country` read from a checkout billing snapshot."""
+    return buyer_country(snapshot.get("vat_country_code"), snapshot.get("billing_country_code"))
 
 
 def sale_decision(org: Organization, event: Event | None, buyer_country: str) -> Decision:
@@ -274,5 +290,5 @@ def invoice_sale_decision(invoice: AttendeeInvoice) -> Decision:
     """
     if invoice.organization is None:
         return Decision.allow()
-    buyer_country = invoice.buyer_country_code or invoice.buyer_vat_country
-    return sale_decision(invoice.organization, invoice.event, buyer_country)
+    country = buyer_country(invoice.buyer_vat_country, invoice.buyer_country_code)
+    return sale_decision(invoice.organization, invoice.event, country)
