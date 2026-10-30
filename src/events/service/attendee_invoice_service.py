@@ -702,8 +702,9 @@ def _record_skipped_credit_note(
         # A record without refund rows (legacy path) covers its payments in full.
         covered_payment_ids = {p.id for doc in prior if not doc.refunds.all() for p in doc.payments.all()}
         build: AttendeeInvoiceCreditNote | _CreditNoteBuild | None = None
+        # Both an invoice and a skipped invoice store payment-tagged lines; credits follow them.
+        invoice_lines = source.line_items
         # A skipped invoice has no reverse_charge column; the checkout snapshot on its payments is the source.
-        invoice_lines = source.line_items if isinstance(source, AttendeeInvoice) else None
         if isinstance(source, AttendeeInvoice):
             reverse_charge = source.reverse_charge
             out_of_scope = invoice_out_of_scope(source)

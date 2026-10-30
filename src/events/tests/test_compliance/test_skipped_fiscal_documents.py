@@ -357,3 +357,22 @@ class TestCreditNoteSkips:
             doc.line_items[0]["unit_price_gross"] for doc in SkippedFiscalDocument.objects.order_by("created_at")
         ]
         assert grosses == ["3.33", "3.34"]  # cumulative 3.33, 6.67 of the 10.00 line
+
+    def test_skipped_invoice_credit_notes_follow_its_lines(
+        self, organization: Organization, sale: t.Callable[..., Payment]
+    ) -> None:
+        """Partial refunds on a skipped invoice are prorated from its stored lines: VAT adds up to the cent."""
+        _ready_in(organization, "BE")
+        payment = sale(
+            _business("BE0123456789"), amount=Decimal("3.00"), net_amount=Decimal("2.48"), vat_amount=Decimal("0.52")
+        )
+        assert generate_attendee_invoice("cs_test_123") is None
+        (skipped_invoice,) = SkippedFiscalDocument.objects.filter(kind=Kind.INVOICE)
+        line = skipped_invoice.line_items[0]
+        for _ in range(3):
+            row = _refund(payment, "1.00")
+            assert generate_attendee_credit_note("cs_test_123", [payment.id], refund_ids=[row.id]) is None
+
+        notes = SkippedFiscalDocument.objects.filter(kind=Kind.CREDIT_NOTE)
+        assert sum(Decimal(n.line_items[0]["vat_amount"]) for n in notes) == Decimal(line["vat_amount"])
+        assert sum(Decimal(n.line_items[0]["unit_price_gross"]) for n in notes) == Decimal(line["unit_price_gross"])
