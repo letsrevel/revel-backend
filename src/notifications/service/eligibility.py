@@ -21,6 +21,7 @@ from events.models import (
 )
 from notifications.enums import NotificationType
 from notifications.models import NotificationPreference
+from notifications.service.preferences import create_default_preferences
 
 
 class BatchParticipationChecker:
@@ -387,7 +388,7 @@ def is_user_eligible_for_notification(
     except NotificationPreference.DoesNotExist:
         # Create preferences if they don't exist (shouldn't happen normally,
         # as they're created on user creation via signals)
-        prefs = NotificationPreference.objects.create(user=user)
+        prefs, _ = create_default_preferences(user)
 
     # Check global silence
     if prefs.silence_all_notifications:

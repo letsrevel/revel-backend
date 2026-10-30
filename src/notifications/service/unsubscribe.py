@@ -22,6 +22,7 @@ from notifications.schema import (
     UpdateNotificationPreferenceSchema,
 )
 from notifications.service.email_policy import suppress
+from notifications.service.preferences import create_default_preferences
 
 logger = structlog.get_logger(__name__)
 
@@ -122,7 +123,7 @@ def confirm_unsubscribe(token: str, preferences: UpdateNotificationPreferenceSch
     logger.info("unsubscribe_confirmed", user_id=str(user.id), email=user.email)
 
     # Get or create notification preferences
-    prefs, _ = NotificationPreference.objects.get_or_create(user=user)
+    prefs, _ = create_default_preferences(user)
 
     # Update preferences using the same logic as the authenticated endpoint
     update_data = preferences.model_dump(exclude_unset=True)
@@ -194,7 +195,7 @@ def one_click_unsubscribe(token: str) -> None:
     if payload.notification_type in MANDATORY_TYPES:
         logger.info("one_click_unsubscribe_mandatory_ignored", user_id=str(user.id))
         return
-    prefs, _created = NotificationPreference.objects.get_or_create(user=user)
+    prefs, _created = create_default_preferences(user)
 
     if payload.notification_type == NotificationType.ORG_ANNOUNCEMENT and payload.organization_id:
         prefs.muted_organizations.add(*Organization.objects.filter(pk=payload.organization_id))

@@ -329,6 +329,24 @@ class TestHandleConnect:
 
 class TestHandleUnsubscribe:
     @pytest.mark.asyncio
+    async def test_unsubscribe_recreates_missing_prefs_with_defaults(
+        self,
+        mock_message: AsyncMock,
+        django_user: RevelUser,
+    ) -> None:
+        """A missing preference row is recreated via create_default_preferences (#1254)."""
+        from notifications.enums import DeliveryChannel
+        from notifications.models import NotificationPreference
+
+        tg_user = await _get_tg_user(django_user)
+        await NotificationPreference.objects.filter(user=django_user).adelete()
+
+        await handle_unsubscribe(mock_message, tg_user=tg_user, user=django_user)
+
+        prefs = await NotificationPreference.objects.aget(user=django_user)
+        assert prefs.enabled_channels == [DeliveryChannel.IN_APP, DeliveryChannel.EMAIL]
+
+    @pytest.mark.asyncio
     async def test_unsubscribe(
         self,
         mock_message: AsyncMock,
