@@ -471,7 +471,8 @@ def _generate_and_save_pdf(invoice: AttendeeInvoice) -> None:
     }
     pdf_bytes = facturx_pdf_for(invoice, lambda pdf_a3: render_pdf(template, context, pdf_a3=pdf_a3))
     filename = f"{invoice.invoice_number}.pdf"
-    invoice.pdf_file.save(filename, ContentFile(pdf_bytes), save=True)
+    invoice.pdf_file.save(filename, ContentFile(pdf_bytes), save=False)
+    invoice.save(update_fields=["pdf_file", "updated_at"])  # not a full-row write of a possibly stale instance
 
 
 def ensure_pdf_exists(invoice: AttendeeInvoice) -> None:
@@ -928,7 +929,8 @@ def _generate_credit_note_pdf(credit_note: AttendeeInvoiceCreditNote) -> None:
     }
     pdf_bytes = facturx_pdf_for(credit_note, lambda pdf_a3: render_pdf(template, context, pdf_a3=pdf_a3))
     filename = f"{credit_note.credit_note_number}.pdf"
-    credit_note.pdf_file.save(filename, ContentFile(pdf_bytes), save=True)
+    credit_note.pdf_file.save(filename, ContentFile(pdf_bytes), save=False)
+    credit_note.save(update_fields=["pdf_file", "updated_at"])
 
 
 def ensure_credit_note_pdf_exists(credit_note: AttendeeInvoiceCreditNote) -> None:
