@@ -82,7 +82,11 @@ Not covered:
   checkout never applies reverse charge for these organizers. Declaring the scheme prefills the
   organization's exemption reason with "Steuerbefreit gemäß § 19 UStG (Kleinunternehmerregelung)"
   (editable). On every invoice and credit note each line is EN 16931 category E at 0% with that note
-  (BR-E-10), **no VAT amount or rate is ever shown** (§14c UStG: VAT shown is VAT owed), the USt-IdNr.
+  (BR-E-10), **no VAT amount or rate is ever shown** (§14c UStG: VAT shown is VAT owed): the PDF of an
+  invoice or credit note generated for a scheme organizer (`AttendeeInvoice.seller_small_business_scheme`,
+  snapshotted at generation) has no VAT column, no per-line rate and no Subtotal/VAT totals, only the
+  gross amounts, the Total and the note (the Factur-X XML keeps its category-E breakdown at 0, which EN
+  16931 needs structurally; that is a breakdown, not a VAT amount shown), the USt-IdNr.
   is printed as the seller's identifier (§34a S. 1 Nr. 2 UStDV accepts the Steuernummer or the
   USt-IdNr.), and in the Factur-X XML it is the Seller VAT identifier (BT-31) with the Steuernummer, when
   set, as the Seller tax registration identifier (BT-32, `schemeID="FC"`). §34a UStDV lets these

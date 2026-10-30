@@ -60,7 +60,11 @@ merchant of record they remain responsible for their tax and invoicing duties.
   description, date or period of supply, amount, and the exemption note in place of the rate. Revel's
   EN 16931 content (recipient, sequential number, Steuernummer) is a superset of that, which is allowed.
   **No VAT amount or rate is ever shown**: VAT shown is owed (§ 11 Abs. 12), and an issuer that is not
-  the supplier owes the VAT it shows (§ 11 Abs. 14); Art. 289 of the Directive says the same.
+  the supplier owes the VAT it shows (§ 11 Abs. 14); Art. 289 of the Directive says the same. The PDF of
+  an invoice or credit note generated for a scheme organizer (`AttendeeInvoice.seller_small_business_scheme`,
+  snapshotted at generation) therefore has no VAT column, per-line rate or Subtotal/VAT totals: gross
+  amounts, the Total, the Steuernummer and the note. The Factur-X XML keeps its category-E breakdown at
+  0, which EN 16931 needs structurally.
 - **Platform fee (Revel → organizer).** An Austrian Kleinunternehmer is a taxable person (§ 2, § 3a
   Abs. 5 Z 1 UStG; UStR Rz 638o), and Revel is an Austrian business, so the fee is a domestic supply
   whichever rule applies (§ 3a Abs. 6 or Abs. 7): **Austrian VAT at 20%**, no reverse charge, whether
