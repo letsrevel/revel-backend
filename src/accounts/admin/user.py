@@ -19,7 +19,6 @@ from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 from django_google_sso.admin import GoogleSSOInlineAdmin, get_current_user_and_admin
-from ninja.errors import HttpError
 from unfold.admin import ModelAdmin, TabularInline
 
 from accounts.admin import formatters
@@ -39,6 +38,7 @@ from accounts.models import (
     UserDietaryPreference,
 )
 from accounts.service.account import convert_guest, request_password_reset, send_verification_email_for_user
+from accounts.service.global_ban_service import is_email_globally_banned
 from accounts.service.impersonation import can_impersonate, create_impersonation_request
 from accounts.utils.email_normalization import normalize_email_for_matching
 from common.client_ip import get_client_ip
@@ -280,12 +280,10 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         converted = 0
         banned = 0
         for guest in queryset.filter(guest=True):
-            try:
-                convert_guest(guest)
-            except HttpError:  # globally banned email
+            if is_email_globally_banned(guest.email):
                 banned += 1
-                continue
-            converted += 1
+            elif convert_guest(guest):
+                converted += 1
         self.message_user(
             request,
             ngettext("Converted %d guest to a full account.", "Converted %d guests to full accounts.", converted)

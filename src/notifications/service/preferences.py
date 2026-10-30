@@ -97,9 +97,10 @@ def reset_converted_guest_preferences(user: RevelUser) -> bool:
     row never had are added. Any other value is an explicit user choice and is kept. A missing
     preferences row is created with the regular defaults.
 
-    The runtime rule (any disabled guest-default key) is broader than the migration 0037 backfill
-    because at conversion time the values are known to be guest-written; the backfill only sees rows
-    of unknown history and so resets just the original keys.
+    The runtime rule (any disabled guest-default key) is broader than the
+    ``reset_converted_guest_prefs`` backfill command because at conversion time the
+    values are known to be guest-written; the backfill only sees rows of unknown history and so
+    resets just the original keys.
 
     # ponytail: any disabled guest-default entry is reset, so a guest who deliberately turned one
     # of those types off (only possible via an unsubscribe link, guests can't log in) gets it back
@@ -117,7 +118,7 @@ def reset_converted_guest_preferences(user: RevelUser) -> bool:
             create_default_preferences(user)
             return True
         regular_defaults = get_default_notification_type_settings()
-        current = dict(prefs.notification_type_settings)
+        current = dict(prefs.notification_type_settings) if isinstance(prefs.notification_type_settings, dict) else {}
         updated = dict(current)
         for key in get_guest_notification_type_settings():
             if _is_guest_default(updated.get(key)):

@@ -388,7 +388,7 @@ def reset_password(token: str, new_password: str) -> RevelUser:
 
 
 @transaction.atomic
-def convert_guest(user: RevelUser, *, reactivate: bool = False) -> None:
+def convert_guest(user: RevelUser, *, reactivate: bool = False) -> bool:
     """Convert a guest into a full account: the single place every conversion path goes through.
 
     In one transaction: locks the row (a concurrent or repeated conversion sees a non-guest, copies
@@ -401,8 +401,8 @@ def convert_guest(user: RevelUser, *, reactivate: bool = False) -> None:
     # ponytail: bulk writes (``.update(guest=False)``, shell fixes) bypass this by design; always
     # convert through this service.
 
-    A non-guest is a no-op (``reactivate`` included). A globally banned email is refused with the
-    same 403 ``HttpError`` the password-reset path raises, before anything is written.
+    A non-guest is a no-op (``reactivate`` included). This does not check global bans: callers do
+    (password reset and OIDC before reaching here, the admin action per user).
 
     Marking the email verified and enrolling referrals presumes the person owns the email: callers
     (and staff running the admin action) must only convert when that ownership is established.
@@ -411,11 +411,9 @@ def convert_guest(user: RevelUser, *, reactivate: bool = False) -> None:
         user: The user to convert.
         reactivate: Also set ``is_active`` (OIDC login revives an inactive guest).
 
-    Raises:
-        HttpError: 403 when the email is globally banned.
+    Returns:
+        True only when this call actually converted the user.
     """
-    from accounts.service.global_ban_service import BAN_ERROR_MESSAGE, is_email_globally_banned
-
     current = RevelUser.objects.select_for_update().values("guest", "email_verified", "is_active").get(pk=user.pk)
     if not current["guest"]:
         user.guest, user.email_verified, user.is_active = (
@@ -423,9 +421,7 @@ def convert_guest(user: RevelUser, *, reactivate: bool = False) -> None:
             current["email_verified"],
             current["is_active"],
         )
-        return
-    if is_email_globally_banned(user.email):
-        raise HttpError(403, str(BAN_ERROR_MESSAGE))
+        return False
     user.guest = False
     user.email_verified = True
     update_fields = ["guest", "email_verified"]
@@ -436,6 +432,7 @@ def convert_guest(user: RevelUser, *, reactivate: bool = False) -> None:
     logger.info("guest_user_converted_to_full_user", user_id=str(user.id), email=user.email)
     referral_application_service.try_enroll_invitee(user)
     guest_converted.send(sender=RevelUser, user=user)
+    return True
 
 
 @transaction.atomic

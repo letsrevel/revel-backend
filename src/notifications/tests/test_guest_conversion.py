@@ -75,3 +75,11 @@ def test_missing_row_is_created_with_regular_defaults(guest_user: RevelUser) -> 
     assert reset_converted_guest_preferences(guest_user) is True
 
     assert _settings(guest_user) == get_default_notification_type_settings()
+
+
+def test_non_dict_settings_are_treated_as_empty(guest_user: RevelUser) -> None:
+    NotificationPreference.objects.filter(user=guest_user).update(notification_type_settings=["junk"])
+
+    assert reset_converted_guest_preferences(guest_user) is True
+
+    assert _settings(guest_user) == get_default_notification_type_settings()

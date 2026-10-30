@@ -123,3 +123,11 @@ def test_action_skips_a_banned_guest_and_warns(admin_client: Client, guest_user:
     guest_user.refresh_from_db()
     assert guest_user.guest is True
     assert "globally banned" in response.content.decode()
+
+
+def test_action_counts_only_real_conversions(admin_client: Client, guest_user: RevelUser) -> None:
+    """A guest converted concurrently (convert_guest returns False) is not counted."""
+    with patch("accounts.admin.user.convert_guest", return_value=False):
+        response = _run_action(admin_client, [guest_user])
+
+    assert "Converted 0 guests" in response.content.decode()
