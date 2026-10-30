@@ -16,6 +16,7 @@ from accounts.service import oidc
 from accounts.service.oidc import OIDCClaims
 from common.models import SiteSettings
 from common.utils import get_or_create_with_race_protection
+from notifications.models import get_default_notification_type_settings
 from revel.oidc_config import OIDCProviderConfig
 
 pytestmark = pytest.mark.django_db
@@ -265,3 +266,16 @@ def test_guest_upgrade_enrolls_an_approved_referral_invite(guest_user: RevelUser
 
     assert result == guest_user and result.guest is False
     assert ReferralCode.objects.get(user=guest_user).code == "oidccode"
+
+
+def test_guest_upgrade_clears_guest_notification_defaults(
+    guest_user: RevelUser, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """OIDC guest upgrade removes the guest-default notification overrides (#1248)."""
+    assert guest_user.notification_preferences.notification_type_settings != get_default_notification_type_settings()
+
+    with django_capture_on_commit_callbacks(execute=True):
+        oidc._resolve_user(GOOGLE, claims(email=guest_user.email))
+
+    guest_user.notification_preferences.refresh_from_db()
+    assert guest_user.notification_preferences.notification_type_settings == get_default_notification_type_settings()
