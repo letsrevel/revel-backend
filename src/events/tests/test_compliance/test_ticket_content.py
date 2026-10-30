@@ -11,6 +11,7 @@ from django.template.loader import render_to_string
 from events.compliance.enforcement import ticket_fields
 from events.models import Organization, Ticket, TicketTier
 from events.utils import create_ticket_pdf
+from events.utils.small_business import SmallBusinessScheme
 from wallet.apple.generator import ApplePassGenerator
 from wallet.google.builder import build_ticket_payload
 
@@ -24,6 +25,16 @@ def fiscal_org(organization: Organization) -> Organization:
     organization.billing_name = "Org Legal Entity Ltd"
     organization.vat_id = "ATU12345678"
     organization.vat_country_code = "AT"
+    organization.save()
+    return organization
+
+
+@pytest.fixture
+def scheme_org(organization: Organization) -> Organization:
+    organization.small_business_scheme = SmallBusinessScheme.DE_19
+    organization.vat_country_code = "DE"
+    organization.vat_id = ""
+    organization.tax_registration_number = "12/345/67890"
     organization.save()
     return organization
 
@@ -79,18 +90,33 @@ class TestCommonFields:
         assert fields["organizer"] == organization.name
         assert "tax_id" not in fields
 
-    def test_tax_number_is_printed_with_country_label_when_no_vat_id(
-        self, fiscal_org: Organization, ticket: Ticket
+    def test_scheme_tax_number_renders_on_pdf_and_both_passes(
+        self, settings: t.Any, scheme_org: Organization, ticket: Ticket
     ) -> None:
-        """#1260: a small-business organizer without a VAT ID is identified by its Steuernummer."""
-        fiscal_org.vat_id = ""
-        fiscal_org.tax_registration_number = "12/345/67890"
-        fiscal_org.save()
-
+        """#1260: a complete small-business organizer is identified by its Steuernummer everywhere."""
         fields = {field.key: field for field in ticket_fields(ticket)}
-
         assert fields["tax_id"].label == "Steuernummer"
         assert fields["tax_id"].value == "12/345/67890"
+        html = _pdf_html(ticket)
+        assert "Steuernummer" in html
+        assert "12/345/67890" in html
+        assert _apple_back_fields(settings, ticket)["compliance_tax_id"] == "12/345/67890"
+        assert _google_modules(ticket)["tax_id"] == "12/345/67890"
+
+    def test_free_text_tax_number_without_a_scheme_prints_nothing(
+        self, scheme_org: Organization, ticket: Ticket
+    ) -> None:
+        scheme_org.small_business_scheme = SmallBusinessScheme.NONE
+        scheme_org.tax_registration_number = "n/a"
+        scheme_org.save()
+
+        assert "tax_id" not in {field.key for field in ticket_fields(ticket)}
+
+    def test_incomplete_scheme_identity_prints_nothing(self, scheme_org: Organization, ticket: Ticket) -> None:
+        scheme_org.tax_registration_number = "123"  # not a valid DE format
+        scheme_org.save()
+
+        assert "tax_id" not in {field.key for field in ticket_fields(ticket)}
 
     def test_vat_id_wins_over_tax_number(self, fiscal_org: Organization, ticket: Ticket) -> None:
         fiscal_org.tax_registration_number = "12/345/67890"

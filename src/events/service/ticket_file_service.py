@@ -64,7 +64,7 @@ def compute_content_hash(ticket: Ticket) -> str:
     # country notices) change without bumping any timestamp above — a bulk_update numbering
     # pass, an org billing edit, a price_paid stamp — so they are hashed by value.
     parts.append(ticket.status)
-    parts.append("|".join(f"{field.key}={field.value}" for field in ticket_fields(ticket)))
+    parts.append("|".join(f"{field.key}[{field.label}]={field.value}" for field in ticket_fields(ticket)))
     # Brand colors (#1157) are hashed by value, and only when set, so unbranded hashes (and the
     # files cached under them) stay valid while a branding change invalidates the cache.
     if brand := get_pass_brand_colors(ticket.event.organization):

@@ -206,15 +206,23 @@ def common_ticket_fields(ticket: "Ticket") -> list[TicketComplianceField]:
     from events.service.ticket_number_service import format_ticket_number
     from events.service.ticket_price import resolve_ticket_price
     from events.utils import format_event_datetime
-    from events.utils.small_business import tax_number_label
+    from events.utils.small_business import (
+        is_small_business,
+        scheme_country,
+        scheme_identity_complete,
+        tax_number_label,
+    )
 
     org = ticket.event.organization
     fields = [TicketComplianceField("organizer", str(_("Organizer")), org.billing_name or org.name)]
     if org.vat_id:
         fields.append(TicketComplianceField("tax_id", str(_("Tax ID")), org.vat_id))
-    elif org.tax_registration_number:
-        # Small-business organizers (#1244) have no VAT ID: same label rule as the invoice (#1260).
-        label = tax_number_label(resolve_org_country(org))
+    elif is_small_business(org) and scheme_identity_complete(
+        org.small_business_scheme, org.vat_id_validated, resolve_org_country(org), org.tax_registration_number
+    ):
+        # Small-business organizers (#1244/#1260) have no VAT ID; the invoice's identity rule decides. The label
+        # is the scheme country's statutory term ("Steuernummer" for DE/AT), deliberately not translated.
+        label = tax_number_label(scheme_country(org.small_business_scheme))
         fields.append(TicketComplianceField("tax_id", label, org.tax_registration_number))
     if number := format_ticket_number(ticket):
         fields.append(TicketComplianceField("ticket_number", str(_("Ticket no.")), number))
