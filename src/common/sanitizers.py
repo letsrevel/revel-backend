@@ -140,6 +140,9 @@ def sanitize_markdown(text: str | None) -> str:
     return sanitize_html(text)
 
 
+MAX_RENDER_MARKDOWN_CHARS = 50_000
+
+
 def render_markdown(text: str | None) -> str:
     """Render markdown to HTML for internal use (emails, Telegram).
 
@@ -158,6 +161,9 @@ def render_markdown(text: str | None) -> str:
         return ""
 
     import markdown
+
+    # ponytail: cap input so pathological tables can't make rendering quadratic; truncate, don't fail.
+    text = text[:MAX_RENDER_MARKDOWN_CHARS]
 
     # Render markdown to HTML
     html = markdown.markdown(

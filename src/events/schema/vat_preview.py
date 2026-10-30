@@ -8,12 +8,16 @@ from pydantic import Field, model_validator
 
 from .checkout import BuyerBillingInfoSchema
 
+# ponytail: generous per-request ceilings; no platform-wide per-checkout cap exists to mirror.
+MAX_VAT_PREVIEW_ITEMS = 50
+MAX_VAT_PREVIEW_TICKETS_PER_ITEM = 500
+
 
 class VATPreviewItemSchema(Schema):
     """Single item in a VAT preview request."""
 
     tier_id: UUID
-    count: int = Field(..., ge=1)
+    count: int = Field(..., ge=1, le=MAX_VAT_PREVIEW_TICKETS_PER_ITEM)
     price_category_id: UUID | None = Field(
         default=None,
         description=(
@@ -43,7 +47,7 @@ class VATPreviewRequestSchema(Schema):
     """Request payload for the VAT preview endpoint."""
 
     billing_info: BuyerBillingInfoSchema
-    items: list[VATPreviewItemSchema] = Field(..., min_length=1)
+    items: list[VATPreviewItemSchema] = Field(..., min_length=1, max_length=MAX_VAT_PREVIEW_ITEMS)
     discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
     price_per_ticket: Decimal | None = Field(None, ge=1, description="PWYC price override")
 

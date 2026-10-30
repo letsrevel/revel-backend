@@ -61,6 +61,9 @@ PROPAGATABLE_FIELDS = frozenset(
 # ``address`` + ``location`` are stored on Event as a coupled pair (human-readable
 # address text + PostGIS Point). Propagating one without the other would leave
 # occurrences with mismatched coordinates, so we always write both together.
+# Max occurrences materialized per run; the cursor resumes from the last one on the next run.
+MAX_OCCURRENCES_PER_RUN = 500
+
 _COUPLED_FIELD_GROUPS: tuple[frozenset[str], ...] = (frozenset({"address", "location"}),)
 
 
@@ -267,6 +270,10 @@ def _materialize_due_occurrences(
             continue
         created.append(materialize_occurrence(locked_series, dt, index=next_index))
         next_index += 1
+        if len(created) >= MAX_OCCURRENCES_PER_RUN:
+            # Cursor stops at the last materialized occurrence; the next run continues from here.
+            horizon = dt
+            break
 
     return created, horizon
 
@@ -647,6 +654,8 @@ def detect_cadence_drift(series: EventSeries) -> list[uuid.UUID]:
             is_template=False,
             is_modified=False,
             start__gte=now,
+            # Generation never reaches past this ceiling, so don't enumerate the rule beyond it.
+            start__lte=now + timedelta(weeks=MAX_GENERATION_WINDOW_WEEKS),
         )
         .exclude(status=Event.EventStatus.CANCELLED)
         .order_by("start")

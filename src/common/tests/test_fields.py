@@ -505,3 +505,11 @@ class TestProtectedPrefixConstant:
     def test_protected_prefix_ends_with_slash(self) -> None:
         """Test that PROTECTED_PREFIX ends with a slash."""
         assert PROTECTED_PREFIX.endswith("/")
+
+
+def test_render_markdown_truncates_oversized_input() -> None:
+    """Oversized input is truncated before rendering rather than rendered in full."""
+    from common.sanitizers import MAX_RENDER_MARKDOWN_CHARS, render_markdown
+
+    html = render_markdown("a" * (MAX_RENDER_MARKDOWN_CHARS + 1000))
+    assert len(html) < MAX_RENDER_MARKDOWN_CHARS + 100
