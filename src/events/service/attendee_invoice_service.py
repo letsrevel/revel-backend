@@ -325,10 +325,11 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             card_last4=payment_means.card_last4,
             # Seller snapshot. Physical admission is taxed where the event takes
             # place, so the event's VAT country drives the invoice country; a
-            # virtual event is supplied from the org's establishment (#869). Only a
-            # VIES-validated VAT ID is printed (BT-31); a typed-in one is not (#1244).
+            # virtual event is supplied from the org's establishment (#869). The stored VAT ID
+            # is printed as before, except on the scheme path (#1244): a scheme organizer without
+            # a validated VAT ID is identified by its tax number (BT-32), never by a typed-in BT-31.
             seller_name=org.billing_name or org.name,
-            seller_vat_id=org.vat_id if org.vat_id_validated else "",
+            seller_vat_id="" if small_business and not org.vat_id_validated else org.vat_id,
             seller_tax_registration_number=org.tax_registration_number,
             seller_vat_country=resolve_org_country(org) if event.is_virtual else event.effective_vat_country,
             seller_address=org.billing_address,

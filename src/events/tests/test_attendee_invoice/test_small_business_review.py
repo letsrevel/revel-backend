@@ -238,6 +238,7 @@ class TestViesOrganizersKeepTodaysBehaviour:
         assert invoice is not None
         assert invoice.status == AttendeeInvoice.InvoiceStatus.ISSUED
         assert [li["vat_category"] for li in invoice.line_items] == ["S"]
+        assert invoice.seller_vat_id == "IT12345678901"  # the stored VAT ID is still printed, as before
         assert not SkippedFiscalDocument.objects.filter(stripe_session_id="cs_flip").exists()
 
     def test_lapsed_vies_validation_does_not_block_billing_edits(
@@ -597,6 +598,7 @@ class TestSnapshotAndNote:
         event_ticket_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
+        """Scheme path only: the tax number is the identity, an unvalidated VAT ID is not BT-31."""
         org = _invoicing_small_business(organization)
         org.vat_id = "DE811234567"  # typed in, never VIES-validated
         org.save()
