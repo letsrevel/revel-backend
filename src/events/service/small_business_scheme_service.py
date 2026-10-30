@@ -330,19 +330,26 @@ class SellerIdentitySnapshot(t.TypedDict):
     seller_vat_country: str
 
 
-def seller_identity_snapshot(org: Organization, event: Event) -> SellerIdentitySnapshot:
+def seller_identity_snapshot(
+    org: Organization, event: Event | None, *, stored_vat_country: str = ""
+) -> SellerIdentitySnapshot:
     """The seller identifiers as generation snapshots them; draft issue reuses the rule when the scheme changed.
 
     The stored VAT ID is copied as before, except on the scheme path (#1244): a scheme organizer without
     a validated VAT ID is identified by its tax number (BT-32), never by a typed-in BT-31. Physical
     admission is taxed where the event takes place, so the event's VAT country drives the invoice
-    country; a virtual event is supplied from the organizer's establishment (#869).
+    country; a virtual event is supplied from the organizer's establishment (#869). Without an event
+    (deleted since the sale) there is nothing to derive it from, and ``stored_vat_country`` is kept.
     """
     hide_vat_id = is_small_business(org) and not org.vat_id_validated
+    if event is None:
+        country = stored_vat_country
+    else:
+        country = resolve_org_country(org) if event.is_virtual else event.effective_vat_country
     return SellerIdentitySnapshot(
         seller_vat_id="" if hide_vat_id else org.vat_id,
         seller_tax_registration_number=org.tax_registration_number,
-        seller_vat_country=resolve_org_country(org) if event.is_virtual else event.effective_vat_country,
+        seller_vat_country=country,
     )
 
 

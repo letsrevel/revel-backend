@@ -23,7 +23,11 @@ from events.models import Event, Organization, TicketTier
 from events.models.attendee_invoice import AttendeeInvoice
 from events.service import einvoice_mapping as mapping
 from events.service import small_business_scheme_service as service
-from events.service.attendee_invoice_draft_service import issue_draft_invoice, update_draft_invoice
+from events.service.attendee_invoice_draft_service import (
+    _follow_organizer_scheme,
+    issue_draft_invoice,
+    update_draft_invoice,
+)
 from events.service.attendee_invoice_service import generate_attendee_credit_note, generate_attendee_invoice
 from events.service.revenue_aggregation import ReportScope, build_revenue_report_data
 from events.tests.test_attendee_invoice._helpers import (
@@ -622,6 +626,100 @@ class TestStatutoryNoteAtIssue:
             {"invoice": issued, "is_draft": False, "is_export": False, "is_virtual_interim": False},
         )
         assert "VAT: ATU12345678" in html and "<th>VAT</th>" in html and "Subtotal" in html
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_identifiers_are_refreshed_without_an_event_too(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """The event was deleted since the sale: the VAT ID and tax number still follow, the VAT country stays.
+
+        Exercised on the helper: ``AttendeeInvoice.event`` is ``null=True`` without ``blank=True``, so
+        ``full_clean()`` (run by every ``save``) refuses an event-less row today, a pre-existing gap.
+        """
+        org = _make_small_business(organization, "at_6_1_27")
+        org.invoicing_mode = Organization.InvoicingMode.HYBRID
+        org.save()
+        event.vat_country_code = "AT"
+        event.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_left_noev",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            net_amount=Decimal("100.00"),
+            vat_amount=Decimal("0.00"),
+            vat_rate=Decimal("0.00"),
+        )
+        draft = generate_attendee_invoice("cs_left_noev")
+        assert draft is not None and draft.seller_vat_country == "AT"
+        draft.event = None
+        org.small_business_scheme = "none"
+        org.vat_id, org.vat_country_code, org.vat_id_validated = "ATU12345678", "AT", True
+        org.vat_exemption_reason = "Own exemption"
+        org.save()
+        draft.organization = org
+        fields = _follow_organizer_scheme(draft)
+        assert {"seller_vat_id", "seller_tax_registration_number", "seller_small_business_scheme"} <= set(fields)
+        assert (draft.seller_vat_id, draft.seller_tax_registration_number) == ("ATU12345678", "12-345/6789")
+        assert draft.seller_vat_country == "AT"  # kept: nothing to derive it from
+        assert draft.seller_small_business_scheme == "none"
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_hand_entered_line_takes_the_current_reason_across_a_scheme_change(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """A line replaced by hand (no provenance) under de_19 carries the §19 note; the organizer leaves; issued."""
+        org = _make_small_business(organization)
+        org.invoicing_mode = Organization.InvoicingMode.HYBRID
+        org.save()
+        event.vat_country_code = "DE"
+        event.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_hand",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            net_amount=Decimal("100.00"),
+            vat_amount=Decimal("0.00"),
+            vat_rate=Decimal("0.00"),
+        )
+        draft = generate_attendee_invoice("cs_hand")
+        assert draft is not None
+        hand_line = {
+            "description": "Replaced by hand",
+            "unit_price_gross": Decimal("100.00"),
+            "discount_amount": Decimal("0.00"),
+            "net_amount": Decimal("100.00"),
+            "vat_amount": Decimal("0.00"),
+            "vat_rate": Decimal("0.00"),
+        }
+        draft = update_draft_invoice(draft, {"line_items": [hand_line]})
+        draft.refresh_from_db()
+        assert "line_id" not in draft.line_items[0]
+        assert draft.vat_exemptions["E"]["text"].startswith("Steuerbefreit gemäß § 19 UStG")
+        org.small_business_scheme = "none"
+        org.vat_exemption_reason = "Own exemption"
+        org.save()
+        issued = issue_draft_invoice(draft)
+        issued.refresh_from_db()
+        assert issued.vat_exemptions["E"]["text"] == "Own exemption"
+        assert "§ 19" not in issued.vat_exemptions["E"]["text"]
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     def test_identifiers_follow_the_organizer_joining_the_scheme(

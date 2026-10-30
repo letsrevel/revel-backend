@@ -163,7 +163,7 @@ def _normalize_line_items(
 
 
 def _recompute_vat_exemptions(
-    invoice: AttendeeInvoice, line_items: list[InvoiceLineItemDict]
+    invoice: AttendeeInvoice, line_items: list[InvoiceLineItemDict], *, scheme_changed: bool = False
 ) -> dict[str, VatExemptionDict]:
     """Rebuild the exemption map for edited lines.
 
@@ -171,7 +171,9 @@ def _recompute_vat_exemptions(
     organization's), so a corrected tier or organization reason replaces the stored text and text
     that described lines no longer there cannot survive (#1242). A line without a tier (added by
     hand, or whose tier is gone) takes the organization's. Only on a legacy invoice, whose lines
-    carry no ids at all, is the exempt text already stored kept (the generic fallback excepted).
+    carry no ids at all, is the exempt text already stored kept (the generic fallback excepted),
+    except across a scheme transition (``scheme_changed``, #1258): the stored text then describes the
+    former scheme, so such lines take the organization's current reason as well.
     A small-business organizer's statutory note always comes first (#1244), whatever the tiers say.
     """
     org = invoice.organization
@@ -185,7 +187,7 @@ def _recompute_vat_exemptions(
     # From the stored lines: an invoice that ever had ids never drops to the legacy path.
     has_provenance = any("line_id" in item for item in invoice.line_items)
     stored = invoice.vat_exemptions.get("E", {}).get("text", "")
-    legacy_reason = stored if stored and stored != EXEMPT_FALLBACK_TEXT else org_reason
+    legacy_reason = stored if stored and stored != EXEMPT_FALLBACK_TEXT and not scheme_changed else org_reason
     reasons = []
     for item in exempt:
         if (tier := tiers.get(item.get("tier_id", ""))) is not None:
@@ -428,8 +430,10 @@ def _follow_organizer_scheme(invoice: AttendeeInvoice) -> list[str]:
     Declared since generation, the statutory note is stamped into the exemption map and the issued PDF
     shows no VAT; left since generation, the stale note is dropped and the normal layout returns. When
     the scheme changed, the seller identifiers are re-snapshotted by the rule generation applies (a VAT
-    ID obtained on leaving the scheme, or hidden on joining it unvalidated, reaches the document). Lines
-    stay as edited; a legacy row without categories has no exemption map to redo.
+    ID obtained on leaving the scheme, or hidden on joining it unvalidated, reaches the document; the
+    VAT country stays when the event is gone), and hand-entered lines take the current reason instead
+    of the former scheme's text. Lines stay as edited; a legacy row without categories has no
+    exemption map to redo.
 
     Returns:
         The fields set on ``invoice`` (for ``save(update_fields=...)``); empty without an organization.
@@ -442,10 +446,12 @@ def _follow_organizer_scheme(invoice: AttendeeInvoice) -> list[str]:
     if (is_small_business(org) or is_scheme(invoice.seller_small_business_scheme)) and all(
         "vat_category" in item for item in invoice.line_items
     ):
-        invoice.vat_exemptions = _recompute_vat_exemptions(invoice, invoice.line_items)
+        invoice.vat_exemptions = _recompute_vat_exemptions(invoice, invoice.line_items, scheme_changed=scheme_changed)
         fields.append("vat_exemptions")
-    if scheme_changed and invoice.event is not None:
-        identity = small_business_scheme_service.seller_identity_snapshot(org, invoice.event)
+    if scheme_changed:
+        identity = small_business_scheme_service.seller_identity_snapshot(
+            org, invoice.event, stored_vat_country=invoice.seller_vat_country
+        )
         for field, value in identity.items():
             setattr(invoice, field, value)
         fields.extend(identity)
