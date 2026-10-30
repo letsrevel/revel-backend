@@ -1,9 +1,10 @@
 """Signal handlers for user-related notifications."""
 
-import typing as t
+from uuid import UUID
 
 import structlog
-from django.db.models.signals import post_save, pre_save
+from django.db import transaction
+from django.db.models.signals import post_init, post_save
 from django.dispatch import receiver
 
 from accounts.models import RevelUser
@@ -44,17 +45,17 @@ def create_notification_preferences(
         )
 
 
-@receiver(pre_save, sender=RevelUser)
-def capture_guest_flag_before_save(sender: type[RevelUser], instance: RevelUser, **kwargs: t.Any) -> None:
-    """Remember a True guest flag in the DB when the instance is being saved as a non-guest."""
-    if instance._state.adding or instance.guest:
-        return
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "guest" not in update_fields:
-        return  # e.g. the last_login save on every login: the guest flag can't change
-    was_guest = RevelUser.objects.filter(pk=instance.pk, guest=True).exists()
-    if was_guest:
-        instance._was_guest = True  # type: ignore[attr-defined]
+@receiver(post_init, sender=RevelUser)
+def record_loaded_guest_flag(sender: type[RevelUser], instance: RevelUser, **kwargs: object) -> None:
+    """Remember the guest flag as loaded, so post_save can detect a guest -> account transition."""
+    if "guest" in instance.__dict__:  # skip instances loaded with ``.only()``/``.defer()`` on guest
+        instance.__dict__["_loaded_guest"] = instance.guest
+
+
+def _reset_preferences(user_id: UUID) -> None:
+    user = RevelUser.objects.filter(pk=user_id, guest=False).first()
+    if user is not None and reset_converted_guest_preferences(user):
+        logger.info("guest_notification_preferences_reset", user_id=str(user_id))
 
 
 @receiver(post_save, sender=RevelUser)
@@ -63,9 +64,11 @@ def reset_preferences_on_guest_conversion(
 ) -> None:
     """Give a guest the regular notification defaults when it converts to a full account (#1248).
 
-    Covers every conversion path (password reset, OIDC, Django admin).
+    Covers every conversion path (password reset, OIDC, Django admin). The reset runs on commit
+    (robust: a failure is logged, never raised) so a preference problem cannot roll back or fail
+    the conversion itself.
     """
-    if created or not instance.__dict__.pop("_was_guest", False):
+    if created or not instance.__dict__.get("_loaded_guest") or instance.guest:
         return
-    reset_converted_guest_preferences(instance)
-    logger.info("guest_notification_preferences_reset", user_id=str(instance.id))
+    instance.__dict__["_loaded_guest"] = False
+    transaction.on_commit(lambda: _reset_preferences(instance.pk), robust=True)

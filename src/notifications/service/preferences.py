@@ -7,13 +7,14 @@ from django.db import transaction
 from accounts.models import RevelUser
 from notifications.enums import DeliveryChannel, NotificationType
 from notifications.models import NotificationPreference, get_default_notification_type_settings
+from notifications.types import NotificationTypeSetting
 
 # Both guest and regular users get in-app + email channels
 # (Guest users can't login to see in-app, but we enable it anyway)
 DEFAULT_ENABLED_CHANNELS = [DeliveryChannel.IN_APP, DeliveryChannel.EMAIL]
 
 
-def get_guest_notification_type_settings() -> dict[NotificationType, t.Any]:
+def get_guest_notification_type_settings() -> dict[NotificationType, NotificationTypeSetting]:
     """Get conservative notification type settings for guest users.
 
     Guest users only receive notifications strictly necessary for event participation.
@@ -49,7 +50,9 @@ def get_guest_notification_type_settings() -> dict[NotificationType, t.Any]:
         NotificationType.STAFF_SERIES_PASS_CANCELLED,
     ]
 
-    return {notification_type: {"enabled": False} for notification_type in disabled_types}
+    return {
+        notification_type: t.cast(NotificationTypeSetting, {"enabled": False}) for notification_type in disabled_types
+    }
 
 
 def create_default_preferences(user: RevelUser) -> tuple[NotificationPreference, bool]:
@@ -76,32 +79,43 @@ def create_default_preferences(user: RevelUser) -> tuple[NotificationPreference,
     )
 
 
-def reset_converted_guest_preferences(user: RevelUser) -> None:
+def _is_guest_default(value: t.Any) -> bool:
+    """True for a disabled override with no channels, however it was written.
+
+    Covers both ``{"enabled": False}`` (guest creation) and ``{"enabled": False, "channels": []}``
+    (written back by the preference API and ``confirm_unsubscribe``).
+    """
+    return isinstance(value, dict) and not value.get("enabled", True) and not value.get("channels")
+
+
+def reset_converted_guest_preferences(user: RevelUser) -> bool:
     """Give a just-converted guest the regular notification defaults.
 
-    Guest-default overrides whose value is still exactly the guest default are replaced with the
+    Guest-default overrides that are still disabled with no channels are replaced with the
     regular default for that key (or removed if there is none), and regular-default keys the guest
     row never had are added. Any other value is an explicit user choice and is kept. A missing
     preferences row is created with the regular defaults.
 
-    # ponytail: a guest who explicitly disabled a guest-default type to exactly
-    # ``{"enabled": False}`` (e.g. via an unsubscribe link) is indistinguishable from the default
-    # and gets it reset. Upgrade path: record the origin of each override.
+    # ponytail: a guest who explicitly disabled a guest-default type (e.g. via an unsubscribe
+    # link) is indistinguishable from the default (disabled, no channels) and gets it reset.
+    # Upgrade path: record the origin of each override.
 
     Args:
         user: The user just converted from guest to full account (``user.guest`` is False).
+
+    Returns:
+        True if preferences were created or changed.
     """
     with transaction.atomic():
         prefs = NotificationPreference.objects.select_for_update().filter(user=user).first()
         if prefs is None:
             create_default_preferences(user)
-            return
-        guest_defaults = get_guest_notification_type_settings()
+            return True
         regular_defaults = get_default_notification_type_settings()
         current = dict(prefs.notification_type_settings)
         updated = dict(current)
-        for key, guest_value in guest_defaults.items():
-            if updated.get(key) == guest_value:
+        for key in get_guest_notification_type_settings():
+            if _is_guest_default(updated.get(key)):
                 if key in regular_defaults:
                     updated[key] = regular_defaults[key]
                 else:
@@ -109,6 +123,7 @@ def reset_converted_guest_preferences(user: RevelUser) -> None:
         for key, regular_value in regular_defaults.items():
             updated.setdefault(key, regular_value)
         if updated == current:
-            return
+            return False
         prefs.notification_type_settings = updated
         prefs.save(update_fields=["notification_type_settings", "updated_at"])
+        return True

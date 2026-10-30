@@ -599,7 +599,9 @@ def test_reset_password_enrolls_a_converted_guest_with_an_approved_invite(
     assert application.user == guest_user
 
 
-def test_reset_password_conversion_clears_guest_notification_defaults(guest_user: RevelUser) -> None:
+def test_reset_password_conversion_clears_guest_notification_defaults(
+    guest_user: RevelUser, django_capture_on_commit_callbacks: t.Any
+) -> None:
     """Converting a guest via password reset removes the guest-default notification overrides (#1248)."""
     assert guest_user.notification_preferences.notification_type_settings != get_default_notification_type_settings()
     reset_payload = schema.PasswordResetJWTPayloadSchema(
@@ -607,7 +609,8 @@ def test_reset_password_conversion_clears_guest_notification_defaults(guest_user
     )
     reset_token = create_token(reset_payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
 
-    account_service.reset_password(reset_token, "a-Strong-password-123!")
+    with django_capture_on_commit_callbacks(execute=True):
+        account_service.reset_password(reset_token, "a-Strong-password-123!")
 
     guest_user.notification_preferences.refresh_from_db()
     assert guest_user.notification_preferences.notification_type_settings == get_default_notification_type_settings()
