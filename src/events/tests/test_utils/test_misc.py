@@ -467,3 +467,34 @@ def test_create_ticket_pdf_uses_event_timezone(
     # 18:00 UTC = 19:00 CET
     assert "7:00 PM" in start_dt
     assert "CET" in start_dt
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "template",
+    ["{event_name.__class__.__name__}", "{user_name[0]}", "{event_name.upper}", "{user_name!r}"],
+)
+def test_get_invitation_message_only_plain_placeholders(
+    public_user: RevelUser, public_event: models.Event, template: str
+) -> None:
+    """Only exact ``{name}`` placeholders are substituted; field syntax is never interpreted."""
+    public_event.invitation_message = f"Hi {template}!"
+    public_event.save()
+    assert get_invitation_message(public_user.get_display_name(), public_event) == "Hi !"
+
+
+@pytest.mark.django_db
+def test_get_invitation_message_ignores_format_specs(public_user: RevelUser, public_event: models.Event) -> None:
+    """Format specs are not applied."""
+    public_event.invitation_message = "Hi {user_name:>20}!"
+    public_event.save()
+    assert get_invitation_message(public_user.get_display_name(), public_event) == "Hi !"
+
+
+@pytest.mark.django_db
+def test_get_invitation_message_escaped_braces(public_user: RevelUser, public_event: models.Event) -> None:
+    """Doubled braces still render as literal braces, matching the previous str.format behaviour."""
+    public_event.invitation_message = "{{literal}} {user_name}"
+    public_event.save()
+    display_name = public_user.get_display_name()
+    assert get_invitation_message(display_name, public_event) == "{literal} " + display_name
