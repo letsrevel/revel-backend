@@ -320,3 +320,24 @@ def test_strip_exif_rejects_image_over_pixel_budget() -> None:
     with mock.patch("common.utils.MAX_IMAGE_PIXELS", 100):
         with pytest.raises(ValidationError, match="megapixels"):
             strip_exif(buffer)  # type: ignore[arg-type]
+
+
+def test_strip_exif_removes_tiff_xmp_iptc_photoshop_tags() -> None:
+    """TIFF XMP / IPTC / Photoshop tags are dropped when the image is re-encoded."""
+    from PIL import TiffImagePlugin
+
+    src = Image.new("RGB", (4, 4), "red")
+    ifd = TiffImagePlugin.ImageFileDirectory_v2()
+    ifd[700] = b"<x:xmpmeta>secret</x:xmpmeta>"
+    ifd[33723] = b"iptc-secret"
+    ifd[34377] = b"photoshop-secret"
+    buf = BytesIO()
+    src.save(buf, format="TIFF", tiffinfo=ifd)
+    buf.seek(0)
+    assert 700 in Image.open(BytesIO(buf.getvalue())).tag_v2
+    upload = InMemoryUploadedFile(buf, "image", "a.tif", "image/tiff", len(buf.getvalue()), None)
+
+    stripped = strip_exif(upload)
+
+    tags = Image.open(BytesIO(stripped.read())).tag_v2
+    assert not {700, 33723, 34377} & set(tags.keys())
