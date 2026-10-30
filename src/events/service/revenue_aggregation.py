@@ -39,8 +39,9 @@ from events.utils import get_organization_timezone
 
 ZERO = Decimal("0.00")
 # Bump whenever the report workbook layout changes, so cached reports regenerate even when no row
-# changed (e.g. the ticket_number column, #1090; the skipped-documents sheet, #1091, renamed in v4).
-REPORT_FORMAT_VERSION = 4
+# changed (e.g. the ticket_number column, #1090; the skipped-documents sheet, #1091, renamed in v4;
+# the 0% bucket split from "0% (reverse charge)" in v5, #1244).
+REPORT_FORMAT_VERSION = 5
 # Label of the rate bucket holding sales checkout actually reverse-charged (the buyer accounts for the
 # VAT). A 0% sale that is not reverse-charged (an exempt tier, a small-business-scheme organizer,
 # #1244) is a regular rate bucket of its own, labelled "0%" like any other rate.
