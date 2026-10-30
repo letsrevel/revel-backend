@@ -72,3 +72,12 @@ def test_pdf_cached_while_pending_is_regenerated_with_the_number(ticket: Ticket,
 
     assert format_ticket_number(confirmed) in regenerated.decode()
     assert regenerated != cached
+
+
+def test_hash_changes_when_only_a_compliance_label_changes(ticket: Ticket) -> None:
+    before = _hash(ticket)
+
+    with patch("events.compliance.base._", side_effect=lambda text: f"{text} (renamed)"):
+        after = _hash(ticket)
+
+    assert after != before

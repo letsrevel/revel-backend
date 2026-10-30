@@ -115,8 +115,8 @@ Not covered:
   it) and hold no USt-IdNr. still cannot enable Revel invoicing: without a VIES-validated VAT ID Revel
   cannot tell a taxable person from a consumer, and the USt-IdNr. is free from the BZSt. This is a
   documented limitation, not a planned feature.
-- The [common ticket content](index.md#common-ticket-content) applies. The Steuernummer is not yet
-  printed on tickets (only the VAT ID is).
+- The [common ticket content](index.md#common-ticket-content) applies. Without a VAT ID, the
+  Steuernummer is printed as the tax ID on tickets and wallet passes.
 
 ## Legal basis
 

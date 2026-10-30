@@ -55,8 +55,8 @@ merchant of record they remain responsible for their tax and invoicing duties.
   invoice through Revel; without a VIES-validated VAT ID Revel cannot tell a taxable person from a
   consumer. Revel does not gate on the € 55,000 Kleinunternehmer threshold; the organizer is responsible
   for the scheme it declares.
-- The [common ticket content](index.md#common-ticket-content) applies. The Steuernummer is not yet
-  printed on tickets (only the VAT ID is).
+- The [common ticket content](index.md#common-ticket-content) applies. Without a VAT ID, the
+  Steuernummer is printed as the tax ID on tickets and wallet passes.
 
 ## Legal basis
 
