@@ -60,9 +60,10 @@ fiscal-code field yet.
   never applied. A scheme covers domestic supplies only (the EU SME scheme's "-EX" registration is not
   supported), so a physical event held outside the scheme's country and a virtual event bought from
   outside it are not invoiced but recorded as skipped fiscal documents (`small_business_foreign_venue`,
-  `small_business_virtual_cross_border`); an invoice whose seller cannot be identified at all is skipped
-  as `seller_identity_missing`. VAT-charging organizers without an EU VAT ID remain unsupported: they
-  need the (free) VAT ID. Details in [de.md](de.md) and [at.md](at.md).
+  `small_business_virtual_cross_border`); an invoice of an organizer without any VAT ID whose scheme
+  declaration is incomplete is skipped as `seller_identity_missing`. Credit notes always follow the
+  invoice they correct. VAT-charging organizers without an EU VAT ID remain unsupported: they need the
+  (free) VAT ID. Details in [de.md](de.md) and [at.md](at.md).
 - The country of establishment is the declared VAT country, else the VAT ID's prefix, else the
   structured billing address's country, else the organization's city. Every country policy keys on it.
 - Revel's own platform-fee invoices are B2B invoices from an Austrian business (reverse charge within

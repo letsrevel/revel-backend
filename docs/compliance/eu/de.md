@@ -88,11 +88,15 @@ Not covered:
   need a reverse-charge invoice with a seller VAT ID, BR-AE-02/03). The event detail's compliance block
   reports the first as `blocked` and the second as `blocked_for_foreign_buyers`. A blank venue or buyer
   country is read as domestic, the assumption checkout prices on. Draft invoices follow the same rules:
-  a line cannot be edited to carry VAT and a draft cannot be switched to reverse charge. Once invoicing is
-  on, the billing settings refuse any change that would leave the seller unidentifiable (dropping the
-  scheme, blanking the tax number, moving the billing country), and generation itself skips an invoice
-  whose seller identity is missing (reason `seller_identity_missing`). CI validates DE and AT
-  small-business fixtures against the CEN rules.
+  a line cannot be edited to carry VAT, a draft cannot be switched to reverse charge, and issuing a draft
+  runs the two gates. Credit notes do not: a credit note reverses the invoice it corrects as issued (an
+  invoice issued with VAT before the scheme was declared is credited with that VAT), whatever the
+  organizer's scheme or the event's venue have become since. Once invoicing is on, the billing settings
+  refuse any change that would leave an organizer *without any VAT ID* unidentifiable (dropping the
+  scheme, blanking the tax number, moving the billing country), and generation itself skips such an
+  organizer's invoice (reason `seller_identity_missing`); a VIES organizer whose validation lapses keeps
+  today's behaviour and is still invoiced. CI validates DE and AT small-business fixtures against the CEN
+  rules.
 - **Not covered:** Revel cannot know an organizer's turnover, so it does not gate anything on the
   800,000 EUR threshold or on the §19 thresholds (25,000 EUR prior year, 100,000 EUR current year);
   every eligible document gets the XML, and the organizer is responsible for the scheme it declares.

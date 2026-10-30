@@ -39,10 +39,11 @@ merchant of record they remain responsible for their tax and invoicing duties.
   the venue, Art. 53/54) and a *virtual event bought from outside Austria* (taxed where the customer is;
   a business customer would also need reverse charge) are not invoiced; they are recorded as skipped
   fiscal documents (`small_business_foreign_venue`, `small_business_virtual_cross_border`) and the event
-  detail reports `blocked` / `blocked_for_foreign_buyers`. Once invoicing is on, billing changes that
-  would leave the seller unidentifiable are refused, and generation skips an invoice whose seller
-  identity is missing (`seller_identity_missing`). CI validates an AT small-business fixture against the
-  CEN rules.
+  detail reports `blocked` / `blocked_for_foreign_buyers`; issuing a draft runs the same gates, credit
+  notes never do (they reverse the invoice as issued). Once invoicing is on, billing changes that would
+  leave an organizer without any VAT ID unidentifiable are refused, and generation skips such an
+  organizer's invoice (`seller_identity_missing`); a lapsed VIES validation changes nothing. CI
+  validates an AT small-business fixture against the CEN rules.
 - **Not covered:** VAT-charging organizers that hold only a Steuernummer and no UID still need a UID to
   invoice through Revel; without a VIES-validated VAT ID Revel cannot tell a taxable person from a
   consumer. Revel does not gate on the € 55,000 Kleinunternehmer threshold; the organizer is responsible
