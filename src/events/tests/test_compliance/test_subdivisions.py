@@ -73,6 +73,7 @@ def _place(org: Organization, vat_country: str, city: City | None) -> Organizati
     _make_org_invoicing_ready(org)
     org.vat_country_code = vat_country
     org.vat_id = f"{vat_country}123456789" if vat_country else ""
+    org.billing_country_code = vat_country  # the billing address is a declaration too (#1244)
     org.city = city
     org.save()
     return org

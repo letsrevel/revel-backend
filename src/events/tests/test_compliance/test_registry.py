@@ -57,6 +57,24 @@ class TestCountryResolution:
         assert resolve_country("EL", "", "") == "GR"
         assert resolve_country("", "EL123456789", "") == "GR"
 
+    def test_billing_country_comes_before_the_city(self) -> None:
+        """#1244: an organizer without a VAT ID is placed by its structured billing address (#1239)."""
+        assert resolve_country("", "", "HR", billing_country_code="de") == "DE"
+        assert resolve_country("", "", "", billing_country_code="EL") == "GR"
+
+    def test_vat_declarations_still_win_over_the_billing_country(self) -> None:
+        assert resolve_country("ES", "", "", billing_country_code="DE") == "ES"
+        assert resolve_country("", "PT123456789", "", billing_country_code="DE") == "PT"
+
+    def test_org_billing_country_feeds_the_policy(self, organization: Organization) -> None:
+        """A French small-business organizer (no VAT ID) still meets the FR domestic-B2B gate."""
+        organization.billing_country_code = "FR"
+        organization.save()
+
+        policy = get_policy(organization)
+        assert policy.country == "FR"
+        assert policy.attendee_invoicing_capability() == AttendeeInvoicingCapability.BLOCKED_FOR_BUSINESS_BUYERS
+
     def test_org_city_feeds_resolution(self, organization: Organization) -> None:
         organization.city = City.objects.create(
             name="Zagreb",
