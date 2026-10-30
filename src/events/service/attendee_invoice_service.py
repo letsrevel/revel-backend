@@ -370,10 +370,7 @@ def invoice_compliance_decision(invoice: AttendeeInvoice) -> Decision:
     else:
         # The event's venue, or the seller-country snapshot when the event is gone.
         reach = compliance.sale_nexus(org, [event] if event else [], [] if event else [invoice.seller_vat_country])
-    decision = compliance.attendee_invoicing_for_sale(reach, _invoice_buyer(invoice))
-    if not decision.allowed:
-        return decision
-    return small_business_scheme_service.invoice_sale_decision(invoice)  # #1244: domestic supplies only
+    return compliance.attendee_invoicing_for_sale(reach, _invoice_buyer(invoice))
 
 
 _NOT_ANNOTATED = object()

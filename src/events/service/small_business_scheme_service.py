@@ -92,6 +92,17 @@ def seller_identity_errors(org: Organization) -> list[str]:
     return [error for error in (_scheme_country_error(org), _tax_number_error(org)) if error]
 
 
+def scheme_path_identity_errors(org: Organization) -> list[str]:
+    """The identity problems this feature introduced: an organizer with no VAT ID at all relying on the scheme path.
+
+    Empty for anyone holding a VAT ID: a VIES organizer whose validation lapsed keeps today's behaviour
+    (invoices are still issued). An organizer without any VAT ID needs a complete scheme declaration.
+    """
+    if org.vat_id_validated or org.vat_id.strip():
+        return []
+    return seller_identity_errors(org)
+
+
 def seller_identity_missing_fields(org: Organization) -> list[str]:
     """Organization field names still missing for the seller to be identified on an e-invoice.
 
@@ -180,7 +191,7 @@ def prepare_billing_update(org: Organization, update_data: dict[str, t.Any]) -> 
                 422,
                 str(_("Some ticket tiers still charge VAT. Set them to 0% before declaring a small-business scheme.")),
             )
-    if org.invoicing_mode != Organization.InvoicingMode.NONE and (errors := seller_identity_errors(candidate)):
+    if org.invoicing_mode != Organization.InvoicingMode.NONE and (errors := scheme_path_identity_errors(candidate)):
         raise HttpError(422, str(INVOICING_WOULD_STOP_MESSAGE).format(details="; ".join(errors)))
     reason = _exemption_reason_after(org, candidate)
     if reason != str(candidate.vat_exemption_reason or ""):
@@ -215,8 +226,8 @@ def assert_draft_lines_exempt(org: Organization | None, line_items: t.Iterable[t
 
 
 def seller_identity_decision(org: Organization) -> Decision:
-    """Whether the seller can be identified on an invoice at all (defense in depth at generation)."""
-    if not seller_identity_errors(org):
+    """Defense in depth at generation for the scheme path only (:func:`scheme_path_identity_errors`)."""
+    if not scheme_path_identity_errors(org):
         return Decision.allow()
     return Decision.block(
         str(SELLER_IDENTITY_MISSING_MESSAGE), code=SELLER_IDENTITY_MISSING, country=resolve_org_country(org)
@@ -256,7 +267,11 @@ def sale_decision(org: Organization, event: Event | None, buyer_country: str) ->
 
 
 def invoice_sale_decision(invoice: AttendeeInvoice) -> Decision:
-    """:func:`sale_decision` for an existing invoice (a draft about to be issued, or one about to be credited)."""
+    """:func:`sale_decision` for a draft about to be issued.
+
+    Never applied to credit notes: a credit note reverses the invoice it corrects as issued, whatever
+    the organizer's scheme or the event's venue have become since.
+    """
     if invoice.organization is None:
         return Decision.allow()
     buyer_country = invoice.buyer_country_code or invoice.buyer_vat_country

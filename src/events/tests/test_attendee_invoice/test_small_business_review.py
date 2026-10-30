@@ -20,9 +20,11 @@ from ninja_jwt.tokens import RefreshToken
 from accounts.models import RevelUser
 from events.compliance import AttendeeInvoicingCapability
 from events.compliance.enforcement import event_compliance
-from events.models import Event, Organization, SkippedFiscalDocument, TicketTier
+from events.exceptions import CountryComplianceError
+from events.models import Event, Organization, Refund, SkippedFiscalDocument, TicketTier
+from events.models.attendee_invoice import AttendeeInvoice
 from events.service import attendee_vat_service, vat_service
-from events.service.attendee_invoice_draft_service import update_draft_invoice
+from events.service.attendee_invoice_draft_service import issue_draft_invoice, update_draft_invoice
 from events.service.attendee_invoice_lines import _build_line_items, _exempt_reasons
 from events.service.attendee_invoice_service import (
     generate_attendee_credit_note,
@@ -205,6 +207,48 @@ class TestSchemeConsistency:
         skipped = SkippedFiscalDocument.objects.get(stripe_session_id="cs_noid")
         assert skipped.reason_code == Reason.SELLER_IDENTITY_MISSING
         assert skipped.policy_country == "DE"
+
+
+class TestViesOrganizersKeepTodaysBehaviour:
+    """Only the scheme path is gated: a VIES organizer whose validation lapsed is not."""
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_lapsed_vies_validation_still_issues_invoices(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.AUTO
+        org.vat_id_validated = False  # the monthly revalidation flipped it
+        org.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_flip",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+        )
+        invoice = generate_attendee_invoice("cs_flip")
+        assert invoice is not None
+        assert invoice.status == AttendeeInvoice.InvoiceStatus.ISSUED
+        assert [li["vat_category"] for li in invoice.line_items] == ["S"]
+        assert not SkippedFiscalDocument.objects.filter(stripe_session_id="cs_flip").exists()
+
+    def test_lapsed_vies_validation_does_not_block_billing_edits(
+        self, organization: Organization, owner_client: Client
+    ) -> None:
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.AUTO
+        org.vat_id_validated = False
+        org.save()
+        assert _patch(owner_client, org, {"billing_name": "Renamed SRL"}).status_code == 200
+        assert _patch(owner_client, org, {"billing_country_code": "FR"}).status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -394,9 +438,33 @@ class TestZeroVatChokePoint:
         [item] = _build_line_items([payment])
         assert item["vat_category"] == "S"
 
-    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
-    @patch(MOCK_SEND_EMAIL)
-    def test_credit_note_lines_are_exempt_too(
+
+def _pre_scheme_invoice(
+    organization: Organization, event: Event, tier: TicketTier, user: RevelUser, session: str
+) -> tuple[AttendeeInvoice, t.Any]:
+    """An S invoice (22%) issued by a VIES organizer, which then declares the DE scheme."""
+    org = _make_org_invoicing_ready(organization)
+    org.invoicing_mode = Organization.InvoicingMode.AUTO
+    org.save()
+    event.vat_country_code = "DE"
+    event.save()
+    payment = _create_payment(
+        user=user, event=event, tier=tier, session_id=session, buyer_billing_snapshot=_default_billing_snapshot()
+    )
+    invoice = generate_attendee_invoice(session)
+    assert invoice is not None and invoice.total_vat == Decimal("18.03")
+    _make_small_business(org)
+    org.invoicing_mode = Organization.InvoicingMode.AUTO
+    org.save()
+    return invoice, payment
+
+
+@patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+@patch(MOCK_SEND_EMAIL)
+class TestCreditNotesFollowTheInvoice:
+    """A credit note reverses the invoice it corrects, never the organizer's current scheme."""
+
+    def test_full_credit_note_reverses_the_invoice_vat(
         self,
         _mail: t.Any,
         _pdf: t.Any,
@@ -405,49 +473,83 @@ class TestZeroVatChokePoint:
         event_ticket_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """A sale recorded with VAT before the scheme was declared is credited without any."""
-        org = _make_org_invoicing_ready(organization)
-        org.invoicing_mode = Organization.InvoicingMode.AUTO
-        org.save()
-        event.vat_country_code = "DE"
-        event.save()
-        payment = _create_payment(
-            user=member_user,
-            event=event,
-            tier=event_ticket_tier,
-            session_id="cs_pre",
-            buyer_billing_snapshot=_default_billing_snapshot(),
-        )
-        assert generate_attendee_invoice("cs_pre") is not None
-        _make_small_business(org)
-        org.invoicing_mode = Organization.InvoicingMode.AUTO
-        org.save()
-        note = generate_attendee_credit_note("cs_pre", [payment.id])
+        invoice, payment = _pre_scheme_invoice(organization, event, event_ticket_tier, member_user, "cs_full")
+        note = generate_attendee_credit_note("cs_full", [payment.id])
         assert note is not None
-        assert [li["vat_category"] for li in note.line_items] == ["E"]
-        assert note.amount_vat == 0
+        assert [li["vat_category"] for li in note.line_items] == ["S"]
+        assert (note.amount_gross, note.amount_net, note.amount_vat) == (
+            invoice.total_gross,
+            invoice.total_net,
+            invoice.total_vat,
+        )
+
+    def test_partial_credit_note_reverses_its_share_of_the_vat(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        _, payment = _pre_scheme_invoice(organization, event, event_ticket_tier, member_user, "cs_part")
+        row = Refund.objects.create(
+            payment=payment,
+            amount=Decimal("50.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.ORGANIZER_API,
+        )
+        note = generate_attendee_credit_note("cs_part", [payment.id], refund_ids=[row.id])
+        assert note is not None
+        assert [li["vat_category"] for li in note.line_items] == ["S"]
+        assert note.amount_gross == Decimal("50.00")
+        assert note.amount_vat > 0
+
+    def test_issued_invoice_on_a_later_gated_event_is_still_credited(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        _, payment = _pre_scheme_invoice(organization, event, event_ticket_tier, member_user, "cs_gated")
+        event.vat_country_code = "AT"  # the venue moved abroad after the invoice was issued
+        event.save()
+        assert generate_attendee_credit_note("cs_gated", [payment.id]) is not None
+        assert not SkippedFiscalDocument.objects.filter(stripe_session_id="cs_gated").exists()
 
 
 # ---------------------------------------------------------------------------
-# M3: the compliance decision for drafts and credit notes
+# M3: issuing a draft runs the scheme gates; credit notes never do
 # ---------------------------------------------------------------------------
 
 
-class TestInvoiceComplianceDecision:
-    def test_virtual_draft_for_a_foreign_business_buyer_is_refused(
+class TestDraftIssueGate:
+    def _draft(
+        self, organization: Organization, event: Event, user: RevelUser, buyer_country: str = "DE"
+    ) -> AttendeeInvoice:
+        invoice = _create_draft(organization, event, user)
+        invoice.buyer_vat_country = buyer_country
+        invoice.buyer_country_code = buyer_country
+        invoice.line_items = [
+            {**invoice.line_items[0], "vat_rate": "0.00", "vat_amount": "0.00", "net_amount": "100.00"}
+        ]
+        invoice.total_vat = Decimal("0.00")
+        invoice.total_net = Decimal("100.00")
+        invoice.save()
+        return invoice
+
+    def test_virtual_draft_for_a_foreign_buyer_is_refused(
         self, organization: Organization, event: Event, member_user: RevelUser
     ) -> None:
         _make_small_business(organization)
         event.is_virtual = True
         event.save()
-        invoice = _create_draft(organization, event, member_user)
-        invoice.buyer_vat_id = "FR12345678901"
-        invoice.buyer_vat_country = "FR"
-        invoice.buyer_country_code = "FR"
-        invoice.save()
-        decision = invoice_compliance_decision(invoice)
-        assert not decision.allowed
-        assert decision.code == Reason.SMALL_BUSINESS_VIRTUAL_CROSS_BORDER
+        with pytest.raises(CountryComplianceError):
+            issue_draft_invoice(self._draft(organization, event, member_user, "FR"))
 
     def test_physical_draft_abroad_is_refused(
         self, organization: Organization, event: Event, member_user: RevelUser
@@ -455,12 +557,25 @@ class TestInvoiceComplianceDecision:
         _make_small_business(organization)
         event.vat_country_code = "AT"
         event.save()
-        invoice = _create_draft(organization, event, member_user)
-        assert invoice_compliance_decision(invoice).code == Reason.SMALL_BUSINESS_FOREIGN_VENUE
+        with pytest.raises(CountryComplianceError):
+            issue_draft_invoice(self._draft(organization, event, member_user))
 
-    def test_domestic_draft_is_allowed(self, organization: Organization, event: Event, member_user: RevelUser) -> None:
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_domestic_draft_is_issued(
+        self, _pdf: t.Any, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
         _make_small_business(organization)
         event.vat_country_code = "DE"
+        event.save()
+        issued = issue_draft_invoice(self._draft(organization, event, member_user))
+        assert issued.status == AttendeeInvoice.InvoiceStatus.ISSUED
+
+    def test_compliance_decision_itself_stays_policy_only(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        """Credit notes read this decision, so the scheme gates must not live in it."""
+        _make_small_business(organization)
+        event.vat_country_code = "AT"
         event.save()
         assert invoice_compliance_decision(_create_draft(organization, event, member_user)).allowed
 

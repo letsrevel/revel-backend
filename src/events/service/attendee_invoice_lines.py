@@ -49,8 +49,9 @@ def _build_line_items(
 
     A reverse-charge (AE) line never carries VAT: the rate is 0 and the net is the gross, whatever
     the payment recorded (a DRAFT switched to reverse charge keeps its payments at the tier's rate).
-    So does every line of a small-business-scheme organizer (#1244), which is exempt (E): VAT a
-    payment may have recorded before the scheme was declared is never shown (DE § 14c UStG).
+    So does every line of a new invoice of a small-business-scheme organizer (#1244), which is exempt (E):
+    VAT a payment may have recorded before the scheme was declared is never shown (DE § 14c UStG). Credit
+    notes are built without the override: they follow the invoice they correct.
     """
     no_vat = reverse_charge or small_business
     items: list[InvoiceLineItemDict] = []
@@ -100,16 +101,18 @@ def _refund_vat_portion(row: Refund) -> Decimal:
 
 
 def _build_refund_line_items(
-    refund_rows: list[Refund], reverse_charge: bool = False, out_of_scope: bool = False, small_business: bool = False
+    refund_rows: list[Refund], reverse_charge: bool = False, out_of_scope: bool = False
 ) -> list[InvoiceLineItemDict]:
-    """Build line item dicts from Refund rows (amount-aware, pro-rata VAT; none under reverse charge or a scheme)."""
-    no_vat = reverse_charge or small_business
+    """Build line item dicts from Refund rows (amount-aware, pro-rata VAT; none under reverse charge).
+
+    A credit note follows the invoice it corrects, so there is no small-business override here (#1244).
+    """
     items: list[InvoiceLineItemDict] = []
     for row in refund_rows:
         payment = row.payment
         label = "Partial refund" if row.amount < payment.amount else "Refund"
-        rate = ZERO if no_vat else (payment.vat_rate or ZERO)
-        vat_amount = ZERO if no_vat else _refund_vat_portion(row)
+        rate = ZERO if reverse_charge else (payment.vat_rate or ZERO)
+        vat_amount = ZERO if reverse_charge else _refund_vat_portion(row)
         items.append(
             InvoiceLineItemDict(
                 description=f"{label} — {_description(payment.ticket)}",

@@ -440,8 +440,11 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
             raise HttpError(409, str(_("Cancelled invoices cannot be issued.")))
 
         if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
-            # A draft generated before the country gate must not become a legal document.
+            # A draft generated before the country gate must not become a legal document. Nor may a
+            # small-business organizer's draft for a sale outside its scheme's country (#1244).
             decision = invoice_compliance_decision(invoice)
+            if decision.allowed:
+                decision = small_business_scheme_service.invoice_sale_decision(invoice)
             if not decision.allowed:
                 raise CountryComplianceError(decision.reason)
 
