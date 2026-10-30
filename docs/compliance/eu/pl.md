@@ -17,9 +17,9 @@ exclusions cover consumers and sellers without a Polish establishment, not forei
 ## What Revel does
 
 - **Attendee invoicing can be enabled.** HYBRID and AUTO are not refused for Polish organizations.
-- **B2B invoices are skipped.** For organizers established in Poland, invoice generation, issuing an
-  existing draft (including drafts created before the gate) and credit notes are skipped whenever
-  the buyer is a business: a VAT ID from **any country** that VIES confirmed as valid at checkout or
+- **B2B invoices are skipped.** For organizers established in Poland, invoice generation
+  and credit notes are skipped, and issuing an existing draft (including drafts created before the
+  gate) is refused with the same reason, whenever the buyer is a business: a VAT ID from **any country** that VIES confirmed as valid at checkout or
   could not check. A VAT ID that VIES rejected (a typo, a made-up number) makes the buyer a
   consumer, who gets Revel's invoice as usual. The organizer must issue business invoices in KSeF
   from its own system.
@@ -27,7 +27,8 @@ exclusions cover consumers and sellers without a Polish establishment, not forei
 - **Consumers** still receive Revel's PDF invoice; KSeF excludes invoices to consumers.
 - **Skipped documents are recorded** ([#1091](https://github.com/letsrevel/revel-backend/issues/1091)).
   Each skipped invoice or credit note is stored with the buyer, amounts, VAT breakdown and the
-  policy's reason. The owner sees them under *Documents to issue yourself*
+  policy's reason. A refused draft is not: issuing it raises a 422 (`CountryComplianceError`), records
+  no skipped document and the invoice stays a draft in the invoice list. The owner sees them under *Documents to issue yourself*
   (`GET /organization-admin/{slug}/skipped-fiscal-documents`) and marks each one done with the number
   from its own system (`POST …/{id}/resolve`). The ticket list flags those sales (`invoice_skipped`),
   and the revenue report has an *Documents to issue yourself* sheet.
