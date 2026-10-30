@@ -10,13 +10,14 @@ from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
 from events.admin.base import (
+    CreatedByDefaultMixin,
     EventLinkMixin,
     OrganizationLinkMixin,
 )
 
 
 @admin.register(models.Announcement)
-class AnnouncementAdmin(ModelAdmin, OrganizationLinkMixin, EventLinkMixin):  # type: ignore[misc]
+class AnnouncementAdmin(CreatedByDefaultMixin, ModelAdmin, OrganizationLinkMixin, EventLinkMixin):  # type: ignore[misc]
     """Admin for Announcement model."""
 
     def get_queryset(self, request: t.Any) -> t.Any:

@@ -22,6 +22,7 @@ class PlatformFeeInvoice(EmailDeliverableMixin, TimeStampedModel):
         "events.Organization",
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
         related_name="platform_fee_invoices",
     )
     invoice_number = models.CharField(

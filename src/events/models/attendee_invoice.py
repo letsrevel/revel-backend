@@ -237,17 +237,20 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
         "events.Organization",
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
         related_name="attendee_invoices",
     )
     event = models.ForeignKey(
         "events.Event",
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
         related_name="attendee_invoices",
     )
     stripe_session_id = models.CharField(max_length=255, db_index=True)

@@ -13,13 +13,14 @@ from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
 from events.admin.base import (
+    CreatedByDefaultMixin,
     OrganizationLinkMixin,
     UserLinkMixin,
 )
 
 
 @admin.register(models.Blacklist)
-class BlacklistAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+class BlacklistAdmin(CreatedByDefaultMixin, ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for Blacklist model."""
 
     list_display = [
