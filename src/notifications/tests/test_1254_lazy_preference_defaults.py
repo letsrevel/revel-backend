@@ -99,3 +99,9 @@ class TestEligibility:
         user = _drop_prefs(guest_user)
         is_user_eligible_for_notification(user, NotificationType.ORG_ANNOUNCEMENT)
         _assert_guest_defaults(user)
+
+    def test_reverse_cache_filled_after_recreate(self, regular_user: RevelUser) -> None:
+        NotificationPreference.objects.filter(user=regular_user).delete()
+        user = RevelUser.objects.select_related("notification_preferences").get(pk=regular_user.pk)
+        is_user_eligible_for_notification(user, NotificationType.EVENT_OPEN)
+        assert user.notification_preferences == NotificationPreference.objects.get(user=user)

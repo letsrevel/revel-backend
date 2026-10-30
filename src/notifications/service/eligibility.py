@@ -389,6 +389,8 @@ def is_user_eligible_for_notification(
         # Create preferences if they don't exist (shouldn't happen normally,
         # as they're created on user creation via signals)
         prefs, _ = create_default_preferences(user)
+        # get_or_create's get branch doesn't fill the reverse one-to-one cache; do it so later reads don't miss.
+        user.notification_preferences = prefs
 
     # Check global silence
     if prefs.silence_all_notifications:
