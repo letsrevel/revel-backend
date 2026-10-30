@@ -109,6 +109,9 @@ def scheme_path_identity_errors(org: Organization, candidate: Organization | Non
     it stores (VIES may have rejected it), and so does a PATCH that drops its scheme.
     """
     candidate = candidate or org
+    # A declared scheme must match the country of establishment, validated VAT ID or not.
+    if is_small_business(candidate) and (country_error := _scheme_country_error(candidate)):
+        return [country_error]
     # The candidate's validation state: a VAT-ID delete or reset is exactly the change that removes it.
     if candidate.vat_id_validated:
         return []

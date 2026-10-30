@@ -439,3 +439,25 @@ class TestStatutoryNoteAtIssue:
         issued = issue_draft_invoice(draft)
         issued.refresh_from_db()
         assert issued.vat_exemptions == {"E": {"text": "Art. 132(1)(n) VAT Directive", "code": ""}}
+
+
+@pytest.mark.django_db
+class TestValidatedSchemeCountryMismatch:
+    """A validated VAT ID does not exempt a scheme organizer from the scheme-country rule (#1244)."""
+
+    def test_validated_mismatch_is_blocked_at_generation(self, organization: Organization) -> None:
+        org = _make_small_business(organization)  # de_19
+        # Reached only around the guards (e.g. an ORM write): an Italian VIES-validated VAT ID.
+        org.vat_id, org.vat_country_code, org.vat_id_validated = "IT12345678901", "IT", True
+        org.save()
+
+        assert service.scheme_path_identity_errors(org)
+        assert not service.seller_identity_decision(org).allowed
+
+    def test_validated_matching_country_stays_allowed(self, organization: Organization) -> None:
+        org = _make_small_business(organization)
+        org.vat_id, org.vat_country_code, org.vat_id_validated = "DE123456789", "DE", True
+        org.save()
+
+        assert service.scheme_path_identity_errors(org) == []
+        assert service.seller_identity_decision(org).allowed
