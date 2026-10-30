@@ -145,14 +145,16 @@ def scheme_matches_country(scheme: str, country: str) -> bool:
 def scheme_identity_complete(scheme: str, vat_id_validated: bool, country: str, tax_number: str) -> bool:
     """The one rule for "this seller can be identified on an invoice" as far as #1244 is concerned.
 
-    A VIES-validated VAT ID (BT-31) always identifies the seller, and an organizer without a scheme is
-    outside this feature (today's behaviour). A scheme organizer without a validated VAT ID is identified
-    by its tax registration number (BT-32), so it needs the scheme of its country of establishment and a
-    format-valid number for that country.
+    An organizer without a scheme is outside this feature (today's behaviour). A declared scheme must be
+    the one of the country of establishment, validated VAT ID or not. Then a VIES-validated VAT ID (BT-31)
+    identifies the seller; without one, the tax registration number (BT-32) must be format-valid for
+    that country.
     """
-    if vat_id_validated or not scheme_country(scheme):
+    if not scheme_country(scheme):
         return True
-    return scheme_matches_country(scheme, country) and tax_number_is_valid(scheme_country(scheme), tax_number)
+    if not scheme_matches_country(scheme, country):
+        return False
+    return vat_id_validated or tax_number_is_valid(scheme_country(scheme), tax_number)
 
 
 def tax_number_label(country: str) -> str:

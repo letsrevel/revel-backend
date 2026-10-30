@@ -454,6 +454,13 @@ class TestValidatedSchemeCountryMismatch:
         assert service.scheme_path_identity_errors(org)
         assert not service.seller_identity_decision(org).allowed
 
+    def test_validated_mismatch_blocks_event_compliance(self, organization: Organization, event: Event) -> None:
+        org = _make_small_business(organization)
+        org.vat_id, org.vat_country_code, org.vat_id_validated = "IT12345678901", "IT", True
+        org.save()
+        event.vat_country_code = "DE"
+        assert event_compliance(event).attendee_invoicing == AttendeeInvoicingCapability.BLOCKED
+
     def test_validated_matching_country_stays_allowed(self, organization: Organization) -> None:
         org = _make_small_business(organization)
         org.vat_id, org.vat_country_code, org.vat_id_validated = "DE123456789", "DE", True
