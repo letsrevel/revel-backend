@@ -34,9 +34,15 @@ merchant of record they remain responsible for their tax and invoicing duties.
   Steuernummer is printed where the UID would be and goes into the Factur-X XML as the Seller tax
   registration identifier (BT-32), also as BT-29, with no BT-31. Austrian law does not require the
   Steuernummer on the invoice (see below); Revel requires it because EN 16931 BR-E-02 needs BT-31 or
-  BT-32 to identify the seller. A *virtual* event sold to a business in another EU member state is not
-  invoiced (reverse charge needs a seller VAT ID); it is recorded as a skipped fiscal document
-  (`small_business_virtual_b2b`). CI validates an AT small-business fixture against the CEN rules.
+  BT-32 to identify the seller. The scheme covers supplies taxable in Austria only (Revel does not
+  support the EU SME scheme's "-EX" registration), so a *physical event held outside Austria* (taxed at
+  the venue, Art. 53/54) and a *virtual event bought from outside Austria* (taxed where the customer is;
+  a business customer would also need reverse charge) are not invoiced; they are recorded as skipped
+  fiscal documents (`small_business_foreign_venue`, `small_business_virtual_cross_border`) and the event
+  detail reports `blocked` / `blocked_for_foreign_buyers`. Once invoicing is on, billing changes that
+  would leave the seller unidentifiable are refused, and generation skips an invoice whose seller
+  identity is missing (`seller_identity_missing`). CI validates an AT small-business fixture against the
+  CEN rules.
 - **Not covered:** VAT-charging organizers that hold only a Steuernummer and no UID still need a UID to
   invoice through Revel; without a VIES-validated VAT ID Revel cannot tell a taxable person from a
   consumer. Revel does not gate on the € 55,000 Kleinunternehmer threshold; the organizer is responsible
@@ -96,6 +102,10 @@ merchant of record they remain responsible for their tax and invoicing duties.
 - The Steuernummer format check only verifies nine digits after stripping separators; it does not
   verify the Finanzamt number or the check digit. Sources differ on whether the last seven digits are
   read as six plus a check digit; this does not affect the check.
+- **Sales outside Austria by a Kleinunternehmer (to confirm with the tax advisor).** Gated, not
+  invoiced (see above). Whether the EU SME scheme ("-EX" registration, § 6 Abs. 1 Z 27 for businesses
+  operated in another member state and its mirror for Austrian businesses selling abroad) should be
+  supported, and how a virtual event bought from outside the EU should be documented, is open.
 - **Door sales recorded in Revel.** When an organizer marks an *at the door* or *offline* ticket as
   paid in Revel after taking cash or card on site, that payment still has to go through the
   organizer's RKSV cash register (above the thresholds). Revel has no obligation of its own here, so

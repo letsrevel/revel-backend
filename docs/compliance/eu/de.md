@@ -76,12 +76,23 @@ Not covered:
   Factur-X XML it is the Seller tax registration identifier (BT-32, `schemeID="FC"`), which BR-E-02
   accepts in place of BT-31, repeated as BT-29 so BR-CO-26 holds; `vat_identifier` stays empty. §34a
   UStDV lets these organizers issue a *sonstige Rechnung* at any time, so the plain-PDF fallback stays
-  legally fine. One sale is **not invoiced**: a *virtual* event sold to a business established in another
-  EU member state, which is taxed where the buyer is (Art. 44 / Art. 196 of Directive 2006/112/EC) and
-  would need a reverse-charge invoice with a seller VAT ID (BR-AE-02/03). It is recorded as a skipped
-  fiscal document (reason `small_business_virtual_b2b`, [#1091](https://github.com/letsrevel/revel-backend/issues/1091))
-  for the organizer to handle in its own software. CI validates DE and AT small-business fixtures against
-  the CEN rules.
+  legally fine. The scheme covers **domestic supplies only** (§19 Abs. 1 UStG: "im Inland"; Revel does not
+  support the EU SME scheme's "-EX" registration of §19a UStG / Art. 284 of the VAT Directive), so two
+  kinds of sale are **not invoiced** and are recorded as skipped fiscal documents
+  ([#1091](https://github.com/letsrevel/revel-backend/issues/1091)) for the organizer to handle in its
+  own software: admission to a *physical event held outside Germany*, taxed where the event takes place
+  (Art. 53/54 of Directive 2006/112/EC; reason `small_business_foreign_venue`), and a *virtual event
+  bought from outside Germany*, taxed where the customer is under the 2025 rules (Art. 44 for businesses,
+  Art. 54(1) as amended by Directive (EU) 2022/542 for consumers; reason
+  `small_business_virtual_cross_border`, EU and non-EU customers alike, a business customer would moreover
+  need a reverse-charge invoice with a seller VAT ID, BR-AE-02/03). The event detail's compliance block
+  reports the first as `blocked` and the second as `blocked_for_foreign_buyers`. A blank venue or buyer
+  country is read as domestic, the assumption checkout prices on. Draft invoices follow the same rules:
+  a line cannot be edited to carry VAT and a draft cannot be switched to reverse charge. Once invoicing is
+  on, the billing settings refuse any change that would leave the seller unidentifiable (dropping the
+  scheme, blanking the tax number, moving the billing country), and generation itself skips an invoice
+  whose seller identity is missing (reason `seller_identity_missing`). CI validates DE and AT
+  small-business fixtures against the CEN rules.
 - **Not covered:** Revel cannot know an organizer's turnover, so it does not gate anything on the
   800,000 EUR threshold or on the §19 thresholds (25,000 EUR prior year, 100,000 EUR current year);
   every eligible document gets the XML, and the organizer is responsible for the scheme it declares.
@@ -162,10 +173,12 @@ Not covered:
   no harm, but whether a German Kleinunternehmer buying a B2B service from Austria should instead be
   reverse-charged (and then owe German VAT under §13b UStG, which would also push them to get a
   USt-IdNr.) has not been confirmed. Pinned by a test so a change is deliberate.
-- **Virtual events sold to non-EU buyers by a Kleinunternehmer.** Revel invoices every line of a
-  scheme organizer as exempt (E) with the §19 note, including a virtual event sold to a buyer outside
-  the EU, whose place of supply is outside Germany (category O would also be defensible). No VAT is
-  due either way; the wording is the open point.
+- **Sales outside Germany by a Kleinunternehmer (to confirm with the tax advisor).** Revel does not
+  invoice them (see above): a physical event abroad and a virtual event bought from abroad are gated
+  rather than given an E invoice with the §19 note. Whether a German Kleinunternehmer may in practice
+  rely on the EU SME scheme (§19a UStG, "-EX" suffix) for such sales, and whether Revel should then
+  support that registration, is open; so is the treatment of a virtual event bought from outside the
+  EU (outside EU VAT scope, category O), which the gate also covers for now.
 - The Steuernummer format check accepts 10, 11 or 13 digits after stripping separators; it does not
   verify the Finanzamt prefix or a check digit.
 - Ticket-specific or event-specific rules (for example local levies) were not part of this review.

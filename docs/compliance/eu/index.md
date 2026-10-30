@@ -56,9 +56,12 @@ fiscal-code field yet.
   small-business scheme ([#1244](https://github.com/letsrevel/revel-backend/issues/1244); today
   Germany's § 19 UStG and Austria's § 6 Abs. 1 Z 27 UStG), the declared scheme plus a format-valid
   national tax registration number (EN 16931 BT-32) and establishment in the scheme's country. Scheme
-  organizers charge no VAT: every invoice line is exempt (E) with the statutory note, reverse charge is
-  never applied, and a virtual event sold to a business in another EU country is not invoiced (recorded
-  as a skipped fiscal document). VAT-charging organizers without an EU VAT ID remain unsupported: they
+  organizers charge no VAT: every invoice line is exempt (E) with the statutory note and reverse charge is
+  never applied. A scheme covers domestic supplies only (the EU SME scheme's "-EX" registration is not
+  supported), so a physical event held outside the scheme's country and a virtual event bought from
+  outside it are not invoiced but recorded as skipped fiscal documents (`small_business_foreign_venue`,
+  `small_business_virtual_cross_border`); an invoice whose seller cannot be identified at all is skipped
+  as `seller_identity_missing`. VAT-charging organizers without an EU VAT ID remain unsupported: they
   need the (free) VAT ID. Details in [de.md](de.md) and [at.md](at.md).
 - The country of establishment is the declared VAT country, else the VAT ID's prefix, else the
   structured billing address's country, else the organization's city. Every country policy keys on it.
