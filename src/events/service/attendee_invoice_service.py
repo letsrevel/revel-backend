@@ -74,7 +74,8 @@ def einvoice_missing_fields(org: Organization) -> list[str]:
     """Return the organization fields still missing for compliant e-invoicing.
 
     Covers the structured address, then the legal name and the seller's tax identity: a
-    VIES-validated VAT ID, or a small-business scheme with a tax registration number (#1244).
+    VIES-validated VAT ID, or an Austrian small-business scheme with a tax registration number (#1244;
+    a German Kleinunternehmer needs the VAT ID, #1258).
 
     Returns:
         Organization field names (e.g. ``"billing_city"``), in a stable order; ``"vat_id"``
@@ -100,8 +101,9 @@ def validate_invoicing_prerequisites(
     """Validate that an organization meets all requirements for attendee invoicing.
 
     The seller is identified either by a VIES-validated EU VAT ID (an EU VAT country is then required)
-    or, for an organizer under a small-business scheme without a VAT ID (#1244), by its declared scheme
-    matching its country of establishment (DE or AT) plus a format-valid tax registration number.
+    or, for an organizer under the Austrian small-business scheme without a VAT ID (#1244), by its
+    declared scheme matching its country of establishment plus a format-valid tax registration number.
+    A German Kleinunternehmer needs the VIES-validated USt-IdNr. as well (#1258).
 
     Args:
         org: The organization.
@@ -453,11 +455,24 @@ def _is_virtual_interim(invoice: AttendeeInvoice) -> bool:
     )
 
 
+def _issuer_name() -> str:
+    """The platform operator named as the third-party issuer on attendee documents (#1258).
+
+    Art. 220(1) of Directive 2006/112/EC (AT UStR Rz 1505, 1530-1532; DE § 14 Abs. 2 S. 7 UStG) lets an
+    invoice be issued "in his name and on his behalf, by a third party"; the document says so, naming
+    the operator's legal name from the site settings (the brand name when none is configured).
+    """
+    from common.models import SiteSettings
+
+    return SiteSettings.get_solo().platform_business_name or "Revel"
+
+
 def _generate_and_save_pdf(invoice: AttendeeInvoice) -> None:
     """Render the invoice PDF and save it to the invoice's pdf_file field."""
     template = "invoices/attendee_invoice.html"
     context = {
         "invoice": invoice,
+        "issuer_name": _issuer_name(),
         "is_draft": invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT,
         "is_export": _is_export(invoice),
         "is_virtual_interim": _is_virtual_interim(invoice),
@@ -914,6 +929,7 @@ def _generate_credit_note_pdf(credit_note: AttendeeInvoiceCreditNote) -> None:
     context = {
         "credit_note": credit_note,
         "invoice": invoice,
+        "issuer_name": _issuer_name(),
         "is_export": _is_export(invoice),
         "is_virtual_interim": _is_virtual_interim(invoice),
     }
