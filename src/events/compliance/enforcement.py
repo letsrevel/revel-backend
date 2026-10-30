@@ -32,6 +32,7 @@ from events.compliance.registry import (
 )
 from events.exceptions import CountryComplianceError
 from events.models import Organization, TicketTier
+from events.utils import small_business
 from events.utils.tier_pricing import parse_price_map
 
 if t.TYPE_CHECKING:
@@ -168,12 +169,20 @@ def event_compliance(event: "Event") -> EventCompliance:
 
     Select ``organization__city``, ``venue__city`` and ``city`` to keep this query-free.
     """
-    reach = sale_nexus(event.organization, [event])
+    org = event.organization
+    reach = sale_nexus(org, [event])
+    scheme = org.small_business_scheme
     if not attendee_invoicing_for_sale(reach, BuyerContext()).allowed:
         invoicing = AttendeeInvoicingCapability.BLOCKED
     elif any(not attendee_invoicing_for_sale(reach, BuyerContext(vat_country=code[:2])).allowed for code in reach):
         # A buyer whose VAT ID is from one of the reaching countries (a subdivision's: its country) would be refused.
         invoicing = AttendeeInvoicingCapability.BLOCKED_FOR_BUSINESS_BUYERS
+    elif small_business.scheme_sale_block(
+        scheme, is_virtual=event.is_virtual, venue_country=event.effective_vat_country, buyer_country=""
+    ):
+        invoicing = AttendeeInvoicingCapability.BLOCKED  # a scheme organizer's physical event abroad (#1244)
+    elif event.is_virtual and small_business.scheme_country(scheme):
+        invoicing = AttendeeInvoicingCapability.BLOCKED_FOR_FOREIGN_BUYERS  # same gate, decided per buyer
     else:
         invoicing = AttendeeInvoicingCapability.ALLOWED
     return EventCompliance(

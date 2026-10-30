@@ -31,8 +31,12 @@ class SkippedFiscalDocumentReason(models.TextChoices):
 
     B2B_E_INVOICING = "b2b_e_invoicing"
     FISCALIZED_INVOICING = "fiscalized_invoicing"
-    # A small-business organizer (no VAT ID, #1244) sold a virtual event to a business in another EU country.
-    SMALL_BUSINESS_VIRTUAL_B2B = "small_business_virtual_b2b"
+    # Small-business-scheme organizers (#1244): a physical event held outside the scheme's country, or a
+    # virtual event bought from outside it (``events.utils.small_business``).
+    SMALL_BUSINESS_FOREIGN_VENUE = "small_business_foreign_venue"
+    SMALL_BUSINESS_VIRTUAL_CROSS_BORDER = "small_business_virtual_cross_border"
+    # No VIES-validated VAT ID and no complete scheme declaration: the seller cannot be identified (#1244).
+    SELLER_IDENTITY_MISSING = "seller_identity_missing"
 
 
 class SkippedFiscalDocument(TimeStampedModel):
@@ -42,7 +46,7 @@ class SkippedFiscalDocument(TimeStampedModel):
     ReasonCode = SkippedFiscalDocumentReason
 
     kind = models.CharField(max_length=20, choices=Kind.choices)
-    reason_code = models.CharField(max_length=30, choices=ReasonCode.choices)
+    reason_code = models.CharField(max_length=40, choices=ReasonCode.choices)
     policy_country = models.CharField(max_length=2, help_text="The country whose policy refused the document.")
     reason = models.TextField(help_text="The policy's explanation, in the language active when it was decided.")
 

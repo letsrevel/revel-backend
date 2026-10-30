@@ -183,7 +183,14 @@ def determine_attendee_vat(
 
 
 def get_effective_vat_rate(tier: "TicketTier", org: "Organization") -> Decimal:
-    """Get the applicable VAT rate for a tier, falling back to org default."""
+    """Get the applicable VAT rate for a tier, falling back to org default.
+
+    The one place checkout and the guards read a rate from: an organizer under a small-business
+    scheme (#1244) charges no VAT whatever its tiers say (a tier copied by event duplication can
+    still carry a rate), so the rate is 0 for them.
+    """
+    if is_small_business(org):
+        return Decimal("0.00")
     if tier.vat_rate is not None:
         return tier.vat_rate
     return org.vat_rate

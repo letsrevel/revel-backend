@@ -12,6 +12,7 @@ from events.models.attendee_invoice import InvoiceLineItemDict
 from events.models.organization import Organization
 from events.models.refund import Refund
 from events.models.ticket import Payment, Ticket
+from events.utils.small_business import is_small_business, scheme_exemption_reason
 from events.utils.vat_category import VatCategory, derive_vat_category, effective_vat_exemption_reason
 
 ZERO = Decimal("0.00")
@@ -42,19 +43,22 @@ def _provenance(payment: Payment) -> ProvenanceDict:
 
 
 def _build_line_items(
-    payments: list[Payment], reverse_charge: bool = False, out_of_scope: bool = False
+    payments: list[Payment], reverse_charge: bool = False, out_of_scope: bool = False, small_business: bool = False
 ) -> list[InvoiceLineItemDict]:
     """Build line item dicts from Payment records, each tagged with its EN 16931 VAT category.
 
     A reverse-charge (AE) line never carries VAT: the rate is 0 and the net is the gross, whatever
     the payment recorded (a DRAFT switched to reverse charge keeps its payments at the tier's rate).
+    So does every line of a small-business-scheme organizer (#1244), which is exempt (E): VAT a
+    payment may have recorded before the scheme was declared is never shown (DE § 14c UStG).
     """
+    no_vat = reverse_charge or small_business
     items: list[InvoiceLineItemDict] = []
     for payment in payments:
         ticket = payment.ticket
-        rate = ZERO if reverse_charge else (payment.vat_rate or ZERO)
-        vat = ZERO if reverse_charge else (payment.vat_amount or ZERO)
-        net = payment.amount if reverse_charge else (payment.net_amount or payment.amount)
+        rate = ZERO if no_vat else (payment.vat_rate or ZERO)
+        vat = ZERO if no_vat else (payment.vat_amount or ZERO)
+        net = payment.amount if no_vat else (payment.net_amount or payment.amount)
         items.append(
             InvoiceLineItemDict(
                 description=_description(ticket),
@@ -71,14 +75,20 @@ def _build_line_items(
 
 
 def _exempt_reasons(payments: list[Payment], line_items: list[InvoiceLineItemDict], org: Organization) -> list[str]:
-    """Collect the exemption reason of each exempt (E) line, in line order (tier's, else the org's)."""
-    return [
+    """Collect the exemption reason of each exempt (E) line, in line order (tier's, else the org's).
+
+    A small-business-scheme organizer's statutory note comes first (#1244): DE § 34a S. 1 Nr. 5 UStDV
+    and AT § 11 Abs. 1 Z 3 lit. e UStG require it on every invoice, whatever else the tiers say.
+    """
+    reasons = [scheme_exemption_reason(org.small_business_scheme)] if is_small_business(org) else []
+    reasons += [
         effective_vat_exemption_reason(payment.ticket.tier, org)
         if payment.ticket.tier
         else org.vat_exemption_reason.strip()
         for payment, item in zip(payments, line_items, strict=True)
         if item.get("vat_category") == VatCategory.EXEMPT
     ]
+    return reasons
 
 
 def _refund_vat_portion(row: Refund) -> Decimal:
@@ -90,15 +100,16 @@ def _refund_vat_portion(row: Refund) -> Decimal:
 
 
 def _build_refund_line_items(
-    refund_rows: list[Refund], reverse_charge: bool = False, out_of_scope: bool = False
+    refund_rows: list[Refund], reverse_charge: bool = False, out_of_scope: bool = False, small_business: bool = False
 ) -> list[InvoiceLineItemDict]:
-    """Build line item dicts from Refund rows (amount-aware, pro-rata VAT; none under reverse charge)."""
+    """Build line item dicts from Refund rows (amount-aware, pro-rata VAT; none under reverse charge or a scheme)."""
+    no_vat = reverse_charge or small_business
     items: list[InvoiceLineItemDict] = []
     for row in refund_rows:
         payment = row.payment
         label = "Partial refund" if row.amount < payment.amount else "Refund"
-        rate = ZERO if reverse_charge else (payment.vat_rate or ZERO)
-        vat_amount = ZERO if reverse_charge else _refund_vat_portion(row)
+        rate = ZERO if no_vat else (payment.vat_rate or ZERO)
+        vat_amount = ZERO if no_vat else _refund_vat_portion(row)
         items.append(
             InvoiceLineItemDict(
                 description=f"{label} — {_description(payment.ticket)}",

@@ -23,6 +23,7 @@ from common.utils import apex_email_domain, is_reserved_mailbox
 from events.compliance import BuyerContext, Decision
 from events.compliance import enforcement as compliance
 from events.compliance.base import ALL_NEXUS
+from events.compliance.registry import resolve_org_country
 from events.models.attendee_invoice import (
     AttendeeInvoice,
     AttendeeInvoiceCreditNote,
@@ -115,14 +116,13 @@ def validate_invoicing_prerequisites(
     """
     missing: list[str] = []
 
-    if is_small_business(org) and not org.vat_id_validated:
-        missing += small_business_scheme_service.scheme_prerequisite_errors(org)
-    else:
-        if not org.vat_country_code or org.vat_country_code not in EU_MEMBER_STATES:
-            missing.append(str(_("Organization must be EU-based (valid EU VAT country code required)")))
+    # A scheme organizer without a VAT ID is placed by its billing address, not a VAT country.
+    if not (is_small_business(org) and not org.vat_id_validated) and (
+        not org.vat_country_code or org.vat_country_code not in EU_MEMBER_STATES
+    ):
+        missing.append(str(_("Organization must be EU-based (valid EU VAT country code required)")))
 
-        if not org.vat_id_validated:
-            missing.append(str(_("VAT ID must be validated via VIES")))
+    missing += small_business_scheme_service.seller_identity_errors(org)
 
     if not org.billing_name:
         missing.append(str(_("Billing name (legal entity name) is required")))
@@ -236,21 +236,25 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
     event = first_payment.ticket.event
     # Reverse charge: use the authoritative decision from checkout, not re-inferred. An organizer
     # under a small-business scheme never reverse-charges and every line is exempt (E), #1244.
-    reverse_charge = bool(billing_snapshot.get("reverse_charge", False)) and not is_small_business(org)
+    small_business = is_small_business(org)
+    reverse_charge = bool(billing_snapshot.get("reverse_charge", False)) and not small_business
     # The buyer (VAT-ID prefix + checkout VIES outcome) decides the BE/PL domestic-B2B case.
     buyer = BuyerContext.from_billing_snapshot(billing_snapshot)
-    out_of_scope = not is_small_business(org) and out_of_scope_for(
+    out_of_scope = not small_business and out_of_scope_for(
         event, org.vat_country_code, billing_snapshot.get("vat_country_code", "")
     )
     decision = compliance.attendee_invoicing_for_sale(compliance.sale_nexus(org, [event]), buyer)
+    if decision.allowed:  # #1244: the seller must be identifiable, and a scheme covers domestic supplies only
+        decision = small_business_scheme_service.seller_identity_decision(org)
     if decision.allowed:
-        decision = small_business_scheme_service.virtual_b2b_decision(org, event, buyer)
+        buyer_country = small_business_scheme_service.buyer_country_from_snapshot(billing_snapshot)
+        decision = small_business_scheme_service.sale_decision(org, event, buyer_country)
     if not decision.allowed:
         # Defense in depth for orgs that enabled invoicing before the gate, moved
         # country, or sell into a restricted country (EU layer 1, #1057-#1067).
         # Recorded so the organizer knows to issue it from its own system (#1091).
         skipped_fiscal_document_service.record_skipped_invoice(
-            payments, _build_line_items(payments, reverse_charge, out_of_scope), decision
+            payments, _build_line_items(payments, reverse_charge, out_of_scope, small_business), decision
         )
         logger.warning("attendee_invoice_skipped_country_compliance", org_slug=org.slug, session_id=stripe_session_id)
         return None
@@ -262,7 +266,7 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
         else AttendeeInvoice.InvoiceStatus.DRAFT
     )
 
-    line_items = _build_line_items(payments, reverse_charge, out_of_scope)
+    line_items = _build_line_items(payments, reverse_charge, out_of_scope, small_business)
     vat_exemptions = build_vat_exemptions(
         (VatCategory(item["vat_category"]) for item in line_items), _exempt_reasons(payments, line_items, org)
     )
@@ -321,11 +325,12 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             card_last4=payment_means.card_last4,
             # Seller snapshot. Physical admission is taxed where the event takes
             # place, so the event's VAT country drives the invoice country; a
-            # virtual event is supplied from the org's establishment (#869).
+            # virtual event is supplied from the org's establishment (#869). Only a
+            # VIES-validated VAT ID is printed (BT-31); a typed-in one is not (#1244).
             seller_name=org.billing_name or org.name,
-            seller_vat_id=org.vat_id,
+            seller_vat_id=org.vat_id if org.vat_id_validated else "",
             seller_tax_registration_number=org.tax_registration_number,
-            seller_vat_country=org.vat_country_code.upper() if event.is_virtual else event.effective_vat_country,
+            seller_vat_country=resolve_org_country(org) if event.is_virtual else event.effective_vat_country,
             seller_address=org.billing_address,
             **org.billing_postal_address().to_fields("seller_"),
             seller_email=org.billing_email or org.contact_email or "",
@@ -365,7 +370,10 @@ def invoice_compliance_decision(invoice: AttendeeInvoice) -> Decision:
     else:
         # The event's venue, or the seller-country snapshot when the event is gone.
         reach = compliance.sale_nexus(org, [event] if event else [], [] if event else [invoice.seller_vat_country])
-    return compliance.attendee_invoicing_for_sale(reach, _invoice_buyer(invoice))
+    decision = compliance.attendee_invoicing_for_sale(reach, _invoice_buyer(invoice))
+    if not decision.allowed:
+        return decision
+    return small_business_scheme_service.invoice_sale_decision(invoice)  # #1244: domestic supplies only
 
 
 _NOT_ANNOTATED = object()

@@ -7,68 +7,89 @@ VAT-charging organizers that hold only a tax number (group B) still need an EU V
 Split from ``attendee_invoice_service`` (1000-line cap). Models and utils only.
 """
 
+import copy
 import typing as t
 
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
-from common.constants import EU_MEMBER_STATES
-from events.compliance import BuyerContext, Decision
-from events.compliance.base import SMALL_BUSINESS_VIRTUAL_B2B, country_name
+from common.country import normalize_country_code
+from events.compliance import Decision
+from events.compliance.base import SELLER_IDENTITY_MISSING, country_name
 from events.compliance.registry import resolve_org_country
+from events.models.attendee_invoice import AttendeeInvoice, BuyerBillingSnapshot
 from events.models.event import Event
 from events.models.organization import Organization
 from events.models.ticket import TicketTier
 from events.utils.small_business import (
+    SMALL_BUSINESS_FOREIGN_VENUE,
     SmallBusinessScheme,
     is_small_business,
     scheme_country,
     scheme_exemption_reason,
+    scheme_sale_block,
     tax_number_format_known,
     tax_number_is_valid,
     tax_number_label,
 )
 
-# The refusal recorded on the SkippedFiscalDocument (#1091) when a scheme organizer sells a virtual
-# event to a business in another EU country: the supply is taxed where the buyer is (Art. 44 /
-# Art. 196 of Directive 2006/112/EC), which takes a seller VAT ID and a reverse-charge invoice
-# (EN 16931 BR-AE-02/03) the scheme does not provide. Invoicing is not offered rather than silently
-# charging domestic treatment.
-VIRTUAL_B2B_BLOCKED_MESSAGE = _(
-    "Revel can't invoice a business customer in {country} for a virtual event on behalf of an organizer under a "
-    "small-business scheme: that sale is taxed where the customer is and needs a VAT ID and a reverse-charge "
-    "invoice. Issue this one from your own invoicing software."
+# Refusals recorded on the SkippedFiscalDocument (#1091). A scheme covers domestic supplies only, so a
+# sale whose place of supply lies outside the scheme's country is not invoiced: admission to a physical
+# event is taxed where it takes place (Art. 53/54 of Directive 2006/112/EC), virtual attendance where
+# the customer is (Art. 44; Art. 54(1) as amended by Directive (EU) 2022/542), and a business customer
+# would moreover need a reverse-charge invoice with a seller VAT ID (EN 16931 BR-AE-02/03).
+FOREIGN_VENUE_BLOCKED_MESSAGE = _(
+    "Revel can't invoice admission to an event held in {country} on behalf of an organizer under the {home} "
+    "small-business scheme: admission is taxed where the event takes place, outside the scheme. Issue this one "
+    "from your own invoicing software."
 )
+VIRTUAL_CROSS_BORDER_BLOCKED_MESSAGE = _(
+    "Revel can't invoice a customer in {country} for a virtual event on behalf of an organizer under the {home} "
+    "small-business scheme: that sale is taxed where the customer is, outside the scheme. Issue this one from "
+    "your own invoicing software."
+)
+SELLER_IDENTITY_MISSING_MESSAGE = _(
+    "Revel can't issue this invoice: the organization's tax identity is incomplete. Add a VIES-validated VAT ID, "
+    "or declare a small-business scheme with a valid tax registration number, and issue this one from your own "
+    "invoicing software."
+)
+INVOICING_WOULD_STOP_MESSAGE = _("This change would stop attendee invoicing: {details}. Turn invoicing off first.")
 
 
-def _scheme_country_matches(org: Organization) -> bool:
-    """Whether the organizer is established where its declared scheme applies (``de_19`` ⇒ DE, ``at_6_1_27`` ⇒ AT)."""
-    return resolve_org_country(org) == scheme_country(org.small_business_scheme)
+def _scheme_country_error(org: Organization) -> str:
+    """The translated refusal when the declared scheme is not the one of the country of establishment, else ``""``."""
+    expected = scheme_country(org.small_business_scheme)
+    if not expected or resolve_org_country(org) == expected:
+        return ""
+    return str(_("The small-business scheme you declared applies to organizations established in {country}")).format(
+        country=country_name(expected)
+    )
 
 
-def scheme_prerequisite_errors(org: Organization) -> list[str]:
-    """Why a scheme organizer cannot invoice attendees yet: translated messages, empty when it can.
-
-    Stands in for the VIES-validated VAT ID (``validate_invoicing_prerequisites``): the scheme must
-    match the country of establishment (which doubles as the DE/AT allowlist) and the tax registration
-    number (BT-32; DE § 34a S. 1 Nr. 2 UStDV) must be format-valid for that country.
-    """
-    errors: list[str] = []
+def _tax_number_error(org: Organization) -> str:
+    """The translated refusal when a scheme organizer's tax registration number is missing or malformed."""
     country = scheme_country(org.small_business_scheme)
-    if not _scheme_country_matches(org):
-        errors.append(
-            str(_("The small-business scheme you declared applies to organizations established in {country}")).format(
-                country=country_name(country)
-            )
-        )
-    if not tax_number_is_valid(country, org.tax_registration_number):
-        errors.append(
-            str(_("A valid tax registration number ({label}) is required under the small-business scheme")).format(
-                label=tax_number_label(country)
-            )
-        )
-    return errors
+    if tax_number_is_valid(country, org.tax_registration_number):
+        return ""
+    return str(_("A valid tax registration number ({label}) is required under the small-business scheme")).format(
+        label=tax_number_label(country)
+    )
+
+
+def seller_identity_errors(org: Organization) -> list[str]:
+    """Why the seller cannot be identified on an attendee invoice: translated messages, empty when it can.
+
+    A VIES-validated VAT ID identifies the seller (BT-31); a declared scheme must still be the one of
+    the country of establishment. Without a validated VAT ID, a scheme organizer needs the scheme to
+    match its country (which doubles as the DE/AT allowlist) and a format-valid tax registration number
+    (BT-32; DE § 34a S. 1 Nr. 2 UStDV); anyone else needs the VAT ID.
+    """
+    if org.vat_id_validated:
+        return [error for error in (_scheme_country_error(org),) if error]
+    if not is_small_business(org):
+        return [str(_("VAT ID must be validated via VIES"))]
+    return [error for error in (_scheme_country_error(org), _tax_number_error(org)) if error]
 
 
 def seller_identity_missing_fields(org: Organization) -> list[str]:
@@ -84,9 +105,9 @@ def seller_identity_missing_fields(org: Organization) -> list[str]:
     if not is_small_business(org):
         return ["vat_id"]
     missing: list[str] = []
-    if not _scheme_country_matches(org):
+    if _scheme_country_error(org):
         missing.append("small_business_scheme")
-    if not tax_number_is_valid(scheme_country(org.small_business_scheme), org.tax_registration_number):
+    if _tax_number_error(org):
         missing.append("tax_registration_number")
     return missing
 
@@ -100,25 +121,47 @@ def _live_tiers_charging_vat(org: Organization) -> bool:
     )
 
 
-def prepare_billing_update(org: Organization, update_data: dict[str, t.Any]) -> dict[str, t.Any]:
-    """Validate a billing-info PATCH against the small-business rules and prefill the exemption reason.
+def _exemption_reason_after(org: Organization, candidate: Organization) -> str:
+    """The organization default exemption reason after a scheme change.
 
-    A declared scheme means no VAT is ever charged: the organization's default rate must be 0% and
-    no live tier may override it upwards (a Kleinunternehmer showing VAT owes it, DE § 14c UStG /
-    AT § 11 Abs. 12 UStG). A tax registration number is format-checked whenever one is given and
-    the country's format is known; it only becomes mandatory when invoicing is turned on.
+    The statutory note is prefilled when a scheme is declared and no reason is set, replaced when the
+    scheme changes and the reason still is the old note, and cleared when the scheme is dropped and
+    the reason still is its note. Wording of the organizer's own is kept as it is: invoices of a scheme
+    organizer always carry the statutory note as well (``attendee_invoice_lines._exempt_reasons``).
+    """
+    reason = str(candidate.vat_exemption_reason or "").strip()
+    if candidate.small_business_scheme == org.small_business_scheme:
+        return reason
+    if reason == scheme_exemption_reason(org.small_business_scheme) or not reason:
+        return scheme_exemption_reason(candidate.small_business_scheme)
+    return reason
+
+
+def prepare_billing_update(org: Organization, update_data: dict[str, t.Any]) -> dict[str, t.Any]:
+    """Validate a billing-info PATCH against the small-business rules and keep the exemption note in step.
+
+    Checked on the post-PATCH state: a declared scheme must be the one of the country of establishment
+    (a VIES-validated organizer included); a tax registration number, whenever one is given and the
+    country's format is known, must be format-valid for that country; a declared scheme means no VAT
+    is ever charged, so the default rate must be 0% and no live tier may override it upwards (a
+    Kleinunternehmer showing VAT owes it, DE § 14c UStG / AT § 11 Abs. 12 UStG); and while attendee
+    invoicing is on, no change may leave the seller unidentifiable (:func:`seller_identity_errors`).
 
     Returns:
-        ``update_data``, plus the scheme's statutory exemption note as ``vat_exemption_reason`` when a
-        scheme is declared and no reason is set (the organizer may edit it afterwards).
+        ``update_data``, with ``vat_exemption_reason`` adjusted as :func:`_exemption_reason_after` says.
 
     Raises:
-        HttpError 422: On a positive default VAT rate or VAT-charging live tier under a scheme, or a
-            malformed tax registration number.
+        HttpError 422: On any of the refusals above.
     """
-    scheme = update_data.get("small_business_scheme", org.small_business_scheme)
-    number = str(update_data.get("tax_registration_number", org.tax_registration_number) or "").strip()
-    country = scheme_country(scheme) or resolve_org_country(org)
+    candidate = copy.copy(org)
+    for field, value in update_data.items():
+        if value is not None:
+            setattr(candidate, field, value)
+    scheme = candidate.small_business_scheme
+    if error := _scheme_country_error(candidate):  # before the number: its format depends on the country
+        raise HttpError(422, error)
+    number = str(candidate.tax_registration_number or "").strip()
+    country = scheme_country(scheme) or resolve_org_country(candidate)
     if number and tax_number_format_known(country) and not tax_number_is_valid(country, number):
         raise HttpError(
             422,
@@ -126,21 +169,22 @@ def prepare_billing_update(org: Organization, update_data: dict[str, t.Any]) -> 
                 label=tax_number_label(country), country=country_name(country)
             ),
         )
-    if scheme == SmallBusinessScheme.NONE:
-        return update_data
-    vat_rate = update_data.get("vat_rate")
-    if (org.vat_rate if vat_rate is None else vat_rate) > 0:
-        raise HttpError(
-            422, str(_("An organizer under a small-business scheme charges no VAT: set the default VAT rate to 0%."))
-        )
-    if _live_tiers_charging_vat(org):
-        raise HttpError(
-            422,
-            str(_("Some ticket tiers still charge VAT. Set them to 0% before declaring a small-business scheme.")),
-        )
-    reason = str(update_data.get("vat_exemption_reason", org.vat_exemption_reason) or "")
-    if not reason.strip():
-        return {**update_data, "vat_exemption_reason": scheme_exemption_reason(scheme)}
+    if scheme != SmallBusinessScheme.NONE:
+        if candidate.vat_rate > 0:
+            raise HttpError(
+                422,
+                str(_("An organizer under a small-business scheme charges no VAT: set the default VAT rate to 0%.")),
+            )
+        if _live_tiers_charging_vat(org):
+            raise HttpError(
+                422,
+                str(_("Some ticket tiers still charge VAT. Set them to 0% before declaring a small-business scheme.")),
+            )
+    if org.invoicing_mode != Organization.InvoicingMode.NONE and (errors := seller_identity_errors(candidate)):
+        raise HttpError(422, str(INVOICING_WOULD_STOP_MESSAGE).format(details="; ".join(errors)))
+    reason = _exemption_reason_after(org, candidate)
+    if reason != str(candidate.vat_exemption_reason or ""):
+        return {**update_data, "vat_exemption_reason": reason}
     return update_data
 
 
@@ -156,20 +200,64 @@ def assert_tier_rate_allowed(tier: TicketTier, org: Organization) -> None:
         )
 
 
-def virtual_b2b_decision(org: Organization, event: Event, buyer: BuyerContext) -> Decision:
-    """Whether Revel may invoice this sale for a scheme organizer; always allowed for any other organizer.
+def assert_draft_lines_exempt(org: Organization | None, line_items: t.Iterable[t.Mapping[str, t.Any]]) -> None:
+    """Refuse a draft edit that would make a scheme organizer's invoice show VAT.
 
-    Refused when a scheme organizer sold a *virtual* event to a business established in another
-    EU country (see :data:`VIRTUAL_B2B_BLOCKED_MESSAGE`). Physical admission is taxed at the venue
-    (Art. 53), consumers and non-EU buyers never need a reverse-charge invoice, so those stay allowed.
+    Raises:
+        HttpError 422: If the organizer has a scheme and any submitted line carries a VAT rate or amount.
     """
-    if not is_small_business(org) or not event.is_virtual or not buyer.vat_country:
-        return Decision.allow()
-    seller_country = resolve_org_country(org)
-    if buyer.vat_country == seller_country or buyer.vat_country not in EU_MEMBER_STATES:
+    if org is None or not is_small_business(org):
+        return
+    if any(float(item.get("vat_rate") or 0) or float(item.get("vat_amount") or 0) for item in line_items):
+        raise HttpError(
+            422, str(_("An organizer under a small-business scheme charges no VAT: set the VAT of every line to 0."))
+        )
+
+
+def seller_identity_decision(org: Organization) -> Decision:
+    """Whether the seller can be identified on an invoice at all (defense in depth at generation)."""
+    if not seller_identity_errors(org):
         return Decision.allow()
     return Decision.block(
-        str(VIRTUAL_B2B_BLOCKED_MESSAGE).format(country=country_name(buyer.vat_country)),
-        code=SMALL_BUSINESS_VIRTUAL_B2B,
-        country=seller_country,
+        str(SELLER_IDENTITY_MISSING_MESSAGE), code=SELLER_IDENTITY_MISSING, country=resolve_org_country(org)
     )
+
+
+def buyer_country_from_snapshot(snapshot: BuyerBillingSnapshot) -> str:
+    """The buyer's country as declared at checkout: the VAT country, else the structured billing address's."""
+    return normalize_country_code(snapshot.get("vat_country_code") or snapshot.get("billing_country_code") or "")
+
+
+def sale_decision(org: Organization, event: Event | None, buyer_country: str) -> Decision:
+    """Whether Revel may invoice this sale for a scheme organizer; always allowed for any other organizer.
+
+    See :func:`events.utils.small_business.scheme_sale_block`: a physical event held outside the
+    scheme's country, or a virtual event bought from outside it, is not invoiced. An unknown event
+    (deleted since the sale) is read as domestic.
+    """
+    if event is None or not is_small_business(org):
+        return Decision.allow()
+    home = scheme_country(org.small_business_scheme)
+    code = scheme_sale_block(
+        org.small_business_scheme,
+        is_virtual=event.is_virtual,
+        venue_country=event.effective_vat_country,
+        buyer_country=buyer_country,
+    )
+    if not code:
+        return Decision.allow()
+    if code == SMALL_BUSINESS_FOREIGN_VENUE:
+        message, country = FOREIGN_VENUE_BLOCKED_MESSAGE, normalize_country_code(event.effective_vat_country)
+    else:
+        message, country = VIRTUAL_CROSS_BORDER_BLOCKED_MESSAGE, normalize_country_code(buyer_country)
+    return Decision.block(
+        str(message).format(country=country_name(country), home=country_name(home)), code=code, country=home
+    )
+
+
+def invoice_sale_decision(invoice: AttendeeInvoice) -> Decision:
+    """:func:`sale_decision` for an existing invoice (a draft about to be issued, or one about to be credited)."""
+    if invoice.organization is None:
+        return Decision.allow()
+    buyer_country = invoice.buyer_country_code or invoice.buyer_vat_country
+    return sale_decision(invoice.organization, invoice.event, buyer_country)

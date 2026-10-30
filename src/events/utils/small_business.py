@@ -26,8 +26,20 @@ import typing as t
 
 from django.db import models
 
+from common.country import normalize_country_code
+
 if t.TYPE_CHECKING:
     from events.models import Organization
+
+# Stable codes of the refusals below (``Decision.code``); ``SkippedFiscalDocument.ReasonCode`` mirrors them.
+# A scheme covers domestic supplies only (absent the EU SME scheme's "-EX" registration, which Revel does
+# not support): admission to a physical event is taxed where it takes place (Art. 53/54 of Directive
+# 2006/112/EC) and virtual attendance where the customer is (Art. 44, Art. 54(1) as amended by Directive
+# (EU) 2022/542), so a sale whose place of supply is outside the scheme's country is not invoiced.
+SMALL_BUSINESS_FOREIGN_VENUE: t.Final = "small_business_foreign_venue"
+SMALL_BUSINESS_VIRTUAL_CROSS_BORDER: t.Final = "small_business_virtual_cross_border"
+# The seller cannot be identified on an invoice: no VIES-validated VAT ID and no complete scheme declaration.
+SELLER_IDENTITY_MISSING: t.Final = "seller_identity_missing"
 
 
 class SmallBusinessScheme(models.TextChoices):
@@ -62,7 +74,10 @@ SCHEME_EXEMPTION_REASONS: t.Final[dict[str, str]] = {
 _TAX_NUMBER_DIGITS: t.Final[dict[str, frozenset[int]]] = {"DE": frozenset({10, 11, 13}), "AT": frozenset({9})}
 _SEPARATORS: t.Final = re.compile(r"[\s/.\-]")
 
-# What the number is called on the invoice, per seller country.
+# What the number is called on the invoice, per seller country. Plain strings on purpose: the invoice
+# PDF templates are English-only ("INVOICE", "VAT:", "Bill To" are not translated either), and the
+# document is a fiscal record, so its labels never follow the viewer's UI language. Only the national
+# name is used where one is known; the generic label is unreachable while schemes exist for DE and AT only.
 _TAX_NUMBER_LABELS: t.Final[dict[str, str]] = {"DE": "Steuernummer", "AT": "Steuernummer"}
 GENERIC_TAX_NUMBER_LABEL: t.Final = "Tax registration no."
 
@@ -75,6 +90,24 @@ def is_small_business(org: "Organization") -> bool:
 def scheme_country(scheme: str) -> str:
     """The country a scheme belongs to, or ``""`` for ``none`` / unknown."""
     return SCHEME_COUNTRIES.get(scheme, "")
+
+
+def scheme_sale_block(scheme: str, *, is_virtual: bool, venue_country: str, buyer_country: str) -> str:
+    """Why a scheme organizer's sale is not invoiced by Revel: a refusal code, or ``""`` when it is.
+
+    A physical event held outside the scheme's country is :data:`SMALL_BUSINESS_FOREIGN_VENUE`; a
+    virtual event bought from outside it (EU business, EU consumer or non-EU alike: the place of
+    supply moves to the customer under the 2025 rules) is :data:`SMALL_BUSINESS_VIRTUAL_CROSS_BORDER`.
+    A blank venue or buyer country is read as domestic, the same assumption checkout prices on.
+    """
+    home = scheme_country(scheme)
+    if not home:
+        return ""
+    if is_virtual:
+        buyer = normalize_country_code(buyer_country)
+        return SMALL_BUSINESS_VIRTUAL_CROSS_BORDER if buyer and buyer != home else ""
+    venue = normalize_country_code(venue_country)
+    return SMALL_BUSINESS_FOREIGN_VENUE if venue and venue != home else ""
 
 
 def scheme_exemption_reason(scheme: str) -> str:

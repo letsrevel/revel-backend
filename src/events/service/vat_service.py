@@ -58,11 +58,17 @@ def calculate_platform_fee_vat(
     )
 
 
-def get_effective_vat_rate(tier_vat_rate: Decimal | None, org_vat_rate: Decimal) -> Decimal:
+def get_effective_vat_rate(
+    tier_vat_rate: Decimal | None, org_vat_rate: Decimal, *, small_business: bool = False
+) -> Decimal:
     """Return the effective VAT rate for a ticket tier.
 
-    Uses the tier's override if set, otherwise falls back to the org default.
+    Uses the tier's override if set, otherwise falls back to the org default; 0 for an organizer
+    under a small-business scheme (#1244). Callers holding the tier and the organization should use
+    ``attendee_vat_service.get_effective_vat_rate`` instead, which reads the scheme itself.
     """
+    if small_business:
+        return Decimal("0.00")
     if tier_vat_rate is not None:
         return tier_vat_rate
     return org_vat_rate

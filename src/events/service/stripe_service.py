@@ -35,6 +35,7 @@ from common.service.stripe_connect_service import (
 from events.exceptions import SessionTotalMismatchError as SessionTotalMismatchError
 from events.models import Event, HeldSeriesPass, Organization, Payment, Ticket, TicketTier
 from events.models.attendee_invoice import BuyerBillingSnapshot, VatIdStatus
+from events.service.attendee_vat_service import get_effective_vat_rate
 
 # Re-exported: the pending-checkout batch cleanup lives in its own module (file-length
 # limit) but callers and tests keep addressing it via the stripe_service namespace.
@@ -70,7 +71,6 @@ from events.service.vat_service import (
     calculate_vat_inclusive,
     distribute_amount_across_items,
     distribute_amount_pro_rata,
-    get_effective_vat_rate,
 )
 from events.utils.currency import to_stripe_amount
 from events.utils.small_business import is_small_business
@@ -220,13 +220,12 @@ def _attendee_vat_from_context(
     fresh price closes the stale-price window (#632).
     """
     from events.service.attendee_vat_service import determine_attendee_vat
-    from events.service.attendee_vat_service import get_effective_vat_rate as get_vat_rate
 
     if not context.buyer_country:
         return None, False
     vat_result = determine_attendee_vat(
         gross_price=base_price,
-        seller_vat_rate=get_vat_rate(tier, org),
+        seller_vat_rate=get_effective_vat_rate(tier, org),
         seller_country=org.vat_country_code,
         buyer_country=context.buyer_country,
         buyer_vat_id_valid=context.buyer_vat_validated,
@@ -295,7 +294,7 @@ def _resolve_ticket_amounts(
         if key in cache:
             continue
         if tier.pk not in fallback_vat_rate_cache:
-            fallback_vat_rate_cache[tier.pk] = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
+            fallback_vat_rate_cache[tier.pk] = get_effective_vat_rate(tier, org)
         attendee_vat_result = None
         if buyer_vat_context is not None:
             # Arithmetic only — recomputed from the locked tier's fresh price, so a
@@ -884,7 +883,7 @@ def reserve_series_pass_payments(
     tier_map = TicketTier.objects.in_bulk([ticket.tier_id for ticket in tickets])
     payments = []
     for i, ticket in enumerate(tickets):
-        rate = get_effective_vat_rate(tier_map[ticket.tier_id].vat_rate, org.vat_rate)
+        rate = get_effective_vat_rate(tier_map[ticket.tier_id], org)
         ticket_vat = calculate_vat_inclusive(shares[i], rate)
         payments.append(
             Payment(

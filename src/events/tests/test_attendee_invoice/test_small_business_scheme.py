@@ -21,7 +21,6 @@ from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
 from common.service.vat_utils import b2b_vat_context
-from events.compliance import BuyerContext
 from events.compliance.registry import resolve_org_country
 from events.models import Event, Organization, SkippedFiscalDocument, TicketTier
 from events.service import small_business_scheme_service as service
@@ -216,6 +215,7 @@ class TestBillingUpdate:
         self, organization: Organization, owner_client: Client
     ) -> None:
         organization.vat_rate = Decimal("0.00")
+        organization.billing_country_code = "AT"
         organization.save()
         response = _patch(
             owner_client,
@@ -231,6 +231,7 @@ class TestBillingUpdate:
     def test_an_existing_reason_is_kept(self, organization: Organization, owner_client: Client) -> None:
         organization.vat_rate = Decimal("0.00")
         organization.vat_exemption_reason = "Own wording"
+        organization.billing_country_code = "DE"
         organization.save()
         assert _patch(owner_client, organization, {"small_business_scheme": "de_19"}).status_code == 200
         organization.refresh_from_db()
@@ -238,6 +239,7 @@ class TestBillingUpdate:
 
     def test_a_scheme_needs_a_zero_default_rate(self, organization: Organization, owner_client: Client) -> None:
         organization.vat_rate = Decimal("19.00")
+        organization.billing_country_code = "DE"
         organization.save()
         response = _patch(owner_client, organization, {"small_business_scheme": "de_19"})
         assert response.status_code == 422
@@ -250,6 +252,7 @@ class TestBillingUpdate:
         self, organization: Organization, event: Event, event_ticket_tier: TicketTier, owner_client: Client
     ) -> None:
         organization.vat_rate = Decimal("0.00")
+        organization.billing_country_code = "DE"
         organization.save()
         event_ticket_tier.vat_rate = Decimal("19.00")
         event_ticket_tier.save()
@@ -259,6 +262,7 @@ class TestBillingUpdate:
 
     def test_malformed_tax_number_is_refused(self, organization: Organization, owner_client: Client) -> None:
         organization.vat_rate = Decimal("0.00")
+        organization.billing_country_code = "DE"
         organization.save()
         response = _patch(
             owner_client, organization, {"small_business_scheme": "de_19", "tax_registration_number": "12/345"}
@@ -400,12 +404,14 @@ class TestGeneration:
         event_ticket_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
+        """The place of supply moves to the customer: outside the scheme, so not invoiced (see the review tests)."""
         _ready(organization, event, virtual=True)
         snapshot = {**_default_billing_snapshot(), "vat_id": "", "vat_country_code": "US"}
         _payment(member_user, event, event_ticket_tier, "cs_sb_us", snapshot)
-        invoice = generate_attendee_invoice("cs_sb_us")
-        assert invoice is not None
-        assert [li["vat_category"] for li in invoice.line_items] == ["E"]
+        assert generate_attendee_invoice("cs_sb_us") is None
+        skipped = SkippedFiscalDocument.objects.get(stripe_session_id="cs_sb_us")
+        assert skipped.reason_code == SkippedFiscalDocument.ReasonCode.SMALL_BUSINESS_VIRTUAL_CROSS_BORDER
+        assert [li["vat_category"] for li in skipped.line_items] == ["E"]
 
     def test_virtual_sale_to_a_business_in_another_eu_country_is_skipped(
         self,
@@ -426,7 +432,7 @@ class TestGeneration:
         _payment(member_user, event, event_ticket_tier, "cs_sb_fr", snapshot)
         assert generate_attendee_invoice("cs_sb_fr") is None
         skipped = SkippedFiscalDocument.objects.get(stripe_session_id="cs_sb_fr")
-        assert skipped.reason_code == SkippedFiscalDocument.ReasonCode.SMALL_BUSINESS_VIRTUAL_B2B
+        assert skipped.reason_code == SkippedFiscalDocument.ReasonCode.SMALL_BUSINESS_VIRTUAL_CROSS_BORDER
         assert skipped.policy_country == "DE"
         assert "France" in skipped.reason
         assert [li["vat_category"] for li in skipped.line_items] == ["E"]
@@ -434,13 +440,12 @@ class TestGeneration:
     @pytest.mark.parametrize(
         ("virtual", "vat_id", "country"),
         [
-            (False, "FR12345678901", "FR"),  # physical admission: taxed at the venue
+            (False, "FR12345678901", "FR"),  # physical admission at home: taxed at the venue
             (True, "DE123456789", "DE"),  # domestic business buyer
-            (True, "", "FR"),  # EU consumer
-            (True, "US12345", "US"),  # non-EU business
+            (True, "", "DE"),  # domestic consumer
         ],
     )
-    def test_other_business_buyers_are_invoiced(
+    def test_domestic_buyers_are_invoiced(
         self,
         _mail: t.Any,
         _pdf: t.Any,
@@ -461,8 +466,8 @@ class TestGeneration:
         self, _mail: t.Any, _pdf: t.Any, organization: Organization, event: Event
     ) -> None:
         event.is_virtual = True
-        decision = service.virtual_b2b_decision(organization, event, BuyerContext(vat_country="FR"))
-        assert decision.allowed
+        assert service.sale_decision(organization, event, "FR").allowed
+        assert service.seller_identity_decision(_make_org_invoicing_ready(organization)).allowed
 
 
 # ---------------------------------------------------------------------------

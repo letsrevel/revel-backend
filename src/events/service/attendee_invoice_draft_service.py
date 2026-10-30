@@ -26,6 +26,7 @@ from events.models.attendee_invoice import (
 )
 from events.models.ticket import TicketTier
 from events.service.attendee_invoice_lines import ProvenanceDict
+from events.service import small_business_scheme_service
 from events.service.attendee_invoice_service import _generate_and_save_pdf, invoice_compliance_decision
 from events.service.attendee_vat_service import out_of_scope_for
 from events.service.en16931_totals_service import compute_en16931_totals, sum_line_amounts
@@ -308,6 +309,7 @@ def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.
     if reverse_charge and small_business:
         raise HttpError(422, str(_("An organizer under a small-business scheme can't issue a reverse-charge invoice.")))
     submitted = update_data.get("line_items", invoice.line_items)
+    small_business_scheme_service.assert_draft_lines_exempt(invoice.organization, submitted)  # no VAT shown, ever
     buyer_country = update_data.get("buyer_vat_country", invoice.buyer_vat_country)
     # Every line of a small-business organizer is exempt (E), never out of scope (#1244).
     out_of_scope = not small_business and out_of_scope_for(invoice.event, invoice.seller_vat_country, buyer_country)
