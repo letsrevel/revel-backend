@@ -204,8 +204,8 @@ def get_invoice_recipients(org: Organization) -> list[str]:
     if org.owner.email:
         recipients.append(org.owner.email)
 
-    # Billing email, falling back to contact email
-    billing_email = org.billing_email or org.contact_email
+    # Billing email, falling back to the contact email only when it is verified
+    billing_email = org.billing_email or (org.contact_email if org.contact_email_verified else "")
     if billing_email and billing_email not in recipients:
         recipients.append(billing_email)
 

@@ -785,6 +785,8 @@ class TestVerifyContactEmail:
 
         assert response.status_code == 400, response.content
         assert "different email address" in response.json()["detail"]
+        organization.refresh_from_db()
+        assert organization.contact_email_verified is False
 
 
 # --- Tests for contact_method on PUT and POST update-contact-email ---
