@@ -55,8 +55,34 @@ merchant of record they remain responsible for their tax and invoicing duties.
   invoice through Revel; without a VIES-validated VAT ID Revel cannot tell a taxable person from a
   consumer. Revel does not gate on the € 55,000 Kleinunternehmer threshold; the organizer is responsible
   for the scheme it declares.
-- The [common ticket content](index.md#common-ticket-content) applies. Without a VAT ID, the
-  Steuernummer is printed as the tax ID on tickets and wallet passes.
+- **Simplified invoice.** Since 1 January 2025 a Kleinunternehmer may use the simplified invoice of
+  § 11 Abs. 6 UStG regardless of the amount (UStR 2000 Rz 1627): issue date, supplier name and address,
+  description, date or period of supply, amount, and the exemption note in place of the rate. Revel's
+  EN 16931 content (recipient, sequential number, Steuernummer) is a superset of that, which is allowed.
+  **No VAT amount or rate is ever shown**: VAT shown is owed (§ 11 Abs. 12), and an issuer that is not
+  the supplier owes the VAT it shows (§ 11 Abs. 14); Art. 289 of the Directive says the same. The PDF of
+  an invoice or credit note generated for a scheme organizer (`AttendeeInvoice.seller_small_business_scheme`,
+  snapshotted at generation) therefore has no VAT column, per-line rate or Subtotal/VAT totals: gross
+  amounts, the Total, the Steuernummer and the note. The Factur-X XML keeps its category-E breakdown at
+  0, which EN 16931 needs structurally.
+- **Platform fee (Revel → organizer).** An Austrian Kleinunternehmer is a taxable person (§ 2, § 3a
+  Abs. 5 Z 1 UStG; UStR Rz 638o), and Revel is an Austrian business, so the fee is a domestic supply
+  whichever rule applies (§ 3a Abs. 6 or Abs. 7): **Austrian VAT at 20%**, no reverse charge, whether
+  or not the organizer holds a UID; the Kleinunternehmer cannot deduct it. Nothing changes here with
+  [#1258](https://github.com/letsrevel/revel-backend/issues/1258) (contrast
+  [Germany](de.md#what-revel-does), where the fee is reverse-charged and a UID is therefore required).
+  Pinned by a test.
+- **Third-party issuance.** Revel issues attendee invoices and credit notes in the organizer's name
+  and on its behalf (Art. 220(1) of the Directive; UStR Rz 1505, 1530–1532). Every such PDF carries the
+  line "Issued by *platform legal name* in the name and on behalf of *organizer*", and the Factur-X XML
+  the same sentence as BT-22; the legal name (`SiteSettings.platform_business_name`) is snapshotted on
+  the document (`issuer_name`) when it is created. An invoicing mandate in the organizer terms is a
+  separate ToS step.
+- The [common ticket content](index.md#common-ticket-content) applies. Tickets and wallet passes print
+  the Steuernummer as the tax ID for an organizer with no VAT ID at all, a declared scheme and a
+  complete scheme identity (scheme, establishment in Austria, format-valid Steuernummer); a scheme
+  organizer with a UID prints the UID once it is VIES-validated (an unvalidated UID falls back to the
+  Steuernummer).
 
 ## Legal basis
 
@@ -95,25 +121,50 @@ merchant of record they remain responsible for their tax and invoicing duties.
   totals up to € 400). So the Steuernummer on a Revel invoice is an EN 16931 requirement (BR-E-02), not
   an Austrian one. [§ 11 UStG 1994 (RIS)](https://www.ris.bka.gv.at/NormDokument.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10004873&Paragraf=11),
   [WKO Kleinunternehmer invoice template](https://www.wko.at/wien/steuern/rechnung-kleinunternehmen-muster.docx)
-- **Platform fee (Revel → organizer).** Without a VIES-validated UID the organizer is treated as a
-  non-taxable customer (Art. 18 of Implementing Regulation (EU) 282/2011) and Revel, an Austrian
-  business, charges Austrian VAT on its fee. For an Austrian Kleinunternehmer this is in any case a
-  domestic supply, so Austrian VAT applies whether or not the organizer is a taxable person.
+- **Simplified invoice (§ 11 Abs. 6 UStG 1994, idF BGBl. I Nr. 97/2025).** "Bei Rechnungen ... die von
+  einem Unternehmer ausgestellt werden, der die Steuerbefreiung in § 6 Abs. 1 Z 27 in Anspruch nimmt",
+  the small-amount content suffices; UStR 2000 Rz 1627: Kleinunternehmer "können ab 1.1.2025 die
+  vereinfachte Rechnungslegung ... unabhängig vom in der Rechnung ausgewiesenen Betrag anwenden". Not
+  available for supplies in another member state or reverse-charge cases (Abs. 6 last sentences), which
+  are exactly the sales Revel refuses for scheme organizers.
+  [UStR Rz 1625 ff. (Findok)](https://findok.bmf.gv.at/findok/volltext?segmentId=0b135b32-0383-45f8-9f60-c7c8dedb2adc)
+- **No VAT amount on a Kleinunternehmer invoice.** § 11 Abs. 12 (tax shown without being owed is owed
+  on the strength of the invoice) and § 11 Abs. 14 (an issuer that is not the supplier owes the tax it
+  shows); Art. 289 of Directive 2006/112/EC.
+- **Platform fee (Revel → organizer).** A Kleinunternehmer is an Unternehmer (§ 2 Abs. 1 UStG) and
+  counts as a business recipient for the place-of-supply rules (§ 3a Abs. 5 Z 1; UStR Rz 638o). Revel's
+  fee to an Austrian organizer is supplied in Austria either way (§ 3a Abs. 6 for a business, Abs. 7
+  otherwise): Austrian VAT at 20%, no reverse charge. For a *German* Kleinunternehmer the same
+  reasoning moves the place of supply to Germany with reverse charge (Art. 44/196), which is why the
+  German scheme requires a VIES-validated USt-IdNr. ([de.md](de.md)).
+  [UStR Rz 638k ff. (Findok)](https://findok.bmf.gv.at/findok/volltext?segmentId=14a019d2-0500-4139-ac29-a35960bd891d)
+- **Third-party issuance.** Art. 220(1) of Directive 2006/112/EC ("in his name and on his behalf, by a
+  third party"); UStR Rz 1505 ("Der zur Abrechnung ... Verpflichtete kann sich im Abrechnungsverfahren
+  dritter Personen bedienen") and Rz 1530–1532 (invoicing "im Namen und für Rechnung" of the supplier:
+  the supplier's name, address and, where it exists, UID on the document). Not a *Gutschrift* (§ 11
+  Abs. 7: self-billing by the recipient). Rz 1531 / § 11 Abs. 14: the issuer owes VAT it shows without
+  authority, hence the hard no-VAT rule for scheme organizers.
+  [UStR Rz 1505 ff. (Findok)](https://findok.bmf.gv.at/findok/volltext?segmentId=fc2306a0-c9dc-4515-b0f6-c7f5ce7584ec),
+  [UStR Rz 1527 ff. (Findok)](https://findok.bmf.gv.at/findok/volltext?segmentId=756c063d-6f4b-4aff-807e-d4980c6e2a68)
 
 ## Open questions
 
-- **Platform-fee VAT for Kleinunternehmer (to confirm with the tax advisor before launch).** Revel's
-  own fee invoice is unchanged by [#1244](https://github.com/letsrevel/revel-backend/issues/1244): a
-  scheme organizer without a validated UID is charged Austrian VAT. For Austrian organizers the outcome
-  is the same either way (domestic supply); the question is mainly the German case (see
-  [de.md](de.md#open-questions)). Pinned by a test so a change is deliberate.
+- **For the Steuerberater** ([#1258](https://github.com/letsrevel/revel-backend/issues/1258)): whether
+  Revel's platform fee is an electronically supplied service (Art. 7 IR 282/2011) and Revel's position
+  against the EUR 10,000 threshold of Art. 3a Abs. 5 BMR (EU-OSS); the Art. 9a IR 282/2011
+  deemed-supplier risk should on-demand virtual content ever be sold; and the ZM effect of the German
+  UID requirement. None of these changes the Austrian case above. Details in
+  [de.md](de.md#open-questions).
 - The Steuernummer format check only verifies nine digits after stripping separators; it does not
   verify the Finanzamt number or the check digit. Sources differ on whether the last seven digits are
   read as six plus a check digit; this does not affect the check.
-- **Sales outside Austria by a Kleinunternehmer (to confirm with the tax advisor).** Gated, not
-  invoiced (see above). Whether the EU SME scheme ("-EX" registration, § 6 Abs. 1 Z 27 for businesses
-  operated in another member state and its mirror for Austrian businesses selling abroad) should be
-  supported, and how a virtual event bought from outside the EU should be documented, is open.
+- **Sales outside Austria by a Kleinunternehmer.** Gated, not invoiced (see above); the research of
+  30 October 2026 confirmed the gate as reasonable: a physical event abroad is taxed at the venue
+  (§ 3a Abs. 11 lit. a / Abs. 11a; Art. 53/54) and the home exemption covers domestic supplies only
+  (Art. 284(1)); a virtual event is taxed where the customer is (B2C EU from the first euro, § 3a Abs. 13
+  lit. b; B2B EU reverse charge, category AE; non-EU not taxable here, category O), so the home note is
+  wrong for all of them. Supporting the EU SME scheme ("-EX" registration, Art. 6a BMR) would need a
+  verified EX number and the venue state's invoice rules and stays out of scope.
 - **Door sales recorded in Revel.** When an organizer marks an *at the door* or *offline* ticket as
   paid in Revel after taking cash or card on site, that payment still has to go through the
   organizer's RKSV cash register (above the thresholds). Revel has no obligation of its own here, so

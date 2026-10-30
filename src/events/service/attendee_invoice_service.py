@@ -18,12 +18,16 @@ from ninja.errors import HttpError
 
 from common.constants import EU_MEMBER_STATES
 from common.postal_address import PostalAddress
-from common.service.invoice_utils import get_next_sequential_number, render_pdf
+from common.service.invoice_utils import (
+    get_next_sequential_number,
+    issuance_statement,
+    platform_issuer_name,
+    render_pdf,
+)
 from common.utils import apex_email_domain, is_reserved_mailbox
 from events.compliance import BuyerContext, Decision
 from events.compliance import enforcement as compliance
 from events.compliance.base import ALL_NEXUS
-from events.compliance.registry import resolve_org_country
 from events.models.attendee_invoice import (
     AttendeeInvoice,
     AttendeeInvoiceCreditNote,
@@ -74,7 +78,8 @@ def einvoice_missing_fields(org: Organization) -> list[str]:
     """Return the organization fields still missing for compliant e-invoicing.
 
     Covers the structured address, then the legal name and the seller's tax identity: a
-    VIES-validated VAT ID, or a small-business scheme with a tax registration number (#1244).
+    VIES-validated VAT ID, or an Austrian small-business scheme with a tax registration number (#1244;
+    a German Kleinunternehmer needs the VAT ID, #1258).
 
     Returns:
         Organization field names (e.g. ``"billing_city"``), in a stable order; ``"vat_id"``
@@ -100,8 +105,9 @@ def validate_invoicing_prerequisites(
     """Validate that an organization meets all requirements for attendee invoicing.
 
     The seller is identified either by a VIES-validated EU VAT ID (an EU VAT country is then required)
-    or, for an organizer under a small-business scheme without a VAT ID (#1244), by its declared scheme
-    matching its country of establishment (DE or AT) plus a format-valid tax registration number.
+    or, for an organizer under the Austrian small-business scheme without a VAT ID (#1244), by its
+    declared scheme matching its country of establishment plus a format-valid tax registration number.
+    A German Kleinunternehmer needs the VIES-validated USt-IdNr. as well (#1258).
 
     Args:
         org: The organization.
@@ -323,15 +329,11 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             payment_means_code=payment_means.code,
             payment_method_label=payment_means.label,
             card_last4=payment_means.card_last4,
-            # Seller snapshot. Physical admission is taxed where the event takes
-            # place, so the event's VAT country drives the invoice country; a
-            # virtual event is supplied from the org's establishment (#869). The stored VAT ID
-            # is printed as before, except on the scheme path (#1244): a scheme organizer without
-            # a validated VAT ID is identified by its tax number (BT-32), never by a typed-in BT-31.
+            # Seller snapshot; the identifiers follow one rule shared with draft issue (#1244, #1258).
+            issuer_name=platform_issuer_name(),  # third-party issuer snapshot (#1258)
             seller_name=org.billing_name or org.name,
-            seller_vat_id="" if small_business and not org.vat_id_validated else org.vat_id,
-            seller_tax_registration_number=org.tax_registration_number,
-            seller_vat_country=resolve_org_country(org) if event.is_virtual else event.effective_vat_country,
+            seller_small_business_scheme=org.small_business_scheme,  # the PDF then shows no VAT at all (#1258)
+            **small_business_scheme_service.seller_identity_snapshot(org, event),
             seller_address=org.billing_address,
             **org.billing_postal_address().to_fields("seller_"),
             seller_email=org.billing_email or org.contact_email or "",
@@ -454,10 +456,15 @@ def _is_virtual_interim(invoice: AttendeeInvoice) -> bool:
 
 
 def _generate_and_save_pdf(invoice: AttendeeInvoice) -> None:
-    """Render the invoice PDF and save it to the invoice's pdf_file field."""
+    """Render the invoice PDF and save it to the invoice's pdf_file field.
+
+    The third-party issuance line (#1258) reads the issuer snapshot; a legacy row with a blank snapshot
+    names the current platform operator.
+    """
     template = "invoices/attendee_invoice.html"
     context = {
         "invoice": invoice,
+        "issuance_statement": issuance_statement(invoice.issuer_name, invoice.seller_name),
         "is_draft": invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT,
         "is_export": _is_export(invoice),
         "is_virtual_interim": _is_virtual_interim(invoice),
@@ -880,6 +887,7 @@ def generate_attendee_credit_note(
             totals_method=totals.totals_method,
             line_items=totals.lines,
             issued_at=timezone.now(),
+            issuer_name=platform_issuer_name(),  # #1258
         )
         credit_note.payments.set(build.payments)
         if build.refund_rows is not None:
@@ -914,6 +922,7 @@ def _generate_credit_note_pdf(credit_note: AttendeeInvoiceCreditNote) -> None:
     context = {
         "credit_note": credit_note,
         "invoice": invoice,
+        "issuance_statement": issuance_statement(credit_note.issuer_name, invoice.seller_name),
         "is_export": _is_export(invoice),
         "is_virtual_interim": _is_virtual_interim(invoice),
     }

@@ -207,7 +207,7 @@ The `Organization` model stores:
 | `vat_id_validated_at` | DateTimeField | Timestamp of last validation attempt |
 | `vies_request_identifier` | CharField | VIES response identifier for audit trail |
 | `tax_registration_number` | CharField | National tax number (EN 16931 BT-32, e.g. the German *Steuernummer*) for organizers without a VAT ID; format-checked only ([#1244](https://github.com/letsrevel/revel-backend/issues/1244)) |
-| `small_business_scheme` | CharField | `none` (default), `de_19` (§ 19 UStG) or `at_6_1_27` (§ 6 Abs. 1 Z 27 UStG). Declares a small-business VAT scheme: no VAT charged, every attendee-invoice line exempt (E), no reverse charge; with the tax number it replaces the VIES-validated VAT ID as an invoicing prerequisite. See [compliance/eu](../compliance/eu/index.md#attendee-vat-handling) |
+| `small_business_scheme` | CharField | `none` (default), `de_19` (§ 19 UStG) or `at_6_1_27` (§ 6 Abs. 1 Z 27 UStG). Declares a small-business VAT scheme: no VAT charged, every attendee-invoice line exempt (E), no reverse charge. For `at_6_1_27` the tax number replaces the VIES-validated VAT ID as an invoicing prerequisite; `de_19` requires the VIES-validated USt-IdNr. (the platform fee is reverse-charged, [#1258](https://github.com/letsrevel/revel-backend/issues/1258)) and the tax number is optional. See [compliance/eu](../compliance/eu/index.md#attendee-vat-handling) |
 | `billing_name` | CharField | Legal entity name for invoices (auto-filled from VIES if empty; falls back to org name) |
 | `billing_address` | TextField | Billing address (auto-filled from VIES if empty) |
 | `billing_email` | EmailField | Billing contact (falls back to contact_email for invoices) |

@@ -18,9 +18,15 @@ takes effect. No country restricts offline payment.
 Every ticket PDF and Apple/Google Wallet pass carries the following, whatever the country:
 
 - **Organizer**: the organization's billing name, or its display name if no billing name is set.
-- **Tax ID**: the organization's VAT ID, when one is set; otherwise its national tax registration
-  number with the country's label (`Steuernummer: 12/345/67890` for Germany and Austria), as on the
-  invoices ([#1260](https://github.com/letsrevel/revel-backend/issues/1260)). With neither, no line.
+- **Tax ID**: the organization's VAT ID, when one is set (a small-business organizer's only once it is
+  VIES-validated, as on its invoices); otherwise, for an organization with no validated VAT ID, a
+  declared small-business scheme and a complete scheme identity (scheme, establishment in
+  the scheme's country, format-valid tax number), its national tax registration number with the
+  country's label (`Steuernummer: 12-345/6789`), as on the invoices
+  ([#1260](https://github.com/letsrevel/revel-backend/issues/1260)). In practice that is the Austrian
+  scheme: a German Kleinunternehmer must hold a VIES-validated USt-IdNr.
+  ([#1258](https://github.com/letsrevel/revel-backend/issues/1258)), which is what its tickets print.
+  With neither, no line.
 - **Ticket number**: a sequential number per organization, in the form `SERIES-000123`.
     - The series is derived from the organization's slug when its first ticket is numbered, and never
       changes afterwards.
@@ -51,24 +57,41 @@ order, with the issue time set to their creation time.
 - Attendee invoicing is opt-in per organization: `NONE` (default), `HYBRID` (drafts are reviewed,
   then sent) or `AUTO` (generated and sent automatically). Invoices are PDFs issued in the
   organizer's name.
-- Turning invoicing on requires a VIES-validated EU VAT ID, or, for organizers under a national
-  small-business scheme ([#1244](https://github.com/letsrevel/revel-backend/issues/1244); today
-  Germany's § 19 UStG and Austria's § 6 Abs. 1 Z 27 UStG), the declared scheme plus a format-valid
-  national tax registration number (EN 16931 BT-32) and establishment in the scheme's country. Scheme
-  organizers charge no VAT: every invoice line is exempt (E) with the statutory note and reverse charge is
-  never applied. A scheme covers domestic supplies only (the EU SME scheme's "-EX" registration is not
-  supported), so a physical event held outside the scheme's country and a virtual event bought from
-  outside it are not invoiced but recorded as skipped fiscal documents (`small_business_foreign_venue`,
-  `small_business_virtual_cross_border`); an invoice of an organizer without any VAT ID whose scheme
-  declaration is incomplete is skipped as `seller_identity_missing`. Credit notes always follow the
-  invoice they correct. VAT-charging organizers without an EU VAT ID remain unsupported: they need the
-  (free) VAT ID. Details in [de.md](de.md) and [at.md](at.md).
+- Turning invoicing on requires a VIES-validated EU VAT ID. Organizers under a national small-business
+  scheme ([#1244](https://github.com/letsrevel/revel-backend/issues/1244),
+  [#1258](https://github.com/letsrevel/revel-backend/issues/1258)) declare it on top: an **Austrian**
+  Kleinunternehmer (§ 6 Abs. 1 Z 27 UStG) may replace the VAT ID with a format-valid national tax
+  registration number (EN 16931 BT-32) and establishment in Austria; a **German** Kleinunternehmer
+  (§ 19 UStG) needs the VIES-validated USt-IdNr. as well (Revel's platform fee to it is reverse-charged,
+  see below; the Steuernummer is optional). Scheme organizers charge no VAT: every invoice line is exempt
+  (E) with the statutory note, a VAT amount is never shown (AT § 11 Abs. 12/14, DE § 14c UStG, Art. 289
+  of the Directive) and reverse charge is never applied. A scheme covers domestic supplies only (the EU
+  SME scheme's "-EX" registration is not supported), so a physical event held outside the scheme's
+  country and a virtual event bought from outside it are not invoiced but recorded as skipped fiscal
+  documents (`small_business_foreign_venue`, `small_business_virtual_cross_border`); an invoice of a
+  scheme organizer whose identity is incomplete (AT: no tax number; DE: USt-IdNr. not validated) is
+  skipped as `seller_identity_missing`. Credit notes always follow the invoice they correct.
+  VAT-charging organizers without an EU VAT ID remain unsupported: they need the (free) VAT ID. Details
+  in [de.md](de.md) and [at.md](at.md).
+- Every attendee invoice and credit-note PDF states that it was issued by the platform operator in the
+  name and on behalf of the organizer (Art. 220(1) of Directive 2006/112/EC: third-party issuance; AT
+  UStR Rz 1505, 1530–1532; DE § 14 Abs. 2 S. 7 UStG), and the Factur-X XML carries the same sentence
+  as the invoice note (BT-22). The operator's legal name (`SiteSettings.platform_business_name`) is
+  snapshotted on each document when it is created (`issuer_name`), like the seller fields, so a later
+  rename never rewrites an issued document; documents from before the snapshot name the current
+  operator.
 - The country of establishment is the declared VAT country, else the VAT ID's prefix, else the
   structured billing address's country, else the organization's city. Every country policy keys on it.
-- Revel's own platform-fee invoices are B2B invoices from an Austrian business (reverse charge within
-  the EU for organizers with a validated VAT ID; Austrian VAT otherwise, including for small-business
-  organizers, Art. 18 IR 282/2011; to confirm with the tax advisor) and are not affected by the country
-  restrictions below.
+- Revel's own platform-fee invoices are B2B invoices from an Austrian business and are not affected by
+  the country restrictions below. A Kleinunternehmer is a taxable person (AT § 3a Abs. 5 Z 1 UStG, UStR
+  Rz 638o), so the fee follows the ordinary B2B rules: **reverse charge** (Art. 44/196) for an organizer
+  in another member state with a validated VAT ID, German Kleinunternehmer included; **Austrian VAT**
+  for Austrian organizers (domestic, Kleinunternehmer included) and for EU organizers without a
+  validated VAT ID (Art. 18 IR 282/2011; a German scheme organizer only lands here while a VIES
+  revalidation lapse is unresolved, since the scheme cannot be declared or kept without a validated
+  USt-IdNr.). Still with
+  the tax advisor: whether the fee is an e-service and the EUR 10,000 OSS threshold, and the Art. 9a IR
+  282/2011 deemed-supplier risk for on-demand virtual content ([de.md](de.md#open-questions)).
 
 See [Billing & VAT](../../architecture/billing-and-vat.md) for the details.
 
@@ -76,7 +99,7 @@ See [Billing & VAT](../../architecture/billing-and-vat.md) for the details.
 
 | Country | Status | Layer 1 restriction | Issue |
 |---|---|---|---|
-| [Austria](at.md) | No country-specific restrictions identified; Kleinunternehmer (§ 6 Abs. 1 Z 27 UStG) without a UID may invoice through Revel with their Steuernummer | None; organizer notice on door payments (own Registrierkasse) | [#1244](https://github.com/letsrevel/revel-backend/issues/1244) |
+| [Austria](at.md) | No country-specific restrictions identified; Kleinunternehmer (§ 6 Abs. 1 Z 27 UStG) without a UID may invoice through Revel with their Steuernummer (the platform fee stays domestic, 20% AT VAT) | None; organizer notice on door payments (own Registrierkasse) | [#1244](https://github.com/letsrevel/revel-backend/issues/1244), [#1258](https://github.com/letsrevel/revel-backend/issues/1258) |
 | [Belgium](be.md) | Restricted | Invoices to buyers with a BE VAT ID blocked, for organizers established in Belgium (Peppol) | [#1066](https://github.com/letsrevel/revel-backend/issues/1066) |
 | [Bulgaria](bg.md) | Not yet researched | None (default policy) | |
 | [Croatia](hr.md) | Restricted | Attendee invoicing blocked for organizers established in Croatia (fiscalization); organizer notice to fiscalize invoices from their own software | [#1058](https://github.com/letsrevel/revel-backend/issues/1058) |
@@ -86,7 +109,7 @@ See [Billing & VAT](../../architecture/billing-and-vat.md) for the details.
 | [Estonia](ee.md) | Not yet researched | None (default policy) | |
 | [Finland](fi.md) | No country-specific restrictions identified | None | |
 | [France](fr.md) | Restricted | Invoices to buyers with a FR VAT ID blocked, for organizers established in France (Plateforme Agréée); ticket content requirements covered | [#1061](https://github.com/letsrevel/revel-backend/issues/1061), [#1233](https://github.com/letsrevel/revel-backend/issues/1233) |
-| [Germany](de.md) | No restriction; eligible attendee invoices and credit notes are issued as ZUGFeRD / Factur-X EN 16931 PDFs (domestic B2B invoices above 250 EUR must be E-Rechnungen once the transition ends: 2027-01-01 above 800k EUR prior-year turnover, 2028-01-01 otherwise; Kleinunternehmer exempt). Kleinunternehmer (§ 19 UStG) without a USt-IdNr. may invoice through Revel with their Steuernummer (BT-32); VAT-charging organizers without a USt-IdNr. cannot | None | [#1232](https://github.com/letsrevel/revel-backend/issues/1232), [#1235](https://github.com/letsrevel/revel-backend/issues/1235), [#1244](https://github.com/letsrevel/revel-backend/issues/1244) |
+| [Germany](de.md) | No restriction; eligible attendee invoices and credit notes are issued as ZUGFeRD / Factur-X EN 16931 PDFs (domestic B2B invoices above 250 EUR must be E-Rechnungen once the transition ends: 2027-01-01 above 800k EUR prior-year turnover, 2028-01-01 otherwise; Kleinunternehmer exempt). Kleinunternehmer (§ 19 UStG) invoice through Revel with a VIES-validated USt-IdNr. (the platform fee is reverse-charged) plus the declared scheme, Steuernummer optional; organizers without a USt-IdNr. cannot | None | [#1232](https://github.com/letsrevel/revel-backend/issues/1232), [#1235](https://github.com/letsrevel/revel-backend/issues/1235), [#1244](https://github.com/letsrevel/revel-backend/issues/1244), [#1258](https://github.com/letsrevel/revel-backend/issues/1258) |
 | [Greece](gr.md) | Restricted | Attendee invoicing blocked for organizers established in Greece and for physical events held there (myDATA); organizer notice to issue documents from their own software | [#1063](https://github.com/letsrevel/revel-backend/issues/1063) |
 | [Hungary](hu.md) | Restricted | Attendee invoicing blocked for organizers established in Hungary and for physical events held there (NAV Online Számla); organizer notice on receipts, invoices and NAV reporting | [#1065](https://github.com/letsrevel/revel-backend/issues/1065) |
 | [Ireland](ie.md) | No country-specific restrictions identified | None | |

@@ -19,6 +19,7 @@ from euinvoice.model import (
     DeliveryInformation,
     Identifier,
     InvoiceDraft,
+    InvoiceNote,
     InvoicingPeriod,
     ItemInformation,
     LineDraft,
@@ -34,6 +35,7 @@ from euinvoice.model import (
 )
 
 from common.postal_address import PostalAddress
+from common.service.invoice_utils import issuance_statement
 from events.models.attendee_invoice import (
     AttendeeInvoice,
     AttendeeInvoiceCreditNote,
@@ -234,6 +236,7 @@ def _draft(
     issued_at: datetime.datetime,
     type_code: str,
     lines: list[InvoiceLineItemDict],
+    issuer_name: str,
     preceding: tuple[PrecedingInvoiceReference, ...] = (),
 ) -> InvoiceDraft:
     # BR-O-02: a document not subject to VAT carries neither the seller's nor the buyer's VAT identifier.
@@ -243,6 +246,8 @@ def _draft(
         issue_date=_issue_date(issued_at),
         type_code=type_code,
         currency_code=invoice.currency,
+        # BT-22 (#1258): the same third-party issuance statement the PDF prints, from the document's snapshot.
+        notes=(InvoiceNote(note=issuance_statement(issuer_name, invoice.seller_name)),),
         process_control=ProcessControl(specification_identifier=profiles.FACTURX_EN16931.specification_identifier),
         preceding_invoice_references=preceding,
         seller=_seller(invoice, invoice.seller_postal_address, vat_id=vat_ids),
@@ -266,6 +271,7 @@ def invoice_draft_for(invoice: AttendeeInvoice) -> InvoiceDraft:
         issued_at=invoice.issued_at,
         type_code=INVOICE_TYPE_CODE,
         lines=invoice.line_items,
+        issuer_name=invoice.issuer_name,
     )
 
 
@@ -284,6 +290,7 @@ def credit_note_draft_for(credit_note: AttendeeInvoiceCreditNote) -> InvoiceDraf
         issued_at=credit_note.issued_at,
         type_code=CREDIT_NOTE_TYPE_CODE,
         lines=credit_note.line_items,
+        issuer_name=credit_note.issuer_name,
         preceding=(reference,),
     )
 

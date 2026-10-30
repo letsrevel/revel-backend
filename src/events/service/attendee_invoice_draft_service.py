@@ -16,6 +16,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
+from common.service.invoice_utils import platform_issuer_name
 from events.exceptions import CountryComplianceError
 from events.models.attendee_invoice import (
     AttendeeInvoice,
@@ -30,7 +31,7 @@ from events.service.attendee_invoice_lines import ProvenanceDict
 from events.service.attendee_invoice_service import _generate_and_save_pdf, invoice_compliance_decision
 from events.service.attendee_vat_service import out_of_scope_for
 from events.service.en16931_totals_service import compute_en16931_totals, sum_line_amounts
-from events.utils.small_business import is_small_business, scheme_exemption_reason
+from events.utils.small_business import is_scheme, is_small_business, scheme_exemption_reason
 from events.utils.vat_category import (
     EXEMPT_FALLBACK_TEXT,
     VatCategory,
@@ -162,7 +163,7 @@ def _normalize_line_items(
 
 
 def _recompute_vat_exemptions(
-    invoice: AttendeeInvoice, line_items: list[InvoiceLineItemDict]
+    invoice: AttendeeInvoice, line_items: list[InvoiceLineItemDict], *, scheme_changed: bool = False
 ) -> dict[str, VatExemptionDict]:
     """Rebuild the exemption map for edited lines.
 
@@ -170,7 +171,9 @@ def _recompute_vat_exemptions(
     organization's), so a corrected tier or organization reason replaces the stored text and text
     that described lines no longer there cannot survive (#1242). A line without a tier (added by
     hand, or whose tier is gone) takes the organization's. Only on a legacy invoice, whose lines
-    carry no ids at all, is the exempt text already stored kept (the generic fallback excepted).
+    carry no ids at all, is the exempt text already stored kept (the generic fallback excepted),
+    except across a scheme transition (``scheme_changed``, #1258): the stored text then describes the
+    former scheme, so such lines take the organization's current reason as well.
     A small-business organizer's statutory note always comes first (#1244), whatever the tiers say.
     """
     org = invoice.organization
@@ -184,7 +187,7 @@ def _recompute_vat_exemptions(
     # From the stored lines: an invoice that ever had ids never drops to the legacy path.
     has_provenance = any("line_id" in item for item in invoice.line_items)
     stored = invoice.vat_exemptions.get("E", {}).get("text", "")
-    legacy_reason = stored if stored and stored != EXEMPT_FALLBACK_TEXT else org_reason
+    legacy_reason = stored if stored and stored != EXEMPT_FALLBACK_TEXT and not scheme_changed else org_reason
     reasons = []
     for item in exempt:
         if (tier := tiers.get(item.get("tier_id", ""))) is not None:
@@ -421,6 +424,42 @@ def update_draft_invoice(
     return _apply_draft_update(invoice, update_data)
 
 
+def _follow_organizer_scheme(invoice: AttendeeInvoice) -> list[str]:
+    """Make an issued draft follow its organizer's scheme state, in both directions (#1244, #1258).
+
+    Declared since generation, the statutory note is stamped into the exemption map and the issued PDF
+    shows no VAT; left since generation, the stale note is dropped and the normal layout returns. When
+    the scheme changed, the seller identifiers are re-snapshotted by the rule generation applies (a VAT
+    ID obtained on leaving the scheme, or hidden on joining it unvalidated, reaches the document; the
+    VAT country stays when the event is gone), and hand-entered lines take the current reason instead
+    of the former scheme's text. Lines stay as edited; a legacy row without categories has no
+    exemption map to redo.
+
+    Returns:
+        The fields set on ``invoice`` (for ``save(update_fields=...)``); empty without an organization.
+    """
+    org = invoice.organization
+    if org is None:
+        return []
+    fields: list[str] = []
+    scheme_changed = invoice.seller_small_business_scheme != org.small_business_scheme
+    if (is_small_business(org) or is_scheme(invoice.seller_small_business_scheme)) and all(
+        "vat_category" in item for item in invoice.line_items
+    ):
+        invoice.vat_exemptions = _recompute_vat_exemptions(invoice, invoice.line_items, scheme_changed=scheme_changed)
+        fields.append("vat_exemptions")
+    if scheme_changed:
+        identity = small_business_scheme_service.seller_identity_snapshot(
+            org, invoice.event, stored_vat_country=invoice.seller_vat_country
+        )
+        for field, value in identity.items():
+            setattr(invoice, field, value)
+        fields.extend(identity)
+    invoice.seller_small_business_scheme = org.small_business_scheme
+    fields.append("seller_small_business_scheme")
+    return fields
+
+
 def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
     """Issue a DRAFT invoice: finalize, set issued_at, regenerate PDF.
 
@@ -468,16 +507,10 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
             # invoice exists to recover a failed PDF generation, and that recovery
             # must stay available even for a row that drifted before #911 landed.
             _assert_totals_reconcile(invoice)
-            update_fields = ["status", "issued_at", "updated_at"]
-            if (
-                invoice.organization is not None
-                and is_small_business(invoice.organization)
-                and all("vat_category" in item for item in invoice.line_items)  # a legacy row has no map to redo
-            ):
-                # A draft generated before the scheme was declared carries no statutory note yet (#1244):
-                # stamp the exemption map now, lines untouched, so the issued document states the exemption.
-                invoice.vat_exemptions = _recompute_vat_exemptions(invoice, invoice.line_items)
-                update_fields.append("vat_exemptions")
+            update_fields = ["status", "issued_at", "updated_at", *_follow_organizer_scheme(invoice)]
+            if not invoice.issuer_name:  # a draft generated before the issuer snapshot existed (#1258)
+                invoice.issuer_name = platform_issuer_name()
+                update_fields.append("issuer_name")
             invoice.status = AttendeeInvoice.InvoiceStatus.ISSUED
             invoice.issued_at = timezone.now()
             invoice.save(update_fields=update_fields)

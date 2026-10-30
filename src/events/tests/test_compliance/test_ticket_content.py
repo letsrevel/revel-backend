@@ -31,10 +31,11 @@ def fiscal_org(organization: Organization) -> Organization:
 
 @pytest.fixture
 def scheme_org(organization: Organization) -> Organization:
-    organization.small_business_scheme = SmallBusinessScheme.DE_19
-    organization.vat_country_code = "DE"
+    """An Austrian Kleinunternehmer: the only scheme identified by a tax number alone (#1258)."""
+    organization.small_business_scheme = SmallBusinessScheme.AT_6_1_27
+    organization.vat_country_code = "AT"
     organization.vat_id = ""
-    organization.tax_registration_number = "12/345/67890"
+    organization.tax_registration_number = "12-345/6789"
     organization.save()
     return organization
 
@@ -96,12 +97,35 @@ class TestCommonFields:
         """#1260: a complete small-business organizer is identified by its Steuernummer everywhere."""
         fields = {field.key: field for field in ticket_fields(ticket)}
         assert fields["tax_id"].label == "Steuernummer"
-        assert fields["tax_id"].value == "12/345/67890"
+        assert fields["tax_id"].value == "12-345/6789"
         html = _pdf_html(ticket)
         assert "Steuernummer" in html
-        assert "12/345/67890" in html
-        assert _apple_back_fields(settings, ticket)["compliance_tax_id"] == "12/345/67890"
-        assert _google_modules(ticket)["tax_id"] == "12/345/67890"
+        assert "12-345/6789" in html
+        assert _apple_back_fields(settings, ticket)["compliance_tax_id"] == "12-345/6789"
+        assert _google_modules(ticket)["tax_id"] == "12-345/6789"
+
+    def test_german_scheme_organizer_prints_its_vat_id(self, scheme_org: Organization, ticket: Ticket) -> None:
+        """#1258: a DE Kleinunternehmer holds a VIES-validated USt-IdNr., so the Steuernummer never stands alone."""
+        scheme_org.small_business_scheme = SmallBusinessScheme.DE_19
+        scheme_org.vat_country_code = "DE"
+        scheme_org.tax_registration_number = "12/345/67890"
+        scheme_org.save()
+        assert "tax_id" not in {field.key for field in ticket_fields(ticket)}  # no USt-IdNr.: incomplete identity
+        scheme_org.vat_id = "DE811234567"  # typed in, not (or no longer) VIES-validated: nothing is printed either
+        scheme_org.save()
+        assert "tax_id" not in {field.key for field in ticket_fields(ticket)}
+        scheme_org.vat_id_validated = True
+        scheme_org.save()
+        fields = {field.key: field for field in ticket_fields(ticket)}
+        assert (fields["tax_id"].label, fields["tax_id"].value) == ("Tax ID", "DE811234567")
+
+    def test_non_scheme_organizer_prints_its_stored_vat_id_as_before(
+        self, fiscal_org: Organization, ticket: Ticket
+    ) -> None:
+        fiscal_org.vat_id_validated = False
+        fiscal_org.save()
+        fields = {field.key: field for field in ticket_fields(ticket)}
+        assert fields["tax_id"].value == "ATU12345678"
 
     def test_free_text_tax_number_without_a_scheme_prints_nothing(
         self, scheme_org: Organization, ticket: Ticket
@@ -113,7 +137,7 @@ class TestCommonFields:
         assert "tax_id" not in {field.key for field in ticket_fields(ticket)}
 
     def test_incomplete_scheme_identity_prints_nothing(self, scheme_org: Organization, ticket: Ticket) -> None:
-        scheme_org.tax_registration_number = "123"  # not a valid DE format
+        scheme_org.tax_registration_number = "123"  # not a valid AT format
         scheme_org.save()
 
         assert "tax_id" not in {field.key for field in ticket_fields(ticket)}

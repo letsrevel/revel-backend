@@ -46,6 +46,7 @@ from events.tests.test_attendee_invoice.test_small_business_scheme import (
     AT_REASON,
     DE_REASON,
     Scheme,
+    _give_german_vat_id,
     _make_small_business,
 )
 
@@ -204,27 +205,37 @@ class TestSchemeConsistency:
     @pytest.mark.parametrize(
         ("data", "fragment"),
         [
-            ({"small_business_scheme": "none", "vat_rate": "19.00"}, "VAT ID must be validated"),
+            ({"small_business_scheme": "none", "vat_rate": "20.00"}, "VAT ID must be validated"),
             ({"tax_registration_number": ""}, "tax registration number"),
-            ({"billing_country_code": "AT"}, "established in Germany"),
-            ({"small_business_scheme": "at_6_1_27"}, "established in Austria"),
+            ({"billing_country_code": "DE"}, "established in Austria"),
+            ({"small_business_scheme": "de_19"}, "established in Germany"),
         ],
     )
     def test_updates_that_would_break_the_seller_identity_are_refused_while_invoicing(
         self, organization: Organization, owner_client: Client, data: dict[str, t.Any], fragment: str
     ) -> None:
-        org = _invoicing_small_business(organization)
+        org = _invoicing_small_business(organization, Scheme.AT_6_1_27)
         response = _patch(owner_client, org, data)
         assert response.status_code == 422, response.content
         assert fragment in response.json()["detail"]
         org.refresh_from_db()
-        assert org.small_business_scheme == Scheme.DE_19
-        assert org.tax_registration_number == "12/345/67890"
+        assert org.small_business_scheme == Scheme.AT_6_1_27
+        assert org.tax_registration_number == "12-345/6789"
+
+    def test_german_organizer_may_drop_its_tax_number_but_not_its_scheme_country(
+        self, organization: Organization, owner_client: Client
+    ) -> None:
+        """#1258: the USt-IdNr. identifies a DE Kleinunternehmer, so the Steuernummer is optional."""
+        org = _invoicing_small_business(organization)
+        assert _patch(owner_client, org, {"tax_registration_number": ""}).status_code == 200
+        response = _patch(owner_client, org, {"small_business_scheme": "at_6_1_27"})
+        assert response.status_code == 422
+        assert "established in Austria" in response.json()["detail"]
 
     def test_same_updates_are_fine_with_invoicing_off(self, organization: Organization, owner_client: Client) -> None:
-        org = _make_small_business(organization)
+        org = _make_small_business(organization, Scheme.AT_6_1_27)
         assert _patch(owner_client, org, {"tax_registration_number": ""}).status_code == 200
-        assert _patch(owner_client, org, {"small_business_scheme": "none", "vat_rate": "19.00"}).status_code == 200
+        assert _patch(owner_client, org, {"small_business_scheme": "none", "vat_rate": "20.00"}).status_code == 200
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     @patch(MOCK_SEND_EMAIL)
@@ -242,7 +253,7 @@ class TestSchemeConsistency:
         Dropping the scheme itself is the PATCH guard's job (N1): at generation an organizer without a
         scheme is today's VIES case and is not second-guessed.
         """
-        org = _invoicing_small_business(organization)
+        org = _invoicing_small_business(organization, Scheme.AT_6_1_27)
         Organization.objects.filter(pk=org.pk).update(tax_registration_number="")
         _create_payment(
             user=member_user,
@@ -253,6 +264,26 @@ class TestSchemeConsistency:
         )
         assert generate_attendee_invoice("cs_noid") is None
         skipped = SkippedFiscalDocument.objects.get(stripe_session_id="cs_noid")
+        assert skipped.reason_code == Reason.SELLER_IDENTITY_MISSING
+        assert skipped.policy_country == "AT"
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_generation_skips_a_german_organizer_whose_vat_id_is_not_validated(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """#1258: the Steuernummer does not stand in for a DE Kleinunternehmer (VIES revalidation flipped the flag)."""
+        org = _invoicing_small_business(organization)
+        Organization.objects.filter(pk=org.pk).update(vat_id_validated=False)
+        _zero_payment(member_user, event, event_ticket_tier, "cs_de_unval", _buyer("DE"))
+        assert generate_attendee_invoice("cs_de_unval") is None
+        skipped = SkippedFiscalDocument.objects.get(stripe_session_id="cs_de_unval")
         assert skipped.reason_code == Reason.SELLER_IDENTITY_MISSING
         assert skipped.policy_country == "DE"
 
@@ -304,8 +335,8 @@ class TestSchemeOrgWithRejectedVatId:
     """N1: a VAT ID string VIES rejected does not take a scheme organizer off the guard."""
 
     def _rejected_vat_id(self, organization: Organization) -> Organization:
-        org = _invoicing_small_business(organization)
-        org.vat_id = "DE999999999"  # typed in, VIES said no; kept by rollback_on_invalid=False
+        org = _invoicing_small_business(organization, Scheme.AT_6_1_27)
+        org.vat_id = "ATU99999999"  # typed in, VIES said no; kept by rollback_on_invalid=False
         org.vat_id_validated = False
         org.save()
         return org
@@ -314,7 +345,7 @@ class TestSchemeOrgWithRejectedVatId:
         ("data", "fragment"),
         [
             ({"tax_registration_number": ""}, "tax registration number"),
-            ({"small_business_scheme": "none", "vat_rate": "19.00"}, "VAT ID must be validated"),
+            ({"small_business_scheme": "none", "vat_rate": "20.00"}, "VAT ID must be validated"),
         ],
     )
     def test_billing_guard_still_applies(
@@ -338,7 +369,7 @@ class TestSchemeOrgWithRejectedVatId:
     ) -> None:
         org = self._rejected_vat_id(organization)
         Organization.objects.filter(pk=org.pk).update(tax_registration_number="")
-        _zero_payment(member_user, event, event_ticket_tier, "cs_rej", _buyer("DE"))
+        _zero_payment(member_user, event, event_ticket_tier, "cs_rej", _buyer("AT"))
         assert generate_attendee_invoice("cs_rej") is None
         assert (
             SkippedFiscalDocument.objects.get(stripe_session_id="cs_rej").reason_code == Reason.SELLER_IDENTITY_MISSING
@@ -362,10 +393,19 @@ class TestTierInvoicingFlag:
         assert attendee_invoicing_active(event) is True
 
     def test_missing_scheme_identity(self, organization: Organization, event: Event) -> None:
+        org = _invoicing_small_business(organization, Scheme.AT_6_1_27)
+        event.vat_country_code = "AT"
+        event.save()
+        Organization.objects.filter(pk=org.pk).update(tax_registration_number="")
+        event.organization.refresh_from_db()
+        assert attendee_invoicing_active(event) is False
+
+    def test_german_organizer_without_a_validated_vat_id(self, organization: Organization, event: Event) -> None:
+        """#1258: the Steuernummer alone does not keep a DE Kleinunternehmer's flag on."""
         org = _invoicing_small_business(organization)
         event.vat_country_code = "DE"
         event.save()
-        Organization.objects.filter(pk=org.pk).update(tax_registration_number="")
+        Organization.objects.filter(pk=org.pk).update(vat_id_validated=False)
         event.organization.refresh_from_db()
         assert attendee_invoicing_active(event) is False
 
@@ -491,7 +531,7 @@ class TestForeignSales:
         assert skipped.reason_code == Reason.SMALL_BUSINESS_VIRTUAL_CROSS_BORDER
         assert skipped.policy_country == "DE"
 
-    @pytest.mark.parametrize("country", ["DE", ""])
+    @pytest.mark.parametrize("country", ["AT", ""])
     def test_virtual_event_sold_at_home_is_invoiced(
         self,
         _mail: t.Any,
@@ -502,14 +542,15 @@ class TestForeignSales:
         member_user: RevelUser,
         country: str,
     ) -> None:
-        _invoicing_small_business(organization)
+        org = _invoicing_small_business(organization, Scheme.AT_6_1_27)
+        assert org.vat_country_code == ""  # an AT Kleinunternehmer without a UID has no VAT country at all
         event.is_virtual = True
         event.save()
         invoice = self._sell(
-            event, event_ticket_tier, member_user, "cs_vh", _buyer(country, "DE123456789" if country else "")
+            event, event_ticket_tier, member_user, "cs_vh", _buyer(country, "ATU12345678" if country else "")
         )
         assert invoice is not None
-        assert invoice.seller_vat_country == "DE"  # L4: resolved from the billing address, not the blank VAT country
+        assert invoice.seller_vat_country == "AT"  # L4: resolved from the billing address, not the blank VAT country
 
     def test_austrian_scheme_follows_its_own_country(
         self,
@@ -766,16 +807,16 @@ class TestSnapshotAndNote:
         member_user: RevelUser,
     ) -> None:
         """Scheme path only: the tax number is the identity, an unvalidated VAT ID is not BT-31."""
-        org = _invoicing_small_business(organization)
-        org.vat_id = "DE811234567"  # typed in, never VIES-validated
+        org = _invoicing_small_business(organization, Scheme.AT_6_1_27)
+        org.vat_id = "ATU12345678"  # typed in, never VIES-validated
         org.save()
-        event.vat_country_code = "DE"
+        event.vat_country_code = "AT"
         event.save()
-        _zero_payment(member_user, event, event_ticket_tier, "cs_unval", _buyer("DE"))
+        _zero_payment(member_user, event, event_ticket_tier, "cs_unval", _buyer("AT"))
         invoice = generate_attendee_invoice("cs_unval")
         assert invoice is not None
         assert invoice.seller_vat_id == ""
-        assert invoice.seller_tax_registration_number == "12/345/67890"
+        assert invoice.seller_tax_registration_number == "12-345/6789"
 
     def test_validated_vat_id_is_still_copied(
         self, organization: Organization, event: Event, event_ticket_tier: TicketTier, member_user: RevelUser
@@ -798,20 +839,21 @@ class TestSnapshotAndNote:
     def test_switching_scheme_replaces_the_prefilled_note(
         self, organization: Organization, owner_client: Client
     ) -> None:
-        org = _make_small_business(organization)
-        assert org.vat_exemption_reason == DE_REASON
+        org = _make_small_business(organization, Scheme.AT_6_1_27)
+        assert org.vat_exemption_reason == AT_REASON
+        _give_german_vat_id(org)  # moving to Germany: the German scheme needs the USt-IdNr. (#1258)
         response = _patch(
             owner_client,
             org,
             {
-                "small_business_scheme": "at_6_1_27",
-                "billing_country_code": "AT",
-                "tax_registration_number": "12-345/6789",
+                "small_business_scheme": "de_19",
+                "billing_country_code": "DE",
+                "tax_registration_number": "12/345/67890",
             },
         )
         assert response.status_code == 200, response.content
         org.refresh_from_db()
-        assert org.vat_exemption_reason == AT_REASON
+        assert org.vat_exemption_reason == DE_REASON
 
     def test_dropping_the_scheme_clears_the_prefilled_note(
         self, organization: Organization, owner_client: Client
@@ -832,7 +874,7 @@ class TestSnapshotAndNote:
         organization.vat_rate = Decimal("0.00")
         organization.vat_exemption_reason = "Own wording"
         organization.billing_country_code = "DE"
-        organization.save()
+        _give_german_vat_id(organization)
         assert _patch(owner_client, organization, {"small_business_scheme": "de_19"}).status_code == 200
         organization.refresh_from_db()
         assert organization.vat_exemption_reason == "Own wording"

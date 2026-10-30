@@ -14,6 +14,24 @@ from django.db import models
 from django.template.loader import render_to_string
 from weasyprint import HTML
 
+# Third-party issuance (#1258): Art. 220(1) of Directive 2006/112/EC lets an invoice be issued "in his
+# name and on his behalf, by a third party" (AT UStR Rz 1505, 1530-1532; DE § 14 Abs. 2 S. 7 UStG). The
+# one sentence printed on the attendee PDFs and carried as the EN 16931 invoice note (BT-22).
+ISSUANCE_STATEMENT = "Issued by {issuer} in the name and on behalf of {seller}."
+
+
+def platform_issuer_name() -> str:
+    """The platform operator's legal name named as issuer on attendee documents, the brand when unset."""
+    from common.models import SiteSettings
+
+    return SiteSettings.get_solo().platform_business_name or "Revel"
+
+
+def issuance_statement(issuer: str, seller: str) -> str:
+    """:data:`ISSUANCE_STATEMENT` for one document; ``issuer`` falls back to :func:`platform_issuer_name`."""
+    return ISSUANCE_STATEMENT.format(issuer=issuer or platform_issuer_name(), seller=seller)
+
+
 CURRENCY_SYMBOLS: dict[str, str] = {
     "EUR": "\u20ac",
     "USD": "$",

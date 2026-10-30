@@ -6,6 +6,8 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+from django.core.cache import cache
+from django.template.loader import render_to_string
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -13,7 +15,7 @@ from ninja.errors import HttpError
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
-from common.service.vies_service import VIESValidationResult
+from common.service.vies_service import VIESUnavailableError, VIESValidationResult
 from events.compliance import AttendeeInvoicingCapability
 from events.compliance.enforcement import event_compliance
 from events.exceptions import CountryComplianceError
@@ -21,7 +23,11 @@ from events.models import Event, Organization, TicketTier
 from events.models.attendee_invoice import AttendeeInvoice
 from events.service import einvoice_mapping as mapping
 from events.service import small_business_scheme_service as service
-from events.service.attendee_invoice_draft_service import issue_draft_invoice, update_draft_invoice
+from events.service.attendee_invoice_draft_service import (
+    _follow_organizer_scheme,
+    issue_draft_invoice,
+    update_draft_invoice,
+)
 from events.service.attendee_invoice_service import generate_attendee_credit_note, generate_attendee_invoice
 from events.service.revenue_aggregation import ReportScope, build_revenue_report_data
 from events.tests.test_attendee_invoice._helpers import (
@@ -99,12 +105,13 @@ class TestStandardLinesNeedTheVatId:
 
 
 class TestVatIdEndpointsGuard:
-    def _scheme_org_with_validated_vat_id(self, organization: Organization) -> Organization:
+    def _scheme_org_with_validated_vat_id(self, organization: Organization, country: str = "DE") -> Organization:
+        """A scheme organizer (DE or AT) with a validated VAT ID, no tax number and invoicing on."""
         org = _make_org_invoicing_ready(organization)  # validated IT12345678901
-        org.vat_country_code = "DE"
-        org.vat_id = "DE811234567"
-        org.billing_country_code = "DE"
-        org.small_business_scheme = "de_19"
+        org.vat_country_code = country
+        org.vat_id = "DE811234567" if country == "DE" else "ATU12345678"
+        org.billing_country_code = country
+        org.small_business_scheme = "de_19" if country == "DE" else "at_6_1_27"
         org.vat_rate = Decimal("0.00")
         org.vat_exemption_reason = "note"
         org.tax_registration_number = ""
@@ -115,33 +122,57 @@ class TestVatIdEndpointsGuard:
     def test_delete_vat_id_without_a_tax_number_is_refused(
         self, organization: Organization, owner_client: Client
     ) -> None:
-        org = self._scheme_org_with_validated_vat_id(organization)
+        org = self._scheme_org_with_validated_vat_id(organization, "AT")
         response = owner_client.delete(reverse("api:delete_vat_id", kwargs={"slug": org.slug}))
         assert response.status_code == 422, response.content
         assert "Turn invoicing off first" in response.json()["detail"]
         org.refresh_from_db()
-        assert org.vat_id == "DE811234567" and org.vat_id_validated
+        assert org.vat_id == "ATU12345678" and org.vat_id_validated
 
     def test_delete_vat_id_with_a_tax_number_goes_through(
         self, organization: Organization, owner_client: Client
     ) -> None:
-        org = self._scheme_org_with_validated_vat_id(organization)
-        org.tax_registration_number = "12/345/67890"
+        org = self._scheme_org_with_validated_vat_id(organization, "AT")
+        org.tax_registration_number = "12-345/6789"
         org.save()
         assert owner_client.delete(reverse("api:delete_vat_id", kwargs={"slug": org.slug})).status_code == 204
 
-    def test_set_vat_id_without_a_tax_number_is_refused_before_vies(
+    @pytest.mark.parametrize("invoicing_mode", [Organization.InvoicingMode.AUTO, Organization.InvoicingMode.NONE])
+    def test_german_organizer_cannot_delete_its_vat_id(
+        self, organization: Organization, owner_client: Client, invoicing_mode: str
+    ) -> None:
+        """#1258: the Steuernummer does not stand in for a DE Kleinunternehmer's USt-IdNr., invoicing on or off."""
+        org = self._scheme_org_with_validated_vat_id(organization)
+        org.tax_registration_number = "12/345/67890"
+        org.invoicing_mode = invoicing_mode
+        org.save()
+        response = owner_client.delete(reverse("api:delete_vat_id", kwargs={"slug": org.slug}))
+        assert response.status_code == 422, response.content
+        assert "USt-IdNr." in response.json()["detail"]
+        org.refresh_from_db()
+        assert org.vat_id == "DE811234567" and org.vat_id_validated
+        org.small_business_scheme = "none"  # the way out: leave the scheme first
+        org.save()
+        assert owner_client.delete(reverse("api:delete_vat_id", kwargs={"slug": org.slug})).status_code == 204
+
+    def test_set_vat_id_without_a_tax_number_is_decided_by_vies(
         self, organization: Organization, owner_client: Client
     ) -> None:
-        org = self._scheme_org_with_validated_vat_id(organization)
-        with patch("common.service.vies_service.validate_vat_id") as vies:
+        """Nothing stands in for the UID, so the swap is decided on the actual VIES outcome, nothing written on no."""
+        cache.clear()
+        org = self._scheme_org_with_validated_vat_id(organization, "AT")
+        invalid = VIESValidationResult(valid=False, name="", address="", request_identifier="")
+        with patch("common.service.vies_service.validate_vat_id", return_value=invalid) as vies:
             response = owner_client.put(
                 reverse("api:set_vat_id", kwargs={"slug": org.slug}),
-                data='{"vat_id": "DE123456789"}',
+                data='{"vat_id": "ATU87654329"}',
                 content_type="application/json",
             )
         assert response.status_code == 422, response.content
-        vies.assert_not_called()
+        assert "Turn invoicing off first" in response.json()["detail"]
+        vies.assert_called_once()
+        org.refresh_from_db()
+        assert org.vat_id == "ATU12345678" and org.vat_id_validated
 
     def test_non_scheme_org_is_untouched(self, organization: Organization, owner_client: Client) -> None:
         org = _make_org_invoicing_ready(organization)
@@ -172,16 +203,96 @@ class TestVatIdEndpointsGuard:
         assert org.vat_id == "DE811234567"
 
     def test_set_a_domestic_vat_id_goes_through(self, organization: Organization, owner_client: Client) -> None:
+        org = self._scheme_org_with_validated_vat_id(organization, "AT")
+        org.tax_registration_number = "12-345/6789"
+        org.save()
+        result = VIESValidationResult(valid=True, name="Kleine Bühne", address="Musterstraße 1", request_identifier="r")
+        with patch("common.service.vies_service.validate_vat_id", return_value=result) as vies:
+            response = self._put_vat_id(owner_client, org, "ATU87654321")
+        assert response.status_code == 200, response.content
+        vies.assert_called_once()
+        org.refresh_from_db()
+        assert org.vat_id == "ATU87654321"
+
+    def _lapsed_german_org(self, organization: Organization) -> Organization:
+        """A DE Kleinunternehmer with invoicing on whose monthly VIES revalidation flipped the flag."""
+        cache.clear()  # no VIES result cached from another test
         org = self._scheme_org_with_validated_vat_id(organization)
         org.tax_registration_number = "12/345/67890"
+        org.vat_id_validated = False
+        org.vies_request_identifier = "old"
         org.save()
+        return org
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_lapsed_german_organizer_recovers_by_resubmitting_a_valid_vat_id(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        owner_client: Client,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """#1258: a PUT is decided on the actual VIES outcome, not the pessimistic one, so the organizer can recover."""
+        org = self._lapsed_german_org(organization)
+        event.vat_country_code = "DE"
+        event.save()
         result = VIESValidationResult(valid=True, name="Kleine Bühne", address="Musterstraße 1", request_identifier="r")
         with patch("common.service.vies_service.validate_vat_id", return_value=result) as vies:
             response = self._put_vat_id(owner_client, org, "DE123456789")
         assert response.status_code == 200, response.content
-        vies.assert_called_once()
+        assert vies.called
         org.refresh_from_db()
-        assert org.vat_id == "DE123456789"
+        assert org.vat_id == "DE123456789" and org.vat_id_validated
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_recovered",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            net_amount=Decimal("100.00"),
+            vat_amount=Decimal("0.00"),
+            vat_rate=Decimal("0.00"),
+        )
+        invoice = generate_attendee_invoice("cs_recovered")
+        assert invoice is not None and invoice.seller_vat_id == "DE123456789"
+
+    def test_the_guard_decision_is_the_only_vies_call(self, organization: Organization, owner_client: Client) -> None:
+        """One request, one VIES decision: a contradicting second lookup must never strand a rejected ID in the row."""
+        org = self._lapsed_german_org(organization)
+        valid = VIESValidationResult(valid=True, name="Kleine Bühne", address="Musterstraße 1", request_identifier="r")
+        invalid = VIESValidationResult(valid=False, name="", address="", request_identifier="")
+        with patch("common.service.vies_service.validate_vat_id", side_effect=[valid, invalid]) as vies:
+            response = self._put_vat_id(owner_client, org, "DE123456781")
+        assert response.status_code == 200, response.content
+        assert vies.call_count == 1
+        org.refresh_from_db()
+        assert (org.vat_id, org.vat_id_validated, org.vies_request_identifier) == ("DE123456781", True, "r")
+
+    def test_invalid_vat_id_leaves_a_lapsed_german_organizer_unchanged(
+        self, organization: Organization, owner_client: Client
+    ) -> None:
+        org = self._lapsed_german_org(organization)
+        result = VIESValidationResult(valid=False, name="", address="", request_identifier="")
+        with patch("common.service.vies_service.validate_vat_id", return_value=result):
+            response = self._put_vat_id(owner_client, org, "DE999999999")
+        assert response.status_code == 422, response.content
+        assert "USt-IdNr." in response.json()["detail"]
+        org.refresh_from_db()
+        assert (org.vat_id, org.vat_id_validated, org.vies_request_identifier) == ("DE811234567", False, "old")
+
+    def test_vies_outage_leaves_a_lapsed_german_organizer_unchanged(
+        self, organization: Organization, owner_client: Client
+    ) -> None:
+        org = self._lapsed_german_org(organization)
+        with patch("common.service.vies_service.validate_vat_id", side_effect=VIESUnavailableError("down")):
+            response = self._put_vat_id(owner_client, org, "DE123456780")
+        assert response.status_code == 503, response.content
+        org.refresh_from_db()
+        assert (org.vat_id, org.vat_id_validated) == ("DE811234567", False)
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +327,7 @@ class TestDraftIssueGuards:
         invoice.total_vat = Decimal("0.00")
         invoice.total_net = Decimal("100.00")
         invoice.save()
-        Organization.objects.filter(pk=org.pk).update(tax_registration_number="")
+        Organization.objects.filter(pk=org.pk).update(vat_id_validated=False)  # DE: the USt-IdNr. is the identity
         with pytest.raises(CountryComplianceError):
             issue_draft_invoice(invoice)
 
@@ -294,7 +405,7 @@ def test_event_compliance_is_blocked_while_the_scheme_identity_is_incomplete(
     organization: Organization, event: Event
 ) -> None:
     org = _make_small_business(organization)
-    org.tax_registration_number = ""
+    org.vat_id_validated = False  # DE (#1258): the Steuernummer it still holds does not stand in
     event.vat_country_code = "DE"
     assert event_compliance(event).attendee_invoicing == AttendeeInvoicingCapability.BLOCKED
     event.is_virtual = True
@@ -424,6 +535,217 @@ class TestStatutoryNoteAtIssue:
         assert text.startswith("Steuerbefreit gemäß § 19 UStG")
         assert "Art. 132(1)(n) VAT Directive" in text
         assert issued.line_items == draft.line_items  # the lines themselves are untouched
+        assert issued.seller_small_business_scheme == "de_19"  # stamped at issue: the PDF shows no VAT (#1258)
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_draft_follows_the_organizer_leaving_the_scheme(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Generated under de_19 (E lines, the §19 note); the organizer leaves the scheme; then it is issued."""
+        org = _make_small_business(organization)  # validated DE VAT ID
+        org.invoicing_mode = Organization.InvoicingMode.HYBRID
+        org.save()
+        event.vat_country_code = "DE"
+        event.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_left",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            net_amount=Decimal("100.00"),
+            vat_amount=Decimal("0.00"),
+            vat_rate=Decimal("0.00"),
+        )
+        draft = generate_attendee_invoice("cs_left")
+        assert draft is not None and draft.seller_small_business_scheme == "de_19"
+        assert draft.vat_exemptions["E"]["text"].startswith("Steuerbefreit gemäß § 19 UStG")
+        org.small_business_scheme = "none"
+        org.vat_exemption_reason = "Own exemption"
+        org.save()
+        issued = issue_draft_invoice(draft)
+        issued.refresh_from_db()
+        assert issued.seller_small_business_scheme == "none"
+        assert issued.vat_exemptions["E"]["text"] == "Own exemption"
+        assert issued.line_items == draft.line_items  # the lines stay as they were (E at 0%)
+        html = render_to_string(
+            "invoices/attendee_invoice.html",
+            {"invoice": issued, "is_draft": False, "is_export": False, "is_virtual_interim": False},
+        )
+        assert "<th>VAT</th>" in html and "Subtotal" in html  # the normal layout is back
+        assert "Steuerbefreit gemäß § 19 UStG" not in html
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_identifiers_follow_the_organizer_leaving_the_scheme(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """An AT draft (tax number, no UID); the organizer leaves the scheme with a validated UID; then issued."""
+        org = _make_small_business(organization, "at_6_1_27")
+        org.invoicing_mode = Organization.InvoicingMode.HYBRID
+        org.save()
+        event.vat_country_code = "AT"
+        event.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_left_at",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            net_amount=Decimal("100.00"),
+            vat_amount=Decimal("0.00"),
+            vat_rate=Decimal("0.00"),
+        )
+        draft = generate_attendee_invoice("cs_left_at")
+        assert draft is not None and (draft.seller_vat_id, draft.seller_tax_registration_number) == ("", "12-345/6789")
+        org.small_business_scheme = "none"
+        org.vat_id, org.vat_country_code, org.vat_id_validated = "ATU12345678", "AT", True
+        org.vat_exemption_reason = "Own exemption"
+        org.save()
+        issued = issue_draft_invoice(draft)
+        issued.refresh_from_db()
+        assert issued.seller_small_business_scheme == "none"
+        assert issued.seller_vat_id == "ATU12345678"
+        assert issued.seller_tax_registration_number == "12-345/6789"
+        assert issued.seller_vat_country == "AT"
+        html = render_to_string(
+            "invoices/attendee_invoice.html",
+            {"invoice": issued, "is_draft": False, "is_export": False, "is_virtual_interim": False},
+        )
+        assert "VAT: ATU12345678" in html and "<th>VAT</th>" in html and "Subtotal" in html
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_identifiers_are_refreshed_without_an_event_too(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """The event was deleted since the sale: the VAT ID and tax number still follow, the VAT country stays.
+
+        Exercised on the helper: ``AttendeeInvoice.event`` is ``null=True`` without ``blank=True``, so
+        ``full_clean()`` (run by every ``save``) refuses an event-less row today, a pre-existing gap.
+        """
+        org = _make_small_business(organization, "at_6_1_27")
+        org.invoicing_mode = Organization.InvoicingMode.HYBRID
+        org.save()
+        event.vat_country_code = "AT"
+        event.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_left_noev",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            net_amount=Decimal("100.00"),
+            vat_amount=Decimal("0.00"),
+            vat_rate=Decimal("0.00"),
+        )
+        draft = generate_attendee_invoice("cs_left_noev")
+        assert draft is not None and draft.seller_vat_country == "AT"
+        draft.event = None
+        org.small_business_scheme = "none"
+        org.vat_id, org.vat_country_code, org.vat_id_validated = "ATU12345678", "AT", True
+        org.vat_exemption_reason = "Own exemption"
+        org.save()
+        draft.organization = org
+        fields = _follow_organizer_scheme(draft)
+        assert {"seller_vat_id", "seller_tax_registration_number", "seller_small_business_scheme"} <= set(fields)
+        assert (draft.seller_vat_id, draft.seller_tax_registration_number) == ("ATU12345678", "12-345/6789")
+        assert draft.seller_vat_country == "AT"  # kept: nothing to derive it from
+        assert draft.seller_small_business_scheme == "none"
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_hand_entered_line_takes_the_current_reason_across_a_scheme_change(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """A line replaced by hand (no provenance) under de_19 carries the §19 note; the organizer leaves; issued."""
+        org = _make_small_business(organization)
+        org.invoicing_mode = Organization.InvoicingMode.HYBRID
+        org.save()
+        event.vat_country_code = "DE"
+        event.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_hand",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            net_amount=Decimal("100.00"),
+            vat_amount=Decimal("0.00"),
+            vat_rate=Decimal("0.00"),
+        )
+        draft = generate_attendee_invoice("cs_hand")
+        assert draft is not None
+        hand_line = {
+            "description": "Replaced by hand",
+            "unit_price_gross": Decimal("100.00"),
+            "discount_amount": Decimal("0.00"),
+            "net_amount": Decimal("100.00"),
+            "vat_amount": Decimal("0.00"),
+            "vat_rate": Decimal("0.00"),
+        }
+        draft = update_draft_invoice(draft, {"line_items": [hand_line]})
+        draft.refresh_from_db()
+        assert "line_id" not in draft.line_items[0]
+        assert draft.vat_exemptions["E"]["text"].startswith("Steuerbefreit gemäß § 19 UStG")
+        org.small_business_scheme = "none"
+        org.vat_exemption_reason = "Own exemption"
+        org.save()
+        issued = issue_draft_invoice(draft)
+        issued.refresh_from_db()
+        assert issued.vat_exemptions["E"]["text"] == "Own exemption"
+        assert "§ 19" not in issued.vat_exemptions["E"]["text"]
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_identifiers_follow_the_organizer_joining_the_scheme(
+        self,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """A pre-scheme draft (Italian VIES identity); the organizer becomes a DE Kleinunternehmer; then issued."""
+        _make_org_invoicing_ready(organization)
+        draft = self._exempt_draft(organization, event, event_ticket_tier, member_user, "Art. 132(1)(n) VAT Directive")
+        draft.seller_vat_id, draft.seller_vat_country = "IT12345678901", "IT"
+        draft.save()
+        _make_small_business(organization)  # de_19 with the validated DE811234567 and a Steuernummer
+        event.vat_country_code = "DE"
+        event.save()
+        issued = issue_draft_invoice(draft)
+        issued.refresh_from_db()
+        assert issued.seller_small_business_scheme == "de_19"
+        assert (issued.seller_vat_id, issued.seller_tax_registration_number, issued.seller_vat_country) == (
+            "DE811234567",
+            "12/345/67890",
+            "DE",
+        )
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     def test_non_scheme_draft_is_unchanged(

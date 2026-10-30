@@ -1,9 +1,10 @@
 """Attendee invoicing for small-business-scheme organizers without an EU VAT ID (#1244).
 
-DE § 19 UStG and AT § 6 Abs. 1 Z 27 UStG: the scheme, a tax registration number (BT-32) and
-establishment in the scheme's country stand in for the VIES-validated VAT ID; every line is E at 0%
-with the statutory note, reverse charge never applies, and a virtual event sold to a business in
-another EU country is not invoiced (recorded as skipped).
+DE § 19 UStG and AT § 6 Abs. 1 Z 27 UStG: every line is E at 0% with the statutory note, reverse
+charge never applies, and a virtual event sold to a business in another EU country is not invoiced
+(recorded as skipped). An AT organizer is identified by the scheme, a tax registration number (BT-32)
+and establishment in Austria instead of a VIES-validated VAT ID; a DE organizer must hold a
+VIES-validated USt-IdNr. (#1258: Revel's platform fee to it is reverse-charged).
 """
 
 import typing as t
@@ -51,13 +52,17 @@ Scheme = small_business.SmallBusinessScheme
 
 
 def _make_small_business(org: Organization, scheme: str = Scheme.DE_19) -> Organization:
-    """A Kleinunternehmer: structured DE/AT address, tax number, 0% rate, no VAT ID or VAT country at all."""
+    """A Kleinunternehmer: structured DE/AT address, tax number, 0% rate.
+
+    DE holds the VIES-validated USt-IdNr. the scheme requires (#1258); AT has no VAT ID or VAT country at all.
+    """
     country = small_business.scheme_country(scheme)
+    german = country == "DE"
     org.small_business_scheme = scheme
-    org.tax_registration_number = "12/345/67890" if country == "DE" else "12-345/6789"
-    org.vat_id = ""
-    org.vat_id_validated = False
-    org.vat_country_code = ""
+    org.tax_registration_number = "12/345/67890" if german else "12-345/6789"
+    org.vat_id = "DE811234567" if german else ""
+    org.vat_id_validated = german
+    org.vat_country_code = "DE" if german else ""
     org.vat_rate = Decimal("0.00")
     org.vat_exemption_reason = small_business.scheme_exemption_reason(scheme)
     org.billing_name = "Kleine Bühne"
@@ -67,6 +72,15 @@ def _make_small_business(org: Organization, scheme: str = Scheme.DE_19) -> Organ
     org.billing_city = "Berlin" if country == "DE" else "Wien"
     org.billing_country_code = country
     org.billing_email = "billing@kleine-buehne.example"
+    org.save()
+    return org
+
+
+def _give_german_vat_id(org: Organization) -> Organization:
+    """A VIES-validated USt-IdNr., which declaring or keeping the German scheme requires (#1258)."""
+    org.vat_id = "DE811234567"
+    org.vat_id_validated = True
+    org.vat_country_code = "DE"
     org.save()
     return org
 
@@ -132,18 +146,42 @@ class TestSmallBusinessUtils:
 
 class TestPrerequisites:
     @pytest.mark.parametrize("scheme", [Scheme.DE_19, Scheme.AT_6_1_27])
-    def test_scheme_replaces_the_vies_validated_vat_id(self, organization: Organization, scheme: str) -> None:
+    def test_a_complete_scheme_identity_turns_invoicing_on(self, organization: Organization, scheme: str) -> None:
         org = _make_small_business(organization, scheme)
-        assert resolve_org_country(org) == small_business.scheme_country(scheme)  # billing country, no VAT country
+        assert resolve_org_country(org) == small_business.scheme_country(scheme)  # DE: VAT country; AT: billing
         validate_invoicing_prerequisites(org)
         set_invoicing_mode(org, Organization.InvoicingMode.AUTO)
         org.refresh_from_db()
         assert org.invoicing_mode == Organization.InvoicingMode.AUTO
         assert einvoice_missing_fields(org) == []
 
+    def test_austrian_scheme_replaces_the_vies_validated_vat_id(self, organization: Organization) -> None:
+        org = _make_small_business(organization, Scheme.AT_6_1_27)
+        assert org.vat_id == "" and not org.vat_id_validated
+        validate_invoicing_prerequisites(org)
+
+    def test_german_scheme_needs_a_validated_vat_id(self, organization: Organization) -> None:
+        """#1258: the platform fee to a DE Kleinunternehmer is reverse-charged, so the USt-IdNr. is required."""
+        org = _make_small_business(organization)
+        org.tax_registration_number = ""  # the Steuernummer is optional once the USt-IdNr. identifies the seller
+        org.save()
+        validate_invoicing_prerequisites(org)
+        assert einvoice_missing_fields(org) == []
+        org.vat_id_validated = False  # typed in but not validated, or VIES revalidation flipped it
+        org.tax_registration_number = "12/345/67890"
+        org.save()
+        with pytest.raises(HttpError) as exc_info:
+            validate_invoicing_prerequisites(org)
+        assert exc_info.value.status_code == 422
+        assert "USt-IdNr." in str(exc_info.value) and "BZSt" in str(exc_info.value)
+        assert "EU-based" not in str(exc_info.value)  # one clear message, not two
+        assert einvoice_missing_fields(org) == ["vat_id"]
+        assert small_business.scheme_identity_complete(Scheme.DE_19, False, "DE", "12/345/67890") is False
+        assert small_business.scheme_identity_complete(Scheme.DE_19, True, "DE", "") is True
+
     def test_group_b_is_still_refused(self, organization: Organization) -> None:
         """A tax number without a scheme does not replace the VAT ID (VAT-charging organizers, out of scope)."""
-        org = _make_small_business(organization)
+        org = _make_small_business(organization, Scheme.AT_6_1_27)
         org.small_business_scheme = Scheme.NONE
         org.save()
         with pytest.raises(HttpError) as exc_info:
@@ -153,8 +191,8 @@ class TestPrerequisites:
         assert einvoice_missing_fields(org) == ["vat_id"]
 
     def test_missing_or_malformed_tax_number(self, organization: Organization) -> None:
-        org = _make_small_business(organization)
-        org.tax_registration_number = "DE123456789"
+        org = _make_small_business(organization, Scheme.AT_6_1_27)
+        org.tax_registration_number = "ATU12345678"
         org.save()
         with pytest.raises(HttpError) as exc_info:
             validate_invoicing_prerequisites(org)
@@ -173,7 +211,7 @@ class TestPrerequisites:
 
     def test_country_outside_the_allowlist(self, organization: Organization) -> None:
         """Only DE and AT schemes exist, so a French organizer cannot invoice through a scheme."""
-        org = _make_small_business(organization)
+        org = _make_small_business(organization, Scheme.AT_6_1_27)
         org.billing_country_code = "FR"
         org.save()
         with pytest.raises(HttpError):
@@ -232,15 +270,47 @@ class TestBillingUpdate:
         organization.vat_rate = Decimal("0.00")
         organization.vat_exemption_reason = "Own wording"
         organization.billing_country_code = "DE"
-        organization.save()
+        _give_german_vat_id(organization)
         assert _patch(owner_client, organization, {"small_business_scheme": "de_19"}).status_code == 200
         organization.refresh_from_db()
         assert organization.vat_exemption_reason == "Own wording"
 
+    def test_declaring_the_german_scheme_needs_a_validated_vat_id(
+        self, organization: Organization, owner_client: Client
+    ) -> None:
+        """#1258: whatever the invoicing mode, since Revel's fee to a DE Kleinunternehmer is reverse-charged."""
+        organization.vat_rate = Decimal("0.00")
+        organization.billing_country_code = "DE"
+        organization.save()
+        assert organization.invoicing_mode == Organization.InvoicingMode.NONE
+        response = _patch(owner_client, organization, {"small_business_scheme": "de_19"})
+        assert response.status_code == 422
+        assert "USt-IdNr." in response.json()["detail"] and "BZSt" in response.json()["detail"]
+        organization.vat_id = "DE811234567"  # typed in, VIES said no (or not yet)
+        organization.vat_country_code = "DE"
+        organization.save()
+        assert _patch(owner_client, organization, {"small_business_scheme": "de_19"}).status_code == 422
+        organization.vat_id_validated = True
+        organization.save()
+        assert _patch(owner_client, organization, {"small_business_scheme": "de_19"}).status_code == 200
+        organization.refresh_from_db()
+        assert organization.small_business_scheme == Scheme.DE_19
+
+    def test_a_lapsed_german_organizer_cannot_keep_the_scheme_on_a_billing_patch(
+        self, organization: Organization, owner_client: Client
+    ) -> None:
+        """Once the validation lapses, a billing PATCH that keeps de_19 is refused until the USt-IdNr. is validated."""
+        org = _make_small_business(organization)
+        Organization.objects.filter(pk=org.pk).update(vat_id_validated=False)
+        response = _patch(owner_client, org, {"billing_name": "Renamed"})
+        assert response.status_code == 422
+        assert "USt-IdNr." in response.json()["detail"]
+        assert _patch(owner_client, org, {"small_business_scheme": "none"}).status_code == 200  # the way out
+
     def test_a_scheme_needs_a_zero_default_rate(self, organization: Organization, owner_client: Client) -> None:
         organization.vat_rate = Decimal("19.00")
         organization.billing_country_code = "DE"
-        organization.save()
+        _give_german_vat_id(organization)
         response = _patch(owner_client, organization, {"small_business_scheme": "de_19"})
         assert response.status_code == 422
         assert "default VAT rate to 0%" in response.json()["detail"]
@@ -253,7 +323,7 @@ class TestBillingUpdate:
     ) -> None:
         organization.vat_rate = Decimal("0.00")
         organization.billing_country_code = "DE"
-        organization.save()
+        _give_german_vat_id(organization)
         event_ticket_tier.vat_rate = Decimal("19.00")
         event_ticket_tier.save()
         response = _patch(owner_client, organization, {"small_business_scheme": "de_19"})
@@ -373,7 +443,8 @@ class TestGeneration:
         assert [li["vat_category"] for li in invoice.line_items] == ["E"]
         assert invoice.vat_exemptions["E"]["text"] == DE_REASON
         assert invoice.total_vat == 0 and invoice.total_net == invoice.total_gross == Decimal("100.00")
-        assert invoice.seller_vat_id == ""
+        assert invoice.seller_vat_id == "DE811234567"  # BT-31 (#1258); the Steuernummer stays as BT-32
+        assert invoice.seller_small_business_scheme == Scheme.DE_19  # the PDF then shows no VAT at all
         assert invoice.seller_tax_registration_number == "12/345/67890"
         assert invoice.seller_country_code == "DE"
         assert invoice.reverse_charge is False
@@ -479,9 +550,28 @@ class TestPdfAndDrafts:
     def test_pdf_prints_the_tax_number_and_the_note(
         self, organization: Organization, event: Event, member_user: RevelUser
     ) -> None:
-        _make_small_business(organization)
+        _make_small_business(organization, Scheme.AT_6_1_27)
         invoice = _create_draft(organization, event, member_user)
         invoice.seller_vat_id = ""
+        invoice.seller_tax_registration_number = "12-345/6789"
+        invoice.seller_country_code = "AT"
+        invoice.vat_exemptions = {"E": {"text": AT_REASON, "code": ""}}
+        invoice.save()
+        html = render_to_string(
+            "invoices/attendee_invoice.html",
+            {"invoice": invoice, "is_draft": False, "is_export": False, "is_virtual_interim": False},
+        )
+        assert "Steuernummer: 12-345/6789" in html
+        assert "VAT: " not in html.split("Bill To")[0]
+        assert "VAT exempt: Umsatzsteuerbefreit – Kleinunternehmer gem. § 6 Abs. 1 Z 27 UStG" in html
+
+    def test_german_pdf_prints_the_vat_id_and_the_note(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        """#1258: § 34a S. 1 Nr. 2 UStDV accepts the USt-IdNr. in place of the Steuernummer; Nr. 5 wants the note."""
+        _make_small_business(organization)
+        invoice = _create_draft(organization, event, member_user)
+        invoice.seller_vat_id = "DE811234567"
         invoice.seller_tax_registration_number = "12/345/67890"
         invoice.seller_country_code = "DE"
         invoice.vat_exemptions = {"E": {"text": DE_REASON, "code": ""}}
@@ -490,8 +580,7 @@ class TestPdfAndDrafts:
             "invoices/attendee_invoice.html",
             {"invoice": invoice, "is_draft": False, "is_export": False, "is_virtual_interim": False},
         )
-        assert "Steuernummer: 12/345/67890" in html
-        assert "VAT: " not in html.split("Bill To")[0]
+        assert "VAT: DE811234567" in html
         assert "VAT exempt: Steuerbefreit gemäß § 19 UStG" in html
 
     def test_vat_id_still_wins_on_the_pdf(
@@ -537,13 +626,21 @@ class TestPdfAndDrafts:
 # ---------------------------------------------------------------------------
 
 
-def test_platform_fee_vat_is_unchanged_for_a_scheme_organizer(organization: Organization) -> None:
-    """Without a validated VAT ID the organizer is a non-business customer: Austrian VAT applies (Art. 18 IR 282/2011).
+def test_platform_fee_to_a_german_scheme_organizer_is_reverse_charged(organization: Organization) -> None:
+    """#1258: a Kleinunternehmer is a taxable person (§ 3a Abs. 5 Z 1 UStG 1994, UStR Rz 638o), so Revel's fee to a
+    DE one is supplied in Germany with reverse charge (Art. 44/196), which is why the scheme requires the USt-IdNr.
 
-    Pinned on purpose: to be confirmed with the tax advisor (docs/compliance/eu/de.md, at.md).
+    Pinned on purpose (docs/compliance/eu/de.md): the fee follows the existing VIES path, no AT VAT.
     """
     org = _make_small_business(organization)
-    org.vat_country_code = "DE"
+    reverse_charge, rate = b2b_vat_context(org, "AT", Decimal("20.00"), unknown_country_domestic=True)
+    assert (reverse_charge, rate) == (True, Decimal("0.00"))
+
+
+def test_platform_fee_to_an_austrian_scheme_organizer_stays_domestic(organization: Organization) -> None:
+    """An AT Kleinunternehmer buys a domestic supply: Austrian VAT at 20%, whether or not it holds a UID (at.md)."""
+    org = _make_small_business(organization, Scheme.AT_6_1_27)
+    org.vat_country_code = "AT"
     org.save()
     reverse_charge, rate = b2b_vat_context(org, "AT", Decimal("20.00"), unknown_country_domestic=True)
     assert (reverse_charge, rate) == (False, Decimal("20.00"))
@@ -555,6 +652,9 @@ def test_platform_fee_vat_is_unchanged_for_a_scheme_organizer(organization: Orga
         ("events_organization", "tax_registration_number", "''::character varying"),
         ("events_organization", "small_business_scheme", "'none'::character varying"),
         ("events_attendeeinvoice", "seller_tax_registration_number", "''::character varying"),
+        ("events_attendeeinvoice", "issuer_name", "''::character varying"),
+        ("events_attendeeinvoice", "seller_small_business_scheme", "'none'::character varying"),
+        ("events_attendeeinvoicecreditnote", "issuer_name", "''::character varying"),
     ],
 )
 def test_new_not_null_columns_have_a_database_default(table: str, column: str, expected: str) -> None:
