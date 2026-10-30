@@ -90,20 +90,27 @@ double-binding.
 
 ## Adding event types to existing endpoints
 
-`provision_stripe_webhooks` only **creates** endpoints; it never edits ones that
-already exist. When a release adds event types to `PLATFORM_EVENTS` (for example
-`charge.dispute.created`, `charge.dispute.updated` and `charge.dispute.closed`,
-which feed the organizer dispute records), the already-provisioned endpoints
-keep their old subscription list until you update them by hand. Do this for
-**both** the platform and the Connect endpoint:
+When a release adds event types to `PLATFORM_EVENTS` / `CONNECT_EVENTS` (for
+example `charge.dispute.created`, `charge.dispute.updated` and
+`charge.dispute.closed`, which feed the organizer dispute records), the
+already-provisioned endpoints keep their old subscription list until you sync
+them. Run the command with `--sync`, which updates **both** the platform and the
+Connect endpoint at the URL (it requires exactly one of each):
 
-- **Dashboard:** Workbench → Webhooks → select the endpoint → **Update details**
-  (or "Edit destination") → add the new event types → save. The signing secret
-  does not change.
-- **API:** `stripe.WebhookEndpoint.modify("we_...", enabled_events=[...])` with the
-  full desired list (the call replaces the list, it does not append). Use
-  `PLATFORM_EVENTS` for the platform endpoint and `CONNECT_EVENTS` for the
-  Connect endpoint.
+```bash
+python manage.py provision_stripe_webhooks --url https://api.letsrevel.io/api/stripe/webhook --sync --dry-run
+python manage.py provision_stripe_webhooks --url https://api.letsrevel.io/api/stripe/webhook --sync
+```
+
+The dry run lists the endpoints and prints the added and removed event types per
+endpoint without modifying anything; the second run applies them. Signing
+secrets do not change, and the API version is not touched (it is set only when
+an endpoint is created). The command refuses endpoints that subscribe to `*`.
+
+**Fallback (Dashboard):** Workbench -> Webhooks -> select the endpoint ->
+**Update details** (or "Edit destination") -> add the new event types -> save.
+Via the API, `stripe.WebhookEndpoint.modify("we_...", enabled_events=[...])`
+replaces the list, it does not append.
 
 Until an endpoint is updated, its new events simply never arrive, so nothing is
 recorded and no error is raised. Verify with a Dashboard test event or the
