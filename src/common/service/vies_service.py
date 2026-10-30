@@ -191,6 +191,7 @@ def validate_and_update_vat_entity(
     *,
     entity_id: str,
     entity_type: str = "entity",
+    result: VIESValidationResult | None = None,
 ) -> VIESValidationResult:
     """Validate a VAT ID and update the model fields.
 
@@ -201,6 +202,9 @@ def validate_and_update_vat_entity(
         entity: Model instance with billing fields.
         entity_id: ID string for structured logging.
         entity_type: Label for structured logging (e.g., "org", "user").
+        result: A VIES decision already taken for ``entity.vat_id`` (a caller's
+            pre-check); when given, VIES is not asked again, so one request has
+            exactly one VIES decision.
 
     Returns:
         The VIESValidationResult.
@@ -212,7 +216,7 @@ def validate_and_update_vat_entity(
     if not entity.vat_id:
         raise ValueError(f"{entity_type} has no VAT ID to validate.")
 
-    result = validate_vat_id(entity.vat_id)
+    result = result or validate_vat_id(entity.vat_id)
 
     update_fields = ["vat_id_validated", "vat_id_validated_at", "vies_request_identifier", "updated_at"]
 
@@ -255,6 +259,7 @@ def set_vat_id(
     entity_type: str,
     on_vies_unavailable: Callable[[], None] | None = None,
     rollback_on_invalid: bool = True,
+    result: VIESValidationResult | None = None,
 ) -> None:
     """Set a VAT ID on an entity, validate via VIES, and handle results.
 
@@ -266,6 +271,7 @@ def set_vat_id(
         on_vies_unavailable: Optional callback invoked when VIES is down
             (e.g., to queue a background retry task). Called before raising HttpError.
         rollback_on_invalid: If True, clears the VAT ID when VIES returns invalid.
+        result: A VIES decision the caller already took for ``vat_id``; VIES is then not asked again.
 
     Raises:
         HttpError 400: If VIES says the VAT ID is invalid.
@@ -279,7 +285,7 @@ def set_vat_id(
     entity.save(update_fields=VAT_RESET_FIELDS)
 
     try:
-        result = validate_and_update_vat_entity(entity, entity_id=entity_id, entity_type=entity_type)
+        result = validate_and_update_vat_entity(entity, entity_id=entity_id, entity_type=entity_type, result=result)
         if not result.valid:
             if rollback_on_invalid:
                 clear_vat_fields(entity)

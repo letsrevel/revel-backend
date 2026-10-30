@@ -255,6 +255,18 @@ class TestVatIdEndpointsGuard:
         invoice = generate_attendee_invoice("cs_recovered")
         assert invoice is not None and invoice.seller_vat_id == "DE123456789"
 
+    def test_the_guard_decision_is_the_only_vies_call(self, organization: Organization, owner_client: Client) -> None:
+        """One request, one VIES decision: a contradicting second lookup must never strand a rejected ID in the row."""
+        org = self._lapsed_german_org(organization)
+        valid = VIESValidationResult(valid=True, name="Kleine Bühne", address="Musterstraße 1", request_identifier="r")
+        invalid = VIESValidationResult(valid=False, name="", address="", request_identifier="")
+        with patch("common.service.vies_service.validate_vat_id", side_effect=[valid, invalid]) as vies:
+            response = self._put_vat_id(owner_client, org, "DE123456781")
+        assert response.status_code == 200, response.content
+        assert vies.call_count == 1
+        org.refresh_from_db()
+        assert (org.vat_id, org.vat_id_validated, org.vies_request_identifier) == ("DE123456781", True, "r")
+
     def test_invalid_vat_id_leaves_a_lapsed_german_organizer_unchanged(
         self, organization: Organization, owner_client: Client
     ) -> None:

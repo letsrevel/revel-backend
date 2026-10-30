@@ -79,7 +79,9 @@ def set_org_vat_id(org: "Organization", vat_id: str) -> None:
         # the retry task racing the commit of the org's freshly-set vat_id.
         transaction.on_commit(lambda: revalidate_single_vat_id_task.delay(str(org.id)))
 
-    _assert_vat_id_set_allowed(org, vat_id)  # #1244 / #1258, before anything is written
+    # #1244 / #1258, before anything is written. When the guard had to ask VIES, that one decision is
+    # reused below: a second lookup could contradict it and strand a rejected ID in the row.
+    precheck = _assert_vat_id_set_allowed(org, vat_id)
     before = _effective_fee_percent(org)
     try:
         _set_vat_id(
@@ -89,12 +91,13 @@ def set_org_vat_id(org: "Organization", vat_id: str) -> None:
             entity_type="org",
             on_vies_unavailable=_queue_retry,
             rollback_on_invalid=False,
+            result=precheck,
         )
     finally:
         _dispatch_fee_resync_if_changed(org, before)
 
 
-def _assert_vat_id_set_allowed(org: "Organization", vat_id: str) -> None:
+def _assert_vat_id_set_allowed(org: "Organization", vat_id: str) -> VIESValidationResult | None:
     """The scheme guard for a VAT-ID set, decided on the actual VIES outcome where it hinges on it (#1258).
 
     A refusal that holds even for a validated ID (scheme ≠ the ID's country) is final. One that holds
@@ -102,13 +105,17 @@ def _assert_vat_id_set_allowed(org: "Organization", vat_id: str) -> None:
     decided by looking the ID up first: valid → the set proceeds (and the organizer recovers from a
     lapsed validation); invalid → 422 with nothing written; VIES down → 503 with nothing written.
 
+    Returns:
+        The valid VIES result when the guard had to ask, for the setter to reuse; ``None`` when it
+        did not (the unguarded path keeps its own lookup, outage persistence and retry).
+
     Raises:
         HttpError 422: The change is refused.
         HttpError 503: VIES is unavailable and the outcome decides.
     """
     refusal = small_business_scheme_service.vat_id_change_refusal(org, vat_id, validated=False)
     if not refusal:
-        return
+        return None
     if small_business_scheme_service.vat_id_change_refusal(org, vat_id, validated=True):
         raise HttpError(422, refusal)
     try:
@@ -119,6 +126,7 @@ def _assert_vat_id_set_allowed(org: "Organization", vat_id: str) -> None:
         ) from exc
     if not result.valid:
         raise HttpError(422, refusal)
+    return result
 
 
 def clear_org_vat_fields(org: "Organization") -> None:
