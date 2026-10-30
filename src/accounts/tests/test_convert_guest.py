@@ -6,8 +6,9 @@ from unittest.mock import patch
 
 import pytest
 from django.conf import settings
+from ninja.errors import HttpError
 
-from accounts.models import RevelUser
+from accounts.models import GlobalBan, RevelUser
 from accounts.service.account import convert_guest
 from notifications.models import NotificationPreference, get_default_notification_type_settings
 
@@ -49,6 +50,18 @@ def test_second_call_is_a_noop_without_duplicate_enrolment(guest_user: RevelUser
 
     enroll.assert_called_once()
     assert stale.guest is False  # fresh DB state is copied back
+
+
+def test_banned_guest_is_refused_without_conversion(guest_user: RevelUser) -> None:
+    GlobalBan.objects.create(ban_type=GlobalBan.BanType.EMAIL, value=guest_user.email)
+
+    with patch(ENROLL) as enroll, pytest.raises(HttpError) as exc:
+        convert_guest(guest_user)
+
+    assert exc.value.status_code == 403
+    enroll.assert_not_called()
+    guest_user.refresh_from_db()
+    assert (guest_user.guest, guest_user.email_verified) == (True, False)
 
 
 def test_non_guest_is_a_noop(user: RevelUser) -> None:

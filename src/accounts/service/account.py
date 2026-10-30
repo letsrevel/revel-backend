@@ -401,12 +401,21 @@ def convert_guest(user: RevelUser, *, reactivate: bool = False) -> None:
     # ponytail: bulk writes (``.update(guest=False)``, shell fixes) bypass this by design; always
     # convert through this service.
 
-    A non-guest is a no-op (``reactivate`` included).
+    A non-guest is a no-op (``reactivate`` included). A globally banned email is refused with the
+    same 403 ``HttpError`` the password-reset path raises, before anything is written.
+
+    Marking the email verified and enrolling referrals presumes the person owns the email: callers
+    (and staff running the admin action) must only convert when that ownership is established.
 
     Args:
         user: The user to convert.
         reactivate: Also set ``is_active`` (OIDC login revives an inactive guest).
+
+    Raises:
+        HttpError: 403 when the email is globally banned.
     """
+    from accounts.service.global_ban_service import BAN_ERROR_MESSAGE, is_email_globally_banned
+
     current = RevelUser.objects.select_for_update().values("guest", "email_verified", "is_active").get(pk=user.pk)
     if not current["guest"]:
         user.guest, user.email_verified, user.is_active = (
@@ -415,6 +424,8 @@ def convert_guest(user: RevelUser, *, reactivate: bool = False) -> None:
             current["is_active"],
         )
         return
+    if is_email_globally_banned(user.email):
+        raise HttpError(403, str(BAN_ERROR_MESSAGE))
     user.guest = False
     user.email_verified = True
     update_fields = ["guest", "email_verified"]

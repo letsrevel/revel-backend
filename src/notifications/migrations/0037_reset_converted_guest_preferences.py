@@ -1,11 +1,15 @@
 """Backfill: give already-converted guests the regular notification defaults (#1248).
 
 Before the conversion fix, turning a guest into a full account left the guest-default overrides in
-place. A non-guest row is treated as a leftover guest row when EVERY key of ORIGINAL_GUEST_KEYS is
-present and disabled (``enabled`` false, whatever the channels). If one of those is enabled the user
-changed their own settings and the row is skipped (conservative). For a matched row every guest-default
-key that is present and disabled becomes the regular default (or is removed), independently; absent or
-enabled keys are left alone; regular-default keys the row never had are added.
+place. Exact rule, deliberately conservative:
+
+* A non-guest row is matched only when EVERY key of ORIGINAL_GUEST_KEYS is present and disabled
+  (``enabled`` false, whatever the channels). If one of them is enabled the user changed their own
+  settings and the row is skipped.
+* For a matched row ONLY the ORIGINAL_GUEST_KEYS entries are reset (to the regular default for that
+  key, or removed when there is none), and missing regular-default keys are added with ``setdefault``.
+* Every other existing key is never modified or deleted: migrations 0028/0033 rewrote non-original
+  keys, so their shape no longer tells guest leftovers apart from user choices.
 
 ORIGINAL_GUEST_KEYS are the keys present in the guest map from its refactored form (6d7a1cbf,
 2025-11-16) up to today, minus later additions: potluck_item_created_and_claimed (73547ce5, backfilled
@@ -15,6 +19,9 @@ Rows created before 6d7a1cbf (migration 0002 era: invitation_claimed, event_crea
 
 # ponytail: guest rows created before 6d7a1cbf (the 0002-era map, about 2025-11-11 to 16) are not
 # matched; the window is tiny and they would need hand-repair.
+# ponytail: guests converted between #1127 and this deploy may keep leftover ``staff_*`` /
+# ``membership_card_updated`` ``{"enabled": False}`` entries; runtime conversions are fixed, hand-repair
+# if needed.
 # ponytail: a regular user who disabled every original guest key would be matched. Vanishingly
 # unlikely, and there is no guest history to discriminate.
 """
@@ -91,12 +98,7 @@ def _reset(settings: t.Any) -> dict[str, t.Any] | None:
     if not isinstance(settings, dict) or not all(_is_guest_default(settings.get(key)) for key in ORIGINAL_GUEST_KEYS):
         return None
     updated = dict(settings)
-    for key in GUEST_DEFAULT_KEYS:
-        value = updated.get(key)
-        # Original keys: any disabled entry. Others: only the exact guest-creation shape, since a
-        # disabled value carrying ``channels`` was written by confirm_unsubscribe or the API.
-        if not (_is_guest_default(value) if key in ORIGINAL_GUEST_KEYS else value == {"enabled": False}):
-            continue
+    for key in ORIGINAL_GUEST_KEYS:
         if key in REGULAR_DEFAULTS:
             updated[key] = {**REGULAR_DEFAULTS[key], "channels": list(REGULAR_DEFAULTS[key]["channels"])}
         else:

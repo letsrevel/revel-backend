@@ -4,28 +4,12 @@ import typing as t
 from unittest.mock import MagicMock, patch
 
 import pytest
-from django.test import override_settings
 from django.test.client import Client
 from django.urls import reverse
 
 from accounts.models import ReferralApplication, ReferralCode, RevelUser
 
-pytestmark = pytest.mark.django_db
-
-# Rendering a full admin page needs a staticfiles manifest for whitenoise's storage;
-# tests swap in the plain storage instead, matching events/tests/test_admin/test_organization_admin_filters.py.
-NO_MANIFEST_STORAGE = override_settings(
-    STORAGES={
-        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
-    }
-)
-
-
-@pytest.fixture
-def admin_client(client: Client, superuser: RevelUser) -> Client:
-    client.force_login(superuser)
-    return client
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("no_manifest_storage")]
 
 
 @pytest.fixture(autouse=True)
@@ -54,13 +38,11 @@ def _form_data(app: ReferralApplication, **overrides: str) -> dict[str, str]:
 
 
 class TestChangeForm:
-    @NO_MANIFEST_STORAGE
     def test_pending_row_shows_three_buttons(self, admin_client: Client, pending: ReferralApplication) -> None:
         html = admin_client.get(_change_url(pending)).content.decode()
         for name in ("approve", "reject", "block"):
             assert f'name="accounts_referralapplication_{name}"' in html
 
-    @NO_MANIFEST_STORAGE
     def test_decided_row_hides_buttons_and_locks_fields(
         self, admin_client: Client, pending: ReferralApplication
     ) -> None:
@@ -70,7 +52,6 @@ class TestChangeForm:
         assert "accounts_referralapplication_approve" not in html
         assert 'name="code"' not in html
 
-    @NO_MANIFEST_STORAGE
     def test_approve_button_with_edited_code(
         self, admin_client: Client, pending: ReferralApplication, mock_email: MagicMock
     ) -> None:
@@ -80,21 +61,18 @@ class TestChangeForm:
         pending.refresh_from_db()
         assert pending.status == ReferralApplication.Status.APPROVED and pending.code == "edited"
 
-    @NO_MANIFEST_STORAGE
     def test_reject_button_stores_note(self, admin_client: Client, pending: ReferralApplication) -> None:
         data = _form_data(pending, admin_note="Not now", accounts_referralapplication_reject="1")
         admin_client.post(_change_url(pending), data, follow=True)
         pending.refresh_from_db()
         assert pending.status == ReferralApplication.Status.REJECTED and pending.admin_note == "Not now"
 
-    @NO_MANIFEST_STORAGE
     def test_block_button(self, admin_client: Client, pending: ReferralApplication) -> None:
         data = _form_data(pending, accounts_referralapplication_block="1")
         admin_client.post(_change_url(pending), data, follow=True)
         pending.refresh_from_db()
         assert pending.status == ReferralApplication.Status.BLOCKED
 
-    @NO_MANIFEST_STORAGE
     def test_approve_active_referrer_shows_error_and_stays_pending(
         self, admin_client: Client, pending: ReferralApplication, revel_user_factory: t.Any
     ) -> None:
@@ -106,7 +84,6 @@ class TestChangeForm:
         pending.refresh_from_db()
         assert pending.status == ReferralApplication.Status.PENDING
 
-    @NO_MANIFEST_STORAGE
     def test_editing_code_to_a_taken_one_is_a_form_error(
         self, admin_client: Client, pending: ReferralApplication, revel_user_factory: t.Any
     ) -> None:
@@ -117,7 +94,6 @@ class TestChangeForm:
         pending.refresh_from_db()
         assert pending.code == "pcode"
 
-    @NO_MANIFEST_STORAGE
     def test_approve_reactivating_a_code_reports_the_kept_code(
         self, admin_client: Client, pending: ReferralApplication, revel_user_factory: t.Any
     ) -> None:
@@ -137,14 +113,12 @@ class TestChangeForm:
 
 
 class TestChangelist:
-    @NO_MANIFEST_STORAGE
     def test_lists_and_filters(self, admin_client: Client, pending: ReferralApplication) -> None:
         url = reverse("admin:accounts_referralapplication_changelist")
         assert admin_client.get(url).status_code == 200
         assert admin_client.get(url, {"status": "pending"}).status_code == 200
         assert admin_client.get(url, {"enrolled": "no"}).status_code == 200
 
-    @NO_MANIFEST_STORAGE
     def test_pending_row_sorts_before_a_newer_decided_row(
         self, admin_client: Client, pending: ReferralApplication
     ) -> None:
@@ -162,13 +136,11 @@ INVITE_URL = reverse("admin:accounts_referralapplication_invite")
 
 
 class TestInvitePage:
-    @NO_MANIFEST_STORAGE
     def test_get_renders_form(self, admin_client: Client) -> None:
         response = admin_client.get(INVITE_URL)
         assert response.status_code == 200
         assert 'name="email"' in response.content.decode()
 
-    @NO_MANIFEST_STORAGE
     def test_changelist_links_to_invite(self, admin_client: Client) -> None:
         html = admin_client.get(reverse("admin:accounts_referralapplication_changelist")).content.decode()
         assert INVITE_URL in html
@@ -191,7 +163,6 @@ class TestInvitePage:
         admin_client.post(INVITE_URL, data)
         assert ReferralCode.objects.get(user=user).code == "fresh"
 
-    @NO_MANIFEST_STORAGE
     @pytest.mark.parametrize(
         "code, expected",
         [("bad code", "letters, digits"), ("taken", "already taken")],
@@ -204,7 +175,6 @@ class TestInvitePage:
         assert expected in response.content.decode()
         assert not ReferralApplication.objects.exists()
 
-    @NO_MANIFEST_STORAGE
     def test_active_referrer_is_a_form_error(self, admin_client: Client, revel_user_factory: t.Any) -> None:
         user = revel_user_factory(email="active@example.com")
         ReferralCode.objects.create(user=user, code="have")
@@ -222,7 +192,6 @@ class TestInvitePage:
 class TestReferralCodeAdd:
     """The add form must not hand out a code that a live application has reserved."""
 
-    @NO_MANIFEST_STORAGE
     @pytest.mark.parametrize("status", [ReferralApplication.Status.PENDING, ReferralApplication.Status.APPROVED])
     def test_code_reserved_by_a_live_application_is_a_form_error(
         self, admin_client: Client, revel_user_factory: t.Any, status: str

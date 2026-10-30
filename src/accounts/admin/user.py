@@ -19,6 +19,7 @@ from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 from django_google_sso.admin import GoogleSSOInlineAdmin, get_current_user_and_admin
+from ninja.errors import HttpError
 from unfold.admin import ModelAdmin, TabularInline
 
 from accounts.admin import formatters
@@ -269,12 +270,21 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         "convert_guests",
     ]
 
-    @admin.action(description=_("Convert guest to full account"))
+    @admin.action(description=_("Convert guest to full account"), permissions=["change"])
     def convert_guests(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
-        """Convert the selected guests through :func:`convert_guest` (non-guests are skipped)."""
+        """Convert the selected guests through :func:`convert_guest` (non-guests are skipped).
+
+        Marks the email verified and enrols referrals, so staff must only run this when ownership
+        of the email is established. Globally banned guests are skipped and reported.
+        """
         converted = 0
+        banned = 0
         for guest in queryset.filter(guest=True):
-            convert_guest(guest)
+            try:
+                convert_guest(guest)
+            except HttpError:  # globally banned email
+                banned += 1
+                continue
             converted += 1
         self.message_user(
             request,
@@ -282,6 +292,17 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
             % converted,
             messages.SUCCESS,
         )
+        if banned:
+            self.message_user(
+                request,
+                ngettext(
+                    "Skipped %d globally banned guest.",
+                    "Skipped %d globally banned guests.",
+                    banned,
+                )
+                % banned,
+                messages.WARNING,
+            )
 
     @admin.action(description="Clear stale Stripe Connect account (superuser only)")
     def clear_stripe_connect_account(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:

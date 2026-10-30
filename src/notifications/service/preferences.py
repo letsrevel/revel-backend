@@ -97,6 +97,10 @@ def reset_converted_guest_preferences(user: RevelUser) -> bool:
     row never had are added. Any other value is an explicit user choice and is kept. A missing
     preferences row is created with the regular defaults.
 
+    The runtime rule (any disabled guest-default key) is broader than the migration 0037 backfill
+    because at conversion time the values are known to be guest-written; the backfill only sees rows
+    of unknown history and so resets just the original keys.
+
     # ponytail: any disabled guest-default entry is reset, so a guest who deliberately turned one
     # of those types off (only possible via an unsubscribe link, guests can't log in) gets it back
     # on conversion. Upgrade path: record the origin of each override.

@@ -6963,3 +6963,9 @@ msgid "Converted %d guest to a full account."
 msgid_plural "Converted %d guests to full accounts."
 msgstr[0] "%d convidado convertido em conta completa."
 msgstr[1] "%d convidados convertidos em contas completas."
+
+#, python-format
+msgid "Skipped %d globally banned guest."
+msgid_plural "Skipped %d globally banned guests."
+msgstr[0] "%d convidado banido ignorado."
+msgstr[1] "%d convidados banidos ignorados."

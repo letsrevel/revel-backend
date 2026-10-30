@@ -34,12 +34,17 @@ def test_frozen_copies_match_current_defaults() -> None:
     assert set(migration.GUEST_DEFAULT_KEYS) == {str(k) for k in get_guest_notification_type_settings()}
 
 
-def test_converted_guest_row_is_reset(guest_user: RevelUser) -> None:
+def test_converted_guest_row_original_keys_are_reset_others_untouched(guest_user: RevelUser) -> None:
+    before = _settings(guest_user)
     _convert_without_hook(guest_user)
 
     _run()
 
-    assert _settings(guest_user) == {str(k): dict(v) for k, v in get_default_notification_type_settings().items()}
+    settings = _settings(guest_user)
+    for key in migration.ORIGINAL_GUEST_KEYS:
+        assert settings.get(key) == migration.REGULAR_DEFAULTS.get(key)
+    for key in set(migration.GUEST_DEFAULT_KEYS) - set(migration.ORIGINAL_GUEST_KEYS):
+        assert settings[key] == before[key]  # never modified or deleted
 
 
 def test_converted_guest_with_empty_channels_shape_is_reset(guest_user: RevelUser) -> None:
@@ -80,7 +85,6 @@ def test_explicit_value_on_converted_guest_is_kept(guest_user: RevelUser) -> Non
     settings = _settings(guest_user)
     assert settings["membership_card_updated"] == explicit
     assert "org_announcement" not in settings  # the rest WAS reset
-    assert settings["org_contact_message_received"] == migration.REGULAR_DEFAULTS["org_contact_message_received"]
 
 
 def test_regular_row_is_untouched(regular_user: RevelUser) -> None:
@@ -191,16 +195,19 @@ def test_rerun_is_idempotent(guest_user: RevelUser) -> None:
     assert _settings(guest_user) == after_first == _regular_defaults()
 
 
-def test_non_original_key_with_channels_is_kept_but_exact_guest_shape_is_reset(guest_user: RevelUser) -> None:
-    """``{"enabled": False, "channels": []}`` on a non-original key is a user action (unsubscribe/API)."""
+def test_non_original_keys_of_any_shape_are_untouched(guest_user: RevelUser) -> None:
+    """Migrations 0028/0033 rewrote non-original keys: their shape can't be trusted, so keep them all."""
     _legacy_row(guest_user, migration.ORIGINAL_GUEST_KEYS)
     prefs = guest_user.notification_preferences
-    prefs.notification_type_settings["staff_ticket_created"] = {"enabled": False, "channels": []}
+    prefs.notification_type_settings["staff_ticket_created"] = {"enabled": False}
+    prefs.notification_type_settings["staff_ticket_cancelled"] = {"enabled": False, "channels": []}
     prefs.notification_type_settings["membership_card_updated"] = {"enabled": False}
     prefs.save()
 
     _run()
 
     settings = _settings(guest_user)
-    assert settings["staff_ticket_created"] == {"enabled": False, "channels": []}
-    assert "membership_card_updated" not in settings
+    assert settings["staff_ticket_created"] == {"enabled": False}
+    assert settings["staff_ticket_cancelled"] == {"enabled": False, "channels": []}
+    assert settings["membership_card_updated"] == {"enabled": False}
+    assert "org_announcement" not in settings  # original keys ARE reset
