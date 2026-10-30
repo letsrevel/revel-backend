@@ -635,8 +635,17 @@ def _build_from_refund_rows(
     if not refund_rows:
         return None
 
+    already_refunded: dict["UUID", Decimal] = {}
+    for existing_cn in existing_cns:
+        for refund in existing_cn.refunds.all():
+            already_refunded[refund.payment_id] = (
+                already_refunded.get(refund.payment_id, Decimal("0.00")) + refund.amount
+            )
+
     return _CreditNoteBuild(
-        line_items=credit_lines_for_refunds(refund_rows, invoice_lines or [], reverse_charge, out_of_scope),
+        line_items=credit_lines_for_refunds(
+            refund_rows, invoice_lines or [], reverse_charge, out_of_scope, already_refunded
+        ),
         payments={r.payment for r in refund_rows},
         refund_rows=refund_rows,
     )

@@ -14,6 +14,7 @@ Pure builders: the telescoping that keeps cumulative credit notes within the inv
 """
 
 from decimal import ROUND_HALF_UP, Decimal
+from uuid import UUID
 
 from events.models.attendee_invoice import InvoiceLineItemDict
 from events.models.refund import Refund
@@ -33,14 +34,21 @@ def _lines_by_payment(invoice_lines: list[InvoiceLineItemDict]) -> dict[str, Inv
     return by_payment
 
 
+def _cumulative(amount: str, refunded: Decimal, paid: Decimal) -> Decimal:
+    """``amount`` x ``refunded`` / ``paid`` (capped at the whole), half-up to cents."""
+    if refunded >= paid:
+        return Decimal(amount)
+    return (Decimal(amount) * refunded / paid).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
 def _credit_line(
     line: InvoiceLineItemDict,
     description: str,
-    share: tuple[Decimal, Decimal] | None,
+    share: tuple[Decimal, Decimal, Decimal] | None,
     reverse_charge: bool,
     out_of_scope: bool,
 ) -> InvoiceLineItemDict:
-    """``line`` credited for ``share`` = (refunded, paid) amounts (``None`` = in full).
+    """``line`` credited for ``share`` = (refunded before, refunded after, paid) amounts (``None`` = in full).
 
     Keeps the line's rate, category and provenance.
 
@@ -51,9 +59,11 @@ def _credit_line(
     if share is None:
         gross, net, vat = Decimal(line["unit_price_gross"]), Decimal(line["net_amount"]), Decimal(line["vat_amount"])
     else:
-        refunded, paid = share
-        gross = (Decimal(line["unit_price_gross"]) * refunded / paid).quantize(CENT, rounding=ROUND_HALF_UP)
-        vat = (Decimal(line["vat_amount"]) * refunded / paid).quantize(CENT, rounding=ROUND_HALF_UP)
+        # Cumulative, so the notes of one payment add up to the line to the cent: each credits the
+        # difference of the rounded cumulative shares, and the last one lands on the line's remainder.
+        before, after, paid = share
+        gross = _cumulative(line["unit_price_gross"], after, paid) - _cumulative(line["unit_price_gross"], before, paid)
+        vat = _cumulative(line["vat_amount"], after, paid) - _cumulative(line["vat_amount"], before, paid)
         net = gross - vat
     if reverse_charge:
         net, vat = gross, ZERO
@@ -86,19 +96,30 @@ def credit_lines_for_payments(
 
 
 def credit_lines_for_refunds(
-    refund_rows: list[Refund], invoice_lines: list[InvoiceLineItemDict], reverse_charge: bool, out_of_scope: bool
+    refund_rows: list[Refund],
+    invoice_lines: list[InvoiceLineItemDict],
+    reverse_charge: bool,
+    out_of_scope: bool,
+    already_refunded: dict[UUID, Decimal] | None = None,
 ) -> list[InvoiceLineItemDict]:
-    """Lines crediting ``refund_rows`` (the amount-aware path), one per row, prorated by refunded share."""
+    """Lines crediting ``refund_rows`` (the amount-aware path), one per row, prorated cumulatively.
+
+    ``already_refunded`` is, per payment, what earlier credit notes already cover; the rows of one
+    payment are credited in order on top of it.
+    """
     by_payment = _lines_by_payment(invoice_lines)
+    refunded = dict(already_refunded or {})
     items: list[InvoiceLineItemDict] = []
     for row in refund_rows:
         payment = row.payment
+        before = refunded.get(payment.id, ZERO)
+        refunded[payment.id] = after = before + row.amount
         line = by_payment.get(str(payment.id))
         if line is None:
             items.extend(_build_refund_line_items([row], reverse_charge, out_of_scope))
             continue
         full = row.amount >= payment.amount
         label = "Refund" if full else "Partial refund"
-        share = None if full else (row.amount, payment.amount)
+        share = None if before == 0 and full else (before, after, payment.amount)
         items.append(_credit_line(line, f"{label} — {line['description']}", share, reverse_charge, out_of_scope))
     return items

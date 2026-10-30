@@ -157,6 +157,85 @@ class TestDraftExemptionFromTier:
         assert invoice.vat_exemptions["E"]["text"] == "Stored legacy text"
 
 
+class TestProvenanceMatching:
+    """Review: provenance is matched by id, then by content -- never by position."""
+
+    def _two(self, user: RevelUser, event: Event) -> tuple[AttendeeInvoice, Payment, Payment]:
+        t1, t2 = _tier(event, "T1", "R1"), _tier(event, "T2", "R2")
+        pa = _pay(user, event, t1, "cs_prov_m", "A", "24.90")
+        pb = _pay(user, event, t2, "cs_prov_m", "B", "50.00")
+        invoice = generate_attendee_invoice("cs_prov_m")
+        assert invoice is not None
+        return invoice, pa, pb
+
+    @staticmethod
+    def _ids(invoice: AttendeeInvoice) -> dict[str, str | None]:
+        return {li["unit_price_gross"]: li.get("payment_id") for li in invoice.line_items}
+
+    def test_reorder_without_ids_keeps_each_lines_own_ids(
+        self, org: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        invoice, pa, pb = self._two(member_user, event)
+        a, b = invoice.line_items
+        invoice = update_draft_invoice(invoice, {"line_items": [_without_ids(b), _without_ids(a)]})
+        assert self._ids(invoice) == {"24.90": str(pa.id), "50.00": str(pb.id)}
+
+    def test_delete_and_add_gives_the_new_line_nothing(
+        self, org: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        invoice, _pa, pb = self._two(member_user, event)
+        _a, b = invoice.line_items
+        hand_made = {**_without_ids(b), "description": "Hand made", "unit_price_gross": "7.00"}
+        invoice = update_draft_invoice(invoice, {"line_items": [hand_made, _without_ids(b)]})
+        assert self._ids(invoice) == {"7.00": None, "50.00": str(pb.id)}
+
+    def test_all_forged_ids_give_nothing(self, org: Organization, event: Event, member_user: RevelUser) -> None:
+        invoice, _pa, _pb = self._two(member_user, event)
+        forged = [
+            {**li, "description": "x", "payment_id": f"00000000-0000-0000-0000-00000000000{i}"}
+            for i, li in enumerate(invoice.line_items, 1)
+        ]
+        invoice = update_draft_invoice(invoice, {"line_items": forged})
+        assert self._ids(invoice) == {"24.90": None, "50.00": None}
+
+    def test_removing_a_line_without_ids_keeps_the_rest_off_the_legacy_path(
+        self, org: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        invoice, _pa, _pb = self._two(member_user, event)
+        a, b = invoice.line_items
+        invoice = update_draft_invoice(invoice, {"line_items": [_without_ids(_zero(a)), _without_ids(_zero(b))]})
+        invoice = update_draft_invoice(invoice, {"line_items": [_without_ids(_zero(a))]})
+        assert invoice.vat_exemptions["E"]["text"] == "R1"
+        # An invoice that once had ids never drops to the legacy path, even if every line is replaced.
+        replaced = {**_without_ids(_zero(a)), "description": "new"}
+        invoice = update_draft_invoice(invoice, {"line_items": [replaced]})
+        assert invoice.vat_exemptions["E"]["text"] == "Org default reason"
+
+
+class TestCumulativeProration:
+    """Review: partial refunds of a payment sum to exactly the invoice line."""
+
+    @pytest.mark.parametrize(("line_gross", "paid", "refund"), [("20.00", "24.90", "8.30"), ("10.00", "3.00", "1.00")])
+    def test_three_refunds_sum_to_the_line_and_cancel(
+        self, org: Organization, event: Event, member_user: RevelUser, line_gross: str, paid: str, refund: str
+    ) -> None:
+        session = f"cs_prov_pro_{paid}"
+        payment = _pay(member_user, event, _tier(event, "T"), session, "A", paid)
+        invoice = generate_attendee_invoice(session)
+        assert invoice is not None
+        edited = {**invoice.line_items[0], "unit_price_gross": line_gross}
+        invoice = issue_draft_invoice(update_draft_invoice(invoice, {"line_items": [edited]}))
+        notes = [
+            generate_attendee_credit_note(session, [payment.id], refund_ids=[_refund(payment, refund).id])
+            for _ in range(3)
+        ]
+        assert all(notes)
+        grosses = [Decimal(li["unit_price_gross"]) for n in notes if n for li in n.line_items]
+        assert sum(grosses) == Decimal(line_gross)
+        invoice.refresh_from_db()
+        assert invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED
+
+
 class TestCreditNotesFollowEditedLines:
     """#1250: credit notes reverse the invoice's own (edited) lines."""
 

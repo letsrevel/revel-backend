@@ -17,7 +17,8 @@ for these transactions. B2C invoices are not covered.
 - **Attendee invoicing can be enabled.** HYBRID and AUTO are not refused for Belgian organizations.
 - **Domestic B2B invoices are skipped.** For organizers established in Belgium, invoice generation
   and credit notes are skipped, and issuing an existing draft (including drafts created before the
-  gate) is refused with the same reason, only when the **buyer's VAT ID starts with `BE`** and VIES confirmed it as valid at checkout or
+  gate) is refused with the same reason, only when the **buyer's VAT ID starts with `BE`** and VIES
+  confirmed it as valid at checkout or
   could not be reached. A VAT ID that VIES rejected (a typo, a made-up number) makes the buyer a
   consumer, who gets Revel's invoice as usual. The organizer must issue that invoice through
   Peppol with its own e-invoicing software.
@@ -25,7 +26,8 @@ for these transactions. B2C invoices are not covered.
 - **Skipped documents are recorded** ([#1091](https://github.com/letsrevel/revel-backend/issues/1091)).
   Each skipped invoice or credit note is stored with the buyer, amounts, VAT breakdown and the
   policy's reason. A refused draft is not: issuing it raises a 422 (`CountryComplianceError`), records
-  no skipped document and the invoice stays a draft in the invoice list. The owner sees them under *Documents to issue yourself*
+  no skipped document and the invoice stays a draft in the invoice list. The owner sees them under
+  *Documents to issue yourself*
   (`GET /organization-admin/{slug}/skipped-fiscal-documents`) and marks each one done with the number
   from its own system (`POST …/{id}/resolve`). The ticket list flags those sales (`invoice_skipped`),
   and the revenue report has an *Documents to issue yourself* sheet.

@@ -95,24 +95,35 @@ _BLANKABLE_STRING_FIELDS = frozenset(
 def _carry_provenance(submitted: list[SubmittedLineItem], stored: list[InvoiceLineItemDict]) -> list[ProvenanceDict]:
     """The ``payment_id``/``tier_id`` each submitted line keeps from the draft's stored lines (#1242, #1250).
 
-    The API never lets a client state a tier or payment: a submitted ``payment_id`` is honoured only
-    when it names a stored line (once), and the tier is then read from that stored line. A client that
-    echoes no ids at all (it only knows the fields it displays) is matched by position when the line
-    count is unchanged; an added line, or one in a reshaped list, carries nothing and so gets the
-    organization-level behaviour of a legacy line.
+    The API never lets a client state a tier or payment. A submitted line is tied to a stored line
+    (each stored line at most once) (a) by a submitted ``payment_id`` that names an unclaimed stored
+    line, else (b), only if it states no id, by content: the first unclaimed stored line with the same
+    ``description`` and ``unit_price_gross`` (a client that only knows the fields it displays). Otherwise it is a
+    hand-added line and carries nothing. Never by position: a reordered or reshaped list would
+    hand a line another payment's id. The tier is always read from the matched stored line.
     """
-    known = {line["payment_id"]: line for line in stored if "payment_id" in line}
+    with_ids = [line for line in stored if "payment_id" in line]
+    by_id = {line["payment_id"]: line for line in with_ids}
+    origins: list[InvoiceLineItemDict | None] = [None] * len(submitted)
     claimed: set[str] = set()
-    kept: list[ProvenanceDict] = []
-    for item in submitted:
+    for i, item in enumerate(submitted):  # ids first, so a content match never steals an id-claimed line
         payment_id = str(item["payment_id"]) if item.get("payment_id") else ""
-        origin = known.get(payment_id) if payment_id not in claimed else None
-        if origin is not None:
+        if payment_id in by_id and payment_id not in claimed:
             claimed.add(payment_id)
-        kept.append(_ids_of(origin))
-    if not claimed and len(submitted) == len(stored):
-        return [_ids_of(line) for line in stored]
-    return kept
+            origins[i] = by_id[payment_id]
+    for i, item in enumerate(submitted):
+        if origins[i] is not None or item.get("payment_id"):
+            continue  # matched by id, or claims an id that is not a stored line's: nothing to guess
+        for line in with_ids:
+            if (
+                line["payment_id"] not in claimed
+                and line["description"] == item.get("description", "")
+                and Decimal(line["unit_price_gross"]) == Decimal(str(item.get("unit_price_gross", "0.00")))
+            ):
+                claimed.add(line["payment_id"])
+                origins[i] = line
+                break
+    return [_ids_of(origin) for origin in origins]
 
 
 def _ids_of(line: InvoiceLineItemDict | None) -> ProvenanceDict:
@@ -175,7 +186,8 @@ def _recompute_vat_exemptions(
         str(tier.pk): tier
         for tier in TicketTier.objects.filter(pk__in={item["tier_id"] for item in exempt if "tier_id" in item})
     }
-    has_provenance = any("payment_id" in item or "tier_id" in item for item in line_items)
+    # From the stored lines: an invoice that ever had ids never drops to the legacy path.
+    has_provenance = any("payment_id" in item or "tier_id" in item for item in invoice.line_items)
     stored = invoice.vat_exemptions.get("E", {}).get("text", "")
     legacy_reason = stored if stored and stored != EXEMPT_FALLBACK_TEXT else org_reason
     reasons = []

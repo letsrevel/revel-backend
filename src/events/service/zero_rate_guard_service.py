@@ -35,7 +35,7 @@ def zero_rate_tiers_missing_reason(org: Organization) -> bool:
     paid = (~Q(price_type=pwyc) & Q(price__gt=0)) | (Q(price_type=pwyc) & (Q(pwyc_min__gt=0) | Q(pwyc_max__gt=0)))
     # ponytail: category_prices is {category_id: "decimal string"}; SQL can't cleanly say "any value > 0",
     # so a non-empty map counts as paid (an all-zero map over-flags; is_paid_online is exact on save).
-    paid |= ~Q(price_type=pwyc) & ~Q(category_prices={}) & ~Q(category_prices__isnull=True)
+    paid |= ~Q(category_prices={}) & ~Q(category_prices__isnull=True)
     zero_rate = Q(vat_rate=0)
     if org.vat_rate == 0:
         zero_rate |= Q(vat_rate__isnull=True)  # inheriting tiers take the org default

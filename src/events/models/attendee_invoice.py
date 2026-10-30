@@ -8,6 +8,7 @@ as an intermediary generating and delivering invoices.
 import enum
 import typing as t
 from decimal import Decimal, InvalidOperation
+from uuid import UUID
 
 from django.conf import settings
 from django.db import models
@@ -91,7 +92,7 @@ class SubmittedLineItem(t.TypedDict, total=False):
     vat_rate: Decimal
     vat_category: t.NotRequired[str]
     # Echoed back by the client; only honoured when they match a stored line (see _carry_provenance).
-    payment_id: t.NotRequired[t.Any]
+    payment_id: t.NotRequired[UUID | str | None]
 
 
 class DerivedTotals(t.TypedDict):
