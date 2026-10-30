@@ -7057,5 +7057,5 @@ msgstr[1] "%d ospiti convertiti in account completi."
 #, python-format
 msgid "Skipped %d globally banned guest."
 msgid_plural "Skipped %d globally banned guests."
-msgstr[0] "%d ospite bannato saltato."
-msgstr[1] "%d ospiti bannati saltati."
+msgstr[0] "%d ospite con blocco globale saltato."
+msgstr[1] "%d ospiti con blocco globale saltati."
