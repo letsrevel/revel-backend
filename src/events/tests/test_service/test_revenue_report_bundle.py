@@ -360,3 +360,41 @@ def test_zip_contains_exactly_xlsx_and_pdf(report_data: svc.RevenueReportData) -
     assert len(names) == 2
     assert any(n.endswith(".xlsx") for n in names)
     assert any(n.endswith(".pdf") for n in names)
+
+
+@pytest.mark.django_db
+def test_membership_and_skipped_sheets_neutralise_formula_cells(
+    membership_report_data: svc.RevenueReportData,
+) -> None:
+    """User-controlled names that start with a formula character are written as inert text."""
+    import dataclasses
+    from types import SimpleNamespace
+
+    row = dataclasses.replace(membership_report_data.membership_payments[0], member_name="=1+1")
+    doc = SimpleNamespace(
+        decided_at=timezone.now(),
+        kind="invoice",
+        reason_code="x",
+        policy_country="DE",
+        event=None,
+        buyer_name="@SUM(A1)",
+        buyer_email="b@example.com",
+        buyer_vat_id="",
+        buyer_vat_country="",
+        buyer_vat_id_status="",
+        vat_breakdown=[],
+        total_net=Decimal("0"),
+        total_vat=Decimal("0"),
+        total_gross=Decimal("0"),
+        currency="EUR",
+        invoice=None,
+        stripe_session_id="",
+        resolved_at=None,
+        external_reference="",
+    )
+    data = dataclasses.replace(membership_report_data, membership_payments=[row], skipped_documents=[doc])
+
+    wb = load_workbook(io.BytesIO(svc.build_xlsx(data)))
+
+    assert wb["Membership payments"]["D2"].value == "'=1+1"
+    assert wb["Documents to issue yourself"]["F2"].value == "'@SUM(A1)"
