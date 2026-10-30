@@ -79,7 +79,7 @@ def create_default_preferences(user: RevelUser) -> tuple[NotificationPreference,
     )
 
 
-def _is_guest_default(value: t.Any) -> bool:
+def is_disabled_entry(value: t.Any) -> bool:
     """True for a disabled override of a guest-default key, however it was written.
 
     Covers ``{"enabled": False}`` (guest creation), ``{"enabled": False, "channels": []}`` (written
@@ -121,7 +121,7 @@ def reset_converted_guest_preferences(user: RevelUser) -> bool:
         current = dict(prefs.notification_type_settings) if isinstance(prefs.notification_type_settings, dict) else {}
         updated = dict(current)
         for key in get_guest_notification_type_settings():
-            if _is_guest_default(updated.get(key)):
+            if is_disabled_entry(updated.get(key)):
                 if key in regular_defaults:
                     updated[key] = regular_defaults[key]
                 else:

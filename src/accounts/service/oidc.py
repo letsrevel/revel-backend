@@ -392,6 +392,8 @@ def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser
             raise OIDCLoginError("inactive")
         if user.guest:
             account_service.convert_guest(user, reactivate=True)
+            if not user.is_active:  # lost a race with a deactivation: values were copied back
+                raise OIDCLoginError("inactive")
         elif not user.email_verified:
             user.email_verified = True
             user.save(update_fields=["email_verified"])

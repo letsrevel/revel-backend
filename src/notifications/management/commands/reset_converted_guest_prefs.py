@@ -38,8 +38,10 @@ from dataclasses import dataclass, field
 
 from django.core.management.base import BaseCommand, CommandParser
 from django.db import transaction
+from django.utils import timezone
 
 from notifications.models import NotificationPreference, get_default_notification_type_settings
+from notifications.service.preferences import is_disabled_entry
 
 BATCH_SIZE = 500
 
@@ -64,10 +66,6 @@ ORIGINAL_GUEST_KEYS: tuple[str, ...] = (
 PINNED_KEYS: tuple[str, ...] = ("org_contact_message_received", "potluck_item_created_and_claimed")
 
 
-def _disabled(value: t.Any) -> bool:
-    return isinstance(value, dict) and not value.get("enabled", True)
-
-
 def _enabled_original(settings: dict[str, t.Any]) -> bool:
     return any(isinstance(settings.get(k), dict) and settings[k].get("enabled", True) for k in ORIGINAL_GUEST_KEYS)
 
@@ -88,7 +86,7 @@ def _plan(settings: t.Any, include_pinned: bool, stats: Stats) -> dict[str, t.An
     """Return the new settings for a matched row, or None (skipped / not matched)."""
     if not isinstance(settings, dict):
         return None
-    if not all(_disabled(settings.get(k)) for k in ORIGINAL_GUEST_KEYS):
+    if not all(is_disabled_entry(settings.get(k)) for k in ORIGINAL_GUEST_KEYS):
         if _enabled_original(settings):
             stats.skipped_enabled += 1
         return None
@@ -140,36 +138,38 @@ class Command(BaseCommand):
         # pk-sliced batches, not .iterator(): server-side cursors break behind PgBouncer.
         last_pk = None
         while True:
-            batch_qs = candidates if last_pk is None else candidates.filter(pk__gt=last_pk)
-            batch = list(batch_qs.only("pk")[:BATCH_SIZE])
-            if not batch:
-                break
-            last_pk = batch[-1].pk
-            self._process([p.pk for p in batch], stats, apply, include_pinned, show_ids)
+            with transaction.atomic():
+                batch_qs = candidates if last_pk is None else candidates.filter(pk__gt=last_pk)
+                if apply:
+                    batch_qs = batch_qs.select_for_update(of=("self",))
+                batch = list(batch_qs[:BATCH_SIZE])
+                if not batch:
+                    break
+                last_pk = batch[-1].pk
+                changed = self._plan_batch(batch, stats, include_pinned, show_ids)
+                if apply and changed:
+                    NotificationPreference.objects.bulk_update(changed, ["notification_type_settings", "updated_at"])
         self._report(stats, apply, include_pinned)
 
-    def _process(self, pks: list[t.Any], stats: Stats, apply: bool, include_pinned: bool, show_ids: int) -> None:
-        with transaction.atomic():
-            rows_qs = NotificationPreference.objects.filter(pk__in=pks)
-            rows = list(rows_qs.select_for_update() if apply else rows_qs)
-            for prefs in rows:
-                self._process_row(prefs, stats, apply, include_pinned, show_ids)
-
-    def _process_row(
-        self, prefs: NotificationPreference, stats: Stats, apply: bool, include_pinned: bool, show_ids: int
-    ) -> None:
-        stats.scanned += 1
-        before = stats.matched
-        new = _plan(prefs.notification_type_settings, include_pinned, stats)
-        if new is None:
-            return
-        if stats.matched > before and len(stats.ids) < show_ids:
-            stats.ids.append(str(prefs.user_id))
-        if new != prefs.notification_type_settings:
-            stats.changed += 1
-            if apply:
+    def _plan_batch(
+        self, batch: list[NotificationPreference], stats: Stats, include_pinned: bool, show_ids: int
+    ) -> list[NotificationPreference]:
+        """Plan every row of the batch in memory; return the rows whose settings changed."""
+        changed: list[NotificationPreference] = []
+        now = timezone.now()
+        for prefs in batch:
+            stats.scanned += 1
+            new = _plan(prefs.notification_type_settings, include_pinned, stats)
+            if new is None:
+                continue
+            if len(stats.ids) < show_ids:
+                stats.ids.append(str(prefs.user_id))
+            if new != prefs.notification_type_settings:
+                stats.changed += 1
                 prefs.notification_type_settings = new
-                prefs.save(update_fields=["notification_type_settings", "updated_at"])
+                prefs.updated_at = now
+                changed.append(prefs)
+        return changed
 
     def _report(self, stats: Stats, apply: bool, include_pinned: bool) -> None:
         w = self.stdout.write

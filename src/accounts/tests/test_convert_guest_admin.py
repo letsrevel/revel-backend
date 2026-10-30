@@ -131,3 +131,10 @@ def test_action_counts_only_real_conversions(admin_client: Client, guest_user: R
         response = _run_action(admin_client, [guest_user])
 
     assert "Converted 0 guests" in response.content.decode()
+
+
+def test_action_with_nothing_converted_warns(admin_client: Client, user: RevelUser) -> None:
+    response = _run_action(admin_client, [user])
+
+    levels = [m.level_tag for m in response.context["messages"]]
+    assert levels == ["warning"]

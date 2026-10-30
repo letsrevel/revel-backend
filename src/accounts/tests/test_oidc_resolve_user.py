@@ -85,6 +85,19 @@ def test_guest_user_is_upgraded(guest_user: RevelUser) -> None:
     assert result.external_identities.count() == 1
 
 
+def test_guest_deactivated_during_conversion_is_refused_without_identity(guest_user: RevelUser) -> None:
+    def deactivated(user: RevelUser, **kwargs: t.Any) -> bool:
+        user.is_active = False  # what the no-op path copies back after a concurrent deactivation
+        return False
+
+    with patch("accounts.service.account.convert_guest", side_effect=deactivated):
+        with pytest.raises(OIDCLoginError) as exc:
+            oidc._resolve_user(GOOGLE, claims(email=guest_user.email))
+
+    assert exc.value.code == "inactive"
+    assert not ExternalIdentity.objects.filter(user=guest_user).exists()
+
+
 def test_inactive_non_guest_refused(inactive_user: RevelUser) -> None:
     with pytest.raises(OIDCLoginError) as exc:
         oidc._resolve_user(GOOGLE, claims(email=inactive_user.email))

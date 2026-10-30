@@ -288,7 +288,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
             request,
             ngettext("Converted %d guest to a full account.", "Converted %d guests to full accounts.", converted)
             % converted,
-            messages.SUCCESS,
+            messages.SUCCESS if converted else messages.WARNING,
         )
         if banned:
             self.message_user(
