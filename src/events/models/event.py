@@ -806,8 +806,12 @@ class Event(
         if self.start and self.waitlist_cutoff_date >= self.start:
             raise DjangoValidationError({"waitlist_cutoff_date": _("Cutoff date must be before event start.")})
 
-    def ics(self) -> bytes:
+    def ics(self, *, include_address: bool = True) -> bytes:
         """Generates an iCalendar (.ics) file for this event.
+
+        Args:
+            include_address: When False, the address/city are replaced by a generic placeholder
+                (for recipients who may not see the address).
 
         Returns:
             The .ics file content as bytes.
@@ -821,7 +825,11 @@ class Event(
         e.name = self.name
         e.begin = self.start
         e.end = self.end
-        e.location = self.address or (self.city.name if self.city else "See event details")
+        e.location = (
+            (self.address or (self.city.name if self.city else "See event details"))
+            if include_address
+            else "See event details"
+        )
         # e.description = ticket.event.description or f"Your ticket for {ticket.event.name}."
         e.uid = f"{self.id}@letsrevel.io"  # Unique ID for the calendar event
 

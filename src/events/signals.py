@@ -489,6 +489,8 @@ def handle_event_opened_notify_followers(sender: type[Event], instance: Event, c
         event_location = _get_event_location_string(instance)
 
         for user, notification_type in get_followers_for_new_event_notification(organization, event_series):
+            # Address (and city) only for followers allowed to see it
+            visible_location = event_location if instance.can_user_see_address(user) else ""
             context: dict[str, t.Any] = {
                 "organization_id": str(organization.id),
                 "organization_name": organization.name,
@@ -497,7 +499,7 @@ def handle_event_opened_notify_followers(sender: type[Event], instance: Event, c
                 "event_description": instance.description or "",
                 "event_start": instance.start.isoformat() if instance.start else "",
                 "event_start_formatted": format_event_datetime(instance.start, instance),
-                "event_location": event_location,
+                "event_location": visible_location,
                 "event_url": f"{frontend_base_url}/events/{instance.id}",
             }
 

@@ -389,7 +389,8 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
         "guest_name": ticket.guest_name,
         "tier_name": ticket.tier.name,
         "start_datetime": format_event_datetime(event.start, event),
-        "address": event.full_address(),
+        # Respect the holder's address visibility (e.g. members-only address on a public ticketed event).
+        "address": event.full_address() if event.can_user_see_address(ticket.user) else "",
         "qr_code_base64": qr_code_base64,
         "ticket_id": str(ticket.id),
         "ticket_id_short": str(ticket.id)[:8].upper(),

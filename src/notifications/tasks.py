@@ -7,6 +7,7 @@ from datetime import timedelta
 import structlog
 from celery import group, shared_task
 from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
 from django.utils import timezone, translation
 
 from notifications.enums import DeliveryChannel, DeliveryStatus, NotificationType
@@ -497,7 +498,8 @@ def send_pending_invitation_email(self: t.Any, pending_invitation_id: str) -> No
         "invitation_message": pending.custom_message or "",
         "event_start_formatted": format_event_datetime(event.start, event),
         "event_end_formatted": format_event_datetime(event.end, event),
-        "event_location": event.full_address(),
+        # No account yet: apply the anonymous address policy
+        "event_location": event.full_address() if event.can_user_see_address(AnonymousUser()) else "",
         "organization_name": event.organization.name,
         "signup_url": f"{frontend_base_url}/auth/register",
         "frontend_base_url": frontend_base_url,

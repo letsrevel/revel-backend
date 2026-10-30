@@ -8,7 +8,7 @@ import pytest
 from django.db import transaction
 
 from accounts.models import RevelUser
-from events.models import EventSeries, HeldSeriesPass, Organization, Payment, SeriesPass, Ticket, TicketTier
+from events.models import EventRSVP, EventSeries, HeldSeriesPass, Organization, Payment, SeriesPass, Ticket, TicketTier
 from notifications.enums import DeliveryChannel, NotificationType
 from notifications.models import Notification, NotificationPreference
 from telegram.models import TelegramUser
@@ -736,6 +736,8 @@ class TestEventCancelledNotificationReason:
         from notifications.signals import event as event_signals
 
         public_event.cancellation_reason = "Venue flooded"
+        # The reason is only disclosed to confirmed attendees (and staff).
+        EventRSVP.objects.create(event=public_event, user=user, status=EventRSVP.RsvpStatus.YES)
 
         with (
             patch.object(
