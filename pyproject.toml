@@ -41,6 +41,7 @@ dependencies = [
     "django-simple-history>=3.13.0",
     "django-solo>=2.5.1",
     "django-unfold>=0.103.0",
+    "euinvoice[pdf]>=0.2.1,<0.3",
     "flower>=2.0.1",
     "gunicorn>=26.0.0",
     "httpx[http2]>=0.28.1",
@@ -121,6 +122,7 @@ dev = [
     "pip-audit>=2.10.1",
     "pytest-split>=0.10.0",
     "types-python-dateutil>=2.9.0.20260807",
+    "euinvoice[validate]>=0.2.1,<0.3",
 ]
 sentinel = [
     # torch 2.8 ships no cp314 wheel (only cp313/cp313t); 2.9+ is required to
@@ -330,6 +332,7 @@ addopts = "-m 'not integration'"
 markers = [
     "integration: slow tests that hit real external services (LLM, etc.) — run explicitly with pytest -m integration",
     "real_payment_means: opt out of the autouse fetch_payment_means stub (tests the real function)",
+    "einvoice_conformance: validate generated Factur-X XML against the official CEN rules (needs `python -m euinvoice artifacts fetch`; skipped otherwise)",
 ]
 norecursedirs = [
     ".*",

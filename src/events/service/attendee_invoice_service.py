@@ -42,6 +42,7 @@ from events.service.attendee_invoice_lines import (
 )
 from events.service.attendee_vat_service import invoice_out_of_scope, out_of_scope_for
 from events.service.credit_note_totals import credit_note_totals
+from events.service.einvoice_service import facturx_pdf_for
 from events.service.en16931_totals_service import compute_en16931_totals
 from events.service.payment_means_service import fetch_payment_means
 from events.service.zero_rate_guard_service import (
@@ -439,7 +440,7 @@ def _generate_and_save_pdf(invoice: AttendeeInvoice) -> None:
         "is_export": _is_export(invoice),
         "is_virtual_interim": _is_virtual_interim(invoice),
     }
-    pdf_bytes = render_pdf(template, context)
+    pdf_bytes = facturx_pdf_for(invoice, lambda pdf_a3: render_pdf(template, context, pdf_a3=pdf_a3))
     filename = f"{invoice.invoice_number}.pdf"
     invoice.pdf_file.save(filename, ContentFile(pdf_bytes), save=True)
 
@@ -866,7 +867,7 @@ def _generate_credit_note_pdf(credit_note: AttendeeInvoiceCreditNote) -> None:
         "is_export": _is_export(invoice),
         "is_virtual_interim": _is_virtual_interim(invoice),
     }
-    pdf_bytes = render_pdf(template, context)
+    pdf_bytes = facturx_pdf_for(credit_note, lambda pdf_a3: render_pdf(template, context, pdf_a3=pdf_a3))
     filename = f"{credit_note.credit_note_number}.pdf"
     credit_note.pdf_file.save(filename, ContentFile(pdf_bytes), save=True)
 

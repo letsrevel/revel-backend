@@ -115,6 +115,13 @@ class SiteSettings(SingletonModel):
         help_text="Accept public applications to the referral program. Admin invites work regardless.",
     )
 
+    # E-invoicing (#1235). db_default: the new web container migrates while old ones still INSERT.
+    einvoice_facturx_enabled = models.BooleanField(
+        default=True,
+        db_default=True,
+        help_text="Embed EN 16931 XML (Factur-X / ZUGFeRD) into eligible attendee invoice PDFs. Off: plain PDFs only.",
+    )
+
     # Maintenance banner
     maintenance_message = models.CharField(
         max_length=500,

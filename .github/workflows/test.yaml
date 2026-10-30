@@ -112,6 +112,7 @@ jobs:
             --cov=src \
             --cov-report= \
             --cov-branch \
+            -m "not integration and not einvoice_conformance" \
             src
 
       - name: Upload coverage data
@@ -122,6 +123,46 @@ jobs:
           include-hidden-files: true
           retention-days: 1
           if-no-files-found: error
+
+      - name: Teardown docker
+        if: always()
+        run: docker compose -f docker-compose-ci.yml down
+
+  einvoice-conformance:
+    name: EN 16931 conformance (Factur-X)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup backend environment
+        uses: ./.github/actions/setup-backend
+
+      # `euinvoice[validate]` (saxonche) lives in the dev group, which setup-backend's `uv sync` installs.
+      - name: Read the pinned euinvoice version
+        id: euinvoice
+        run: |
+          version=$(awk '/^name = "euinvoice"$/ { getline; sub(/^version = "/, ""); sub(/"$/, ""); print; exit }' uv.lock)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # The official CEN/XRechnung/Peppol artifacts are pinned per euinvoice release, so the
+      # version is the whole cache key.
+      - name: Restore euinvoice validation artifacts
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/euinvoice
+          key: euinvoice-artifacts-${{ steps.euinvoice.outputs.version }}
+
+      - name: Fetch euinvoice validation artifacts
+        run: uv run python -m euinvoice artifacts fetch
+
+      - name: Spin up docker
+        run: docker compose -f docker-compose-ci.yml up -d
+
+      - name: Validate generated Factur-X documents against the CEN rules
+        env:
+          EINVOICE_CONFORMANCE_REQUIRED: "1"  # a missing artifact fails the job instead of skipping
+        run: uv run pytest -m einvoice_conformance src/events/tests/test_einvoice/test_conformance.py
 
       - name: Teardown docker
         if: always()
