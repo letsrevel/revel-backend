@@ -751,6 +751,10 @@ def token_to_payload(token: str, schema_class: t.Type[T]) -> T:
         _payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience=settings.JWT_AUDIENCE
         )
+        # The schemas default ``type`` for construction; a decoded token must state it, or a session
+        # token (same key and audience, no ``type`` claim) would inherit the expected purpose.
+        if "type" not in _payload:
+            raise ValueError("missing token type")
         return schema_class.model_validate(_payload)
     except jwt.ExpiredSignatureError:
         logger.warning("token_validation_expired", token_type=schema_class.__name__)
