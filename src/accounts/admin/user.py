@@ -8,6 +8,7 @@ import typing as t
 
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
+from django.db import transaction
 from django.db.models import Count, Exists, IntegerField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
@@ -37,7 +38,7 @@ from accounts.models import (
     UserDataExport,
     UserDietaryPreference,
 )
-from accounts.service.account import request_password_reset, send_verification_email_for_user
+from accounts.service.account import convert_guest, request_password_reset, send_verification_email_for_user
 from accounts.service.impersonation import can_impersonate, create_impersonation_request
 from accounts.utils.email_normalization import normalize_email_for_matching
 from common.client_ip import get_client_ip
@@ -266,6 +267,16 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         "ban_selected_users",
         "clear_stripe_connect_account",
     ]
+
+    def save_model(self, request: HttpRequest, obj: RevelUser, form: t.Any, change: bool) -> None:
+        """Route unticking ``guest`` through :func:`convert_guest` so side effects always run (#1248)."""
+        converting = change and "guest" in form.changed_data and not obj.guest
+        if converting:
+            obj.guest = True  # save the other edits as a guest first; convert_guest flips the flag
+        with transaction.atomic():
+            super().save_model(request, obj, form, change)
+            if converting:
+                convert_guest(obj)
 
     @admin.action(description="Clear stale Stripe Connect account (superuser only)")
     def clear_stripe_connect_account(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:

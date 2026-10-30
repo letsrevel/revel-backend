@@ -92,8 +92,8 @@ def _is_guest_default(value: t.Any) -> bool:
 def reset_converted_guest_preferences(user: RevelUser) -> bool:
     """Give a just-converted guest the regular notification defaults.
 
-    Guest-default overrides that are still disabled are replaced with the
-    regular default for that key (or removed if there is none), and regular-default keys the guest
+    Any disabled guest-default entry (``{"enabled": False}`` or one that still lists channels) is
+    replaced with the regular default for that key (or removed if there is none), and regular-default keys the guest
     row never had are added. Any other value is an explicit user choice and is kept. A missing
     preferences row is created with the regular defaults.
 
