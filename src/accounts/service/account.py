@@ -27,6 +27,7 @@ from common.testing import (
     TOKEN_TYPE_VERIFICATION,
     store_test_token,
 )
+from notifications.service.preferences import reset_converted_guest_preferences
 
 logger = structlog.get_logger(__name__)
 
@@ -387,21 +388,40 @@ def reset_password(token: str, new_password: str) -> RevelUser:
 
 
 @transaction.atomic
+def convert_guest(user: RevelUser) -> None:
+    """Convert a guest into a full account: the single place every conversion path goes through.
+
+    In one transaction: clears ``guest``, marks the email verified, enrolls an approved referral
+    invitee and resets the notification preferences to the regular defaults (#1248). Nothing is
+    swallowed except the referral enrollment, which by design never blocks (see
+    ``try_enroll_invitee``): a preference failure propagates and rolls the conversion back.
+
+    A non-guest is a no-op, so a concurrent or repeated conversion cannot re-run side effects.
+    Callers hold whatever row lock they need (e.g. ``select_for_update``) before calling.
+
+    Args:
+        user: The user to convert.
+    """
+    if not user.guest:
+        return
+    user.guest = False
+    user.email_verified = True
+    user.save(update_fields=["guest", "email_verified"])
+    logger.info("guest_user_converted_to_full_user", user_id=str(user.id), email=user.email)
+    referral_application_service.try_enroll_invitee(user)
+    reset_converted_guest_preferences(user)
+
+
+@transaction.atomic
 def _apply_password_reset(user: RevelUser, token: str, new_password: str) -> RevelUser:
     """Set the new password and consume the token (the atomic half of ``reset_password``)."""
     validate_password(new_password, user=user)
     user.set_password(new_password)
     user.credentials_changed_at = timezone.now()
 
-    # Convert guest user to full user when setting password
-    if user.guest:
-        user.guest = False
-        user.email_verified = True
-        user.save(update_fields=["password", "credentials_changed_at", "guest", "email_verified"])
-        logger.info("guest_user_converted_to_full_user", user_id=str(user.id), email=user.email)
-        referral_application_service.try_enroll_invitee(user)
-    else:
-        user.save(update_fields=["password", "credentials_changed_at"])
+    user.save(update_fields=["password", "credentials_changed_at"])
+    # Setting a password converts a guest to a full user
+    convert_guest(user)
 
     blacklist_token(token)
     # Reset is the account-recovery path — sign out everywhere, apps included (#1020).

@@ -103,3 +103,47 @@ def test_guest_row_is_untouched(guest_user: RevelUser) -> None:
     _run()
 
     assert _settings(guest_user) == before
+
+
+def test_legacy_keys_are_the_original_17_subset() -> None:
+    assert len(migration.LEGACY_GUEST_KEYS) == 17
+    assert set(migration.LEGACY_GUEST_KEYS) < set(migration.GUEST_DEFAULT_KEYS)
+    assert not any(k.startswith("staff_") for k in migration.LEGACY_GUEST_KEYS)
+
+
+def test_realistic_legacy_converted_guest_row_is_reset(guest_user: RevelUser) -> None:
+    """Prod guests pre-#1127 have only the original 17 keys, no staff_* keys."""
+    prefs = guest_user.notification_preferences
+    prefs.notification_type_settings = {key: {"enabled": False} for key in migration.LEGACY_GUEST_KEYS}
+    prefs.save()
+    _convert_without_hook(guest_user)
+
+    _run()
+
+    assert _settings(guest_user) == {str(k): dict(v) for k, v in get_default_notification_type_settings().items()}
+
+
+def test_legacy_row_with_pinned_channels_on_disabled_entries_is_reset(guest_user: RevelUser) -> None:
+    prefs = guest_user.notification_preferences
+    prefs.notification_type_settings = {
+        key: {"enabled": False, "channels": ["in_app", "email"]} for key in migration.LEGACY_GUEST_KEYS
+    }
+    prefs.save()
+    _convert_without_hook(guest_user)
+
+    _run()
+
+    assert _settings(guest_user) == {str(k): dict(v) for k, v in get_default_notification_type_settings().items()}
+
+
+def test_regular_user_with_a_few_disabled_types_is_untouched_realistic(regular_user: RevelUser) -> None:
+    prefs = regular_user.notification_preferences
+    prefs.notification_type_settings["event_open"] = {"enabled": False}
+    prefs.notification_type_settings["org_announcement"] = {"enabled": False}
+    prefs.notification_type_settings["membership_granted"] = {"enabled": False}
+    prefs.save()
+    before = _settings(regular_user)
+
+    _run()
+
+    assert _settings(regular_user) == before
