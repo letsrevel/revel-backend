@@ -107,6 +107,21 @@ endpoint without modifying anything; the second run applies them. Signing
 secrets do not change, and the API version is not touched (it is set only when
 an endpoint is created). The command refuses endpoints that subscribe to `*`.
 
+- **Removals:** the lists in the command are the source of truth, so event types
+  not in them are **removed** from the endpoint. The preview prints a
+  `WARNING: will remove` block; always read the dry run first.
+- **Which endpoint is which:** Stripe's endpoint object has no `connect` field,
+  so the command classifies by the description set at creation ("Revel platform
+  events" / "Revel Connect events"), falling back to whether `account.updated`
+  is subscribed; the output states the basis per endpoint. If that is ambiguous
+  (or you have duplicates), pin them with `--platform-id we_...` and
+  `--connect-id we_...`.
+- **Disabled endpoints** at the URL are ignored (and listed). If the only
+  candidate for a slot is disabled, the command stops with an error.
+- **Partial failure:** endpoints are modified one at a time; if one fails the
+  error names which ids were applied and which failed. Re-run the dry run to see
+  what remains.
+
 **Fallback (Dashboard):** Workbench -> Webhooks -> select the endpoint ->
 **Update details** (or "Edit destination") -> add the new event types -> save.
 Via the API, `stripe.WebhookEndpoint.modify("we_...", enabled_events=[...])`
