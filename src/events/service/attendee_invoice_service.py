@@ -37,10 +37,10 @@ from events.models.ticket import Payment
 from events.service import skipped_fiscal_document_service
 from events.service.attendee_invoice_lines import (
     _build_line_items,
-    _build_refund_line_items,
     _exempt_reasons,
 )
 from events.service.attendee_vat_service import invoice_out_of_scope, out_of_scope_for
+from events.service.credit_note_lines import credit_lines_for_payments, credit_lines_for_refunds
 from events.service.credit_note_totals import credit_note_totals
 from events.service.einvoice_service import facturx_pdf_for
 from events.service.en16931_totals_service import compute_en16931_totals
@@ -571,6 +571,7 @@ def _build_from_payments(
     existing_cns: list[AttendeeInvoiceCreditNote],
     reverse_charge: bool = False,
     out_of_scope: bool = False,
+    invoice_lines: list[InvoiceLineItemDict] | None = None,
 ) -> AttendeeInvoiceCreditNote | _CreditNoteBuild | None:
     """Legacy payment-keyed path: full payment amounts, exact-set idempotency on payment ids."""
     already_credited_ids: set["UUID"] = set()
@@ -591,7 +592,7 @@ def _build_from_payments(
         return None
 
     return _CreditNoteBuild(
-        line_items=_build_line_items(refunded_payments, reverse_charge, out_of_scope),
+        line_items=credit_lines_for_payments(refunded_payments, invoice_lines or [], reverse_charge, out_of_scope),
         payments=refunded_payments,
         refund_rows=None,
     )
@@ -602,6 +603,7 @@ def _build_from_refund_rows(
     existing_cns: list[AttendeeInvoiceCreditNote],
     reverse_charge: bool = False,
     out_of_scope: bool = False,
+    invoice_lines: list[InvoiceLineItemDict] | None = None,
 ) -> AttendeeInvoiceCreditNote | _CreditNoteBuild | None:
     """Amount-aware, refund-row-keyed path: pro-rata VAT, exact-set idempotency on refund ids.
 
@@ -634,7 +636,7 @@ def _build_from_refund_rows(
         return None
 
     return _CreditNoteBuild(
-        line_items=_build_refund_line_items(refund_rows, reverse_charge, out_of_scope),
+        line_items=credit_lines_for_refunds(refund_rows, invoice_lines or [], reverse_charge, out_of_scope),
         payments={r.payment for r in refund_rows},
         refund_rows=refund_rows,
     )
@@ -687,6 +689,7 @@ def _record_skipped_credit_note(
         covered_payment_ids = {p.id for doc in prior if not doc.refunds.all() for p in doc.payments.all()}
         build: AttendeeInvoiceCreditNote | _CreditNoteBuild | None = None
         # A skipped invoice has no reverse_charge column; the checkout snapshot on its payments is the source.
+        invoice_lines = source.line_items if isinstance(source, AttendeeInvoice) else None
         if isinstance(source, AttendeeInvoice):
             reverse_charge = source.reverse_charge
             out_of_scope = invoice_out_of_scope(source)
@@ -705,11 +708,19 @@ def _record_skipped_credit_note(
             rows = [
                 r for r in refund_rows if r.id not in covered_refund_ids and r.payment_id not in covered_payment_ids
             ]
-            build = _build_from_refund_rows(rows, existing_cns, reverse_charge, out_of_scope) if rows else None
+            build = (
+                _build_from_refund_rows(rows, existing_cns, reverse_charge, out_of_scope, invoice_lines)
+                if rows
+                else None
+            )
         else:
             covered_payment_ids |= {p.id for doc in prior for p in doc.payments.all()}
             payments = [p for p in refunded_payments if p.id not in covered_payment_ids]
-            build = _build_from_payments(payments, existing_cns, reverse_charge, out_of_scope) if payments else None
+            build = (
+                _build_from_payments(payments, existing_cns, reverse_charge, out_of_scope, invoice_lines)
+                if payments
+                else None
+            )
         if isinstance(build, _CreditNoteBuild):
             skipped_fiscal_document_service.record_skipped_credit_note(
                 source=source,
@@ -801,9 +812,11 @@ def generate_attendee_credit_note(
 
         out_of_scope = invoice_out_of_scope(invoice)
         build = (
-            _build_from_refund_rows(refund_rows, existing_cns, invoice.reverse_charge, out_of_scope)
+            _build_from_refund_rows(refund_rows, existing_cns, invoice.reverse_charge, out_of_scope, invoice.line_items)
             if refund_ids
-            else _build_from_payments(refunded_payments, existing_cns, invoice.reverse_charge, out_of_scope)
+            else _build_from_payments(
+                refunded_payments, existing_cns, invoice.reverse_charge, out_of_scope, invoice.line_items
+            )
         )
         if build is None:
             return None
