@@ -2896,9 +2896,14 @@ msgstr "Não há eventos restantes suficientes; compra antes um bilhete normal."
 msgid "Series passes are not supported on recurring series."
 msgstr "Os passes de série não são suportados em séries recorrentes."
 
-#, python-format
-msgid "Event '%s' does not belong to this series."
-msgstr "O evento '%s' não pertence a esta série."
+msgid "Event does not belong to this series."
+msgstr "O evento não pertence a esta série."
+
+msgid "You do not have permission to refund tickets."
+msgstr "Não tem permissão para reembolsar bilhetes."
+
+msgid "You do not have permission to link series passes."
+msgstr "Não tem permissão para associar passes de série."
 
 #, python-format
 msgid "Event '%s' is not open."
