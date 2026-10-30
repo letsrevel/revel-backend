@@ -143,6 +143,14 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         answer for it must go. Invalidation waits for commit, so a rolled-back save leaves the cache alone.
         Switching it back on also signs out the sessions issued before it was switched off.
         """
+        # A changed VAT ID / contact email is no longer the one that was validated / verified; reset the
+        # derived state as the service path does, unless the superuser set that flag in the same save.
+        if "vat_id" in form.changed_data and "vat_id_validated" not in form.changed_data:
+            obj.vat_id_validated = False
+            obj.vat_id_validated_at = None
+            obj.vies_request_identifier = ""
+        if "contact_email" in form.changed_data and "contact_email_verified" not in form.changed_data:
+            obj.contact_email_verified = False
         super().save_model(request, obj, form, change)
         flipped = "custom_domain_enabled" in form.changed_data
         if flipped and obj.custom_domain_enabled:

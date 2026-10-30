@@ -69,7 +69,7 @@ class EmailDeliveryAdminMixin:
         """Re-dispatch the delivery task for ``obj``. Implemented per model."""
         raise NotImplementedError
 
-    @admin.action(description="Retry delivery (clear undeliverable state)")
+    @admin.action(description="Retry delivery (clear undeliverable state)", permissions=["change"])
     def retry_delivery(self, request: HttpRequest, queryset: QuerySet[t.Any]) -> None:
         count = 0
         for obj in queryset.filter(email_delivery_failed_at__isnull=False):
@@ -251,7 +251,20 @@ class TicketInline(TabularInline):  # type: ignore[misc]
     # code/held pass in the DB, with one __str__ query per <option>, per ticket row +
     # empty form — thousands of queries on a seated event's change page (#880).
     raw_id_fields = ["venue", "sector", "seat", "discount_code", "held_pass"]
-    readonly_fields = ["id", "checked_in_at"]
+    # Financial snapshots stay as written at purchase, same as on TicketAdmin.
+    readonly_fields = [
+        "id",
+        "checked_in_at",
+        "price_paid",
+        "discount_amount",
+        "offline_refund_amount",
+        "refund_policy_snapshot",
+        "attribution",
+        "sale_source",
+        "cancelled_at",
+        "cancelled_by",
+        "cancellation_source",
+    ]
     can_delete = False
 
 

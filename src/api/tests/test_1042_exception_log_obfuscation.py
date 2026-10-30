@@ -14,3 +14,13 @@ def test_credential_query_params_are_masked() -> None:
     assert masked["page"] == "2"
     assert masked["state"] == "st"  # not a credential on its own
     assert data["sig"] == "s"  # input untouched
+
+
+def test_jwt_body_fields_are_masked() -> None:
+    """Refresh/access token fields in a logged request body are masked."""
+    data = {"refresh": "r", "refresh_token": "rt", "access": "a", "access_token": "at", "page": "2"}
+
+    masked = obfuscate(data)
+
+    assert all(masked[k] == "********" for k in ("refresh", "refresh_token", "access", "access_token"))
+    assert masked["page"] == "2"

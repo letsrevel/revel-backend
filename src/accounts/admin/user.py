@@ -397,7 +397,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
                 messages.WARNING,
             )
 
-    @admin.action(description=_("Ban selected users (global ban by email)"))
+    @admin.action(description=_("Ban selected users (global ban by email)"), permissions=["change"])
     def ban_selected_users(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
         """Create global email bans for selected users, deactivating them."""
         banned_count = 0

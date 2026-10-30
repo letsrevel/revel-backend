@@ -63,6 +63,7 @@ def test_non_credential_query_is_left_untouched(span_exporter: InMemorySpanExpor
         ("https://h/p?x=1&sig=abc&exp=9", "https://h/p?x=1&sig=REDACTED&exp=9"),
         ("token=abc&x=1", "token=REDACTED&x=1"),  # url.query carries the bare query string
         ("/p?code=a&state=b", "/p?code=REDACTED&state=REDACTED"),
+        ("/p?access_token=a&x=1", "/p?access_token=REDACTED&x=1"),
         ("/p?x=1", "/p?x=1"),
         ("/p", "/p"),
         ("/p?to%6Ben=abc", "/p?to%6Ben=REDACTED"),  # percent-encoded name

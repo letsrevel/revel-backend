@@ -1,7 +1,9 @@
 import typing as t
 
 from django.contrib import admin
+from django.core.exceptions import PermissionDenied
 from django.db.models import F, OuterRef, Subquery
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 from simple_history.admin import SimpleHistoryAdmin
@@ -10,6 +12,21 @@ from unfold.admin import ModelAdmin
 
 from . import models
 from .signing import get_file_url
+
+
+class HistoryRevertRequiresChangeMixin:
+    """Require change permission to POST a simple_history revert.
+
+    ``SimpleHistoryAdmin`` lets anyone with view-history permission open the revert form, and its POST
+    saves the old version. A view-only staff user must not be able to roll a row back.
+    """
+
+    def history_form_view(  # type: ignore[no-untyped-def]
+        self, request: HttpRequest, object_id: str, version_id: str, extra_context: t.Any = None
+    ):
+        if request.method == "POST" and not self.has_change_permission(request):  # type: ignore[attr-defined]
+            raise PermissionDenied
+        return super().history_form_view(request, object_id, version_id, extra_context)  # type: ignore[misc]
 
 
 class UploaderLinkMixin:
@@ -42,7 +59,7 @@ class UploaderLinkMixin:
 
 
 @admin.register(models.Legal)
-class LegalAdmin(SingletonModelAdmin, SimpleHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+class LegalAdmin(HistoryRevertRequiresChangeMixin, SingletonModelAdmin, SimpleHistoryAdmin, ModelAdmin):  # type: ignore[misc]
     # Solo's template would shadow simple_history's; restore the browsable history view.
     object_history_template = "simple_history/object_history.html"
     list_display = ["__str__", "updated_at"]
@@ -51,7 +68,7 @@ class LegalAdmin(SingletonModelAdmin, SimpleHistoryAdmin, ModelAdmin):  # type: 
 
 
 @admin.register(models.SiteSettings)
-class SiteSettingsAdmin(SingletonModelAdmin, SimpleHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+class SiteSettingsAdmin(HistoryRevertRequiresChangeMixin, SingletonModelAdmin, SimpleHistoryAdmin, ModelAdmin):  # type: ignore[misc]
     object_history_template = "simple_history/object_history.html"
     list_display = [
         "__str__",

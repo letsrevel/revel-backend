@@ -36,6 +36,10 @@ ALLOWED_HOSTS: list[str] = config("ALLOWED_HOSTS", cast=Csv(), default="localhos
 
 SILK_PROFILER = config("SILK_PROFILER", default=False, cast=bool)
 SILKY_PYTHON_PROFILER = config("SILKY_PYTHON_PROFILER", default=False, cast=bool)
+# Silk records request bodies and headers: only superusers may browse it.
+SILKY_AUTHENTICATION = True
+SILKY_AUTHORISATION = True
+SILKY_PERMISSIONS = lambda user: user.is_superuser  # noqa: E731
 
 # Throttling - disable for load testing
 DISABLE_THROTTLING = config("DISABLE_THROTTLING", default=False, cast=bool)
