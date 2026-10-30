@@ -81,6 +81,10 @@ def _lines_reason(lines: list[InvoiceLineItemDict], buyer_vat_id: str, seller_va
             return "reverse_charge_without_seller_vat_id"
         if not buyer_vat_id:
             return "reverse_charge_without_buyer_vat_id"
+    if not seller_vat_id and any(item.get("vat_category") == VatCategory.STANDARD for item in lines):
+        # BR-S-02: a standard-rated line needs BT-31 (or BT-63); the tax registration identifier (BT-32)
+        # alone only carries exempt lines (BR-E-02). A VAT-charging seller that lost its VAT ID gets no XML.
+        return "missing_seller_vat_id"
     categories = {item["vat_category"] for item in lines}
     if VatCategory.OUT_OF_SCOPE in categories and len(categories) > 1:
         return "out_of_scope_mixed"  # BR-O-11..14: category O stands alone in the invoice
@@ -91,9 +95,10 @@ def ineligibility_reason(invoice: AttendeeInvoice) -> str | None:
     """Return why ``invoice`` gets no EN 16931 XML, or ``None`` when it is eligible.
 
     Drafts (watermarked) and legacy rows never carry XML; the rest needs the seller VAT ID
-    (BT-31) or, for a small-business seller (#1244), its tax registration number (BT-32: BR-E-02
-    accepts it), both countries (BT-40, BT-55), a category on every line, both VAT IDs when any
-    line is reverse-charged (BR-AE-02), and no out-of-scope line next to another category. A
+    (BT-31) or, for a small-business seller (#1244) whose lines are all exempt, its tax registration
+    number (BT-32: BR-E-02 accepts it, BR-S-02 does not), both countries (BT-40, BT-55), a category on
+    every line, both VAT IDs when any line is reverse-charged (BR-AE-02), and no out-of-scope line next
+    to another category. A
     CANCELLED invoice (a full credit note cancelled it) stays eligible so a re-render matches the original.
     """
     if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:

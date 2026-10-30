@@ -106,17 +106,9 @@ def attendee_invoicing_active(event: "Event") -> bool:
 
 
 def _scheme_identity_complete(org: Organization) -> bool:
-    """Whether a scheme organizer without a validated VAT ID can be identified on an invoice (BT-32).
-
-    Mirrors ``small_business_scheme_service.scheme_path_identity_errors`` for the current state: a
-    validated VAT ID or no scheme means today's behaviour; a declared scheme needs the matching country
-    of establishment and a format-valid tax registration number.
-    """
-    country = small_business.scheme_country(org.small_business_scheme)
-    if org.vat_id_validated or not country:
-        return True
-    return resolve_org_country(org) == country and small_business.tax_number_is_valid(
-        country, org.tax_registration_number
+    """:func:`events.utils.small_business.scheme_identity_complete` for an organization's current state."""
+    return small_business.scheme_identity_complete(
+        org.small_business_scheme, org.vat_id_validated, resolve_org_country(org), org.tax_registration_number
     )
 
 
@@ -203,8 +195,9 @@ def event_compliance(event: "Event") -> EventCompliance:
         invoicing = AttendeeInvoicingCapability.BLOCKED_FOR_BUSINESS_BUYERS
     elif small_business.scheme_sale_block(
         scheme, is_virtual=event.is_virtual, venue_country=event.effective_vat_country, buyer_country=""
-    ):
-        invoicing = AttendeeInvoicingCapability.BLOCKED  # a scheme organizer's physical event abroad (#1244)
+    ) or not _scheme_identity_complete(org):
+        # A scheme organizer's physical event abroad, or one that cannot be identified yet (#1244): no invoice.
+        invoicing = AttendeeInvoicingCapability.BLOCKED
     elif event.is_virtual and small_business.scheme_country(scheme):
         invoicing = AttendeeInvoicingCapability.BLOCKED_FOR_FOREIGN_BUYERS  # same gate, decided per buyer
     else:

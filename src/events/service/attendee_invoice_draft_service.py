@@ -452,6 +452,11 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
             # A draft generated before the country gate must not become a legal document. Nor may a
             # small-business organizer's draft for a sale outside its scheme's country (#1244).
             decision = invoice_compliance_decision(invoice)
+            if decision.allowed and invoice.organization is not None:
+                # The seller must be identifiable, and a scheme organizer's stored lines must show no VAT
+                # (a draft generated with VAT before the scheme was declared cannot be issued as it is).
+                decision = small_business_scheme_service.seller_identity_decision(invoice.organization)
+                small_business_scheme_service.assert_draft_lines_exempt(invoice.organization, invoice.line_items)
             if decision.allowed:
                 decision = small_business_scheme_service.invoice_sale_decision(invoice)
             if not decision.allowed:

@@ -7210,3 +7210,6 @@ msgid ""
 msgstr ""
 "Ein Veranstalter in der Kleinunternehmerregelung weist keine MwSt. aus: "
 "Setze die MwSt. jeder Position auf 0."
+
+msgid "Invalid line amounts: {details}"
+msgstr "Ungültige Positionsbeträge: {details}"

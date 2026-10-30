@@ -7188,3 +7188,6 @@ msgid ""
 msgstr ""
 "Un organisateur relevant d'un régime de franchise pour petites entreprises "
 "ne facture pas de TVA : mettez la TVA de chaque ligne à 0."
+
+msgid "Invalid line amounts: {details}"
+msgstr "Montants de ligne invalides : {details}"

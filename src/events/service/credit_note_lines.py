@@ -82,17 +82,47 @@ def _credit_line(
     return credit
 
 
+def _exempt_only(invoice_lines: list[InvoiceLineItemDict], reverse_charge: bool) -> bool:
+    """Whether the invoice showed no VAT at all: every line exempt (E), none reverse-charged.
+
+    That is how a small-business-scheme organizer's invoice looks (#1244). A credit note follows the
+    invoice, not the organizer's current scheme, so this is keyed on the invoice snapshot alone.
+    """
+    return (
+        not reverse_charge
+        and bool(invoice_lines)
+        and all(item.get("vat_category") == VatCategory.EXEMPT for item in invoice_lines)
+    )
+
+
+def _as_exempt(item: InvoiceLineItemDict) -> InvoiceLineItemDict:
+    """A payment-built fallback line made to follow an exempt invoice: no VAT, category E."""
+    credit = item.copy()
+    credit["net_amount"] = credit["unit_price_gross"]
+    credit["vat_amount"] = str(ZERO)
+    credit["vat_rate"] = str(ZERO)
+    credit["vat_category"] = str(VatCategory.EXEMPT)
+    return credit
+
+
 def credit_lines_for_payments(
     payments: list[Payment], invoice_lines: list[InvoiceLineItemDict], reverse_charge: bool, out_of_scope: bool
 ) -> list[InvoiceLineItemDict]:
-    """Lines crediting whole ``payments`` (the payment-keyed path), one per payment, in order."""
+    """Lines crediting whole ``payments`` (the payment-keyed path), one per payment, in order.
+
+    A payment without a matching invoice line (replaced by hand in DRAFT) is credited from the payment
+    itself; when the invoice showed no VAT, so does that fallback line.
+    """
     by_payment = _lines_by_payment(invoice_lines)
-    return [
-        _credit_line(line, line["description"], None, reverse_charge, out_of_scope)
-        if (line := by_payment.get(str(payment.id)))
-        else _build_line_items([payment], reverse_charge, out_of_scope)[0]
-        for payment in payments
-    ]
+    exempt_only = _exempt_only(invoice_lines, reverse_charge)
+    items: list[InvoiceLineItemDict] = []
+    for payment in payments:
+        if line := by_payment.get(str(payment.id)):
+            items.append(_credit_line(line, line["description"], None, reverse_charge, out_of_scope))
+            continue
+        fallback = _build_line_items([payment], reverse_charge, out_of_scope)[0]
+        items.append(_as_exempt(fallback) if exempt_only else fallback)
+    return items
 
 
 def credit_lines_for_refunds(
@@ -108,6 +138,7 @@ def credit_lines_for_refunds(
     payment are credited in order on top of it.
     """
     by_payment = _lines_by_payment(invoice_lines)
+    exempt_only = _exempt_only(invoice_lines, reverse_charge)
     refunded = dict(already_refunded or {})
     items: list[InvoiceLineItemDict] = []
     for row in refund_rows:
@@ -116,7 +147,8 @@ def credit_lines_for_refunds(
         refunded[payment.id] = after = before + row.amount
         line = by_payment.get(str(payment.id))
         if line is None:
-            items.extend(_build_refund_line_items([row], reverse_charge, out_of_scope))
+            fallback = _build_refund_line_items([row], reverse_charge, out_of_scope)
+            items.extend(_as_exempt(item) for item in fallback) if exempt_only else items.extend(fallback)
             continue
         full = row.amount >= payment.amount
         label = "Refund" if full else "Partial refund"

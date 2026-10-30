@@ -9,6 +9,7 @@ Split from ``attendee_invoice_service`` (1000-line cap). Models and utils only.
 
 import copy
 import typing as t
+from decimal import Decimal, InvalidOperation
 
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -28,6 +29,8 @@ from events.utils.small_business import (
     is_small_business,
     scheme_country,
     scheme_exemption_reason,
+    scheme_identity_complete,
+    scheme_matches_country,
     scheme_sale_block,
     tax_number_format_known,
     tax_number_is_valid,
@@ -60,7 +63,7 @@ INVOICING_WOULD_STOP_MESSAGE = _("This change would stop attendee invoicing: {de
 def _scheme_country_error(org: Organization) -> str:
     """The translated refusal when the declared scheme is not the one of the country of establishment, else ``""``."""
     expected = scheme_country(org.small_business_scheme)
-    if not expected or resolve_org_country(org) == expected:
+    if not expected or scheme_matches_country(org.small_business_scheme, resolve_org_country(org)):
         return ""
     return str(_("The small-business scheme you declared applies to organizations established in {country}")).format(
         country=country_name(expected)
@@ -89,6 +92,10 @@ def seller_identity_errors(org: Organization) -> list[str]:
         return [error for error in (_scheme_country_error(org),) if error]
     if not is_small_business(org):
         return [str(_("VAT ID must be validated via VIES"))]
+    if scheme_identity_complete(
+        org.small_business_scheme, org.vat_id_validated, resolve_org_country(org), org.tax_registration_number
+    ):
+        return []
     return [error for error in (_scheme_country_error(org), _tax_number_error(org)) if error]
 
 
@@ -102,7 +109,8 @@ def scheme_path_identity_errors(org: Organization, candidate: Organization | Non
     it stores (VIES may have rejected it), and so does a PATCH that drops its scheme.
     """
     candidate = candidate or org
-    if org.vat_id_validated:
+    # The candidate's validation state: a VAT-ID delete or reset is exactly the change that removes it.
+    if candidate.vat_id_validated:
         return []
     if not is_small_business(org) and not is_small_business(candidate):
         return []
@@ -192,7 +200,9 @@ def prepare_billing_update(org: Organization, update_data: dict[str, t.Any]) -> 
                 422,
                 str(_("An organizer under a small-business scheme charges no VAT: set the default VAT rate to 0%.")),
             )
-        if _live_tiers_charging_vat(org):
+        # Only when declaring (none -> scheme): afterwards any tier rate is ignored at the effective-rate
+        # choke point, so a copied rate must not block unrelated billing edits.
+        if org.small_business_scheme == SmallBusinessScheme.NONE and _live_tiers_charging_vat(org):
             raise HttpError(
                 422,
                 str(_("Some ticket tiers still charge VAT. Set them to 0% before declaring a small-business scheme.")),
@@ -227,10 +237,36 @@ def assert_draft_lines_exempt(org: Organization | None, line_items: t.Iterable[t
     """
     if org is None or not is_small_business(org):
         return
-    if any(float(item.get("vat_rate") or 0) or float(item.get("vat_amount") or 0) for item in line_items):
+    try:
+        shows_vat = any(
+            Decimal(str(item.get("vat_rate") or 0)) != 0 or Decimal(str(item.get("vat_amount") or 0)) != 0
+            for item in line_items
+        )
+    except InvalidOperation as exc:
+        # The API's schema already bounds what reaches here; a raw row is still a 422, never a 500.
+        raise HttpError(422, str(_("Invalid line amounts: {details}")).format(details="vat_rate / vat_amount")) from exc
+    if shows_vat:
         raise HttpError(
             422, str(_("An organizer under a small-business scheme charges no VAT: set the VAT of every line to 0."))
         )
+
+
+def assert_vat_id_change_allowed(org: Organization, new_vat_id: str) -> None:
+    """Refuse a VAT-ID change (set, or clear with ``""``) that would leave a scheme organizer unidentifiable.
+
+    Judged on the pessimistic outcome, a stored but unvalidated ID (what a VIES failure persists): a
+    scheme organizer with invoicing on then needs its tax registration number to stand in.
+
+    Raises:
+        HttpError 422: While invoicing is on, if :func:`scheme_path_identity_errors` would be non-empty.
+    """
+    if org.invoicing_mode == Organization.InvoicingMode.NONE:
+        return
+    candidate = copy.copy(org)
+    candidate.vat_id = new_vat_id
+    candidate.vat_id_validated = False
+    if errors := scheme_path_identity_errors(org, candidate):
+        raise HttpError(422, str(INVOICING_WOULD_STOP_MESSAGE).format(details="; ".join(errors)))
 
 
 def seller_identity_decision(org: Organization) -> Decision:

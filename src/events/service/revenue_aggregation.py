@@ -41,7 +41,7 @@ ZERO = Decimal("0.00")
 # Bump whenever the report workbook layout changes, so cached reports regenerate even when no row
 # changed (e.g. the ticket_number column, #1090; the skipped-documents sheet, #1091, renamed in v4).
 REPORT_FORMAT_VERSION = 4
-_REVERSE_CHARGE_LABEL = "0% / reverse-charge"
+_REVERSE_CHARGE_LABEL = "0% (reverse charge)"
 
 
 @dataclass(frozen=True)
@@ -257,7 +257,9 @@ class _CurrencyAcc:
         self.transactions: list[TxnRow] = []
 
     def bucket_for(self, vat_rate: Decimal, reverse_charge: bool) -> _BucketAcc:
-        if reverse_charge or vat_rate == ZERO:
+        # Only an actual reverse-charge sale lands here; a 0% sale that is not reverse-charged (an exempt
+        # tier, a small-business-scheme organizer, #1244) is its own "0%" bucket like any other rate.
+        if reverse_charge:
             return self.buckets.setdefault("rc", _BucketAcc(ZERO, _REVERSE_CHARGE_LABEL))
         key = f"{vat_rate:.2f}"
         # ``:f`` avoids Decimal scientific notation: Decimal("20.00").normalize() is
@@ -266,13 +268,15 @@ class _CurrencyAcc:
 
 
 def _resolve_payment_vat(payment: Payment, org_rate: Decimal) -> tuple[Decimal, Decimal, Decimal, bool]:
-    """Return (net, vat, rate, reverse_charge) for a payment's gross amount."""
-    if payment.net_amount is not None and payment.vat_amount is not None and payment.vat_rate is not None:
-        rate = payment.vat_rate
-        reverse_charge = rate == ZERO and payment.vat_amount == ZERO
-        return payment.net_amount, payment.vat_amount, rate, reverse_charge
+    """Return (net, vat, rate, reverse_charge) for a payment's gross amount.
+
+    Reverse charge is the checkout's own decision (the billing snapshot), never inferred from a 0%
+    rate: exempt and small-business sales are 0% without being reverse-charged.
+    """
     snapshot: dict[str, t.Any] = payment.buyer_billing_snapshot or {}
     reverse_charge = bool(snapshot.get("reverse_charge"))
+    if payment.net_amount is not None and payment.vat_amount is not None and payment.vat_rate is not None:
+        return payment.net_amount, payment.vat_amount, payment.vat_rate, reverse_charge
     if reverse_charge:
         return payment.amount, ZERO, ZERO, True
     breakdown = calculate_vat_inclusive(payment.amount, org_rate)

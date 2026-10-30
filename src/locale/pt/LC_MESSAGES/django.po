@@ -7061,3 +7061,6 @@ msgid ""
 msgstr ""
 "Um organizador abrangido por um regime de pequena empresa não cobra IVA: "
 "defina o IVA de cada linha para 0."
+
+msgid "Invalid line amounts: {details}"
+msgstr "Montantes de linha inválidos: {details}"
