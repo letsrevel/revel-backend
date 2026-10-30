@@ -19,6 +19,14 @@ Legal basis:
   identified by its tax registration identifier (BT-32), which BR-E-02 accepts in place of the
   VAT identifier (BT-31). Reverse charge (AE) needs a seller VAT identifier (BR-AE-02/03), so a
   scheme organizer never produces it.
+- **Platform fee (Revel → organizer), #1258**: a Kleinunternehmer is a taxable person (AT § 2 UStG;
+  § 3a Abs. 5 Z 1 UStG 1994, UStR Rz 638o), so Revel's fee to a German Kleinunternehmer is supplied
+  in Germany with reverse charge (Art. 44 and 196 of Directive 2006/112/EC). Art. 18(2) of
+  Implementing Regulation (EU) 282/2011 cannot treat a customer that has declared itself a business
+  as a consumer, and the reverse-charge invoice and the ZM need the recipient's USt-IdNr. A DE scheme
+  organizer must therefore hold a VIES-validated USt-IdNr. (free from the BZSt, § 27a dUStG); its
+  Steuernummer becomes optional (§ 34a UStDV accepts either). An Austrian Kleinunternehmer buys a
+  domestic supply, so Austrian VAT applies either way and the tax-number path stays.
 """
 
 import re
@@ -56,6 +64,11 @@ class SmallBusinessScheme(models.TextChoices):
 
 # Scheme → the ISO 3166-1 country whose law grants it (the organizer must be established there).
 SCHEME_COUNTRIES: t.Final[dict[str, str]] = {SmallBusinessScheme.DE_19: "DE", SmallBusinessScheme.AT_6_1_27: "AT"}
+
+# Schemes whose organizers must hold a VIES-validated VAT ID (#1258): Revel's platform fee to them is a
+# cross-border B2B supply, reverse-charged (Art. 44/196), which needs the recipient's VAT ID on the fee
+# invoice and in the ZM. The tax registration number alone does not identify them to Revel.
+SCHEMES_REQUIRING_VAT_ID: t.Final[frozenset[str]] = frozenset({SmallBusinessScheme.DE_19})
 
 # Prefilled exemption reason (BT-120, printed on the PDF): the statutory note each law requires.
 # DE: § 34a S. 1 Nr. 5 UStDV ("... dass ... die Steuerbefreiung für Kleinunternehmer gilt").
@@ -142,18 +155,26 @@ def scheme_matches_country(scheme: str, country: str) -> bool:
     return normalize_country_code(country) == scheme_country(scheme)
 
 
+def scheme_requires_vat_id(scheme: str) -> bool:
+    """Whether a scheme's organizers must hold a VIES-validated VAT ID (#1258), tax number or not."""
+    return scheme in SCHEMES_REQUIRING_VAT_ID
+
+
 def scheme_identity_complete(scheme: str, vat_id_validated: bool, country: str, tax_number: str) -> bool:
     """The one rule for "this seller can be identified on an invoice" as far as #1244 is concerned.
 
     An organizer without a scheme is outside this feature (today's behaviour). A declared scheme must be
     the one of the country of establishment, validated VAT ID or not. Then a VIES-validated VAT ID (BT-31)
-    identifies the seller; without one, the tax registration number (BT-32) must be format-valid for
-    that country.
+    identifies the seller, and is the only identification :func:`scheme_requires_vat_id` schemes accept
+    (DE, #1258); for the others, without one, the tax registration number (BT-32) must be format-valid
+    for that country.
     """
     if not scheme_country(scheme):
         return True
     if not scheme_matches_country(scheme, country):
         return False
+    if scheme_requires_vat_id(scheme):
+        return vat_id_validated
     return vat_id_validated or tax_number_is_valid(scheme_country(scheme), tax_number)
 
 

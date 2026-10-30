@@ -99,12 +99,13 @@ class TestStandardLinesNeedTheVatId:
 
 
 class TestVatIdEndpointsGuard:
-    def _scheme_org_with_validated_vat_id(self, organization: Organization) -> Organization:
+    def _scheme_org_with_validated_vat_id(self, organization: Organization, country: str = "DE") -> Organization:
+        """A scheme organizer (DE or AT) with a validated VAT ID, no tax number and invoicing on."""
         org = _make_org_invoicing_ready(organization)  # validated IT12345678901
-        org.vat_country_code = "DE"
-        org.vat_id = "DE811234567"
-        org.billing_country_code = "DE"
-        org.small_business_scheme = "de_19"
+        org.vat_country_code = country
+        org.vat_id = "DE811234567" if country == "DE" else "ATU12345678"
+        org.billing_country_code = country
+        org.small_business_scheme = "de_19" if country == "DE" else "at_6_1_27"
         org.vat_rate = Decimal("0.00")
         org.vat_exemption_reason = "note"
         org.tax_registration_number = ""
@@ -115,29 +116,46 @@ class TestVatIdEndpointsGuard:
     def test_delete_vat_id_without_a_tax_number_is_refused(
         self, organization: Organization, owner_client: Client
     ) -> None:
-        org = self._scheme_org_with_validated_vat_id(organization)
+        org = self._scheme_org_with_validated_vat_id(organization, "AT")
         response = owner_client.delete(reverse("api:delete_vat_id", kwargs={"slug": org.slug}))
         assert response.status_code == 422, response.content
         assert "Turn invoicing off first" in response.json()["detail"]
         org.refresh_from_db()
-        assert org.vat_id == "DE811234567" and org.vat_id_validated
+        assert org.vat_id == "ATU12345678" and org.vat_id_validated
 
     def test_delete_vat_id_with_a_tax_number_goes_through(
         self, organization: Organization, owner_client: Client
     ) -> None:
+        org = self._scheme_org_with_validated_vat_id(organization, "AT")
+        org.tax_registration_number = "12-345/6789"
+        org.save()
+        assert owner_client.delete(reverse("api:delete_vat_id", kwargs={"slug": org.slug})).status_code == 204
+
+    def test_german_organizer_cannot_delete_its_vat_id_while_invoicing(
+        self, organization: Organization, owner_client: Client
+    ) -> None:
+        """#1258: the Steuernummer does not stand in for a DE Kleinunternehmer's USt-IdNr."""
         org = self._scheme_org_with_validated_vat_id(organization)
         org.tax_registration_number = "12/345/67890"
+        org.save()
+        response = owner_client.delete(reverse("api:delete_vat_id", kwargs={"slug": org.slug}))
+        assert response.status_code == 422, response.content
+        assert "USt-IdNr." in response.json()["detail"]
+        assert "Turn invoicing off first" in response.json()["detail"]
+        org.refresh_from_db()
+        assert org.vat_id == "DE811234567" and org.vat_id_validated
+        org.invoicing_mode = Organization.InvoicingMode.NONE
         org.save()
         assert owner_client.delete(reverse("api:delete_vat_id", kwargs={"slug": org.slug})).status_code == 204
 
     def test_set_vat_id_without_a_tax_number_is_refused_before_vies(
         self, organization: Organization, owner_client: Client
     ) -> None:
-        org = self._scheme_org_with_validated_vat_id(organization)
+        org = self._scheme_org_with_validated_vat_id(organization, "AT")
         with patch("common.service.vies_service.validate_vat_id") as vies:
             response = owner_client.put(
                 reverse("api:set_vat_id", kwargs={"slug": org.slug}),
-                data='{"vat_id": "DE123456789"}',
+                data='{"vat_id": "ATU87654321"}',
                 content_type="application/json",
             )
         assert response.status_code == 422, response.content
@@ -172,16 +190,36 @@ class TestVatIdEndpointsGuard:
         assert org.vat_id == "DE811234567"
 
     def test_set_a_domestic_vat_id_goes_through(self, organization: Organization, owner_client: Client) -> None:
-        org = self._scheme_org_with_validated_vat_id(organization)
-        org.tax_registration_number = "12/345/67890"
+        org = self._scheme_org_with_validated_vat_id(organization, "AT")
+        org.tax_registration_number = "12-345/6789"
         org.save()
         result = VIESValidationResult(valid=True, name="Kleine Bühne", address="Musterstraße 1", request_identifier="r")
         with patch("common.service.vies_service.validate_vat_id", return_value=result) as vies:
-            response = self._put_vat_id(owner_client, org, "DE123456789")
+            response = self._put_vat_id(owner_client, org, "ATU87654321")
         assert response.status_code == 200, response.content
         vies.assert_called_once()
         org.refresh_from_db()
-        assert org.vat_id == "DE123456789"
+        assert org.vat_id == "ATU87654321"
+
+    def test_german_organizer_replaces_its_vat_id_with_invoicing_off(
+        self, organization: Organization, owner_client: Client
+    ) -> None:
+        """#1258: a VIES failure would leave a DE Kleinunternehmer unidentifiable, so the swap needs invoicing off."""
+        org = self._scheme_org_with_validated_vat_id(organization)
+        org.tax_registration_number = "12/345/67890"
+        org.save()
+        with patch("common.service.vies_service.validate_vat_id") as vies:
+            response = self._put_vat_id(owner_client, org, "DE123456789")
+        assert response.status_code == 422, response.content
+        assert "Turn invoicing off first" in response.json()["detail"]
+        vies.assert_not_called()
+        org.invoicing_mode = Organization.InvoicingMode.NONE
+        org.save()
+        result = VIESValidationResult(valid=True, name="Kleine Bühne", address="Musterstraße 1", request_identifier="r")
+        with patch("common.service.vies_service.validate_vat_id", return_value=result):
+            assert self._put_vat_id(owner_client, org, "DE123456789").status_code == 200
+        org.refresh_from_db()
+        assert org.vat_id == "DE123456789" and org.vat_id_validated
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +254,7 @@ class TestDraftIssueGuards:
         invoice.total_vat = Decimal("0.00")
         invoice.total_net = Decimal("100.00")
         invoice.save()
-        Organization.objects.filter(pk=org.pk).update(tax_registration_number="")
+        Organization.objects.filter(pk=org.pk).update(vat_id_validated=False)  # DE: the USt-IdNr. is the identity
         with pytest.raises(CountryComplianceError):
             issue_draft_invoice(invoice)
 
@@ -294,7 +332,7 @@ def test_event_compliance_is_blocked_while_the_scheme_identity_is_incomplete(
     organization: Organization, event: Event
 ) -> None:
     org = _make_small_business(organization)
-    org.tax_registration_number = ""
+    org.vat_id_validated = False  # DE (#1258): the Steuernummer it still holds does not stand in
     event.vat_country_code = "DE"
     assert event_compliance(event).attendee_invoicing == AttendeeInvoicingCapability.BLOCKED
     event.is_virtual = True

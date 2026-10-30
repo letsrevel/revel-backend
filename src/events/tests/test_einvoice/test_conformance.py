@@ -89,15 +89,18 @@ _AT_6_1_27 = "Umsatzsteuerbefreit – Kleinunternehmer gem. § 6 Abs. 1 Z 27 USt
 
 
 def _small_business(
-    org: Organization, event: Event, user: RevelUser, *, country: str, tax_number: str, reason: str
+    org: Organization, event: Event, user: RevelUser, *, country: str, tax_number: str, reason: str, vat_id: str = ""
 ) -> AttendeeInvoice:
-    """#1244: no VAT ID; the tax registration number is BT-32 (and BT-29), every line E (BR-E-02, BR-E-10)."""
+    """#1244: every line E (BR-E-10). AT: no VAT ID, the tax registration number is BT-32 (and BT-29, BR-E-02).
+
+    DE (#1258): the Kleinunternehmer's VIES-validated USt-IdNr. is BT-31 and its Steuernummer, when set, BT-32.
+    """
     return make_invoice(
         org,
         event,
         user,
         lines=[line("24.90", "0.00", "E"), line("50.00", "0.00", "E", "VIP")],
-        seller_vat_id="",
+        seller_vat_id=vat_id,
         seller_tax_registration_number=tax_number,
         seller_country=country,
         buyer_vat_id="",
@@ -107,14 +110,16 @@ def _small_business(
 
 
 def _small_business_credit_note(org: Organization, event: Event, user: RevelUser) -> AttendeeInvoiceCreditNote:
-    invoice = _small_business(org, event, user, country="DE", tax_number="12/345/67890", reason=_DE_19)
+    invoice = _small_business(
+        org, event, user, country="DE", tax_number="12/345/67890", reason=_DE_19, vat_id="DE811234567"
+    )
     return make_credit_note(invoice, [line("24.90", "0.00", "E", description="Refund — Event — Tier — Guest")])
 
 
 FIXTURES: dict[str, Build] = {
     "single_rate": lambda org, event, user: make_invoice(org, event, user, lines=[line("24.90", "13.00")]),
     "small_business_de": lambda org, event, user: _small_business(
-        org, event, user, country="DE", tax_number="12/345/67890", reason=_DE_19
+        org, event, user, country="DE", tax_number="12/345/67890", reason=_DE_19, vat_id="DE811234567"
     ),
     "small_business_at": lambda org, event, user: _small_business(
         org, event, user, country="AT", tax_number="12-345/6789", reason=_AT_6_1_27
