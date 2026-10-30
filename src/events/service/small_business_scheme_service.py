@@ -183,15 +183,38 @@ def _exemption_reason_after(org: Organization, candidate: Organization) -> str:
     return reason
 
 
+def _assert_scheme_declaration_allowed(org: Organization, candidate: Organization) -> None:
+    """The rules for declaring or keeping a scheme on a billing PATCH (``candidate`` is the post-PATCH state).
+
+    Raises:
+        HttpError 422: A DE scheme without a VIES-validated USt-IdNr. (#1258); a positive default rate; or,
+            when declaring (none -> scheme), a live tier that still charges VAT.
+    """
+    if scheme_requires_vat_id(candidate.small_business_scheme) and not candidate.vat_id_validated:
+        raise HttpError(422, str(VAT_ID_REQUIRED_MESSAGE))
+    if candidate.vat_rate > 0:
+        raise HttpError(
+            422, str(_("An organizer under a small-business scheme charges no VAT: set the default VAT rate to 0%."))
+        )
+    # Only when declaring (none -> scheme): afterwards any tier rate is ignored at the effective-rate
+    # choke point, so a copied rate must not block unrelated billing edits.
+    if org.small_business_scheme == SmallBusinessScheme.NONE and _live_tiers_charging_vat(org):
+        raise HttpError(
+            422, str(_("Some ticket tiers still charge VAT. Set them to 0% before declaring a small-business scheme."))
+        )
+
+
 def prepare_billing_update(org: Organization, update_data: dict[str, t.Any]) -> dict[str, t.Any]:
     """Validate a billing-info PATCH against the small-business rules and keep the exemption note in step.
 
     Checked on the post-PATCH state: a declared scheme must be the one of the country of establishment
     (a VIES-validated organizer included); a tax registration number, whenever one is given and the
-    country's format is known, must be format-valid for that country; a declared scheme means no VAT
-    is ever charged, so the default rate must be 0% and no live tier may override it upwards (a
-    Kleinunternehmer showing VAT owes it, DE § 14c UStG / AT § 11 Abs. 12 UStG); and while attendee
-    invoicing is on, no change may leave the seller unidentifiable (:func:`seller_identity_errors`).
+    country's format is known, must be format-valid for that country; a scheme that requires the VAT ID
+    (DE, #1258) is declared or kept only with a VIES-validated one, whatever the invoicing mode, since
+    the platform fee's reverse charge hinges on it; a declared scheme means no VAT is ever charged, so
+    the default rate must be 0% and no live tier may override it upwards (a Kleinunternehmer showing
+    VAT owes it, DE § 14c UStG / AT § 11 Abs. 12 UStG); and while attendee invoicing is on, no change
+    may leave the seller unidentifiable (:func:`seller_identity_errors`).
 
     Returns:
         ``update_data``, with ``vat_exemption_reason`` adjusted as :func:`_exemption_reason_after` says.
@@ -216,18 +239,7 @@ def prepare_billing_update(org: Organization, update_data: dict[str, t.Any]) -> 
             ),
         )
     if scheme != SmallBusinessScheme.NONE:
-        if candidate.vat_rate > 0:
-            raise HttpError(
-                422,
-                str(_("An organizer under a small-business scheme charges no VAT: set the default VAT rate to 0%.")),
-            )
-        # Only when declaring (none -> scheme): afterwards any tier rate is ignored at the effective-rate
-        # choke point, so a copied rate must not block unrelated billing edits.
-        if org.small_business_scheme == SmallBusinessScheme.NONE and _live_tiers_charging_vat(org):
-            raise HttpError(
-                422,
-                str(_("Some ticket tiers still charge VAT. Set them to 0% before declaring a small-business scheme.")),
-            )
+        _assert_scheme_declaration_allowed(org, candidate)
     if org.invoicing_mode != Organization.InvoicingMode.NONE and (
         errors := scheme_path_identity_errors(org, candidate)
     ):
@@ -272,30 +284,42 @@ def assert_draft_lines_exempt(org: Organization | None, line_items: t.Iterable[t
         )
 
 
-def assert_vat_id_change_allowed(org: Organization, new_vat_id: str) -> None:
-    """Refuse a VAT-ID change (set, or clear with ``""``) that would leave a scheme organizer unidentifiable.
+def vat_id_change_refusal(org: Organization, new_vat_id: str, *, validated: bool) -> str:
+    """Why a VAT-ID change (set, or clear with ``""``) is refused for a scheme organizer, or ``""``.
 
     The candidate takes the new VAT ID and its country (the prefix, ``EL`` read as ``GR``; cleared on
-    delete), as VIES validation would set them. A declared scheme must still be the one of that country
-    (a DE scheme cannot hold an AT VAT ID, as the billing PATCH refuses too). The identity itself is
-    judged on the pessimistic outcome, a stored but unvalidated ID (what a VIES failure persists): a
-    scheme organizer with invoicing on then needs its tax registration number to stand in, which a DE
-    organizer has not (#1258), so it turns invoicing off before replacing or deleting its USt-IdNr.
-
-    Raises:
-        HttpError 422: A scheme ≠ the new VAT country, or, while invoicing is on, a non-empty
-            :func:`scheme_path_identity_errors`.
+    delete) and the given VIES outcome. A declared scheme must still be the one of that country (a DE
+    scheme cannot hold an AT VAT ID, as the billing PATCH refuses too). A scheme that requires the VAT
+    ID (DE, #1258) must keep a validated one whatever the invoicing mode: the platform fee's reverse
+    charge hinges on it. Otherwise, while invoicing is on, the change may not leave the seller
+    unidentifiable (:func:`scheme_path_identity_errors`): an AT organizer's tax number stands in.
     """
     candidate = copy.copy(org)
     candidate.vat_id = new_vat_id
     candidate.vat_country_code = normalize_country_code(new_vat_id[:2]) if new_vat_id[:2].isalpha() else ""
-    candidate.vat_id_validated = False
+    candidate.vat_id_validated = validated and bool(new_vat_id)
     if is_small_business(candidate) and (error := _scheme_country_error(candidate)):
-        raise HttpError(422, error)
+        return error
+    if scheme_requires_vat_id(candidate.small_business_scheme) and not candidate.vat_id_validated:
+        return str(VAT_ID_REQUIRED_MESSAGE)
     if org.invoicing_mode == Organization.InvoicingMode.NONE:
-        return
+        return ""
     if errors := scheme_path_identity_errors(org, candidate):
-        raise HttpError(422, str(INVOICING_WOULD_STOP_MESSAGE).format(details="; ".join(errors)))
+        return str(INVOICING_WOULD_STOP_MESSAGE).format(details="; ".join(errors))
+    return ""
+
+
+def assert_vat_id_change_allowed(org: Organization, new_vat_id: str) -> None:
+    """Refuse a VAT-ID change judged on the pessimistic VIES outcome (the right call for a delete).
+
+    A set is decided on the actual outcome instead (``events.service.vies_service.set_org_vat_id``), so
+    a DE organizer whose validation lapsed can recover by resubmitting a valid USt-IdNr. (#1258).
+
+    Raises:
+        HttpError 422: :func:`vat_id_change_refusal` is non-empty.
+    """
+    if refusal := vat_id_change_refusal(org, new_vat_id, validated=False):
+        raise HttpError(422, refusal)
 
 
 def seller_identity_decision(org: Organization) -> Decision:

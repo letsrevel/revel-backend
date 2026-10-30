@@ -76,6 +76,15 @@ def _make_small_business(org: Organization, scheme: str = Scheme.DE_19) -> Organ
     return org
 
 
+def _give_german_vat_id(org: Organization) -> Organization:
+    """A VIES-validated USt-IdNr., which declaring or keeping the German scheme requires (#1258)."""
+    org.vat_id = "DE811234567"
+    org.vat_id_validated = True
+    org.vat_country_code = "DE"
+    org.save()
+    return org
+
+
 @pytest.fixture
 def owner_client(organization_owner_user: RevelUser) -> Client:
     refresh = RefreshToken.for_user(organization_owner_user)
@@ -261,15 +270,47 @@ class TestBillingUpdate:
         organization.vat_rate = Decimal("0.00")
         organization.vat_exemption_reason = "Own wording"
         organization.billing_country_code = "DE"
-        organization.save()
+        _give_german_vat_id(organization)
         assert _patch(owner_client, organization, {"small_business_scheme": "de_19"}).status_code == 200
         organization.refresh_from_db()
         assert organization.vat_exemption_reason == "Own wording"
 
+    def test_declaring_the_german_scheme_needs_a_validated_vat_id(
+        self, organization: Organization, owner_client: Client
+    ) -> None:
+        """#1258: whatever the invoicing mode, since Revel's fee to a DE Kleinunternehmer is reverse-charged."""
+        organization.vat_rate = Decimal("0.00")
+        organization.billing_country_code = "DE"
+        organization.save()
+        assert organization.invoicing_mode == Organization.InvoicingMode.NONE
+        response = _patch(owner_client, organization, {"small_business_scheme": "de_19"})
+        assert response.status_code == 422
+        assert "USt-IdNr." in response.json()["detail"] and "BZSt" in response.json()["detail"]
+        organization.vat_id = "DE811234567"  # typed in, VIES said no (or not yet)
+        organization.vat_country_code = "DE"
+        organization.save()
+        assert _patch(owner_client, organization, {"small_business_scheme": "de_19"}).status_code == 422
+        organization.vat_id_validated = True
+        organization.save()
+        assert _patch(owner_client, organization, {"small_business_scheme": "de_19"}).status_code == 200
+        organization.refresh_from_db()
+        assert organization.small_business_scheme == Scheme.DE_19
+
+    def test_a_lapsed_german_organizer_cannot_keep_the_scheme_on_a_billing_patch(
+        self, organization: Organization, owner_client: Client
+    ) -> None:
+        """Once the validation lapses, a billing PATCH that keeps de_19 is refused until the USt-IdNr. is validated."""
+        org = _make_small_business(organization)
+        Organization.objects.filter(pk=org.pk).update(vat_id_validated=False)
+        response = _patch(owner_client, org, {"billing_name": "Renamed"})
+        assert response.status_code == 422
+        assert "USt-IdNr." in response.json()["detail"]
+        assert _patch(owner_client, org, {"small_business_scheme": "none"}).status_code == 200  # the way out
+
     def test_a_scheme_needs_a_zero_default_rate(self, organization: Organization, owner_client: Client) -> None:
         organization.vat_rate = Decimal("19.00")
         organization.billing_country_code = "DE"
-        organization.save()
+        _give_german_vat_id(organization)
         response = _patch(owner_client, organization, {"small_business_scheme": "de_19"})
         assert response.status_code == 422
         assert "default VAT rate to 0%" in response.json()["detail"]
@@ -282,7 +323,7 @@ class TestBillingUpdate:
     ) -> None:
         organization.vat_rate = Decimal("0.00")
         organization.billing_country_code = "DE"
-        organization.save()
+        _give_german_vat_id(organization)
         event_ticket_tier.vat_rate = Decimal("19.00")
         event_ticket_tier.save()
         response = _patch(owner_client, organization, {"small_business_scheme": "de_19"})
@@ -610,6 +651,8 @@ def test_platform_fee_to_an_austrian_scheme_organizer_stays_domestic(organizatio
         ("events_organization", "tax_registration_number", "''::character varying"),
         ("events_organization", "small_business_scheme", "'none'::character varying"),
         ("events_attendeeinvoice", "seller_tax_registration_number", "''::character varying"),
+        ("events_attendeeinvoice", "issuer_name", "''::character varying"),
+        ("events_attendeeinvoicecreditnote", "issuer_name", "''::character varying"),
     ],
 )
 def test_new_not_null_columns_have_a_database_default(table: str, column: str, expected: str) -> None:

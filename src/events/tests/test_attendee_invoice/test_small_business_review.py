@@ -46,6 +46,7 @@ from events.tests.test_attendee_invoice.test_small_business_scheme import (
     AT_REASON,
     DE_REASON,
     Scheme,
+    _give_german_vat_id,
     _make_small_business,
 )
 
@@ -541,7 +542,8 @@ class TestForeignSales:
         member_user: RevelUser,
         country: str,
     ) -> None:
-        _invoicing_small_business(organization, Scheme.AT_6_1_27)
+        org = _invoicing_small_business(organization, Scheme.AT_6_1_27)
+        assert org.vat_country_code == ""  # an AT Kleinunternehmer without a UID has no VAT country at all
         event.is_virtual = True
         event.save()
         invoice = self._sell(
@@ -839,6 +841,7 @@ class TestSnapshotAndNote:
     ) -> None:
         org = _make_small_business(organization, Scheme.AT_6_1_27)
         assert org.vat_exemption_reason == AT_REASON
+        _give_german_vat_id(org)  # moving to Germany: the German scheme needs the USt-IdNr. (#1258)
         response = _patch(
             owner_client,
             org,
@@ -871,7 +874,7 @@ class TestSnapshotAndNote:
         organization.vat_rate = Decimal("0.00")
         organization.vat_exemption_reason = "Own wording"
         organization.billing_country_code = "DE"
-        organization.save()
+        _give_german_vat_id(organization)
         assert _patch(owner_client, organization, {"small_business_scheme": "de_19"}).status_code == 200
         organization.refresh_from_db()
         assert organization.vat_exemption_reason == "Own wording"

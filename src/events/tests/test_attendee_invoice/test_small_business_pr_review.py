@@ -6,6 +6,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+from django.core.cache import cache
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -13,7 +14,7 @@ from ninja.errors import HttpError
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
-from common.service.vies_service import VIESValidationResult
+from common.service.vies_service import VIESUnavailableError, VIESValidationResult
 from events.compliance import AttendeeInvoicingCapability
 from events.compliance.enforcement import event_compliance
 from events.exceptions import CountryComplianceError
@@ -131,35 +132,42 @@ class TestVatIdEndpointsGuard:
         org.save()
         assert owner_client.delete(reverse("api:delete_vat_id", kwargs={"slug": org.slug})).status_code == 204
 
-    def test_german_organizer_cannot_delete_its_vat_id_while_invoicing(
-        self, organization: Organization, owner_client: Client
+    @pytest.mark.parametrize("invoicing_mode", [Organization.InvoicingMode.AUTO, Organization.InvoicingMode.NONE])
+    def test_german_organizer_cannot_delete_its_vat_id(
+        self, organization: Organization, owner_client: Client, invoicing_mode: str
     ) -> None:
-        """#1258: the Steuernummer does not stand in for a DE Kleinunternehmer's USt-IdNr."""
+        """#1258: the Steuernummer does not stand in for a DE Kleinunternehmer's USt-IdNr., invoicing on or off."""
         org = self._scheme_org_with_validated_vat_id(organization)
         org.tax_registration_number = "12/345/67890"
+        org.invoicing_mode = invoicing_mode
         org.save()
         response = owner_client.delete(reverse("api:delete_vat_id", kwargs={"slug": org.slug}))
         assert response.status_code == 422, response.content
         assert "USt-IdNr." in response.json()["detail"]
-        assert "Turn invoicing off first" in response.json()["detail"]
         org.refresh_from_db()
         assert org.vat_id == "DE811234567" and org.vat_id_validated
-        org.invoicing_mode = Organization.InvoicingMode.NONE
+        org.small_business_scheme = "none"  # the way out: leave the scheme first
         org.save()
         assert owner_client.delete(reverse("api:delete_vat_id", kwargs={"slug": org.slug})).status_code == 204
 
-    def test_set_vat_id_without_a_tax_number_is_refused_before_vies(
+    def test_set_vat_id_without_a_tax_number_is_decided_by_vies(
         self, organization: Organization, owner_client: Client
     ) -> None:
+        """Nothing stands in for the UID, so the swap is decided on the actual VIES outcome, nothing written on no."""
+        cache.clear()
         org = self._scheme_org_with_validated_vat_id(organization, "AT")
-        with patch("common.service.vies_service.validate_vat_id") as vies:
+        invalid = VIESValidationResult(valid=False, name="", address="", request_identifier="")
+        with patch("common.service.vies_service.validate_vat_id", return_value=invalid) as vies:
             response = owner_client.put(
                 reverse("api:set_vat_id", kwargs={"slug": org.slug}),
-                data='{"vat_id": "ATU87654321"}',
+                data='{"vat_id": "ATU87654329"}',
                 content_type="application/json",
             )
         assert response.status_code == 422, response.content
-        vies.assert_not_called()
+        assert "Turn invoicing off first" in response.json()["detail"]
+        vies.assert_called_once()
+        org.refresh_from_db()
+        assert org.vat_id == "ATU12345678" and org.vat_id_validated
 
     def test_non_scheme_org_is_untouched(self, organization: Organization, owner_client: Client) -> None:
         org = _make_org_invoicing_ready(organization)
@@ -201,25 +209,73 @@ class TestVatIdEndpointsGuard:
         org.refresh_from_db()
         assert org.vat_id == "ATU87654321"
 
-    def test_german_organizer_replaces_its_vat_id_with_invoicing_off(
-        self, organization: Organization, owner_client: Client
-    ) -> None:
-        """#1258: a VIES failure would leave a DE Kleinunternehmer unidentifiable, so the swap needs invoicing off."""
+    def _lapsed_german_org(self, organization: Organization) -> Organization:
+        """A DE Kleinunternehmer with invoicing on whose monthly VIES revalidation flipped the flag."""
+        cache.clear()  # no VIES result cached from another test
         org = self._scheme_org_with_validated_vat_id(organization)
         org.tax_registration_number = "12/345/67890"
+        org.vat_id_validated = False
+        org.vies_request_identifier = "old"
         org.save()
-        with patch("common.service.vies_service.validate_vat_id") as vies:
-            response = self._put_vat_id(owner_client, org, "DE123456789")
-        assert response.status_code == 422, response.content
-        assert "Turn invoicing off first" in response.json()["detail"]
-        vies.assert_not_called()
-        org.invoicing_mode = Organization.InvoicingMode.NONE
-        org.save()
+        return org
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_lapsed_german_organizer_recovers_by_resubmitting_a_valid_vat_id(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        owner_client: Client,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """#1258: a PUT is decided on the actual VIES outcome, not the pessimistic one, so the organizer can recover."""
+        org = self._lapsed_german_org(organization)
+        event.vat_country_code = "DE"
+        event.save()
         result = VIESValidationResult(valid=True, name="Kleine Bühne", address="Musterstraße 1", request_identifier="r")
-        with patch("common.service.vies_service.validate_vat_id", return_value=result):
-            assert self._put_vat_id(owner_client, org, "DE123456789").status_code == 200
+        with patch("common.service.vies_service.validate_vat_id", return_value=result) as vies:
+            response = self._put_vat_id(owner_client, org, "DE123456789")
+        assert response.status_code == 200, response.content
+        assert vies.called
         org.refresh_from_db()
         assert org.vat_id == "DE123456789" and org.vat_id_validated
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_recovered",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            net_amount=Decimal("100.00"),
+            vat_amount=Decimal("0.00"),
+            vat_rate=Decimal("0.00"),
+        )
+        invoice = generate_attendee_invoice("cs_recovered")
+        assert invoice is not None and invoice.seller_vat_id == "DE123456789"
+
+    def test_invalid_vat_id_leaves_a_lapsed_german_organizer_unchanged(
+        self, organization: Organization, owner_client: Client
+    ) -> None:
+        org = self._lapsed_german_org(organization)
+        result = VIESValidationResult(valid=False, name="", address="", request_identifier="")
+        with patch("common.service.vies_service.validate_vat_id", return_value=result):
+            response = self._put_vat_id(owner_client, org, "DE999999999")
+        assert response.status_code == 422, response.content
+        assert "USt-IdNr." in response.json()["detail"]
+        org.refresh_from_db()
+        assert (org.vat_id, org.vat_id_validated, org.vies_request_identifier) == ("DE811234567", False, "old")
+
+    def test_vies_outage_leaves_a_lapsed_german_organizer_unchanged(
+        self, organization: Organization, owner_client: Client
+    ) -> None:
+        org = self._lapsed_german_org(organization)
+        with patch("common.service.vies_service.validate_vat_id", side_effect=VIESUnavailableError("down")):
+            response = self._put_vat_id(owner_client, org, "DE123456780")
+        assert response.status_code == 503, response.content
+        org.refresh_from_db()
+        assert (org.vat_id, org.vat_id_validated) == ("DE811234567", False)
 
 
 # ---------------------------------------------------------------------------
