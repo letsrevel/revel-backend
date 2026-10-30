@@ -322,6 +322,30 @@ def assert_vat_id_change_allowed(org: Organization, new_vat_id: str) -> None:
         raise HttpError(422, refusal)
 
 
+class SellerIdentitySnapshot(t.TypedDict):
+    """The seller identifier fields an :class:`AttendeeInvoice` snapshots from its organization."""
+
+    seller_vat_id: str
+    seller_tax_registration_number: str
+    seller_vat_country: str
+
+
+def seller_identity_snapshot(org: Organization, event: Event) -> SellerIdentitySnapshot:
+    """The seller identifiers as generation snapshots them; draft issue reuses the rule when the scheme changed.
+
+    The stored VAT ID is copied as before, except on the scheme path (#1244): a scheme organizer without
+    a validated VAT ID is identified by its tax number (BT-32), never by a typed-in BT-31. Physical
+    admission is taxed where the event takes place, so the event's VAT country drives the invoice
+    country; a virtual event is supplied from the organizer's establishment (#869).
+    """
+    hide_vat_id = is_small_business(org) and not org.vat_id_validated
+    return SellerIdentitySnapshot(
+        seller_vat_id="" if hide_vat_id else org.vat_id,
+        seller_tax_registration_number=org.tax_registration_number,
+        seller_vat_country=resolve_org_country(org) if event.is_virtual else event.effective_vat_country,
+    )
+
+
 def seller_identity_decision(org: Organization) -> Decision:
     """Defense in depth at generation for the scheme path only (:func:`scheme_path_identity_errors`)."""
     if not scheme_path_identity_errors(org):

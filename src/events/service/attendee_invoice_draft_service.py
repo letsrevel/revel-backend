@@ -422,6 +422,38 @@ def update_draft_invoice(
     return _apply_draft_update(invoice, update_data)
 
 
+def _follow_organizer_scheme(invoice: AttendeeInvoice) -> list[str]:
+    """Make an issued draft follow its organizer's scheme state, in both directions (#1244, #1258).
+
+    Declared since generation, the statutory note is stamped into the exemption map and the issued PDF
+    shows no VAT; left since generation, the stale note is dropped and the normal layout returns. When
+    the scheme changed, the seller identifiers are re-snapshotted by the rule generation applies (a VAT
+    ID obtained on leaving the scheme, or hidden on joining it unvalidated, reaches the document). Lines
+    stay as edited; a legacy row without categories has no exemption map to redo.
+
+    Returns:
+        The fields set on ``invoice`` (for ``save(update_fields=...)``); empty without an organization.
+    """
+    org = invoice.organization
+    if org is None:
+        return []
+    fields: list[str] = []
+    scheme_changed = invoice.seller_small_business_scheme != org.small_business_scheme
+    if (is_small_business(org) or is_scheme(invoice.seller_small_business_scheme)) and all(
+        "vat_category" in item for item in invoice.line_items
+    ):
+        invoice.vat_exemptions = _recompute_vat_exemptions(invoice, invoice.line_items)
+        fields.append("vat_exemptions")
+    if scheme_changed and invoice.event is not None:
+        identity = small_business_scheme_service.seller_identity_snapshot(org, invoice.event)
+        for field, value in identity.items():
+            setattr(invoice, field, value)
+        fields.extend(identity)
+    invoice.seller_small_business_scheme = org.small_business_scheme
+    fields.append("seller_small_business_scheme")
+    return fields
+
+
 def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
     """Issue a DRAFT invoice: finalize, set issued_at, regenerate PDF.
 
@@ -469,18 +501,7 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
             # invoice exists to recover a failed PDF generation, and that recovery
             # must stay available even for a row that drifted before #911 landed.
             _assert_totals_reconcile(invoice)
-            update_fields = ["status", "issued_at", "updated_at"]
-            if (org := invoice.organization) is not None:
-                # A draft follows the organizer's scheme state at issue, in both directions (#1244, #1258):
-                # declared since generation, the statutory note is stamped into the exemption map and the
-                # issued PDF shows no VAT; left since generation, the stale note is dropped and the normal
-                # layout returns. Lines stay as edited; a legacy row without categories has no map to redo.
-                scheme_involved = is_small_business(org) or is_scheme(invoice.seller_small_business_scheme)
-                if scheme_involved and all("vat_category" in item for item in invoice.line_items):
-                    invoice.vat_exemptions = _recompute_vat_exemptions(invoice, invoice.line_items)
-                    update_fields.append("vat_exemptions")
-                invoice.seller_small_business_scheme = org.small_business_scheme
-                update_fields.append("seller_small_business_scheme")
+            update_fields = ["status", "issued_at", "updated_at", *_follow_organizer_scheme(invoice)]
             if not invoice.issuer_name:  # a draft generated before the issuer snapshot existed (#1258)
                 invoice.issuer_name = platform_issuer_name()
                 update_fields.append("issuer_name")

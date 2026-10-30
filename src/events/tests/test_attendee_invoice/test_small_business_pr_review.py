@@ -579,6 +579,77 @@ class TestStatutoryNoteAtIssue:
         assert "Steuerbefreit gemäß § 19 UStG" not in html
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_identifiers_follow_the_organizer_leaving_the_scheme(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """An AT draft (tax number, no UID); the organizer leaves the scheme with a validated UID; then issued."""
+        org = _make_small_business(organization, "at_6_1_27")
+        org.invoicing_mode = Organization.InvoicingMode.HYBRID
+        org.save()
+        event.vat_country_code = "AT"
+        event.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_left_at",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            net_amount=Decimal("100.00"),
+            vat_amount=Decimal("0.00"),
+            vat_rate=Decimal("0.00"),
+        )
+        draft = generate_attendee_invoice("cs_left_at")
+        assert draft is not None and (draft.seller_vat_id, draft.seller_tax_registration_number) == ("", "12-345/6789")
+        org.small_business_scheme = "none"
+        org.vat_id, org.vat_country_code, org.vat_id_validated = "ATU12345678", "AT", True
+        org.vat_exemption_reason = "Own exemption"
+        org.save()
+        issued = issue_draft_invoice(draft)
+        issued.refresh_from_db()
+        assert issued.seller_small_business_scheme == "none"
+        assert issued.seller_vat_id == "ATU12345678"
+        assert issued.seller_tax_registration_number == "12-345/6789"
+        assert issued.seller_vat_country == "AT"
+        html = render_to_string(
+            "invoices/attendee_invoice.html",
+            {"invoice": issued, "is_draft": False, "is_export": False, "is_virtual_interim": False},
+        )
+        assert "VAT: ATU12345678" in html and "<th>VAT</th>" in html and "Subtotal" in html
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_identifiers_follow_the_organizer_joining_the_scheme(
+        self,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """A pre-scheme draft (Italian VIES identity); the organizer becomes a DE Kleinunternehmer; then issued."""
+        _make_org_invoicing_ready(organization)
+        draft = self._exempt_draft(organization, event, event_ticket_tier, member_user, "Art. 132(1)(n) VAT Directive")
+        draft.seller_vat_id, draft.seller_vat_country = "IT12345678901", "IT"
+        draft.save()
+        _make_small_business(organization)  # de_19 with the validated DE811234567 and a Steuernummer
+        event.vat_country_code = "DE"
+        event.save()
+        issued = issue_draft_invoice(draft)
+        issued.refresh_from_db()
+        assert issued.seller_small_business_scheme == "de_19"
+        assert (issued.seller_vat_id, issued.seller_tax_registration_number, issued.seller_vat_country) == (
+            "DE811234567",
+            "12/345/67890",
+            "DE",
+        )
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     def test_non_scheme_draft_is_unchanged(
         self,
         _pdf: t.Any,

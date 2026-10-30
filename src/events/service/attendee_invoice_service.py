@@ -28,7 +28,6 @@ from common.utils import apex_email_domain, is_reserved_mailbox
 from events.compliance import BuyerContext, Decision
 from events.compliance import enforcement as compliance
 from events.compliance.base import ALL_NEXUS
-from events.compliance.registry import resolve_org_country
 from events.models.attendee_invoice import (
     AttendeeInvoice,
     AttendeeInvoiceCreditNote,
@@ -330,17 +329,11 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             payment_means_code=payment_means.code,
             payment_method_label=payment_means.label,
             card_last4=payment_means.card_last4,
-            # Seller snapshot. Physical admission is taxed where the event takes
-            # place, so the event's VAT country drives the invoice country; a
-            # virtual event is supplied from the org's establishment (#869). The stored VAT ID
-            # is printed as before, except on the scheme path (#1244): a scheme organizer without
-            # a validated VAT ID is identified by its tax number (BT-32), never by a typed-in BT-31.
+            # Seller snapshot; the identifiers follow one rule shared with draft issue (#1244, #1258).
             issuer_name=platform_issuer_name(),  # third-party issuer snapshot (#1258)
             seller_name=org.billing_name or org.name,
-            seller_vat_id="" if small_business and not org.vat_id_validated else org.vat_id,
-            seller_tax_registration_number=org.tax_registration_number,
             seller_small_business_scheme=org.small_business_scheme,  # the PDF then shows no VAT at all (#1258)
-            seller_vat_country=resolve_org_country(org) if event.is_virtual else event.effective_vat_country,
+            **small_business_scheme_service.seller_identity_snapshot(org, event),
             seller_address=org.billing_address,
             **org.billing_postal_address().to_fields("seller_"),
             seller_email=org.billing_email or org.contact_email or "",
