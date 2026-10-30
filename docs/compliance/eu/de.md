@@ -96,11 +96,18 @@ Not covered:
   organizer's scheme or the event's venue have become since. Once invoicing is on, a scheme organizer
   without a VIES-validated USt-IdNr. (whatever VAT ID string it may have typed; VIES may have rejected
   it) cannot make a billing change that would leave it unidentifiable (dropping the scheme, blanking the
-  tax number, moving the billing country), and generation itself skips such an organizer's invoice
-  (reason `seller_identity_missing`). Only a VIES-validated VAT ID lifts that guard; an organizer
-  without a scheme whose validation lapsed keeps today's behaviour and is still invoiced with its stored
-  VAT ID. The tier flag `invoicing_available` follows the same gates, so checkout never promises an
-  invoice generation would skip. CI validates DE and AT small-business fixtures against the CEN rules.
+  tax number, moving the billing country, deleting or replacing the VAT ID), generation itself skips
+  such an organizer's invoice (reason `seller_identity_missing`), and a draft cannot be issued while the
+  identity is broken or while it still carries VAT lines. Only a VIES-validated VAT ID lifts that guard;
+  an organizer without a scheme whose validation lapsed keeps today's behaviour and is still invoiced
+  with its stored VAT ID. The tier flag `invoicing_available` and the event's compliance block (`blocked`)
+  follow the same gates, so checkout never promises an invoice generation would skip. In the Factur-X
+  XML the tax number alone (BT-32, no BT-31) is accepted only when every line is exempt (BR-E-02); an
+  invoice with a standard-rated line and no VAT ID gets no XML (BR-S-02). A credit note on a scheme-issued
+  invoice stays exempt even where it has to fall back to the payment (a line replaced by hand in DRAFT).
+  In the revenue report, 0% sales of a scheme organizer (or of an exempt tier) form their own "0%" bucket;
+  "reverse charge" is reserved for sales checkout actually reverse-charged. CI validates DE and AT
+  small-business fixtures against the CEN rules.
 - **Not covered:** Revel cannot know an organizer's turnover, so it does not gate anything on the
   800,000 EUR threshold or on the §19 thresholds (25,000 EUR prior year, 100,000 EUR current year);
   every eligible document gets the XML, and the organizer is responsible for the scheme it declares.

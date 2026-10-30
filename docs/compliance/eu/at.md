@@ -45,9 +45,12 @@ merchant of record they remain responsible for their tax and invoicing duties.
   VAT before the scheme was declared is credited with that VAT. Once invoicing is on, a scheme
   organizer without a VIES-validated UID (whatever UID string it may have typed) cannot make a billing
   change that would leave it unidentifiable (dropping the scheme, blanking the tax number, moving the
-  billing country), and generation skips such an organizer's invoice (`seller_identity_missing`); only
-  a VIES-validated UID lifts that guard, and an organizer without a scheme whose validation lapsed
-  keeps today's behaviour. CI validates an AT small-business fixture against the CEN rules.
+  billing country, deleting or replacing the UID), generation skips such an organizer's invoice
+  (`seller_identity_missing`), and a draft with VAT lines or a broken identity cannot be issued; only a
+  VIES-validated UID lifts that guard, and an organizer without a scheme whose validation lapsed keeps
+  today's behaviour. The tier flag and the event's compliance block follow the same gates. In the
+  Factur-X XML the Steuernummer alone (BT-32) carries exempt lines only (BR-E-02, not BR-S-02). CI
+  validates an AT small-business fixture against the CEN rules.
 - **Not covered:** VAT-charging organizers that hold only a Steuernummer and no UID still need a UID to
   invoice through Revel; without a VIES-validated VAT ID Revel cannot tell a taxable person from a
   consumer. Revel does not gate on the € 55,000 Kleinunternehmer threshold; the organizer is responsible
