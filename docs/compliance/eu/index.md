@@ -18,7 +18,9 @@ takes effect. No country restricts offline payment.
 Every ticket PDF and Apple/Google Wallet pass carries the following, whatever the country:
 
 - **Organizer**: the organization's billing name, or its display name if no billing name is set.
-- **Tax ID**: the organization's VAT ID, when one is set.
+- **Tax ID**: the organization's VAT ID, when one is set; otherwise its national tax registration
+  number with the country's label (`Steuernummer: 12/345/67890` for Germany and Austria), as on the
+  invoices ([#1260](https://github.com/letsrevel/revel-backend/issues/1260)). With neither, no line.
 - **Ticket number**: a sequential number per organization, in the form `SERIES-000123`.
     - The series is derived from the organization's slug when its first ticket is numbered, and never
       changes afterwards.
@@ -40,9 +42,6 @@ ticket tier, and sector/seat.
 
 Tickets issued before this change were backfilled: they were numbered per organization in creation
 order, with the issue time set to their creation time.
-
-Limitation: organizations without a VAT ID have no tax-ID line, because there is no separate
-fiscal-code field yet.
 
 ## Attendee VAT handling
 

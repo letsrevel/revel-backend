@@ -202,14 +202,20 @@ def common_ticket_fields(ticket: "Ticket") -> list[TicketComplianceField]:
     price paid (incl. VAT) or "Free", the sequential ticket number and issue time,
     and a "not a tax document" notice.
     """
+    from events.compliance.registry import resolve_org_country
     from events.service.ticket_number_service import format_ticket_number
     from events.service.ticket_price import resolve_ticket_price
     from events.utils import format_event_datetime
+    from events.utils.small_business import tax_number_label
 
     org = ticket.event.organization
     fields = [TicketComplianceField("organizer", str(_("Organizer")), org.billing_name or org.name)]
     if org.vat_id:
         fields.append(TicketComplianceField("tax_id", str(_("Tax ID")), org.vat_id))
+    elif org.tax_registration_number:
+        # Small-business organizers (#1244) have no VAT ID: same label rule as the invoice (#1260).
+        label = tax_number_label(resolve_org_country(org))
+        fields.append(TicketComplianceField("tax_id", label, org.tax_registration_number))
     if number := format_ticket_number(ticket):
         fields.append(TicketComplianceField("ticket_number", str(_("Ticket no.")), number))
     if ticket.issued_at:

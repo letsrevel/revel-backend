@@ -79,6 +79,28 @@ class TestCommonFields:
         assert fields["organizer"] == organization.name
         assert "tax_id" not in fields
 
+    def test_tax_number_is_printed_with_country_label_when_no_vat_id(
+        self, fiscal_org: Organization, ticket: Ticket
+    ) -> None:
+        """#1260: a small-business organizer without a VAT ID is identified by its Steuernummer."""
+        fiscal_org.vat_id = ""
+        fiscal_org.tax_registration_number = "12/345/67890"
+        fiscal_org.save()
+
+        fields = {field.key: field for field in ticket_fields(ticket)}
+
+        assert fields["tax_id"].label == "Steuernummer"
+        assert fields["tax_id"].value == "12/345/67890"
+
+    def test_vat_id_wins_over_tax_number(self, fiscal_org: Organization, ticket: Ticket) -> None:
+        fiscal_org.tax_registration_number = "12/345/67890"
+        fiscal_org.save()
+
+        fields = {field.key: field for field in ticket_fields(ticket)}
+
+        assert fields["tax_id"].label == "Tax ID"
+        assert fields["tax_id"].value == "ATU12345678"
+
     def test_pending_ticket_has_no_number_yet(self, fiscal_org: Organization, ticket: Ticket) -> None:
         pending = Ticket.objects.create(
             event=ticket.event, tier=ticket.tier, user=ticket.user, status=Ticket.TicketStatus.PENDING
