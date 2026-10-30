@@ -70,7 +70,7 @@ def enroll_referral_invitee_on_creation(
     Only real signups count: guest accounts (created by guest checkout, possibly by somebody
     else typing the invitee's email, and never verified) are skipped — the same line the admin
     signup notification draws. A guest is enrolled later, when they become a full user through
-    a password reset or an OIDC login (see ``account._apply_password_reset`` / ``oidc``).
+    ``account.convert_guest`` (password reset, OIDC login or the admin "Convert guest" action).
 
     Delegates to :func:`try_enroll_invitee`, which never raises: a referral perk must not block
     account creation.

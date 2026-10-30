@@ -13,6 +13,8 @@ ENABLED for converted users by migration 0016), org_contact_message_received (c1
 ENABLED by 0021), membership_card_updated (1004e0d6, 2026-08-11) and the staff_* types (249788fc, b222fbb0).
 Rows created before 6d7a1cbf (migration 0002 era: invitation_claimed, event_created, ...) are not matched.
 
+# ponytail: guest rows created before 6d7a1cbf (the 0002-era map, about 2025-11-11 to 16) are not
+# matched; the window is tiny and they would need hand-repair.
 # ponytail: a regular user who disabled every original guest key would be matched. Vanishingly
 # unlikely, and there is no guest history to discriminate.
 """
@@ -90,7 +92,10 @@ def _reset(settings: t.Any) -> dict[str, t.Any] | None:
         return None
     updated = dict(settings)
     for key in GUEST_DEFAULT_KEYS:
-        if not _is_guest_default(updated.get(key)):
+        value = updated.get(key)
+        # Original keys: any disabled entry. Others: only the exact guest-creation shape, since a
+        # disabled value carrying ``channels`` was written by confirm_unsubscribe or the API.
+        if not (_is_guest_default(value) if key in ORIGINAL_GUEST_KEYS else value == {"enabled": False}):
             continue
         if key in REGULAR_DEFAULTS:
             updated[key] = {**REGULAR_DEFAULTS[key], "channels": list(REGULAR_DEFAULTS[key]["channels"])}

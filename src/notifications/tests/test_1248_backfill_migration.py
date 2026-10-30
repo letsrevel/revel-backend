@@ -44,7 +44,9 @@ def test_converted_guest_row_is_reset(guest_user: RevelUser) -> None:
 
 def test_converted_guest_with_empty_channels_shape_is_reset(guest_user: RevelUser) -> None:
     prefs = guest_user.notification_preferences
-    prefs.notification_type_settings = {key: {"enabled": False, "channels": []} for key in migration.GUEST_DEFAULT_KEYS}
+    prefs.notification_type_settings = {
+        key: {"enabled": False, "channels": []} for key in migration.ORIGINAL_GUEST_KEYS
+    }
     prefs.save()
     _convert_without_hook(guest_user)
 
@@ -56,7 +58,7 @@ def test_converted_guest_with_empty_channels_shape_is_reset(guest_user: RevelUse
 def test_converted_guest_with_legacy_pinned_channels_is_reset(guest_user: RevelUser) -> None:
     prefs = guest_user.notification_preferences
     prefs.notification_type_settings = {
-        key: {"enabled": False, "channels": ["in_app", "email"]} for key in migration.GUEST_DEFAULT_KEYS
+        key: {"enabled": False, "channels": ["in_app", "email"]} for key in migration.ORIGINAL_GUEST_KEYS
     }
     prefs.save()
     _convert_without_hook(guest_user)
@@ -187,3 +189,18 @@ def test_rerun_is_idempotent(guest_user: RevelUser) -> None:
     _run()
 
     assert _settings(guest_user) == after_first == _regular_defaults()
+
+
+def test_non_original_key_with_channels_is_kept_but_exact_guest_shape_is_reset(guest_user: RevelUser) -> None:
+    """``{"enabled": False, "channels": []}`` on a non-original key is a user action (unsubscribe/API)."""
+    _legacy_row(guest_user, migration.ORIGINAL_GUEST_KEYS)
+    prefs = guest_user.notification_preferences
+    prefs.notification_type_settings["staff_ticket_created"] = {"enabled": False, "channels": []}
+    prefs.notification_type_settings["membership_card_updated"] = {"enabled": False}
+    prefs.save()
+
+    _run()
+
+    settings = _settings(guest_user)
+    assert settings["staff_ticket_created"] == {"enabled": False, "channels": []}
+    assert "membership_card_updated" not in settings

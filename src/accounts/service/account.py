@@ -388,30 +388,40 @@ def reset_password(token: str, new_password: str) -> RevelUser:
 
 
 @transaction.atomic
-def convert_guest(user: RevelUser) -> None:
+def convert_guest(user: RevelUser, *, reactivate: bool = False) -> None:
     """Convert a guest into a full account: the single place every conversion path goes through.
 
-    In one transaction: locks the row (a concurrent or repeated conversion sees a non-guest,
-    refreshes ``user`` and returns), clears ``guest``, marks the email verified, enrolls an approved
-    referral invitee and sends ``guest_converted`` (the notifications app resets the preferences to
-    the regular defaults, #1248). Nothing is swallowed except the referral enrollment, which by
-    design never blocks (see ``try_enroll_invitee``): a receiver failure propagates and rolls the
-    conversion back.
+    In one transaction: locks the row (a concurrent or repeated conversion sees a non-guest, copies
+    the current values onto ``user`` and returns), clears ``guest``, marks the email verified,
+    optionally reactivates, enrolls an approved referral invitee and sends ``guest_converted`` (the
+    notifications app resets the preferences to the regular defaults, #1248). Nothing is swallowed
+    except the referral enrollment, which by design never blocks (see ``try_enroll_invitee``): a
+    receiver failure propagates and rolls the conversion back.
 
     # ponytail: bulk writes (``.update(guest=False)``, shell fixes) bypass this by design; always
     # convert through this service.
 
-    A non-guest is a no-op.
+    A non-guest is a no-op (``reactivate`` included).
 
     Args:
         user: The user to convert.
+        reactivate: Also set ``is_active`` (OIDC login revives an inactive guest).
     """
-    if not RevelUser.objects.select_for_update().only("guest").get(pk=user.pk).guest:
-        user.refresh_from_db(fields=["guest", "email_verified"])
+    current = RevelUser.objects.select_for_update().values("guest", "email_verified", "is_active").get(pk=user.pk)
+    if not current["guest"]:
+        user.guest, user.email_verified, user.is_active = (
+            current["guest"],
+            current["email_verified"],
+            current["is_active"],
+        )
         return
     user.guest = False
     user.email_verified = True
-    user.save(update_fields=["guest", "email_verified"])
+    update_fields = ["guest", "email_verified"]
+    if reactivate:
+        user.is_active = True
+        update_fields.append("is_active")
+    user.save(update_fields=update_fields)
     logger.info("guest_user_converted_to_full_user", user_id=str(user.id), email=user.email)
     referral_application_service.try_enroll_invitee(user)
     guest_converted.send(sender=RevelUser, user=user)

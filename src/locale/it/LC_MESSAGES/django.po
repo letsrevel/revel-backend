@@ -7044,3 +7044,12 @@ msgstr "Avviso: in revisione"
 
 msgid "Won"
 msgstr "Vinta"
+
+msgid "Convert guest to full account"
+msgstr "Converti ospite in account completo"
+
+#, python-format
+msgid "Converted %d guest to a full account."
+msgid_plural "Converted %d guests to full accounts."
+msgstr[0] "%d ospite convertito in account completo."
+msgstr[1] "%d ospiti convertiti in account completi."

@@ -391,10 +391,7 @@ def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser
         if not user.is_active and not user.guest:
             raise OIDCLoginError("inactive")
         if user.guest:
-            if not user.is_active:
-                user.is_active = True
-                user.save(update_fields=["is_active"])
-            account_service.convert_guest(user)
+            account_service.convert_guest(user, reactivate=True)
         elif not user.email_verified:
             user.email_verified = True
             user.save(update_fields=["email_verified"])

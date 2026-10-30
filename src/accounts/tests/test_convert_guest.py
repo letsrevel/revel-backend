@@ -2,14 +2,11 @@
 
 import subprocess
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from django.conf import settings
-from django.contrib import admin
-from django.test import RequestFactory
 
-from accounts.admin.user import RevelUserAdmin
 from accounts.models import RevelUser
 from accounts.service.account import convert_guest
 from notifications.models import NotificationPreference, get_default_notification_type_settings
@@ -64,73 +61,34 @@ def test_non_guest_is_a_noop(user: RevelUser) -> None:
     assert _prefs(user) == before
 
 
-def _admin_save(obj: RevelUser, changed: list[str]) -> None:
-    model_admin = RevelUserAdmin(RevelUser, admin.site)
-    form = MagicMock(changed_data=changed)
-    model_admin.save_model(RequestFactory().post("/"), obj, form, change=True)
+def test_reactivate_revives_an_inactive_guest(guest_user: RevelUser) -> None:
+    RevelUser.objects.filter(pk=guest_user.pk).update(is_active=False)
+    guest_user.refresh_from_db()
 
-
-def test_admin_unticking_guest_goes_through_convert_guest(guest_user: RevelUser) -> None:
-    guest_user.first_name = "Edited"
-    guest_user.guest = False  # what the admin form does to the instance
-    with patch(ENROLL) as enroll:
-        _admin_save(guest_user, ["guest", "first_name"])
+    convert_guest(guest_user, reactivate=True)
 
     guest_user.refresh_from_db()
-    assert (guest_user.guest, guest_user.email_verified, guest_user.first_name) == (False, True, "Edited")
-    enroll.assert_called_once()
-    assert _prefs(guest_user) == get_default_notification_type_settings()
+    assert (guest_user.guest, guest_user.is_active) == (False, True)
 
 
-def test_admin_other_edits_do_not_convert(guest_user: RevelUser) -> None:
-    before = _prefs(guest_user)
-    guest_user.first_name = "Edited"
-    with patch(ENROLL) as enroll:
-        _admin_save(guest_user, ["first_name"])
+def test_inactive_guest_stays_inactive_without_reactivate(guest_user: RevelUser) -> None:
+    RevelUser.objects.filter(pk=guest_user.pk).update(is_active=False)
+    guest_user.refresh_from_db()
+
+    convert_guest(guest_user)
 
     guest_user.refresh_from_db()
-    assert (guest_user.guest, guest_user.first_name) == (True, "Edited")
-    enroll.assert_not_called()
-    assert _prefs(guest_user) == before
+    assert (guest_user.guest, guest_user.is_active) == (False, False)
 
 
-def test_admin_edit_of_regular_user_works(user: RevelUser) -> None:
-    user.first_name = "Edited"
-    _admin_save(user, ["first_name"])
+def test_reactivate_is_ignored_for_a_non_guest(user: RevelUser) -> None:
+    RevelUser.objects.filter(pk=user.pk).update(is_active=False)
+    user.refresh_from_db()
+
+    convert_guest(user, reactivate=True)
 
     user.refresh_from_db()
-    assert user.first_name == "Edited"
-
-
-def test_admin_stale_form_does_not_resend_conversion(guest_user: RevelUser) -> None:
-    """The guest was converted elsewhere after the admin form loaded: no second conversion, no stale write."""
-    stale = RevelUser.objects.get(pk=guest_user.pk)  # form loaded while still a guest
-    with patch(ENROLL):
-        convert_guest(guest_user)
-    prefs_before = _prefs(guest_user)
-    stale.guest = False  # the stale form unticks guest
-    stale.first_name = "Edited"
-
-    with patch(ENROLL) as enroll, patch("notifications.signals.user.reset_converted_guest_preferences") as reset:
-        _admin_save(stale, ["guest", "first_name"])
-
-    enroll.assert_not_called()
-    reset.assert_not_called()
-    guest_user.refresh_from_db()
-    assert (guest_user.guest, guest_user.first_name) == (False, "Edited")
-    assert _prefs(guest_user) == prefs_before
-
-
-def test_admin_stale_form_with_unchanged_guest_does_not_revert_conversion(guest_user: RevelUser) -> None:
-    stale = RevelUser.objects.get(pk=guest_user.pk)
-    with patch(ENROLL):
-        convert_guest(guest_user)
-    stale.first_name = "Edited"  # guest still True on the stale instance, not in changed_data
-
-    _admin_save(stale, ["first_name"])
-
-    guest_user.refresh_from_db()
-    assert (guest_user.guest, guest_user.first_name) == (False, "Edited")
+    assert user.is_active is False
 
 
 def test_guest_converted_lives_in_a_leaf_module() -> None:

@@ -162,6 +162,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     # Detail view configuration
     readonly_fields = [
         "id",
+        "guest",  # changed only through the "Convert guest" action (convert_guest)
         "date_joined",
         "last_login",
         "display_name_display",
@@ -265,21 +266,22 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         "send_password_reset_email",
         "ban_selected_users",
         "clear_stripe_connect_account",
+        "convert_guests",
     ]
 
-    def save_model(self, request: HttpRequest, obj: RevelUser, form: t.Any, change: bool) -> None:
-        """Route unticking ``guest`` through :func:`convert_guest` so side effects always run (#1248)."""
-        # Decide from the DB, not the (possibly stale) form: never write guest=True over a row
-        # that was converted elsewhere, and only convert a row that is still a guest.
-        db_guest = RevelUser.objects.filter(pk=obj.pk).values_list("guest", flat=True).first() if change else None
-        if db_guest is not None and "guest" not in form.changed_data:
-            obj.guest = db_guest
-        converting = bool(db_guest) and "guest" in form.changed_data and not obj.guest
-        if converting:
-            obj.guest = True  # save the other edits as a guest first; convert_guest flips the flag
-        super().save_model(request, obj, form, change)
-        if converting:
-            convert_guest(obj)
+    @admin.action(description=_("Convert guest to full account"))
+    def convert_guests(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
+        """Convert the selected guests through :func:`convert_guest` (non-guests are skipped)."""
+        converted = 0
+        for guest in queryset.filter(guest=True):
+            convert_guest(guest)
+            converted += 1
+        self.message_user(
+            request,
+            ngettext("Converted %d guest to a full account.", "Converted %d guests to full accounts.", converted)
+            % converted,
+            messages.SUCCESS,
+        )
 
     @admin.action(description="Clear stale Stripe Connect account (superuser only)")
     def clear_stripe_connect_account(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
