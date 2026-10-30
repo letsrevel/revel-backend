@@ -147,3 +147,18 @@ def test_regular_user_with_a_few_disabled_types_is_untouched_realistic(regular_u
     _run()
 
     assert _settings(regular_user) == before
+
+
+def test_already_reset_row_is_a_noop(guest_user: RevelUser) -> None:
+    """Rows 0037 (or convert_guest) already fixed are left alone; a second run changes nothing."""
+    prefs = guest_user.notification_preferences
+    prefs.notification_type_settings = {key: {"enabled": False} for key in migration.LEGACY_GUEST_KEYS}
+    prefs.save()
+    _convert_without_hook(guest_user)
+    _run()
+    after_first = _settings(guest_user)
+
+    _run()
+
+    assert _settings(guest_user) == after_first
+    assert after_first == {str(k): dict(v) for k, v in get_default_notification_type_settings().items()}
