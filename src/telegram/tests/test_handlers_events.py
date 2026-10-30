@@ -201,6 +201,28 @@ class TestHandleRequestInvitation:
         assert private_event.name in text
 
     @pytest.mark.asyncio
+    async def test_event_name_is_html_escaped(
+        self,
+        mock_callback_query: AsyncMock,
+        django_user: RevelUser,
+        private_event: Event,
+    ) -> None:
+        """Names are interpolated into HTML-mode messages, so markup in them must be escaped."""
+        private_event.name = '<a href="https://example.com">x</a>'
+        await private_event.asave(update_fields=["name"])
+        tg_user = await _get_tg_user(django_user)
+        mock_callback_query.data = f"request_invitation:{private_event.id}"
+
+        with patch("telegram.routers.events.event_service") as mock_svc:
+            mock_svc.create_invitation_request = MagicMock()
+
+            await cb_handle_request_invitation(mock_callback_query, user=django_user, tg_user=tg_user)
+
+        text = mock_callback_query.message.answer.call_args.args[0]
+        assert "<a href" not in text
+        assert "&lt;a href=" in text
+
+    @pytest.mark.asyncio
     async def test_service_failure(
         self,
         mock_callback_query: AsyncMock,
