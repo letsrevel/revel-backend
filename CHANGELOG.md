@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.28.0] - 2026-10-30
+
+### Added
+- **EN 16931 e-invoicing for attendee invoices**: attendee invoices and credit notes now carry the data structured e-invoicing needs.
+  - Structured postal addresses (line 1/2, postal code, city, subdivision, country) for organizations, user billing profiles, checkout and the invoice snapshot. Stripe Connect pre-fills them, and a one-off `backfill_org_billing_addresses` command covers existing organizations.
+  - A VAT category per line (standard, reverse charge, exempt, out of scope), an exemption reason on ticket tiers and organizations, supply date or period, and the payment means (card last 4 digits for card payments).
+  - EN 16931 totals per VAT group. The charged gross is preserved exactly, with any cent difference recorded as `rounding_amount` (BT-114).
+- **ZUGFeRD / Factur-X**: issued attendee invoices and credit notes that meet EN 16931 are stored as Factur-X EN 16931 PDFs (PDF/A-3 with the CII XML embedded). Every other document keeps the plain PDF. The site-wide switch is `SiteSettings.einvoice_facturx_enabled`, on by default. Any e-invoicing failure falls back to the plain PDF and never blocks issuing or sending. Generated documents are validated against the official CEN EN 16931 rules in CI.
+- **Small-business organizers**: organizers using the German Kleinunternehmer scheme (§ 19 UStG) or the Austrian one (§ 6 Abs. 1 Z 27 UStG) can enable attendee invoicing.
+  - Every line is VAT-exempt and carries the statutory note. Their invoices show no VAT rate, amount or total.
+  - German Kleinunternehmer need a VIES-validated USt-IdNr., so Revel's platform fee is reverse-charged to them. Austrian ones are identified by their Steuernummer.
+  - Sales outside the organizer's own country (a physical event abroad, a cross-border virtual sale) are recorded as skipped fiscal documents instead of being invoiced.
+  - Tickets and wallet passes show the tax number when the organizer has no VAT ID.
+- Card disputes (`charge.dispute.*`) are recorded per payment and listed in the admin. Organizer staff with `manage_tickets` are notified when a dispute opens (amount, reason, evidence deadline, Stripe Dashboard link) and when it closes.
+- Admin action "Convert guest to full account", and a `reset_converted_guest_prefs` command that restores the regular notification defaults of already-converted guests.
+
+### Changed
+- Attendee invoice and credit-note PDFs state that they were issued by the platform operator in the name and on behalf of the organizer. Factur-X carries the same statement as an invoice note. The issuer name is taken from `SiteSettings.platform_business_name` and snapshotted on each document.
+- Credit notes now reverse the invoice's own lines, including rates edited on a draft. Partial refunds are prorated so that all credit notes add up to the invoiced line to the cent.
+- Draft invoice lines carry a server-issued `line_id`. A line editor must echo it so the line keeps its link to the payment and ticket tier. Lines without it count as hand-added.
+- Exemption reasons on draft lines are resolved from each line's ticket tier on every edit, so corrected reasons replace stale ones.
+- Revenue reports split zero-rated sales into "0%" and "0% (reverse charge)". Previously every 0% sale was labelled reverse charge. Cached reports regenerate.
+- French organizers' attendee invoices and credit notes to domestic business buyers with a French VAT ID are recorded as skipped fiscal documents (France's e-invoicing reform), as already happens for Belgium and Poland.
+
+### Fixed
+- Converting a guest account (password reset, OIDC login, admin) now resets the guest's disabled notification defaults and runs referral enrollment on every path.
+- Invoices, platform-fee invoices, announcements and blacklist entries can be saved again after their user, event or organization was deleted. Previously, for example, an invoice of a deleted user could no longer be re-rendered.
+
+### Security
+- `tornado` updated to 6.6 (via `flower`), fixing three published advisories.
+
+### Deployment notes
+- **Before deploying**
+  - Set `SiteSettings.platform_business_name` to the legal business name. Every new attendee invoice and credit note snapshots it in its "issued … on behalf of" line, and a blank value prints "Revel".
+  - Add `charge.dispute.created`, `charge.dispute.updated` and `charge.dispute.closed` to the **existing** Stripe webhook endpoints (platform and Connect), following `docs/runbooks/stripe-webhook-endpoints.md`. `provision_stripe_webhooks` only creates endpoints, and until they're updated, dispute events never arrive.
+- **Migrations** (all applied by the rollout):
+  - `accounts 0036_billing_address_fields`, `common 0019_sitesettings_einvoice_facturx_enabled`, `events 0137_en16931_invoicing`, `notifications 0036`, `notifications 0037` (a no-op).
+  - Every new NOT NULL column has a database default, so old web and celery containers keep inserting during the rolling deploy.
+  - The unreleased migrations were squashed before this release. A local or dev database that applied the old migration names needs its records rewritten (see PR #1264). Production and demo are not affected.
+- **After deploying, in order**
+  - `python manage.py backfill_org_billing_addresses --dry-run`, review the output, then run it without `--dry-run`.
+  - `python manage.py reset_converted_guest_prefs` (dry-run, counts only), review the counts, then `python manage.py reset_converted_guest_prefs --apply`.
+- **Expect**
+  - **One-off load:** every cached ticket PDF and wallet pass regenerates on first access (the content hash changed), and cached revenue reports regenerate (report format v5).
+  - **Factur-X is on by default.** `SiteSettings.einvoice_facturx_enabled` turns it off without a deploy.
+  - **Deploy order:** deploy the backend before the frontend release that contains the address and exemption-reason forms.
+
 ## [2.27.0] - 2026-10-28
 
 ### Added
