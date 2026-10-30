@@ -16,6 +16,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
+from common.service.invoice_utils import platform_issuer_name
 from events.exceptions import CountryComplianceError
 from events.models.attendee_invoice import (
     AttendeeInvoice,
@@ -478,6 +479,9 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
                 # stamp the exemption map now, lines untouched, so the issued document states the exemption.
                 invoice.vat_exemptions = _recompute_vat_exemptions(invoice, invoice.line_items)
                 update_fields.append("vat_exemptions")
+            if not invoice.issuer_name:  # a draft generated before the issuer snapshot existed (#1258)
+                invoice.issuer_name = platform_issuer_name()
+                update_fields.append("issuer_name")
             invoice.status = AttendeeInvoice.InvoiceStatus.ISSUED
             invoice.issued_at = timezone.now()
             invoice.save(update_fields=update_fields)

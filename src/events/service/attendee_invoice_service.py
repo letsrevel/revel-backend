@@ -18,7 +18,12 @@ from ninja.errors import HttpError
 
 from common.constants import EU_MEMBER_STATES
 from common.postal_address import PostalAddress
-from common.service.invoice_utils import get_next_sequential_number, render_pdf
+from common.service.invoice_utils import (
+    get_next_sequential_number,
+    issuance_statement,
+    platform_issuer_name,
+    render_pdf,
+)
 from common.utils import apex_email_domain, is_reserved_mailbox
 from events.compliance import BuyerContext, Decision
 from events.compliance import enforcement as compliance
@@ -330,6 +335,7 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             # virtual event is supplied from the org's establishment (#869). The stored VAT ID
             # is printed as before, except on the scheme path (#1244): a scheme organizer without
             # a validated VAT ID is identified by its tax number (BT-32), never by a typed-in BT-31.
+            issuer_name=platform_issuer_name(),  # third-party issuer snapshot (#1258)
             seller_name=org.billing_name or org.name,
             seller_vat_id="" if small_business and not org.vat_id_validated else org.vat_id,
             seller_tax_registration_number=org.tax_registration_number,
@@ -455,24 +461,16 @@ def _is_virtual_interim(invoice: AttendeeInvoice) -> bool:
     )
 
 
-def _issuer_name() -> str:
-    """The platform operator named as the third-party issuer on attendee documents (#1258).
-
-    Art. 220(1) of Directive 2006/112/EC (AT UStR Rz 1505, 1530-1532; DE § 14 Abs. 2 S. 7 UStG) lets an
-    invoice be issued "in his name and on his behalf, by a third party"; the document says so, naming
-    the operator's legal name from the site settings (the brand name when none is configured).
-    """
-    from common.models import SiteSettings
-
-    return SiteSettings.get_solo().platform_business_name or "Revel"
-
-
 def _generate_and_save_pdf(invoice: AttendeeInvoice) -> None:
-    """Render the invoice PDF and save it to the invoice's pdf_file field."""
+    """Render the invoice PDF and save it to the invoice's pdf_file field.
+
+    The third-party issuance line (#1258) reads the issuer snapshot; a legacy row with a blank snapshot
+    names the current platform operator.
+    """
     template = "invoices/attendee_invoice.html"
     context = {
         "invoice": invoice,
-        "issuer_name": _issuer_name(),
+        "issuance_statement": issuance_statement(invoice.issuer_name, invoice.seller_name),
         "is_draft": invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT,
         "is_export": _is_export(invoice),
         "is_virtual_interim": _is_virtual_interim(invoice),
@@ -895,6 +893,7 @@ def generate_attendee_credit_note(
             totals_method=totals.totals_method,
             line_items=totals.lines,
             issued_at=timezone.now(),
+            issuer_name=platform_issuer_name(),  # #1258
         )
         credit_note.payments.set(build.payments)
         if build.refund_rows is not None:
@@ -929,7 +928,7 @@ def _generate_credit_note_pdf(credit_note: AttendeeInvoiceCreditNote) -> None:
     context = {
         "credit_note": credit_note,
         "invoice": invoice,
-        "issuer_name": _issuer_name(),
+        "issuance_statement": issuance_statement(credit_note.issuer_name, invoice.seller_name),
         "is_export": _is_export(invoice),
         "is_virtual_interim": _is_virtual_interim(invoice),
     }

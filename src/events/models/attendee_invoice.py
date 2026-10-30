@@ -308,6 +308,10 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     payment_method_label = models.CharField(max_length=100, blank=True, default="", db_default="")
     card_last4 = models.CharField(max_length=4, blank=True, default="", db_default="")
 
+    # Third-party issuer snapshot (#1258): the platform operator's legal name at issue time, printed as
+    # "Issued by ... in the name and on behalf of <seller>" and carried as BT-22. Blank on legacy rows.
+    issuer_name = models.CharField(max_length=255, blank=True, default="", db_default="")
+
     # Seller snapshot (org at time of purchase — NOT editable)
     seller_name = models.CharField(max_length=255)
     seller_vat_id = models.CharField(max_length=20, blank=True, default="")
@@ -466,6 +470,8 @@ class AttendeeInvoiceCreditNote(EmailDeliverableMixin, TimeStampedModel):
     )
 
     issued_at = models.DateTimeField(null=True, blank=True)
+    # The credit note's own issuer snapshot (#1258), taken when it is created; blank on legacy rows.
+    issuer_name = models.CharField(max_length=255, blank=True, default="", db_default="")
     pdf_file = ProtectedFileField(upload_to="invoices/attendee/credit_notes/", null=True, blank=True)
 
     class Meta:
