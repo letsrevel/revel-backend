@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import jwt
 import pytest
 from django.conf import settings
+from django.http import Http404
 from django.utils import timezone
 from ninja.errors import HttpError
 from ninja_jwt.token_blacklist.models import BlacklistedToken
@@ -539,3 +540,14 @@ class TestGuestServiceLayer:
             token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience=settings.JWT_AUDIENCE
         )
         assert not BlacklistedToken.objects.filter(token__jti=payload_decoded["jti"]).exists()
+
+    def test_confirm_guest_action_rejects_inactive_user(self, guest_event: Event, existing_guest_user: RevelUser) -> None:
+        """A deactivated account cannot complete a confirmation link."""
+        token = guest_service.create_guest_rsvp_token(existing_guest_user, guest_event.id, "yes")
+        existing_guest_user.is_active = False
+        existing_guest_user.save(update_fields=["is_active"])
+
+        with pytest.raises(Http404):
+            guest_service.confirm_guest_action(token)
+
+        assert not EventRSVP.objects.filter(user=existing_guest_user, event=guest_event).exists()

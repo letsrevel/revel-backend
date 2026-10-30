@@ -644,7 +644,7 @@ def confirm_guest_action(
     payload = validate_and_decode_guest_token(token)
 
     # Get user
-    user = get_object_or_404(RevelUser, id=payload.user_id)
+    user = get_object_or_404(RevelUser, id=payload.user_id, is_active=True)
 
     if isinstance(payload, schema.GuestRSVPJWTPayloadSchema):
         # Handle RSVP confirmation

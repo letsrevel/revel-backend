@@ -364,3 +364,12 @@ class TestValidateAndResolveBuyerCountryTimeout:
         validate_and_resolve_buyer_country("DE123456789", None, timeout=2)
 
         mock_validate.assert_called_once_with("DE123456789", timeout=2)
+
+    @patch("common.service.vies_service.validate_vat_id_cached")
+    def test_country_derived_from_normalized_vat_id(self, mock_validate: MagicMock) -> None:
+        """The country comes from the same normalized (stripped, upper-cased) ID VIES validates."""
+        mock_validate.return_value = VIESValidationResult(valid=True, name="", address="", request_identifier="")
+
+        _, _, country = validate_and_resolve_buyer_country(" de123456789", None)
+
+        assert country == "DE"
