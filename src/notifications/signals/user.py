@@ -68,7 +68,7 @@ def reset_preferences_on_guest_conversion(
     (robust: a failure is logged, never raised) so a preference problem cannot roll back or fail
     the conversion itself.
     """
-    if created or not instance.__dict__.get("_loaded_guest") or instance.guest:
+    if created or kwargs.get("raw") or not instance.__dict__.get("_loaded_guest") or instance.guest:
         return
     instance.__dict__["_loaded_guest"] = False
     transaction.on_commit(lambda: _reset_preferences(instance.pk), robust=True)

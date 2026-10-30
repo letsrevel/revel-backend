@@ -2,9 +2,9 @@
 
 Before the guest-transition hook, converting a guest to a full account left the guest-default
 overrides (every guest-default type disabled) in place. A non-guest row is treated as affected when
-EVERY guest-default key is present and semantically disabled (``enabled`` false, no channels). Those
+EVERY guest-default key is present and disabled (``enabled`` false, whatever its channels). Those
 rows get the same reset as ``notifications.service.preferences.reset_converted_guest_preferences``:
-guest-default keys that are still disabled with no channels become the regular default (or are
+guest-default keys that are still disabled become the regular default (or are
 removed), and regular-default keys the row never had are added. Everything else is untouched.
 """
 
@@ -55,7 +55,7 @@ GUEST_DEFAULT_KEYS: tuple[str, ...] = (
 
 
 def _is_guest_default(value: t.Any) -> bool:
-    return isinstance(value, dict) and not value.get("enabled", True) and not value.get("channels")
+    return isinstance(value, dict) and not value.get("enabled", True)
 
 
 def _reset(settings: t.Any) -> dict[str, t.Any] | None:

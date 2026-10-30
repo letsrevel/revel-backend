@@ -53,6 +53,19 @@ def test_converted_guest_with_empty_channels_shape_is_reset(guest_user: RevelUse
     assert _settings(guest_user) == {str(k): dict(v) for k, v in get_default_notification_type_settings().items()}
 
 
+def test_converted_guest_with_legacy_pinned_channels_is_reset(guest_user: RevelUser) -> None:
+    prefs = guest_user.notification_preferences
+    prefs.notification_type_settings = {
+        key: {"enabled": False, "channels": ["in_app", "email"]} for key in migration.GUEST_DEFAULT_KEYS
+    }
+    prefs.save()
+    _convert_without_hook(guest_user)
+
+    _run()
+
+    assert _settings(guest_user) == {str(k): dict(v) for k, v in get_default_notification_type_settings().items()}
+
+
 def test_explicit_value_on_converted_guest_is_kept(guest_user: RevelUser) -> None:
     explicit = {"enabled": True, "channels": ["email"]}
     prefs = guest_user.notification_preferences

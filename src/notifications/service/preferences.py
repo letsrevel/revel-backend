@@ -80,25 +80,26 @@ def create_default_preferences(user: RevelUser) -> tuple[NotificationPreference,
 
 
 def _is_guest_default(value: t.Any) -> bool:
-    """True for a disabled override with no channels, however it was written.
+    """True for a disabled override of a guest-default key, however it was written.
 
-    Covers both ``{"enabled": False}`` (guest creation) and ``{"enabled": False, "channels": []}``
-    (written back by the preference API and ``confirm_unsubscribe``).
+    Covers ``{"enabled": False}`` (guest creation), ``{"enabled": False, "channels": []}`` (written
+    back by the preference API and ``confirm_unsubscribe``) and legacy pre-#1030 rows that still pin
+    a ``channels`` list on a disabled entry. Channels are irrelevant while a type is disabled.
     """
-    return isinstance(value, dict) and not value.get("enabled", True) and not value.get("channels")
+    return isinstance(value, dict) and not value.get("enabled", True)
 
 
 def reset_converted_guest_preferences(user: RevelUser) -> bool:
     """Give a just-converted guest the regular notification defaults.
 
-    Guest-default overrides that are still disabled with no channels are replaced with the
+    Guest-default overrides that are still disabled are replaced with the
     regular default for that key (or removed if there is none), and regular-default keys the guest
     row never had are added. Any other value is an explicit user choice and is kept. A missing
     preferences row is created with the regular defaults.
 
-    # ponytail: a guest who explicitly disabled a guest-default type (e.g. via an unsubscribe
-    # link) is indistinguishable from the default (disabled, no channels) and gets it reset.
-    # Upgrade path: record the origin of each override.
+    # ponytail: any disabled guest-default entry is reset, so a guest who deliberately turned one
+    # of those types off (only possible via an unsubscribe link, guests can't log in) gets it back
+    # on conversion. Upgrade path: record the origin of each override.
 
     Args:
         user: The user just converted from guest to full account (``user.guest`` is False).

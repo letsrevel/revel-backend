@@ -9,6 +9,7 @@ from accounts.models import RevelUser
 from notifications.enums import NotificationType
 from notifications.models import NotificationPreference, get_default_notification_type_settings
 from notifications.service.preferences import reset_converted_guest_preferences
+from notifications.signals.user import reset_preferences_on_guest_conversion
 
 pytestmark = pytest.mark.django_db
 
@@ -97,6 +98,30 @@ def test_explicit_values_are_preserved(guest_user: RevelUser, django_capture_on_
 
     expected = {**get_default_notification_type_settings(), NotificationType.ORG_ANNOUNCEMENT: explicit}
     assert _settings(guest_user) == expected
+
+
+def test_legacy_pinned_channels_count_as_guest_default(
+    guest_user: RevelUser, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """A disabled entry that still pins a channels list (pre-#1030 shape) is reset too."""
+    prefs = NotificationPreference.objects.get(user=guest_user)
+    prefs.notification_type_settings[str(NotificationType.ORG_ANNOUNCEMENT)] = {
+        "enabled": False,
+        "channels": ["in_app", "email"],
+    }
+    prefs.save()
+
+    _convert(guest_user, django_capture_on_commit_callbacks)
+
+    assert _settings(guest_user) == get_default_notification_type_settings()
+
+
+def test_raw_save_is_ignored(guest_user: RevelUser) -> None:
+    """Fixture loading (``raw=True``) never triggers the reset."""
+    guest_user.guest = False
+    with patch("notifications.signals.user.transaction.on_commit") as on_commit:
+        reset_preferences_on_guest_conversion(sender=RevelUser, instance=guest_user, created=False, raw=True)
+        on_commit.assert_not_called()
 
 
 def test_disabled_with_empty_channels_counts_as_guest_default(
