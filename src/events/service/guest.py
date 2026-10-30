@@ -490,8 +490,7 @@ def handle_guest_ticket_checkout(
 
     # Guest checkout is unauthenticated: never write billing info into a profile, which
     # could belong to a registered account that merely shares the typed email.
-    if billing_info and billing_info.save_to_profile:
-        billing_info = billing_info.model_copy(update={"save_to_profile": False})
+    billing_info = billing_info.model_copy(update={"save_to_profile": False}) if billing_info else None
 
     # Run the VIES round-trip HERE, before any row lock is taken: claim_invitation_link
     # below locks the EventToken row for the rest of the request (ATOMIC_REQUESTS — the

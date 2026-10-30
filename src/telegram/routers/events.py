@@ -76,7 +76,8 @@ async def cb_handle_rsvp(callback: CallbackQuery, user: RevelUser, tg_user: Tele
 
         # For other ineligibility cases, show a generic message
         await callback.message.answer(
-            f"❌ Sorry, you are not eligible to RSVP for <b>{escape(event.name)}</b>.\n\nReason: {e.eligibility.reason}",
+            f"❌ Sorry, you are not eligible to RSVP for <b>{escape(event.name)}</b>.\n\n"
+            f"Reason: {e.eligibility.reason}",
             parse_mode="HTML",
         )
         await callback.answer()
@@ -204,7 +205,9 @@ async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_u
         await sync_to_async(enqueue_waitlist_processing)(event.id)
 
         if created:
-            await callback.message.answer(f"✅ You are on the waitlist for <b>{escape(event.name)}</b>!", parse_mode="HTML")
+            await callback.message.answer(
+                f"✅ You are on the waitlist for <b>{escape(event.name)}</b>!", parse_mode="HTML"
+            )
         else:
             await callback.message.answer(
                 f"ℹ️ You are already on the waitlist for <b>{escape(event.name)}</b>!", parse_mode="HTML"

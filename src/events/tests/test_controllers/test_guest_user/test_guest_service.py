@@ -378,7 +378,7 @@ class TestGuestServiceLayer:
         self, guest_event_with_tickets: Event, online_tier: TicketTier
     ) -> None:
         """Guest checkout is unauthenticated, so billing info is never persisted to a profile."""
-        billing = schema.BuyerBillingInfoSchema(billing_name="Buyer", save_to_profile=True)
+        billing = schema.BuyerBillingInfoSchema.model_validate({"billing_name": "Buyer", "save_to_profile": True})
         group = CartGroup(tier=online_tier, items=[schema.TicketPurchaseItem(guest_name="G")])
 
         with (
@@ -541,7 +541,9 @@ class TestGuestServiceLayer:
         )
         assert not BlacklistedToken.objects.filter(token__jti=payload_decoded["jti"]).exists()
 
-    def test_confirm_guest_action_rejects_inactive_user(self, guest_event: Event, existing_guest_user: RevelUser) -> None:
+    def test_confirm_guest_action_rejects_inactive_user(
+        self, guest_event: Event, existing_guest_user: RevelUser
+    ) -> None:
         """A deactivated account cannot complete a confirmation link."""
         token = guest_service.create_guest_rsvp_token(existing_guest_user, guest_event.id, "yes")
         existing_guest_user.is_active = False

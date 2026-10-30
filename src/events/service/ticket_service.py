@@ -317,9 +317,7 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
     # available early enough that the eligibility/RSVP returns below can report the event
     # budget too — the shape a first-time buyer gets otherwise carries no limits at all (#901).
     # Held statuses (PENDING, ACTIVE, CHECKED_IN), matching the layered-cap contract in BatchTicketService.
-    user_ticket_counts: dict[UUID, int] = Counter(
-        tk.tier_id for tk in tickets if tk.status in Ticket.HELD_STATUSES
-    )
+    user_ticket_counts: dict[UUID, int] = Counter(tk.tier_id for tk in tickets if tk.status in Ticket.HELD_STATUSES)
     user_event_count = sum(user_ticket_counts.values())  # cart-wide, invariant across tiers
     event_cap = event.max_tickets_per_user
     event_remaining = max(0, event_cap - user_event_count) if event_cap is not None else None

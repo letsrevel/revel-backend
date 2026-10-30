@@ -334,10 +334,10 @@ def test_strip_exif_removes_tiff_xmp_iptc_photoshop_tags() -> None:
     buf = BytesIO()
     src.save(buf, format="TIFF", tiffinfo=ifd)
     buf.seek(0)
-    assert 700 in Image.open(BytesIO(buf.getvalue())).tag_v2
+    assert 700 in t.cast(t.Any, Image.open(BytesIO(buf.getvalue()))).tag_v2
     upload = InMemoryUploadedFile(buf, "image", "a.tif", "image/tiff", len(buf.getvalue()), None)
 
     stripped = strip_exif(upload)
 
-    tags = Image.open(BytesIO(stripped.read())).tag_v2
+    tags = t.cast(t.Any, Image.open(BytesIO(stripped.read()))).tag_v2
     assert not {700, 33723, 34377} & set(tags.keys())

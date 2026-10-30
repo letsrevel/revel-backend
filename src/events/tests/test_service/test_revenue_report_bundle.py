@@ -392,7 +392,9 @@ def test_membership_and_skipped_sheets_neutralise_formula_cells(
         resolved_at=None,
         external_reference="",
     )
-    data = dataclasses.replace(membership_report_data, membership_payments=[row], skipped_documents=[doc])
+    data = dataclasses.replace(
+        membership_report_data, membership_payments=[row], skipped_documents=[t.cast(t.Any, doc)]
+    )
 
     wb = load_workbook(io.BytesIO(svc.build_xlsx(data)))
 
