@@ -79,7 +79,7 @@ def create_default_preferences(user: RevelUser) -> tuple[NotificationPreference,
     )
 
 
-def _is_guest_default(value: t.Any) -> bool:
+def is_disabled_entry(value: t.Any) -> bool:
     """True for a disabled override of a guest-default key, however it was written.
 
     Covers ``{"enabled": False}`` (guest creation), ``{"enabled": False, "channels": []}`` (written
@@ -92,10 +92,15 @@ def _is_guest_default(value: t.Any) -> bool:
 def reset_converted_guest_preferences(user: RevelUser) -> bool:
     """Give a just-converted guest the regular notification defaults.
 
-    Guest-default overrides that are still disabled are replaced with the
-    regular default for that key (or removed if there is none), and regular-default keys the guest
+    Any disabled guest-default entry (``{"enabled": False}`` or one that still lists channels) is
+    replaced with the regular default for that key (or removed if there is none), and regular-default keys the guest
     row never had are added. Any other value is an explicit user choice and is kept. A missing
     preferences row is created with the regular defaults.
+
+    The runtime rule (any disabled guest-default key) is broader than the
+    ``reset_converted_guest_prefs`` backfill command because at conversion time the
+    values are known to be guest-written; the backfill only sees rows of unknown history and so
+    resets just the original keys.
 
     # ponytail: any disabled guest-default entry is reset, so a guest who deliberately turned one
     # of those types off (only possible via an unsubscribe link, guests can't log in) gets it back
@@ -113,10 +118,10 @@ def reset_converted_guest_preferences(user: RevelUser) -> bool:
             create_default_preferences(user)
             return True
         regular_defaults = get_default_notification_type_settings()
-        current = dict(prefs.notification_type_settings)
+        current = dict(prefs.notification_type_settings) if isinstance(prefs.notification_type_settings, dict) else {}
         updated = dict(current)
         for key in get_guest_notification_type_settings():
-            if _is_guest_default(updated.get(key)):
+            if is_disabled_entry(updated.get(key)):
                 if key in regular_defaults:
                     updated[key] = regular_defaults[key]
                 else:

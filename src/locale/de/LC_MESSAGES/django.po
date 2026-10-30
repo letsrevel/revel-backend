@@ -7103,3 +7103,18 @@ msgstr "Warnung: in Prüfung"
 
 msgid "Won"
 msgstr "Gewonnen"
+
+msgid "Convert guest to full account"
+msgstr "Gast in vollwertiges Konto umwandeln"
+
+#, python-format
+msgid "Converted %d guest to a full account."
+msgid_plural "Converted %d guests to full accounts."
+msgstr[0] "%d Gast in ein vollwertiges Konto umgewandelt."
+msgstr[1] "%d Gäste in vollwertige Konten umgewandelt."
+
+#, python-format
+msgid "Skipped %d globally banned guest."
+msgid_plural "Skipped %d globally banned guests."
+msgstr[0] "%d gesperrter Gast übersprungen."
+msgstr[1] "%d gesperrte Gäste übersprungen."

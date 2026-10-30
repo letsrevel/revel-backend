@@ -285,8 +285,9 @@ def create_invite(
 def enroll_on_signup(user: RevelUser) -> ReferralCode | None:
     """Enroll a user who holds an APPROVED, not-yet-enrolled application.
 
-    Called from the ``post_save`` receiver for non-guest account creation and from the two
-    guest-to-full-user conversions (password reset, OIDC login). Needs an open transaction.
+    Called from the ``post_save`` receiver for non-guest account creation and for every
+    guest-to-full-user conversion through ``convert_guest`` (password reset, OIDC login and the
+    Django admin). Needs an open transaction.
     """
     application = (
         ReferralApplication.objects.select_for_update()

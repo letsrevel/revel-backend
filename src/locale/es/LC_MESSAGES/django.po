@@ -7013,3 +7013,18 @@ msgstr "Aviso: en revisión"
 
 msgid "Won"
 msgstr "Ganada"
+
+msgid "Convert guest to full account"
+msgstr "Convertir invitado en cuenta completa"
+
+#, python-format
+msgid "Converted %d guest to a full account."
+msgid_plural "Converted %d guests to full accounts."
+msgstr[0] "%d invitado convertido en cuenta completa."
+msgstr[1] "%d invitados convertidos en cuentas completas."
+
+#, python-format
+msgid "Skipped %d globally banned guest."
+msgid_plural "Skipped %d globally banned guests."
+msgstr[0] "%d invitado bloqueado omitido."
+msgstr[1] "%d invitados bloqueados omitidos."

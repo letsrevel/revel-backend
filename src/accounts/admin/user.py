@@ -37,7 +37,8 @@ from accounts.models import (
     UserDataExport,
     UserDietaryPreference,
 )
-from accounts.service.account import request_password_reset, send_verification_email_for_user
+from accounts.service.account import convert_guest, request_password_reset, send_verification_email_for_user
+from accounts.service.global_ban_service import is_email_globally_banned
 from accounts.service.impersonation import can_impersonate, create_impersonation_request
 from accounts.utils.email_normalization import normalize_email_for_matching
 from common.client_ip import get_client_ip
@@ -162,6 +163,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     # Detail view configuration
     readonly_fields = [
         "id",
+        "guest",  # changed only through the "Convert guest" action (convert_guest)
         "date_joined",
         "last_login",
         "display_name_display",
@@ -265,7 +267,40 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         "send_password_reset_email",
         "ban_selected_users",
         "clear_stripe_connect_account",
+        "convert_guests",
     ]
+
+    @admin.action(description=_("Convert guest to full account"), permissions=["change"])
+    def convert_guests(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
+        """Convert the selected guests through :func:`convert_guest` (non-guests are skipped).
+
+        Marks the email verified and enrols referrals, so staff must only run this when ownership
+        of the email is established. Globally banned guests are skipped and reported.
+        """
+        converted = 0
+        banned = 0
+        for guest in queryset.filter(guest=True):
+            if is_email_globally_banned(guest.email):
+                banned += 1
+            elif convert_guest(guest):
+                converted += 1
+        self.message_user(
+            request,
+            ngettext("Converted %d guest to a full account.", "Converted %d guests to full accounts.", converted)
+            % converted,
+            messages.SUCCESS if converted else messages.WARNING,
+        )
+        if banned:
+            self.message_user(
+                request,
+                ngettext(
+                    "Skipped %d globally banned guest.",
+                    "Skipped %d globally banned guests.",
+                    banned,
+                )
+                % banned,
+                messages.WARNING,
+            )
 
     @admin.action(description="Clear stale Stripe Connect account (superuser only)")
     def clear_stripe_connect_account(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:

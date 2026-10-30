@@ -85,6 +85,19 @@ def test_guest_user_is_upgraded(guest_user: RevelUser) -> None:
     assert result.external_identities.count() == 1
 
 
+def test_guest_deactivated_during_conversion_is_refused_without_identity(guest_user: RevelUser) -> None:
+    def deactivated(user: RevelUser, **kwargs: t.Any) -> bool:
+        user.is_active = False  # what the no-op path copies back after a concurrent deactivation
+        return False
+
+    with patch("accounts.service.account.convert_guest", side_effect=deactivated):
+        with pytest.raises(OIDCLoginError) as exc:
+            oidc._resolve_user(GOOGLE, claims(email=guest_user.email))
+
+    assert exc.value.code == "inactive"
+    assert not ExternalIdentity.objects.filter(user=guest_user).exists()
+
+
 def test_inactive_non_guest_refused(inactive_user: RevelUser) -> None:
     with pytest.raises(OIDCLoginError) as exc:
         oidc._resolve_user(GOOGLE, claims(email=inactive_user.email))
@@ -268,14 +281,11 @@ def test_guest_upgrade_enrolls_an_approved_referral_invite(guest_user: RevelUser
     assert ReferralCode.objects.get(user=guest_user).code == "oidccode"
 
 
-def test_guest_upgrade_clears_guest_notification_defaults(
-    guest_user: RevelUser, django_capture_on_commit_callbacks: t.Any
-) -> None:
+def test_guest_upgrade_clears_guest_notification_defaults(guest_user: RevelUser) -> None:
     """OIDC guest upgrade removes the guest-default notification overrides (#1248)."""
     assert guest_user.notification_preferences.notification_type_settings != get_default_notification_type_settings()
 
-    with django_capture_on_commit_callbacks(execute=True):
-        oidc._resolve_user(GOOGLE, claims(email=guest_user.email))
+    oidc._resolve_user(GOOGLE, claims(email=guest_user.email))
 
     guest_user.notification_preferences.refresh_from_db()
     assert guest_user.notification_preferences.notification_type_settings == get_default_notification_type_settings()
