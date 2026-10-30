@@ -1,16 +1,15 @@
 """Admin classes for membership subscription models."""
 
 from django.contrib import admin
-from simple_history.admin import SimpleHistoryAdmin
 from unfold.admin import ModelAdmin
 
-from common.admin import HistoryRevertRequiresChangeMixin
+from common.admin import GuardedHistoryAdmin
 from events import models
 from events.admin.base import OrganizationLinkMixin, UserLinkMixin
 
 
 @admin.register(models.MembershipSubscriptionPlan)
-class MembershipSubscriptionPlanAdmin(HistoryRevertRequiresChangeMixin, SimpleHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+class MembershipSubscriptionPlanAdmin(GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
     """Admin for MembershipSubscriptionPlan."""
 
     list_display = [
@@ -33,9 +32,7 @@ class MembershipSubscriptionPlanAdmin(HistoryRevertRequiresChangeMixin, SimpleHi
 
 
 @admin.register(models.MembershipSubscription)
-class MembershipSubscriptionAdmin(
-    HistoryRevertRequiresChangeMixin, SimpleHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin
-):  # type: ignore[misc]
+class MembershipSubscriptionAdmin(GuardedHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for MembershipSubscription.
 
     Lifecycle fields (``status``, ``cancelled_at``, ``current_period_*``) are
@@ -79,7 +76,7 @@ class MembershipSubscriptionAdmin(
 
 
 @admin.register(models.MembershipPayment)
-class MembershipPaymentAdmin(HistoryRevertRequiresChangeMixin, SimpleHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+class MembershipPaymentAdmin(GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
     """Admin for MembershipPayment.
 
     ``status`` and the period fields are readonly to keep refunds and
@@ -118,9 +115,7 @@ class MembershipPaymentAdmin(HistoryRevertRequiresChangeMixin, SimpleHistoryAdmi
 
 
 @admin.register(models.CustomerProfile)
-class CustomerProfileAdmin(
-    HistoryRevertRequiresChangeMixin, SimpleHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin
-):  # type: ignore[misc]
+class CustomerProfileAdmin(GuardedHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for the per-(user, organization) Stripe Customer reference."""
 
     list_display = ["__str__", "user_link", "organization_link", "stripe_customer_id", "created_at"]

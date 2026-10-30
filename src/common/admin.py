@@ -29,6 +29,10 @@ class HistoryRevertRequiresChangeMixin:
         return super().history_form_view(request, object_id, version_id, extra_context)  # type: ignore[misc]
 
 
+class GuardedHistoryAdmin(HistoryRevertRequiresChangeMixin, SimpleHistoryAdmin):  # type: ignore[misc]
+    """``SimpleHistoryAdmin`` whose revert POST requires change permission."""
+
+
 class UploaderLinkMixin:
     """Mixin to add a link to an uploader.
 
@@ -59,7 +63,7 @@ class UploaderLinkMixin:
 
 
 @admin.register(models.Legal)
-class LegalAdmin(HistoryRevertRequiresChangeMixin, SingletonModelAdmin, SimpleHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+class LegalAdmin(SingletonModelAdmin, GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
     # Solo's template would shadow simple_history's; restore the browsable history view.
     object_history_template = "simple_history/object_history.html"
     list_display = ["__str__", "updated_at"]
@@ -68,7 +72,7 @@ class LegalAdmin(HistoryRevertRequiresChangeMixin, SingletonModelAdmin, SimpleHi
 
 
 @admin.register(models.SiteSettings)
-class SiteSettingsAdmin(HistoryRevertRequiresChangeMixin, SingletonModelAdmin, SimpleHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+class SiteSettingsAdmin(SingletonModelAdmin, GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
     object_history_template = "simple_history/object_history.html"
     list_display = [
         "__str__",
