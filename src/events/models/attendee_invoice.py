@@ -8,12 +8,16 @@ as an intermediary generating and delivering invoices.
 import enum
 import typing as t
 from decimal import Decimal, InvalidOperation
+from uuid import UUID
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Value
 
 from common.fields import ProtectedFileField
 from common.models import EmailDeliverableMixin, TimeStampedModel
+from common.postal_address import PostalAddress
+from events.utils.vat_category import EXEMPT_FALLBACK_TEXT, VatCategory
 
 
 class VatIdStatus(enum.StrEnum):
@@ -46,6 +50,13 @@ class BuyerBillingSnapshot(t.TypedDict):
     billing_address: str
     billing_email: str
     reverse_charge: bool
+    # Structured buyer address; absent on snapshots written before it existed.
+    billing_address_line1: t.NotRequired[str]
+    billing_address_line2: t.NotRequired[str]
+    billing_postal_code: t.NotRequired[str]
+    billing_city: t.NotRequired[str]
+    billing_subdivision: t.NotRequired[str]
+    billing_country_code: t.NotRequired[str]
 
 
 class InvoiceLineItemDict(t.TypedDict):
@@ -57,6 +68,15 @@ class InvoiceLineItemDict(t.TypedDict):
     net_amount: str
     vat_amount: str
     vat_rate: str
+    # EN 16931 category (VatCategory value); absent on lines stored before it existed.
+    vat_category: t.NotRequired[str]
+    # Provenance snapshotted at generation (#1242, #1250); absent on lines stored before it existed
+    # and on lines an organizer added to a DRAFT. ``payment_id`` is the Payment the line charges,
+    # ``tier_id`` the ticket's tier (absent when the ticket had none).
+    payment_id: t.NotRequired[str]
+    tier_id: t.NotRequired[str]
+    # Server-issued stable identity of the line; a DRAFT edit echoes it to keep the line's provenance.
+    line_id: t.NotRequired[str]
 
 
 class SubmittedLineItem(t.TypedDict, total=False):
@@ -72,6 +92,9 @@ class SubmittedLineItem(t.TypedDict, total=False):
     net_amount: Decimal
     vat_amount: Decimal
     vat_rate: Decimal
+    vat_category: t.NotRequired[str]
+    # Echoed back by the client; only honoured when it names a stored line (see _carry_provenance).
+    line_id: t.NotRequired[UUID | str | None]
 
 
 class DerivedTotals(t.TypedDict):
@@ -177,6 +200,20 @@ class AttendeeInvoiceStatus(models.TextChoices):
     CANCELLED = "cancelled"
 
 
+class TotalsMethod(models.TextChoices):
+    """How a document's header totals were derived from its lines (#1234).
+
+    ``LEGACY`` sums the per-ticket checkout figures; ``EN16931`` computes VAT per
+    ``(category, rate)`` group and books any unreachable cent as ``rounding_amount``
+    (BT-114). The column default keeps every pre-existing row legacy, byte for byte;
+    generation stamps new rows ``EN16931`` explicitly. Module-level under a
+    collision-free name for the same OpenAPI reason as :class:`AttendeeInvoiceStatus`.
+    """
+
+    LEGACY = "legacy", "Legacy"
+    EN16931 = "en16931", "EN 16931"
+
+
 class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     """Invoice issued to an attendee on behalf of an organizer.
 
@@ -228,6 +265,11 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     total_gross = models.DecimalField(max_digits=10, decimal_places=2)
     total_net = models.DecimalField(max_digits=10, decimal_places=2)
     total_vat = models.DecimalField(max_digits=10, decimal_places=2)
+    # EN 16931 BT-114: total_net + total_vat + rounding_amount == total_gross (#1234).
+    rounding_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, db_default=0)
+    totals_method = models.CharField(
+        max_length=10, choices=TotalsMethod.choices, default=TotalsMethod.LEGACY, db_default=TotalsMethod.LEGACY
+    )
     # A snapshot of the FIRST payment's rate, not an invoice-wide fact: a
     # multi-tier cart (#846) mixes rates and this column names only one of them.
     # Consult ``has_mixed_vat_rates`` before rendering it; ``vat_breakdown`` has
@@ -254,12 +296,28 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     # unit_price_gross is the amount actually charged, post-discount (net + vat);
     # discount_amount is informational only.
     line_items = models.JSONField(default=list, blank=True)
+    # EN 16931 exemption texts keyed by VAT category ({"E": {"text", "code"}, ...}), derived from the
+    # lines at generation and on DRAFT line edits. Empty on invoices issued before it existed.
+    vat_exemptions = models.JSONField(default=dict, blank=True, db_default=Value({}, output_field=models.JSONField()))
+    # BT-72 / BG-14: event start date (and end date for multi-day events) in the event's timezone.
+    supply_date = models.DateField(null=True, blank=True)
+    supply_period_end = models.DateField(null=True, blank=True)
+    # BT-81 / BT-82 / BG-18 snapshot from the Stripe charge at generation. Blank on legacy invoices.
+    payment_means_code = models.CharField(max_length=3, blank=True, default="", db_default="")
+    payment_method_label = models.CharField(max_length=100, blank=True, default="", db_default="")
+    card_last4 = models.CharField(max_length=4, blank=True, default="", db_default="")
 
     # Seller snapshot (org at time of purchase — NOT editable)
     seller_name = models.CharField(max_length=255)
     seller_vat_id = models.CharField(max_length=20, blank=True, default="")
     seller_vat_country = models.CharField(max_length=2, blank=True, default="")
     seller_address = models.TextField(blank=True, default="")
+    seller_address_line1 = models.CharField(max_length=255, blank=True, default="", db_default="")
+    seller_address_line2 = models.CharField(max_length=255, blank=True, default="", db_default="")
+    seller_postal_code = models.CharField(max_length=20, blank=True, default="", db_default="")
+    seller_city = models.CharField(max_length=100, blank=True, default="", db_default="")
+    seller_subdivision = models.CharField(max_length=100, blank=True, default="", db_default="")
+    seller_country_code = models.CharField(max_length=2, blank=True, default="", db_default="")
     seller_email = models.EmailField(blank=True, default="")
 
     # Buyer snapshot (editable in DRAFT)
@@ -267,6 +325,12 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     buyer_vat_id = models.CharField(max_length=20, blank=True, default="")
     buyer_vat_country = models.CharField(max_length=2, blank=True, default="")
     buyer_address = models.TextField(blank=True, default="")
+    buyer_address_line1 = models.CharField(max_length=255, blank=True, default="", db_default="")
+    buyer_address_line2 = models.CharField(max_length=255, blank=True, default="", db_default="")
+    buyer_postal_code = models.CharField(max_length=20, blank=True, default="", db_default="")
+    buyer_city = models.CharField(max_length=100, blank=True, default="", db_default="")
+    buyer_subdivision = models.CharField(max_length=100, blank=True, default="", db_default="")
+    buyer_country_code = models.CharField(max_length=2, blank=True, default="", db_default="")
     buyer_email = models.EmailField(blank=True, default="")
 
     issued_at = models.DateTimeField(null=True, blank=True)
@@ -285,6 +349,37 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
             models.Index(fields=["user", "created_at"]),
         ]
 
+    def _postal_address(self, side: t.Literal["seller", "buyer"]) -> PostalAddress:
+        return PostalAddress.from_fields(self, f"{side}_")
+
+    @staticmethod
+    def _lines(address: PostalAddress, legacy: str) -> list[str]:
+        legacy_lines = [line.strip() for line in legacy.splitlines() if line.strip()]
+        # A country-only address (e.g. VAT-country fallback) must not shadow the full legacy text.
+        if address.line1 or (not address.is_empty and not legacy_lines):
+            return address.display_lines()
+        return legacy_lines
+
+    @property
+    def seller_postal_address(self) -> PostalAddress:
+        """The seller's structured address as snapshotted on the invoice."""
+        return self._postal_address("seller")
+
+    @property
+    def buyer_postal_address(self) -> PostalAddress:
+        """The buyer's structured address as snapshotted on the invoice."""
+        return self._postal_address("buyer")
+
+    @property
+    def seller_address_lines(self) -> list[str]:
+        """Printable seller address lines; the legacy text address for pre-structured invoices."""
+        return self._lines(self.seller_postal_address, self.seller_address)
+
+    @property
+    def buyer_address_lines(self) -> list[str]:
+        """Printable buyer address lines; the legacy text address for pre-structured invoices."""
+        return self._lines(self.buyer_postal_address, self.buyer_address)
+
     @property
     def vat_breakdown(self) -> list[InvoiceVatBucketDict]:
         """Line items grouped by VAT rate, ascending by rate.
@@ -299,6 +394,21 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
         breakdown would go stale on exactly those rows.
         """
         return vat_breakdown_of(self.line_items)
+
+    @property
+    def exempt_reason_text(self) -> str:
+        """The VAT exemption reason printed for exempt (category E) lines, or ``""`` when none."""
+        return str((self.vat_exemptions or {}).get("E", {}).get("text", ""))
+
+    @property
+    def out_of_scope_text(self) -> str:
+        """The notice printed for out-of-scope (category O) lines, or ``""`` when none."""
+        return str((self.vat_exemptions or {}).get("O", {}).get("text", ""))
+
+    @property
+    def exempt_reason_is_fallback(self) -> bool:
+        """Whether the exempt text is the generic fallback rather than a stated reason."""
+        return self.exempt_reason_text == EXEMPT_FALLBACK_TEXT
 
     @property
     def has_mixed_vat_rates(self) -> bool:
@@ -328,6 +438,11 @@ class AttendeeInvoiceCreditNote(EmailDeliverableMixin, TimeStampedModel):
     amount_gross = models.DecimalField(max_digits=10, decimal_places=2)
     amount_net = models.DecimalField(max_digits=10, decimal_places=2)
     amount_vat = models.DecimalField(max_digits=10, decimal_places=2)
+    # The credit note's own BT-114 and method, independent of the invoice's (#1234).
+    rounding_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, db_default=0)
+    totals_method = models.CharField(
+        max_length=10, choices=TotalsMethod.choices, default=TotalsMethod.LEGACY, db_default=TotalsMethod.LEGACY
+    )
 
     line_items = models.JSONField(default=list, blank=True)
     payments = models.ManyToManyField(
@@ -347,6 +462,16 @@ class AttendeeInvoiceCreditNote(EmailDeliverableMixin, TimeStampedModel):
 
     class Meta:
         ordering = ["-created_at"]
+
+    @property
+    def has_exempt_lines(self) -> bool:
+        """Whether any credited line is VAT-exempt (category E), i.e. the exempt notice applies."""
+        return any(item.get("vat_category") == VatCategory.EXEMPT for item in self.line_items)
+
+    @property
+    def has_out_of_scope_lines(self) -> bool:
+        """Whether any credited line is out of EU VAT scope (category O), i.e. the O notice applies."""
+        return any(item.get("vat_category") == VatCategory.OUT_OF_SCOPE for item in self.line_items)
 
     def __str__(self) -> str:
         return f"{self.credit_note_number} (for {self.invoice.invoice_number})"

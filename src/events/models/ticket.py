@@ -430,6 +430,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text="VAT rate override for this tier. If null, uses organization's default vat_rate.",
     )
+    vat_exemption_reason = models.CharField(max_length=255, blank=True, default="", db_default="")
 
     display_order = models.PositiveIntegerField(default=0, db_index=True)
 

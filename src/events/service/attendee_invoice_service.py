@@ -4,7 +4,7 @@ Handles the full lifecycle of attendee invoices issued on behalf of organizers.
 """
 
 import typing as t
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from email.utils import formataddr, parseaddr
 
 import structlog
@@ -17,6 +17,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from common.constants import EU_MEMBER_STATES
+from common.postal_address import PostalAddress
 from common.service.invoice_utils import get_next_sequential_number, render_pdf
 from common.utils import apex_email_domain, is_reserved_mailbox
 from events.compliance import BuyerContext, Decision
@@ -27,12 +28,33 @@ from events.models.attendee_invoice import (
     AttendeeInvoiceCreditNote,
     BuyerBillingSnapshot,
     InvoiceLineItemDict,
+    TotalsMethod,
 )
 from events.models.organization import Organization
 from events.models.refund import Refund
 from events.models.skipped_fiscal_document import SkippedFiscalDocument
 from events.models.ticket import Payment
 from events.service import skipped_fiscal_document_service
+from events.service.attendee_invoice_lines import (
+    _build_line_items,
+    _exempt_reasons,
+)
+from events.service.attendee_vat_service import invoice_out_of_scope, out_of_scope_for
+from events.service.credit_note_lines import credit_lines_for_payments, credit_lines_for_refunds
+from events.service.credit_note_totals import credit_note_totals
+from events.service.einvoice_service import facturx_pdf_for
+from events.service.en16931_totals_service import compute_en16931_totals
+from events.service.payment_means_service import fetch_payment_means
+from events.service.zero_rate_guard_service import (
+    raise_if_zero_rate_tiers_missing_reason,
+    zero_rate_tiers_missing_reason,
+)
+from events.utils.billing_address import snapshot_buyer_postal_address
+from events.utils.supply_date import supply_dates_for
+from events.utils.vat_category import (
+    VatCategory,
+    build_vat_exemptions,
+)
 from notifications.service.org_sender import org_reply_to
 
 if t.TYPE_CHECKING:
@@ -46,8 +68,40 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def validate_invoicing_prerequisites(org: Organization) -> None:
+def einvoice_missing_fields(org: Organization) -> list[str]:
+    """Return the organization fields still missing for compliant e-invoicing.
+
+    Covers the structured address, then the legal name and a VIES-validated VAT ID.
+
+    Returns:
+        Organization field names (e.g. ``"billing_city"``), in a stable order; ``"vat_id"``
+        stands for "VAT ID not VIES-validated" and ``"vat_exemption_reason"`` for a 0% default
+        rate without an exemption reason.
+    """
+    missing = [
+        f"billing_{PostalAddress.FIELD_SUFFIXES[name]}" for name in org.billing_postal_address().missing_fields()
+    ]
+    if not org.billing_name:
+        missing.append("billing_name")
+    if not org.vat_id_validated:
+        missing.append("vat_id")
+    if zero_rate_tiers_missing_reason(org):
+        missing.append("vat_exemption_reason")
+    return missing
+
+
+def validate_invoicing_prerequisites(
+    org: Organization, *, require_structured_address: bool = True, require_zero_rate_reasons: bool = True
+) -> None:
     """Validate that an organization meets all requirements for attendee invoicing.
+
+    Args:
+        org: The organization.
+        require_structured_address: Whether the structured billing address is required. Only turning
+            invoicing on needs it; an org that already invoices may keep a legacy text address.
+        require_zero_rate_reasons: Whether a paid online 0% tier without an exemption reason is refused.
+            Like the address, only turning invoicing on needs it; later edits are guarded where tiers
+            and the org default change.
 
     Raises:
         HttpError 422: If any prerequisite is not met.
@@ -63,11 +117,14 @@ def validate_invoicing_prerequisites(org: Organization) -> None:
     if not org.billing_name:
         missing.append(str(_("Billing name (legal entity name) is required")))
 
-    if not org.billing_address:
-        missing.append(str(_("Billing address is required")))
+    if require_structured_address and not org.billing_postal_address().is_complete:
+        missing.append(str(_("Billing address (street, postal code, city and country) is required")))
 
     if missing:
         raise HttpError(422, "; ".join(missing))
+
+    if require_zero_rate_reasons:
+        raise_if_zero_rate_tiers_missing_reason(org)
 
 
 def set_invoicing_mode(org: Organization, mode: Organization.InvoicingMode) -> Organization:
@@ -82,7 +139,10 @@ def set_invoicing_mode(org: Organization, mode: Organization.InvoicingMode) -> O
     """
     if mode != Organization.InvoicingMode.NONE:
         compliance.assert_attendee_invoicing_allowed(org)
-        validate_invoicing_prerequisites(org)
+        turning_on = org.invoicing_mode == Organization.InvoicingMode.NONE
+        validate_invoicing_prerequisites(
+            org, require_structured_address=turning_on, require_zero_rate_reasons=turning_on
+        )
 
     org.invoicing_mode = mode
     org.save(update_fields=["invoicing_mode", "updated_at"])
@@ -92,61 +152,6 @@ def set_invoicing_mode(org: Organization, mode: Organization.InvoicingMode) -> O
 # ---------------------------------------------------------------------------
 # Phase 4: Invoice generation
 # ---------------------------------------------------------------------------
-
-
-def _build_line_items(payments: list[Payment]) -> list[InvoiceLineItemDict]:
-    """Build line item dicts from Payment records."""
-    items: list[InvoiceLineItemDict] = []
-    for payment in payments:
-        ticket = payment.ticket
-        event_name = ticket.event.name if ticket.event else "Unknown Event"
-        tier_name = ticket.tier.name if ticket.tier else "Unknown Tier"
-        # A blank holder name is legal since #845 — skip the segment rather than
-        # leave a trailing separator on the invoice line.
-        description = " — ".join(part for part in (event_name, tier_name, ticket.guest_name.strip()) if part)
-        items.append(
-            InvoiceLineItemDict(
-                description=description,
-                unit_price_gross=str(payment.amount),
-                discount_amount=str(ticket.discount_amount or Decimal("0.00")),
-                net_amount=str(payment.net_amount or payment.amount),
-                vat_amount=str(payment.vat_amount or Decimal("0.00")),
-                vat_rate=str(payment.vat_rate or Decimal("0.00")),
-            )
-        )
-    return items
-
-
-def _refund_vat_portion(row: Refund) -> Decimal:
-    """Pro-rate a refund row's VAT using its payment's VAT ratio, half-up to cents."""
-    payment = row.payment
-    if not payment.vat_amount or not payment.amount:
-        return Decimal("0.00")
-    return (row.amount * payment.vat_amount / payment.amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-
-def _build_refund_line_items(refund_rows: list[Refund]) -> list[InvoiceLineItemDict]:
-    """Build line item dicts from Refund rows (amount-aware, pro-rata VAT)."""
-    items: list[InvoiceLineItemDict] = []
-    for row in refund_rows:
-        payment = row.payment
-        ticket = payment.ticket
-        event_name = ticket.event.name if ticket.event else "Unknown Event"
-        tier_name = ticket.tier.name if ticket.tier else "Unknown Tier"
-        description = " — ".join(part for part in (event_name, tier_name, ticket.guest_name.strip()) if part)
-        label = "Partial refund" if row.amount < payment.amount else "Refund"
-        vat_amount = _refund_vat_portion(row)
-        items.append(
-            InvoiceLineItemDict(
-                description=f"{label} — {description}",
-                unit_price_gross=str(row.amount),
-                discount_amount=str(Decimal("0.00")),
-                net_amount=str(row.amount - vat_amount),
-                vat_amount=str(vat_amount),
-                vat_rate=str(payment.vat_rate or Decimal("0.00")),
-            )
-        )
-    return items
 
 
 def _sanitize_org_slug(org: Organization, max_len: int) -> str:
@@ -219,14 +224,19 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
         return None
 
     event = first_payment.ticket.event
+    # Reverse charge: use the authoritative decision from checkout, not re-inferred
+    reverse_charge = bool(billing_snapshot.get("reverse_charge", False))
     # The buyer (VAT-ID prefix + checkout VIES outcome) decides the BE/PL domestic-B2B case.
     buyer = BuyerContext.from_billing_snapshot(billing_snapshot)
+    out_of_scope = out_of_scope_for(event, org.vat_country_code, billing_snapshot.get("vat_country_code", ""))
     decision = compliance.attendee_invoicing_for_sale(compliance.sale_nexus(org, [event]), buyer)
     if not decision.allowed:
         # Defense in depth for orgs that enabled invoicing before the gate, moved
         # country, or sell into a restricted country (EU layer 1, #1057-#1067).
         # Recorded so the organizer knows to issue it from its own system (#1091).
-        skipped_fiscal_document_service.record_skipped_invoice(payments, _build_line_items(payments), decision)
+        skipped_fiscal_document_service.record_skipped_invoice(
+            payments, _build_line_items(payments, reverse_charge, out_of_scope), decision
+        )
         logger.warning("attendee_invoice_skipped_country_compliance", org_slug=org.slug, session_id=stripe_session_id)
         return None
 
@@ -237,24 +247,28 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
         else AttendeeInvoice.InvoiceStatus.DRAFT
     )
 
-    line_items = _build_line_items(payments)
+    line_items = _build_line_items(payments, reverse_charge, out_of_scope)
+    vat_exemptions = build_vat_exemptions(
+        (VatCategory(item["vat_category"]) for item in line_items), _exempt_reasons(payments, line_items, org)
+    )
 
-    # Aggregate totals from payments
-    total_gross = sum(p.amount for p in payments)
-    total_net = sum(p.net_amount or p.amount for p in payments)
-    total_vat = sum(p.vat_amount or Decimal("0.00") for p in payments)
+    supply_date, supply_period_end = supply_dates_for(event)
+
+    # EN 16931 totals (#1234): VAT per (category, rate) group from the charged gross; the
+    # per-ticket checkout figures on the lines are rebalanced, the gross is never changed.
+    totals = compute_en16931_totals(line_items, reverse_charge)
 
     # Dominant VAT rate (from first payment). A multi-tier cart (#846) can mix
     # rates; the rendered totals label then drops the rate entirely
     # (``AttendeeInvoice.has_mixed_vat_rates``) rather than claim this one.
     vat_rate = first_payment.vat_rate or Decimal("0.00")
 
-    # Reverse charge: use the authoritative decision from checkout, not re-inferred
-    reverse_charge = bool(billing_snapshot.get("reverse_charge", False))
-
     # Discount info
     discount_codes = {p.ticket.discount_code.code for p in payments if p.ticket.discount_code}
     discount_amount_total = sum(p.ticket.discount_amount or Decimal("0.00") for p in payments)
+
+    # Stripe lookup stays outside the transaction so no API call runs while the numbering lock is held.
+    payment_means = fetch_payment_means(org, first_payment.stripe_payment_intent_id or "")
 
     with transaction.atomic():
         # Idempotency: check inside transaction to prevent race conditions
@@ -273,15 +287,23 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             stripe_session_id=stripe_session_id,
             invoice_number=invoice_number,
             status=initial_status,
-            total_gross=total_gross,
-            total_net=total_net,
-            total_vat=total_vat,
+            total_gross=totals.total_gross,
+            total_net=totals.total_net,
+            total_vat=totals.total_vat,
+            rounding_amount=totals.rounding_amount,
+            totals_method=TotalsMethod.EN16931,
             vat_rate=vat_rate,
             currency=first_payment.currency,
             reverse_charge=reverse_charge,
             discount_code_text=", ".join(sorted(discount_codes)),
             discount_amount_total=discount_amount_total,
-            line_items=line_items,
+            line_items=totals.lines,
+            vat_exemptions=vat_exemptions,
+            supply_date=supply_date,
+            supply_period_end=supply_period_end,
+            payment_means_code=payment_means.code,
+            payment_method_label=payment_means.label,
+            card_last4=payment_means.card_last4,
             # Seller snapshot. Physical admission is taxed where the event takes
             # place, so the event's VAT country drives the invoice country; a
             # virtual event is supplied from the org's establishment (#869).
@@ -289,12 +311,14 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             seller_vat_id=org.vat_id,
             seller_vat_country=org.vat_country_code.upper() if event.is_virtual else event.effective_vat_country,
             seller_address=org.billing_address,
+            **org.billing_postal_address().to_fields("seller_"),
             seller_email=org.billing_email or org.contact_email or "",
             # Buyer snapshot
             buyer_name=billing_snapshot.get("billing_name", ""),
             buyer_vat_id=billing_snapshot.get("vat_id", ""),
             buyer_vat_country=billing_snapshot.get("vat_country_code", ""),
             buyer_address=billing_snapshot.get("billing_address", ""),
+            **snapshot_buyer_postal_address(billing_snapshot).to_fields("buyer_"),
             buyer_email=billing_snapshot.get("billing_email", ""),
             issued_at=timezone.now() if initial_status == AttendeeInvoice.InvoiceStatus.ISSUED else None,
         )
@@ -371,12 +395,11 @@ def issue_blocked_reason(invoice: AttendeeInvoice) -> str:
 
 
 def _is_export(invoice: AttendeeInvoice) -> bool:
-    """Check if the invoice was issued as a non-EU export (historical rendering only).
+    """Whether the invoice prints the "Export of services" notice.
 
-    Admission is never zero-rated as an export (#868), so no new invoice is
-    created with this treatment. The ``total_vat == 0`` gate keeps the export
-    wording on historical zero-rated documents (which must re-render as issued)
-    while new non-EU invoices — which now carry full VAT — render normally.
+    Only for historical zero-rated rows that predate VAT categories (they must re-render as
+    issued; admission is no longer zero-rated, #868). Classified rows print their stored
+    exemption text instead (``out_of_scope_text`` for O).
     """
     buyer_country = invoice.buyer_vat_country.upper() if invoice.buyer_vat_country else ""
     return bool(
@@ -384,6 +407,7 @@ def _is_export(invoice: AttendeeInvoice) -> bool:
         and buyer_country not in EU_MEMBER_STATES
         and not invoice.reverse_charge
         and invoice.total_vat == 0
+        and not any("vat_category" in item for item in invoice.line_items)
     )
 
 
@@ -416,7 +440,7 @@ def _generate_and_save_pdf(invoice: AttendeeInvoice) -> None:
         "is_export": _is_export(invoice),
         "is_virtual_interim": _is_virtual_interim(invoice),
     }
-    pdf_bytes = render_pdf(template, context)
+    pdf_bytes = facturx_pdf_for(invoice, lambda pdf_a3: render_pdf(template, context, pdf_a3=pdf_a3))
     filename = f"{invoice.invoice_number}.pdf"
     invoice.pdf_file.save(filename, ContentFile(pdf_bytes), save=True)
 
@@ -531,18 +555,23 @@ def deliver_attendee_invoice(invoice: AttendeeInvoice) -> None:
 
 
 class _CreditNoteBuild(t.NamedTuple):
-    """Computed fields ready to hand to ``AttendeeInvoiceCreditNote.objects.create()``."""
+    """The lines and coverage of a credit note still to be created (or recorded as skipped).
 
-    amount_gross: Decimal
-    amount_net: Decimal
-    amount_vat: Decimal
+    Carries no totals: a Revel credit note derives them from these lines at creation by its
+    invoice's method (``credit_note_totals``, #1234), while a skipped record sums them as they are.
+    """
+
     line_items: list[InvoiceLineItemDict]
     payments: t.Collection[Payment]
     refund_rows: list[Refund] | None
 
 
 def _build_from_payments(
-    refunded_payments: list[Payment], existing_cns: list[AttendeeInvoiceCreditNote]
+    refunded_payments: list[Payment],
+    existing_cns: list[AttendeeInvoiceCreditNote],
+    reverse_charge: bool = False,
+    out_of_scope: bool = False,
+    invoice_lines: list[InvoiceLineItemDict] | None = None,
 ) -> AttendeeInvoiceCreditNote | _CreditNoteBuild | None:
     """Legacy payment-keyed path: full payment amounts, exact-set idempotency on payment ids."""
     already_credited_ids: set["UUID"] = set()
@@ -563,17 +592,19 @@ def _build_from_payments(
         return None
 
     return _CreditNoteBuild(
-        amount_gross=sum((p.amount for p in refunded_payments), Decimal("0.00")),
-        amount_net=sum((p.net_amount or p.amount for p in refunded_payments), Decimal("0.00")),
-        amount_vat=sum((p.vat_amount or Decimal("0.00") for p in refunded_payments), Decimal("0.00")),
-        line_items=_build_line_items(refunded_payments),
+        line_items=credit_lines_for_payments(refunded_payments, invoice_lines or [], reverse_charge, out_of_scope),
         payments=refunded_payments,
         refund_rows=None,
     )
 
 
 def _build_from_refund_rows(
-    refund_rows: list[Refund], existing_cns: list[AttendeeInvoiceCreditNote]
+    refund_rows: list[Refund],
+    existing_cns: list[AttendeeInvoiceCreditNote],
+    reverse_charge: bool = False,
+    out_of_scope: bool = False,
+    invoice_lines: list[InvoiceLineItemDict] | None = None,
+    skipped_before: t.Sequence[SkippedFiscalDocument] | None = None,
 ) -> AttendeeInvoiceCreditNote | _CreditNoteBuild | None:
     """Amount-aware, refund-row-keyed path: pro-rata VAT, exact-set idempotency on refund ids.
 
@@ -583,12 +614,23 @@ def _build_from_refund_rows(
     """
     already_credited_refund_ids: set["UUID"] = set()
     legacy_credited_payment_ids: set["UUID"] = set()
+    already_refunded: dict["UUID", Decimal] = {}  # per payment, for cumulative proration
     for existing_cn in existing_cns:
-        cn_refund_ids = {r.id for r in existing_cn.refunds.all()}
-        if cn_refund_ids:
-            already_credited_refund_ids.update(cn_refund_ids)
+        cn_refunds = list(existing_cn.refunds.all())
+        if cn_refunds:
+            already_credited_refund_ids.update(r.id for r in cn_refunds)
         else:
             legacy_credited_payment_ids.update(p.id for p in existing_cn.payments.all())
+        for refund in cn_refunds:
+            already_refunded[refund.payment_id] = (
+                already_refunded.get(refund.payment_id, Decimal("0.00")) + refund.amount
+            )
+    # Refunds already recorded as skipped notes count towards the proration too.
+    for doc in skipped_before or []:
+        for refund in doc.refunds.all():
+            already_refunded[refund.payment_id] = (
+                already_refunded.get(refund.payment_id, Decimal("0.00")) + refund.amount
+            )
 
     # Exact-match idempotency on the refund-id set
     requested_refund_id_set = {r.id for r in refund_rows}
@@ -605,13 +647,10 @@ def _build_from_refund_rows(
     if not refund_rows:
         return None
 
-    amount_gross = sum((r.amount for r in refund_rows), Decimal("0.00"))
-    amount_vat = sum((_refund_vat_portion(r) for r in refund_rows), Decimal("0.00"))
     return _CreditNoteBuild(
-        amount_gross=amount_gross,
-        amount_net=amount_gross - amount_vat,
-        amount_vat=amount_vat,
-        line_items=_build_refund_line_items(refund_rows),
+        line_items=credit_lines_for_refunds(
+            refund_rows, invoice_lines or [], reverse_charge, out_of_scope, already_refunded
+        ),
         payments={r.payment for r in refund_rows},
         refund_rows=refund_rows,
     )
@@ -663,16 +702,40 @@ def _record_skipped_credit_note(
         # A record without refund rows (legacy path) covers its payments in full.
         covered_payment_ids = {p.id for doc in prior if not doc.refunds.all() for p in doc.payments.all()}
         build: AttendeeInvoiceCreditNote | _CreditNoteBuild | None = None
+        # Both an invoice and a skipped invoice store payment-tagged lines; credits follow them.
+        invoice_lines = source.line_items
+        # A skipped invoice has no reverse_charge column; the checkout snapshot on its payments is the source.
+        if isinstance(source, AttendeeInvoice):
+            reverse_charge = source.reverse_charge
+            out_of_scope = invoice_out_of_scope(source)
+        else:
+            sale_payments = [r.payment for r in refund_rows] or list(refunded_payments)
+            snapshot = (sale_payments[0].buyer_billing_snapshot or {}) if sale_payments else {}
+            reverse_charge = bool(snapshot.get("reverse_charge"))
+            sale_event = sale_payments[0].ticket.event if sale_payments else None
+            out_of_scope = out_of_scope_for(
+                sale_event,
+                sale_event.organization.vat_country_code if sale_event else "",
+                snapshot.get("vat_country_code", ""),
+            )
         if refund_rows:
             covered_refund_ids = {r.id for doc in prior for r in doc.refunds.all()}
             rows = [
                 r for r in refund_rows if r.id not in covered_refund_ids and r.payment_id not in covered_payment_ids
             ]
-            build = _build_from_refund_rows(rows, existing_cns) if rows else None
+            build = (
+                _build_from_refund_rows(rows, existing_cns, reverse_charge, out_of_scope, invoice_lines, prior)
+                if rows
+                else None
+            )
         else:
             covered_payment_ids |= {p.id for doc in prior for p in doc.payments.all()}
             payments = [p for p in refunded_payments if p.id not in covered_payment_ids]
-            build = _build_from_payments(payments, existing_cns) if payments else None
+            build = (
+                _build_from_payments(payments, existing_cns, reverse_charge, out_of_scope, invoice_lines)
+                if payments
+                else None
+            )
         if isinstance(build, _CreditNoteBuild):
             skipped_fiscal_document_service.record_skipped_credit_note(
                 source=source,
@@ -762,10 +825,13 @@ def generate_attendee_credit_note(
             AttendeeInvoiceCreditNote.objects.filter(invoice=invoice).prefetch_related("payments", "refunds")
         )
 
+        out_of_scope = invoice_out_of_scope(invoice)
         build = (
-            _build_from_refund_rows(refund_rows, existing_cns)
+            _build_from_refund_rows(refund_rows, existing_cns, invoice.reverse_charge, out_of_scope, invoice.line_items)
             if refund_ids
-            else _build_from_payments(refunded_payments, existing_cns)
+            else _build_from_payments(
+                refunded_payments, existing_cns, invoice.reverse_charge, out_of_scope, invoice.line_items
+            )
         )
         if build is None:
             return None
@@ -780,13 +846,17 @@ def generate_attendee_credit_note(
             AttendeeInvoiceCreditNote, cn_prefix, year, "credit_note_number"
         )
 
+        # Figured by the invoice's method (#1234); the prior notes were read under this lock.
+        totals = credit_note_totals(invoice, build.line_items, existing_cns)
         credit_note = AttendeeInvoiceCreditNote.objects.create(
             invoice=invoice,
             credit_note_number=credit_note_number,
-            amount_gross=build.amount_gross,
-            amount_net=build.amount_net,
-            amount_vat=build.amount_vat,
-            line_items=build.line_items,
+            amount_gross=totals.amount_gross,
+            amount_net=totals.amount_net,
+            amount_vat=totals.amount_vat,
+            rounding_amount=totals.rounding_amount,
+            totals_method=totals.totals_method,
+            line_items=totals.lines,
             issued_at=timezone.now(),
         )
         credit_note.payments.set(build.payments)
@@ -825,7 +895,7 @@ def _generate_credit_note_pdf(credit_note: AttendeeInvoiceCreditNote) -> None:
         "is_export": _is_export(invoice),
         "is_virtual_interim": _is_virtual_interim(invoice),
     }
-    pdf_bytes = render_pdf(template, context)
+    pdf_bytes = facturx_pdf_for(credit_note, lambda pdf_a3: render_pdf(template, context, pdf_a3=pdf_a3))
     filename = f"{credit_note.credit_note_number}.pdf"
     credit_note.pdf_file.save(filename, ContentFile(pdf_bytes), save=True)
 

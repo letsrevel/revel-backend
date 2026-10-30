@@ -6,7 +6,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
-from pydantic import UUID4, AwareDatetime, EmailStr, Field, StringConstraints, model_validator
+from pydantic import UUID4, AwareDatetime, EmailStr, Field, StringConstraints, computed_field, model_validator
 
 from accounts.schema import BaseEmailJWTPayloadSchema, MemberUserSchema, MinimalRevelUserSchema
 from common.models import SiteSettings
@@ -15,6 +15,7 @@ from common.schema import (
     EmailSchema,
     OneToOneFiftyString,
     StrippedString,
+    VatExemptionReason,
     VATIdUpdateBaseSchema,
 )
 from common.service.vat_utils import TWO_PLACES, b2b_vat_context
@@ -35,6 +36,7 @@ from events.models import (
     PermissionsSchema,
 )
 from events.models.organization import Organization as OrganizationModel
+from events.service.attendee_invoice_service import einvoice_missing_fields
 from questionnaires.models import QuestionnaireEvaluation
 
 from .attribution import AttributionPayloadMixin
@@ -144,17 +146,39 @@ class OrganizationBillingInfoSchema(Schema):
     vat_id: str
     vat_country_code: str
     vat_rate: Decimal
+    vat_exemption_reason: str
     vat_id_validated: bool
     vat_id_validated_at: AwareDatetime | None = None
     billing_address: str
+    billing_address_line1: str
+    billing_address_line2: str
+    billing_postal_code: str
+    billing_city: str
+    billing_subdivision: str
+    billing_country_code: str
     billing_email: str
     invoicing_mode: OrganizationModel.InvoicingMode
     compliance: OrganizationComplianceSchema
+    einvoice_missing_fields: list[str]
 
     @staticmethod
     def resolve_compliance(obj: Organization) -> OrganizationComplianceSchema:
         """Country-compliance capabilities for the organization."""
         return _compliance(obj)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def einvoice_ready(self) -> bool:
+        """Whether the seller data is complete enough for compliant e-invoicing.
+
+        Derived from `einvoice_missing_fields`, so the (query-backed) check runs once per response.
+        """
+        return not self.einvoice_missing_fields
+
+    @staticmethod
+    def resolve_einvoice_missing_fields(obj: Organization) -> list[str]:
+        """Organization fields still missing for compliant e-invoicing."""
+        return einvoice_missing_fields(obj)
 
 
 class OrganizationBillingInfoUpdateSchema(BillingInfoSchemaMixin):
@@ -165,6 +189,7 @@ class OrganizationBillingInfoUpdateSchema(BillingInfoSchemaMixin):
     """
 
     vat_rate: Decimal | None = Field(None, ge=0, le=100)
+    vat_exemption_reason: VatExemptionReason = ""
 
 
 class VATIdUpdateSchema(VATIdUpdateBaseSchema):
@@ -329,9 +354,16 @@ class OrganizationAdminDetailSchema(
     vat_id: str
     vat_country_code: str
     vat_rate: Decimal
+    vat_exemption_reason: str
     vat_id_validated: bool
     vat_id_validated_at: AwareDatetime | None = None
     billing_address: str
+    billing_address_line1: str
+    billing_address_line2: str
+    billing_postal_code: str
+    billing_city: str
+    billing_subdivision: str
+    billing_country_code: str
     billing_email: str
     invoicing_mode: OrganizationModel.InvoicingMode
     revenue_report_cadence: OrganizationModel.RevenueReportCadence
@@ -659,15 +691,27 @@ class OrganizationTokenUpdateSchema(OrganizationTokenBaseSchema):
 class StripeReturnTo(enum.StrEnum):
     """Admin page Stripe sends the owner back to after Connect onboarding.
 
-    An allowlist on purpose: each value is a fixed path segment under
-    ``/org/{slug}/admin/``, never a caller-supplied URL, so it can't become an open redirect.
+    An allowlist on purpose: each value maps to a fixed page under ``/org/{slug}/admin/``
+    (``event`` to that event's editor, by an id checked against the organization), never a
+    caller-supplied URL, so it can't become an open redirect.
     """
 
     SETTINGS = "settings"
     WELCOME = "welcome"
+    EVENT = "event"
 
 
 class StripeConnectSchema(EmailSchema):
     """Request body for starting Stripe Connect onboarding."""
 
     return_to: StripeReturnTo = StripeReturnTo.SETTINGS
+    event_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_event_id(self) -> "StripeConnectSchema":
+        """Require ``event_id`` exactly when returning to an event's editor."""
+        if self.return_to == StripeReturnTo.EVENT and self.event_id is None:
+            raise ValueError("event_id is required when return_to is 'event'")
+        if self.return_to != StripeReturnTo.EVENT and self.event_id is not None:
+            raise ValueError("event_id is only allowed when return_to is 'event'")
+        return self

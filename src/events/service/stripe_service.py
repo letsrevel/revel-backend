@@ -15,6 +15,7 @@ from stripe.checkout import Session
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
+from common.postal_address import PostalAddress
 from common.service.exchange_rate_service import convert as convert_currency
 from common.service.stripe_config import configure_stripe
 from common.service.stripe_connect_service import (
@@ -59,6 +60,10 @@ from events.service.pending_checkout import (
     resume_pending_checkout as resume_pending_checkout,
 )
 from events.service.seating.pricing import TicketPrice
+from events.service.stripe_address_service import (
+    apply_postal_address,
+    postal_address_from_stripe,
+)
 from events.service.stripe_incidents import record_session_total_mismatch
 from events.service.vat_service import (
     calculate_platform_fee_vat,
@@ -85,16 +90,26 @@ def create_connect_account(organization: Organization, stripe_account_email: Ema
     return _create_connect_account(organization, stripe_account_email, account_type="standard")
 
 
-def create_account_link(account_id: str, organization: Organization, return_to: "StripeReturnTo") -> str:
+def create_account_link(
+    account_id: str, organization: Organization, return_to: "StripeReturnTo", event: Event | None = None
+) -> str:
     """Create a one-time onboarding link for an organization's Stripe Connect account.
 
-    ``return_to`` picks the admin page Stripe redirects back to; it is an allowlisted enum
-    whose value is the path segment, so the destination is always one of our own pages.
+    ``return_to`` picks the admin page Stripe redirects back to; it is an allowlisted enum,
+    so the destination is always one of our own pages. ``event`` is the organization's event
+    whose editor ``return_to=event`` points at; the caller looks it up scoped to the organization.
     """
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
-    admin_page = f"{frontend_base_url}/org/{organization.slug}/admin/{return_to.value}"
-    refresh_url = f"{admin_page}?stripe_refresh=true"
-    return_url = f"{admin_page}?stripe_success=true"
+    from events.schema.organization import StripeReturnTo
+
+    admin_base = f"{SiteSettings.get_solo().frontend_base_url}/org/{organization.slug}/admin"
+    if return_to == StripeReturnTo.EVENT:
+        if event is None:
+            raise ValueError("return_to=event needs the event")
+        page = f"{admin_base}/events/{event.id}/edit?tab=ticketing&"
+    else:
+        page = f"{admin_base}/{return_to.value}?"
+    refresh_url = f"{page}stripe_refresh=true"
+    return_url = f"{page}stripe_success=true"
     return _create_account_link(account_id, refresh_url, return_url)
 
 
@@ -127,6 +142,8 @@ def stripe_verify_account(organization: Organization) -> Organization:
             organization.billing_address = full_address
             update_fields.append("billing_address")
 
+    update_fields += apply_postal_address(organization, postal_address_from_stripe(account))
+
     if not organization.vat_country_code and account.get("country"):
         organization.vat_country_code = account["country"]
         update_fields.append("vat_country_code")
@@ -158,6 +175,12 @@ def _build_billing_snapshot(
         billing_address=billing_info.billing_address,
         billing_email=billing_info.billing_email,
         reverse_charge=reverse_charge,
+        billing_address_line1=billing_info.billing_address_line1,
+        billing_address_line2=billing_info.billing_address_line2,
+        billing_postal_code=billing_info.billing_postal_code,
+        billing_city=billing_info.billing_city,
+        billing_subdivision=billing_info.billing_subdivision,
+        billing_country_code=billing_info.billing_country_code,
     )
 
 
@@ -166,10 +189,14 @@ def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSch
     from accounts.models import UserBillingProfile
 
     profile, _ = UserBillingProfile.objects.get_or_create(user=user)
-    fields_to_update = ["billing_name", "billing_address", "billing_email"]
+    address = PostalAddress.from_fields(billing_info, "billing_").to_fields("billing_")
+    structured = {f: v for f, v in address.items() if f in billing_info.model_fields_set}  # sent fields only
+    fields_to_update = ["billing_name", "billing_address", "billing_email", *structured]
     profile.billing_name = billing_info.billing_name
     profile.billing_address = billing_info.billing_address
     profile.billing_email = billing_info.billing_email
+    for field, value in structured.items():
+        setattr(profile, field, value)
     if billing_info.vat_id:
         profile.vat_id = billing_info.vat_id
         profile.vat_country_code = billing_info.vat_country_code

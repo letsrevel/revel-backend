@@ -22,7 +22,7 @@
     <div class="supplier-info">
       <div class="supplier-name">{{ invoice.seller_name }}</div>
       <div class="supplier-details">
-        {{ invoice.seller_address }}<br>
+        {% for line in invoice.seller_address_lines %}{{ line }}<br>{% endfor %}
         {% if invoice.seller_vat_id %}VAT: {{ invoice.seller_vat_id }}{% endif %}
       </div>
     </div>
@@ -32,6 +32,7 @@
         <strong>Number</strong> {{ credit_note.credit_note_number }}<br>
         <strong>Date</strong> {{ credit_note.issued_at|date:"Y-m-d" }}<br>
         <strong>Invoice</strong> {{ invoice.invoice_number }}<br>
+        {% if invoice.supply_date %}<strong>{% if invoice.supply_period_end %}Period{% else %}Date{% endif %} of supply</strong> {{ invoice.supply_date|date:"Y-m-d" }}{% if invoice.supply_period_end %} – {{ invoice.supply_period_end|date:"Y-m-d" }}{% endif %}<br>{% endif %}
         <strong>Currency</strong> {{ invoice.currency }}
       </div>
     </div>
@@ -43,7 +44,7 @@
     <div class="bill-to-label">Issued To</div>
     <div class="bill-to-name">{{ invoice.buyer_name }}</div>
     <div class="bill-to-details">
-      {% if invoice.buyer_address %}{{ invoice.buyer_address }}<br>{% endif %}
+      {% for line in invoice.buyer_address_lines %}{{ line }}<br>{% endfor %}
       {% if invoice.buyer_vat_id %}VAT: {{ invoice.buyer_vat_id }}{% endif %}
     </div>
   </div>
@@ -86,6 +87,13 @@
         <span>{{ credit_note.amount_vat|format_currency:invoice.currency }}</span>
       </div>
       {% endif %}
+      {% if credit_note.rounding_amount %}
+      {# The credit note's own EN 16931 BT-114 (#1234), independent of the invoice's. #}
+      <div class="totals-row vat">
+        <span>Rounding</span>
+        <span>{{ credit_note.rounding_amount|format_currency:invoice.currency }}</span>
+      </div>
+      {% endif %}
       <div class="totals-row total">
         <span>Total Credited</span>
         <span>{{ credit_note.amount_gross|format_currency:invoice.currency }}</span>
@@ -116,6 +124,20 @@
         Virtual event — VAT charged at the seller's rate.<br>
         Depending on your country of residence,<br>
         VAT may instead be due there.
+      </div>
+      {% endif %}
+      {% if invoice.out_of_scope_text and credit_note.has_out_of_scope_lines and not invoice.reverse_charge %}
+      {% if not is_export and not is_virtual_interim %}
+      <div class="footer-label" style="margin-top: 12px;">Tax Notice</div>
+      {% endif %}
+      <div class="notes-text">{{ invoice.out_of_scope_text }}</div>
+      {% endif %}
+      {% if invoice.exempt_reason_text and credit_note.has_exempt_lines and not invoice.reverse_charge %}
+      {% if not is_export and not is_virtual_interim %}
+      <div class="footer-label" style="margin-top: 12px;">Tax Notice</div>
+      {% endif %}
+      <div class="notes-text">
+        {% if invoice.exempt_reason_is_fallback %}Exempt from VAT{% else %}VAT exempt: {{ invoice.exempt_reason_text }}{% endif %}
       </div>
       {% endif %}
     </div>

@@ -24,6 +24,8 @@ class NotificationType(TextChoices):
     STAFF_TICKET_CREATED = "staff_ticket_created"
     STAFF_TICKET_CANCELLED = "staff_ticket_cancelled"
     STAFF_TICKET_REFUNDED = "staff_ticket_refunded"
+    # A card dispute was opened or closed on an organizer payment (evidence deadlines are time-boxed)
+    STAFF_PAYMENT_DISPUTED = "staff_payment_disputed"
 
     # Event notifications
     EVENT_OPEN = "event_open"
@@ -127,6 +129,7 @@ TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
         NotificationType.STAFF_TICKET_CREATED,
         NotificationType.STAFF_TICKET_CANCELLED,
         NotificationType.STAFF_TICKET_REFUNDED,
+        NotificationType.STAFF_PAYMENT_DISPUTED,
         NotificationType.ORG_CUSTOM_DOMAIN_ACTIVE,
         NotificationType.ORG_CUSTOM_DOMAIN_FAILED,
         # Subscription money/lifecycle events must not wait for a digest sweep:

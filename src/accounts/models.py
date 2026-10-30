@@ -35,7 +35,13 @@ from common.fields import (
     ProtectedImageField,
     validate_image_file,
 )
-from common.models import EmailDeliverableMixin, ExifStripMixin, StripeConnectMixin, TimeStampedModel
+from common.models import (
+    BillingPostalAddressMixin,
+    EmailDeliverableMixin,
+    ExifStripMixin,
+    StripeConnectMixin,
+    TimeStampedModel,
+)
 
 
 def profile_picture_upload_path(instance: "RevelUser", filename: str) -> str:
@@ -707,7 +713,7 @@ class ReferralPayoutStatement(EmailDeliverableMixin, TimeStampedModel):
         return f"{self.document_number} ({self.get_document_type_display()})"
 
 
-class UserBillingProfile(TimeStampedModel):
+class UserBillingProfile(TimeStampedModel, BillingPostalAddressMixin):
     """Billing information for a user (e.g., referrers receiving payouts).
 
     Created on-demand — not every user needs billing info.

@@ -6,9 +6,10 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import AwareDatetime, ConfigDict, StringConstraints
+from pydantic import AwareDatetime, ConfigDict, Field, StringConstraints, field_validator
 
-from events.models.attendee_invoice import AttendeeInvoiceStatus
+from common.schema import validate_country_code
+from events.models.attendee_invoice import AttendeeInvoiceStatus, TotalsMethod
 from events.models.invoice import PlatformFeeInvoice
 from events.models.organization import Organization
 from events.models.skipped_fiscal_document import (
@@ -16,6 +17,7 @@ from events.models.skipped_fiscal_document import (
     SkippedFiscalDocumentKind,
     SkippedFiscalDocumentReason,
 )
+from events.utils.vat_category import VatCategory
 
 
 class PlatformFeeInvoiceSchema(Schema):
@@ -75,15 +77,42 @@ class InvoicingModeUpdateSchema(Schema):
     mode: Organization.InvoicingMode
 
 
-class InvoiceLineItemSchema(Schema):
-    """Schema for a single line item in an attendee invoice."""
+# Bounded like the model columns (``DecimalField(10, 2)`` money, ``DecimalField(5, 2)`` rate, #1251 review):
+# a rate of -100 or a 1E+30 gross would otherwise reach the EN 16931 arithmetic and raise a decimal error.
+_Money = t.Annotated[Decimal, Field(ge=0, max_digits=10, decimal_places=2)]
+_VatRate = t.Annotated[Decimal, Field(ge=0, le=100, max_digits=5, decimal_places=2)]
+
+
+class InvoiceLineItemInputSchema(Schema):
+    """A line item as submitted in a DRAFT edit.
+
+    ``vat_category`` is derived server-side (EN 16931), so it is not part of the input: a
+    submitted value is ignored (the schema's default ``extra`` handling drops it).
+    """
 
     description: str
-    unit_price_gross: Decimal
-    discount_amount: Decimal = Decimal("0.00")
-    net_amount: Decimal
-    vat_amount: Decimal
-    vat_rate: Decimal
+    unit_price_gross: _Money
+    discount_amount: _Money = Decimal("0.00")
+    net_amount: _Money
+    vat_amount: _Money
+    vat_rate: _VatRate
+    # Opaque identity of a line the server issued. Echo it back unchanged on a DRAFT edit so the line
+    # keeps what it was generated from (credit notes and the exemption reason follow it); a line
+    # without a known one is treated as added by hand.
+    line_id: UUID | None = None
+
+
+class InvoiceLineItemSchema(InvoiceLineItemInputSchema):
+    """Schema for a single line item in an attendee invoice response."""
+
+    vat_category: VatCategory | None = None
+
+
+class VatExemptionSchema(Schema):
+    """Exemption text and code printed for a VAT category (EN 16931 BT-120/BT-121)."""
+
+    text: str
+    code: str
 
 
 class InvoiceVatBucketSchema(Schema):
@@ -120,6 +149,9 @@ class AttendeeInvoiceSchema(Schema):
     line_items: list[InvoiceLineItemSchema]
     discount_code_text: str
     discount_amount_total: Decimal
+    # EN 16931 BT-114 and how the header was derived (#1234): legacy rows carry 0 / "legacy".
+    rounding_amount: Decimal
+    totals_method: TotalsMethod
     issued_at: AwareDatetime | None = None
     created_at: AwareDatetime
 
@@ -127,13 +159,31 @@ class AttendeeInvoiceSchema(Schema):
 class AttendeeInvoiceDetailSchema(AttendeeInvoiceSchema):
     """Extended schema with full seller/buyer info for org admin views."""
 
+    vat_exemptions: dict[VatCategory, VatExemptionSchema]
+    supply_date: datetime.date | None = None
+    supply_period_end: datetime.date | None = None
+    payment_means_code: str
+    payment_method_label: str
+    card_last4: str
     seller_vat_id: str
     seller_vat_country: str
     seller_address: str
+    seller_address_line1: str
+    seller_address_line2: str
+    seller_postal_code: str
+    seller_city: str
+    seller_subdivision: str
+    seller_country_code: str
     seller_email: str
     buyer_vat_id: str
     buyer_vat_country: str
     buyer_address: str
+    buyer_address_line1: str
+    buyer_address_line2: str
+    buyer_postal_code: str
+    buyer_city: str
+    buyer_subdivision: str
+    buyer_country_code: str
     # Drafts only (#1091): the country policy's reason this draft can no longer be issued, else "".
     issue_blocked_reason: str = ""
 
@@ -172,11 +222,23 @@ class UpdateAttendeeInvoiceSchema(Schema):
     buyer_vat_id: str | None = None
     buyer_vat_country: str | None = None
     buyer_address: str | None = None
+    buyer_address_line1: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] | None = None
+    buyer_address_line2: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] | None = None
+    buyer_postal_code: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=20)] | None = None
+    buyer_city: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] | None = None
+    buyer_subdivision: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] | None = None
+    buyer_country_code: str | None = None
     buyer_email: str | None = None
     currency: str | None = None
     reverse_charge: bool | None = None
     discount_code_text: str | None = None
-    line_items: list[InvoiceLineItemSchema] | None = None
+    line_items: list[InvoiceLineItemInputSchema] | None = None
+
+    @field_validator("buyer_country_code")
+    @classmethod
+    def validate_buyer_country_code(cls, v: str | None) -> str | None:
+        """Uppercase the buyer country and require a valid ISO 3166-1 alpha-2 code (or empty)."""
+        return validate_country_code(v.strip().upper()) if v is not None else None
 
 
 class AttendeeInvoiceCreditNoteSchema(Schema):
@@ -188,6 +250,8 @@ class AttendeeInvoiceCreditNoteSchema(Schema):
     amount_gross: Decimal
     amount_net: Decimal
     amount_vat: Decimal
+    rounding_amount: Decimal
+    totals_method: TotalsMethod
     issued_at: AwareDatetime | None = None
     created_at: AwareDatetime
 

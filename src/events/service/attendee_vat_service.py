@@ -27,10 +27,12 @@ from uuid import UUID
 from django.utils.translation import gettext as _
 
 from common.constants import EU_MEMBER_STATES
+from common.country import normalize_country_code
 from common.service.vat_utils import TWO_PLACES, calculate_vat_inclusive
 from common.service.vies_service import VIES_TIMEOUT_SECONDS
 
 if t.TYPE_CHECKING:
+    from events.models.attendee_invoice import AttendeeInvoice
     from events.models.event import Event
     from events.models.organization import Organization
     from events.models.ticket import TicketTier
@@ -65,16 +67,31 @@ class BuyerVATContext:
     vat_id_status: str = ""  # a VatIdStatus value: the tri-state VIES outcome for the billing snapshot
 
 
-def _normalize_country(code: str) -> str:
-    """Normalize country codes for VAT comparison.
+def is_outside_eu_vat_scope(is_virtual: bool, seller_country: str, buyer_country: str) -> bool:
+    """Whether a sale falls outside EU VAT scope: virtual attendance by a non-EU buyer.
 
-    Greece uses "EL" as the VIES/VAT prefix but "GR" as the ISO 3166-1 code.
-    Normalize to ISO to avoid misclassifying Greek domestic sales as cross-border.
+    An empty buyer country counts as non-EU (checkout zero-rates it, #1234). Greece's VAT
+    prefix ``EL`` is normalized to ISO ``GR`` first, so Greek sales are never misclassified
+    as cross-border.
     """
-    code = code.upper()
-    if code == "EL":
-        return "GR"
-    return code
+    seller = normalize_country_code(seller_country)
+    buyer = normalize_country_code(buyer_country)
+    return is_virtual and buyer not in EU_MEMBER_STATES and buyer != seller
+
+
+def out_of_scope_for(event: "Event | None", seller_country: str, buyer_country: str) -> bool:
+    """Whether the sale is outside EU VAT scope, decided by the same rule checkout applies (0% lines only)."""
+    return event is not None and is_outside_eu_vat_scope(event.is_virtual, seller_country, buyer_country)
+
+
+def invoice_out_of_scope(invoice: "AttendeeInvoice") -> bool:
+    """Whether a credit note on ``invoice`` is out of scope: follows the invoice's own O lines.
+
+    Only a legacy invoice (no line carries a category) is re-derived from the current event state.
+    """
+    if any("vat_category" in line for line in invoice.line_items):
+        return any(line.get("vat_category") == "O" for line in invoice.line_items)
+    return out_of_scope_for(invoice.event, invoice.seller_vat_country, invoice.buyer_vat_country)
 
 
 def determine_attendee_vat(
@@ -121,8 +138,8 @@ def determine_attendee_vat(
     if not is_virtual:
         return full_vat
 
-    seller_country = _normalize_country(seller_country)
-    buyer_country = _normalize_country(buyer_country)
+    seller_country = normalize_country_code(seller_country)
+    buyer_country = normalize_country_code(buyer_country)
     if buyer_country == seller_country:
         return full_vat
 
@@ -140,7 +157,7 @@ def determine_attendee_vat(
     if buyer_country in EU_MEMBER_STATES:
         return full_vat
 
-    # Virtual, non-EU buyer: outside EU VAT scope
+    # Virtual, non-EU (or unknown) buyer: outside EU VAT scope
     return AttendeeVATResult(
         effective_price=breakdown.net_amount,
         net_amount=breakdown.net_amount,
@@ -564,8 +581,8 @@ def calculate_vat_preview(
     virtual_b2c_disclaimer = (
         event.is_virtual
         and not buyer_vat_valid
-        and _normalize_country(buyer_country) in EU_MEMBER_STATES
-        and _normalize_country(buyer_country) != _normalize_country(org.vat_country_code)
+        and normalize_country_code(buyer_country) in EU_MEMBER_STATES
+        and normalize_country_code(buyer_country) != normalize_country_code(org.vat_country_code)
     )
 
     return VATPreviewResult(

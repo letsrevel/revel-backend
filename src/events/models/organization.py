@@ -16,7 +16,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from accounts.models import RevelUser
 from common.fields import MarkdownField
-from common.models import StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
+from common.models import BillingPostalAddressMixin, StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
 from events.utils.branding import OrganizationBranding
 from events.utils.visibility import get_excluded_org_ids, get_valid_member_org_ids
 
@@ -250,6 +250,7 @@ class Organization(
     LogoCoverValidationMixin,
     SocialMediaMixin,
     StripeConnectMixin,
+    BillingPostalAddressMixin,
 ):
     class InvoicingMode(models.TextChoices):
         """Attendee invoicing mode."""
@@ -327,6 +328,7 @@ class Organization(
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text="Default VAT rate for ticket sales (e.g., 22.00 for 22%).",
     )
+    vat_exemption_reason = models.CharField(max_length=255, blank=True, default="", db_default="")
     vat_id_validated = models.BooleanField(
         default=False,
         help_text="Whether the VAT ID has been validated via VIES.",

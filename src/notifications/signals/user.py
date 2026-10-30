@@ -1,54 +1,14 @@
 """Signal handlers for user-related notifications."""
 
-import typing as t
-
 import structlog
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+from accounts.dispatch import guest_converted
 from accounts.models import RevelUser
-from notifications.enums import DeliveryChannel, NotificationType
-from notifications.models import NotificationPreference, get_default_notification_type_settings
+from notifications.service.preferences import create_default_preferences, reset_converted_guest_preferences
 
 logger = structlog.get_logger(__name__)
-
-
-def _get_guest_notification_type_settings() -> dict[str, t.Any]:
-    """Get conservative notification type settings for guest users.
-
-    Guest users only receive notifications strictly necessary for event participation.
-    They do NOT receive: event discovery, org announcements, membership, potluck, etc.
-
-    Returns:
-        Dictionary with notification types disabled for guests
-    """
-    # Disable all notification types except those essential for event participation
-    disabled_types = [
-        NotificationType.EVENT_OPEN,  # Can't browse events
-        NotificationType.POTLUCK_ITEM_CREATED,  # Typically not participating
-        NotificationType.POTLUCK_ITEM_CREATED_AND_CLAIMED,
-        NotificationType.POTLUCK_ITEM_UPDATED,
-        NotificationType.POTLUCK_ITEM_CLAIMED,
-        NotificationType.POTLUCK_ITEM_UNCLAIMED,
-        NotificationType.QUESTIONNAIRE_SUBMITTED,  # For staff, not guests
-        NotificationType.INVITATION_REQUEST_CREATED,  # For organizers, not guests
-        NotificationType.MEMBERSHIP_REQUEST_CREATED,  # For organizers, not guests
-        NotificationType.MEMBERSHIP_GRANTED,  # Can't be members
-        NotificationType.MEMBERSHIP_PROMOTED,
-        NotificationType.MEMBERSHIP_REMOVED,
-        NotificationType.MEMBERSHIP_CARD_UPDATED,
-        NotificationType.MEMBERSHIP_REQUEST_APPROVED,
-        NotificationType.MEMBERSHIP_REQUEST_REJECTED,
-        NotificationType.ORG_ANNOUNCEMENT,  # Not members
-        NotificationType.ORG_CONTACT_MESSAGE_RECEIVED,  # For org admins, not guests
-        NotificationType.STAFF_TICKET_CREATED,  # Staff alerts: guests can't be staff
-        NotificationType.STAFF_TICKET_CANCELLED,
-        NotificationType.STAFF_TICKET_REFUNDED,
-        NotificationType.STAFF_SERIES_PASS_PURCHASED,
-        NotificationType.STAFF_SERIES_PASS_CANCELLED,
-    ]
-
-    return {notification_type: {"enabled": False} for notification_type in disabled_types}
 
 
 @receiver(post_save, sender=RevelUser)
@@ -66,35 +26,28 @@ def create_notification_preferences(
     if not created:
         return
 
-    # Both guest and regular users get in-app + email channels
-    # (Guest users can't login to see in-app, but we enable it anyway)
-    enabled_channels = [DeliveryChannel.IN_APP, DeliveryChannel.EMAIL]
-
-    # Guest users get restricted notification types (only event participation essentials)
-    # Regular users get all notification types enabled (default empty dict)
-    notification_type_settings = (
-        _get_guest_notification_type_settings() if instance.guest else get_default_notification_type_settings()
-    )
-
-    # Use get_or_create to handle race conditions and duplicate signals
-    prefs, was_created = NotificationPreference.objects.get_or_create(
-        user=instance,
-        defaults={
-            "enabled_channels": enabled_channels,
-            "notification_type_settings": notification_type_settings,
-        },
-    )
+    prefs, was_created = create_default_preferences(instance)
 
     if was_created:
         logger.info(
             "notification_preferences_created",
             user_id=str(instance.id),
             is_guest=instance.guest,
-            enabled_channels=enabled_channels,
-            restricted_types=len(notification_type_settings) if instance.guest else 0,
+            enabled_channels=prefs.enabled_channels,
+            restricted_types=len(prefs.notification_type_settings) if instance.guest else 0,
         )
     else:
         logger.debug(
             "notification_preferences_already_exist",
             user_id=str(instance.id),
         )
+
+
+@receiver(guest_converted)
+def reset_preferences_on_guest_converted(sender: type[RevelUser], user: RevelUser, **kwargs: object) -> None:
+    """Give a converted guest the regular notification defaults (#1248).
+
+    Not robust on purpose: a failure propagates to ``convert_guest`` and rolls the conversion back.
+    """
+    if reset_converted_guest_preferences(user):
+        logger.info("guest_notification_preferences_reset", user_id=str(user.id))

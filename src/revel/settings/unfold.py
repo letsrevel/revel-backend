@@ -334,6 +334,11 @@ UNFOLD = {
                         "link": reverse_lazy("admin:events_payment_changelist"),
                     },
                     {
+                        "title": _("Disputes"),
+                        "icon": "gavel",
+                        "link": reverse_lazy("admin:events_dispute_changelist"),
+                    },
+                    {
                         "title": _("Attendee Invoices"),
                         "icon": "receipt_long",
                         "link": reverse_lazy("admin:events_attendeeinvoice_changelist"),

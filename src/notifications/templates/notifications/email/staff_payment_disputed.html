@@ -1,0 +1,22 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+{% if context.outcome == "closed" %}
+<p>{% blocktranslate with status=context.status_label amount=context.amount currency=context.currency %}A payment dispute of <strong>{{ amount }} {{ currency }}</strong> has been closed: <strong>{{ status }}</strong>.{% endblocktranslate %}</p>
+{% else %}
+<p>{% blocktranslate with amount=context.amount currency=context.currency %}A payment dispute of <strong>{{ amount }} {{ currency }}</strong> has been opened.{% endblocktranslate %}</p>
+{% endif %}
+
+<div class="card">
+    <h3 style="margin-top: 0;">⚠️ {% trans "Dispute Information" %}</h3>
+    <div class="info-row"><span class="label">{% trans "Reason:" %}</span> {{ context.reason_label }}</div>
+    <div class="info-row"><span class="label">{% trans "Status:" %}</span> {{ context.status_label }}</div>
+    {% if context.event_name %}<div class="info-row"><span class="label">{% trans "Event:" %}</span> {{ context.event_name }}</div>{% endif %}
+    {% if context.evidence_due_by and context.outcome != "closed" %}<div class="info-row"><span class="label">{% trans "Evidence due by:" %}</span> <strong>{{ context.evidence_due_by }}</strong></div>{% endif %}
+</div>
+{% if context.outcome != "closed" %}
+<p>{% trans "Disputes are answered in your Stripe Dashboard. Submit your evidence before the deadline above." %}</p>
+<p><a href="{{ context.dashboard_url }}">{% trans "Open the dispute in Stripe" %}</a></p>
+{% endif %}
+{% endblock %}

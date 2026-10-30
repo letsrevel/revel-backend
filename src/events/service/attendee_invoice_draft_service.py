@@ -8,7 +8,7 @@ which stays put so the render_pdf patch target every test uses is unchanged.
 """
 
 import typing as t
-from decimal import Decimal
+from decimal import Decimal, DivisionByZero, InvalidOperation
 
 import structlog
 from django.db import transaction
@@ -22,8 +22,21 @@ from events.models.attendee_invoice import (
     DerivedTotals,
     InvoiceLineItemDict,
     SubmittedLineItem,
+    TotalsMethod,
 )
+from events.models.ticket import TicketTier
+from events.service.attendee_invoice_lines import ProvenanceDict
 from events.service.attendee_invoice_service import _generate_and_save_pdf, invoice_compliance_decision
+from events.service.attendee_vat_service import out_of_scope_for
+from events.service.en16931_totals_service import compute_en16931_totals, sum_line_amounts
+from events.utils.vat_category import (
+    EXEMPT_FALLBACK_TEXT,
+    VatCategory,
+    VatExemptionDict,
+    build_vat_exemptions,
+    derive_vat_category,
+    effective_vat_exemption_reason,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -34,6 +47,12 @@ EDITABLE_DRAFT_FIELDS = frozenset(
         "buyer_vat_id",
         "buyer_vat_country",
         "buyer_address",
+        "buyer_address_line1",
+        "buyer_address_line2",
+        "buyer_postal_code",
+        "buyer_city",
+        "buyer_subdivision",
+        "buyer_country_code",
         "buyer_email",
         "currency",
         "reverse_charge",
@@ -62,18 +81,67 @@ _BLANKABLE_STRING_FIELDS = frozenset(
         "buyer_vat_id",
         "buyer_vat_country",
         "buyer_address",
+        "buyer_address_line1",
+        "buyer_address_line2",
+        "buyer_postal_code",
+        "buyer_city",
+        "buyer_subdivision",
+        "buyer_country_code",
         "buyer_email",
         "discount_code_text",
     }
 )
 
 
-def _normalize_line_items(line_items: list[SubmittedLineItem]) -> list[InvoiceLineItemDict]:
+def _carry_provenance(submitted: list[SubmittedLineItem], stored: list[InvoiceLineItemDict]) -> list[ProvenanceDict]:
+    """The ids each submitted line keeps from the draft's stored lines (#1242, #1250).
+
+    A line's provenance (``payment_id``, ``tier_id``) is whatever the server wrote on its stored line
+    at generation. A submitted line inherits it only by echoing that line's server-issued ``line_id``
+    (each stored line at most once, the first claimant wins); ``line_id``, ``payment_id`` and
+    ``tier_id`` are all copied from the stored line, never taken from the client. A line with no,
+    an unknown or a repeated ``line_id`` was added by hand and carries nothing. Matching on position
+    or content instead would hand a reordered or edited line another payment's ids, or drop its own.
+    """
+    by_id = {line["line_id"]: line for line in stored if "line_id" in line}
+    claimed: set[str] = set()
+    origins: list[InvoiceLineItemDict | None] = []
+    for item in submitted:
+        line_id = str(item["line_id"]) if item.get("line_id") else ""
+        origin = by_id.get(line_id) if line_id not in claimed else None
+        if origin is not None:
+            claimed.add(line_id)
+        origins.append(origin)
+    return [_ids_of(origin) for origin in origins]
+
+
+def _ids_of(line: InvoiceLineItemDict | None) -> ProvenanceDict:
+    ids = ProvenanceDict()
+    if line is not None:
+        ids["line_id"] = line["line_id"]
+        if "payment_id" in line:
+            ids["payment_id"] = line["payment_id"]
+        if "tier_id" in line:
+            ids["tier_id"] = line["tier_id"]
+    return ids
+
+
+def _normalize_line_items(
+    line_items: list[SubmittedLineItem],
+    reverse_charge: bool,
+    out_of_scope: bool = False,
+    stored: list[InvoiceLineItemDict] | None = None,
+) -> list[InvoiceLineItemDict]:
     """Coerce submitted line items to the stored shape: every key present, every amount a string.
+
+    ``vat_category`` is derived from each line's rate and ``reverse_charge``, never taken from the client.
+    ``line_id``/``payment_id``/``tier_id`` are re-attached from the ``stored`` lines (see
+    :func:`_carry_provenance`).
 
     The schema parses amounts as ``Decimal``; the JSON column stores strings, and
     both :func:`_derive_totals` and ``vat_breakdown`` read them back that way.
     """
+    provenance = _carry_provenance(line_items, stored or [])
     return [
         InvoiceLineItemDict(
             description=item.get("description", ""),
@@ -82,33 +150,92 @@ def _normalize_line_items(line_items: list[SubmittedLineItem]) -> list[InvoiceLi
             net_amount=str(item.get("net_amount", "0.00")),
             vat_amount=str(item.get("vat_amount", "0.00")),
             vat_rate=str(item.get("vat_rate", "0.00")),
+            vat_category=str(
+                derive_vat_category(Decimal(str(item.get("vat_rate", "0.00"))), reverse_charge, out_of_scope)
+            ),
+            **ids,
         )
-        for item in line_items
+        for item, ids in zip(line_items, provenance, strict=True)
     ]
 
 
-def _derive_totals(line_items: list[InvoiceLineItemDict]) -> DerivedTotals:
-    """Compute an invoice's header money columns from its line items.
+def _recompute_vat_exemptions(
+    invoice: AttendeeInvoice, line_items: list[InvoiceLineItemDict]
+) -> dict[str, VatExemptionDict]:
+    """Rebuild the exemption map for edited lines.
 
-    Mirrors :func:`generate_attendee_invoice`, which sums the same per-payment
-    amounts :func:`_build_line_items` writes into each line -- so a recomputed header
-    is identical to a freshly generated one, no rounding or tolerance involved.
-    ``vat_rate`` inherits its lossy "first payment's rate" convention; consult
+    Each exempt (E) line resolves its reason afresh from its own tier (the tier's reason, else the
+    organization's), so a corrected tier or organization reason replaces the stored text and text
+    that described lines no longer there cannot survive (#1242). A line without a tier (added by
+    hand, or whose tier is gone) takes the organization's. Only on a legacy invoice, whose lines
+    carry no ids at all, is the exempt text already stored kept (the generic fallback excepted).
+    """
+    org_reason = invoice.organization.vat_exemption_reason if invoice.organization else ""
+    exempt = [item for item in line_items if item["vat_category"] == VatCategory.EXEMPT]
+    tiers = {
+        str(tier.pk): tier
+        for tier in TicketTier.objects.filter(pk__in={item["tier_id"] for item in exempt if "tier_id" in item})
+    }
+    # From the stored lines: an invoice that ever had ids never drops to the legacy path.
+    has_provenance = any("line_id" in item for item in invoice.line_items)
+    stored = invoice.vat_exemptions.get("E", {}).get("text", "")
+    legacy_reason = stored if stored and stored != EXEMPT_FALLBACK_TEXT else org_reason
+    reasons = []
+    for item in exempt:
+        if (tier := tiers.get(item.get("tier_id", ""))) is not None:
+            reasons.append(
+                effective_vat_exemption_reason(tier, invoice.organization)
+                if invoice.organization
+                else tier.vat_exemption_reason
+            )
+        else:
+            reasons.append(org_reason if has_provenance else legacy_reason)
+    return build_vat_exemptions((VatCategory(item["vat_category"]) for item in line_items), reasons)
+
+
+def _derive_totals(
+    line_items: list[InvoiceLineItemDict], method: str, reverse_charge: bool
+) -> tuple[list[InvoiceLineItemDict], DerivedTotals, Decimal]:
+    """Compute an invoice's header money columns from its line items, by the row's method.
+
+    ``legacy`` sums the stored per-line amounts, exactly as generation did before #1234,
+    with no rounding: the lines come back unchanged and the rounding is zero.
+    ``en16931`` runs the lines through :func:`compute_en16931_totals`, which rewrites every
+    line's net and VAT from its gross and rate -- so on such a row only the submitted
+    gross, rate and description matter -- and books the unreachable cent as rounding.
+    ``vat_rate`` inherits its lossy "first payment's rate" convention either way; consult
     ``has_mixed_vat_rates`` before rendering it.
 
     Reads the four keys ``vat_breakdown`` reads, so a row malformed enough to break
     one breaks both. ``discount_amount`` -- the one key the breakdown never touches
     -- is read defensively: this runs in the issuance guard on rows nobody
     normalized, where a missing key would be a 500 on the document it must judge.
+
+    Returns:
+        The (possibly rebalanced) lines, the header totals, and ``rounding_amount``.
     """
     zero = Decimal("0.00")
-    return DerivedTotals(
-        total_gross=sum((Decimal(item["unit_price_gross"]) for item in line_items), zero),
-        total_net=sum((Decimal(item["net_amount"]) for item in line_items), zero),
-        total_vat=sum((Decimal(item["vat_amount"]) for item in line_items), zero),
-        discount_amount_total=sum((Decimal(item.get("discount_amount", "0.00")) for item in line_items), zero),
-        vat_rate=Decimal(line_items[0]["vat_rate"]) if line_items else zero,
+    discount_amount_total = sum((Decimal(item.get("discount_amount", "0.00")) for item in line_items), zero)
+    vat_rate = Decimal(line_items[0]["vat_rate"]) if line_items else zero
+    if method == TotalsMethod.EN16931:
+        totals = compute_en16931_totals(line_items, reverse_charge)
+        derived = DerivedTotals(
+            total_gross=totals.total_gross,
+            total_net=totals.total_net,
+            total_vat=totals.total_vat,
+            discount_amount_total=discount_amount_total,
+            vat_rate=vat_rate,
+        )
+        return totals.lines, derived, totals.rounding_amount
+    total_gross, total_net, total_vat = sum_line_amounts(line_items)
+    derived = DerivedTotals(
+        total_gross=total_gross,
+        total_net=total_net,
+        total_vat=total_vat,
+        discount_amount_total=discount_amount_total,
+        vat_rate=vat_rate,
     )
+    return line_items, derived, zero
 
 
 def _assert_totals_reconcile(invoice: AttendeeInvoice) -> None:
@@ -123,31 +250,76 @@ def _assert_totals_reconcile(invoice: AttendeeInvoice) -> None:
     ``line_items`` read-only -- so revisit this before relaxing that admin.
     Recovery is a PATCH of ``line_items``, which recomputes the header.
 
-    Only the three figures a buyer is billed on are checked: ``vat_rate`` is a lossy
+    Only the figures a buyer is billed on are checked: ``vat_rate`` is a lossy
     scalar guarded by ``has_mixed_vat_rates`` and ``discount_amount_total`` is
     informational, so refusing a correct invoice over either would be disproportionate.
+    An en16931 row is also held to its ``rounding_amount`` (BT-114) and to the invariant
+    ``total_net + total_vat + rounding_amount == total_gross``; a legacy row has no rounding.
 
     Raises:
-        HttpError 422: If any reconciled total differs from its line-item sum.
+        HttpError 422: If any reconciled total differs from what its line items derive.
     """
-    derived = _derive_totals(invoice.line_items)
+    message = _("Invoice totals do not reconcile with its line items: {details}")
+    try:
+        _lines, derived, rounding = _derive_totals(invoice.line_items, invoice.totals_method, invoice.reverse_charge)
+    except (InvalidOperation, DivisionByZero) as exc:
+        # Input validation bounds what the API accepts, not what a raw write stored: a rate of -100
+        # divides by zero and a 1E+30 gross cannot be quantized. Still a 422 on the row, not a 500.
+        raise HttpError(422, str(message).format(details=f"line_items ({type(exc).__name__})")) from exc
+    checks: list[tuple[str, Decimal, Decimal]] = [
+        ("total_gross", invoice.total_gross, derived["total_gross"]),
+        ("total_net", invoice.total_net, derived["total_net"]),
+        ("total_vat", invoice.total_vat, derived["total_vat"]),
+    ]
+    if invoice.totals_method == TotalsMethod.EN16931:
+        checks.append(("rounding_amount", invoice.rounding_amount, rounding))
+        checks.append(
+            (
+                "total_net + total_vat + rounding_amount",
+                invoice.total_net + invoice.total_vat + invoice.rounding_amount,
+                invoice.total_gross,
+            )
+        )
     mismatched = [
         # Symbolic, not prose: the message around it is translated, this is not.
         f"{name} ({actual} != {expected})"
-        for name, actual, expected in (
-            ("total_gross", invoice.total_gross, derived["total_gross"]),
-            ("total_net", invoice.total_net, derived["total_net"]),
-            ("total_vat", invoice.total_vat, derived["total_vat"]),
-        )
+        for name, actual, expected in checks
         if actual != expected
     ]
     if mismatched:
-        raise HttpError(
-            422,
-            str(_("Invoice totals do not reconcile with its line items: {details}")).format(
-                details="; ".join(mismatched)
-            ),
-        )
+        raise HttpError(422, str(message).format(details="; ".join(mismatched)))
+
+
+def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.Any]) -> dict[str, t.Any]:
+    """Derive the line-dependent columns of an edit from the post-PATCH state of the locked row.
+
+    Reads the lines and flag from `invoice`, which must be the row re-read under `select_for_update`,
+    never the caller's possibly-stale instance: a reverse_charge- or buyer-country-only PATCH would otherwise write
+    back stale lines over a concurrent line edit.
+
+    Raises:
+        HttpError 422: If the resulting invoice is reverse-charge but a line still carries VAT
+            (EN 16931 BR-AE-05/08).
+    """
+    reverse_charge = bool(update_data.get("reverse_charge", invoice.reverse_charge))
+    submitted = update_data.get("line_items", invoice.line_items)
+    buyer_country = update_data.get("buyer_vat_country", invoice.buyer_vat_country)
+    out_of_scope = out_of_scope_for(invoice.event, invoice.seller_vat_country, buyer_country)
+    line_items = _normalize_line_items(submitted, reverse_charge, out_of_scope, invoice.line_items)
+    if reverse_charge and any(Decimal(i["vat_rate"]) or Decimal(i["vat_amount"]) for i in line_items):
+        raise HttpError(422, str(_("A reverse-charge invoice can't charge VAT. Set the VAT of every line to 0.")))
+    # An en16931 row's lines come back rebalanced (net/VAT from gross and rate); a legacy row's as submitted.
+    line_items, totals, rounding_amount = _derive_totals(line_items, invoice.totals_method, reverse_charge)
+    derived: dict[str, t.Any] = {
+        "line_items": line_items,
+        "vat_exemptions": _recompute_vat_exemptions(invoice, line_items),
+    }
+    if "line_items" in update_data:
+        # Recomputed only on an edit that touches the lines: doing it unconditionally would
+        # zero the totals of any row with empty line_items.
+        derived.update(totals)
+        derived["rounding_amount"] = rounding_amount
+    return derived
 
 
 def _apply_draft_update(invoice: AttendeeInvoice, update_data: dict[str, t.Any]) -> AttendeeInvoice:
@@ -168,6 +340,9 @@ def _apply_draft_update(invoice: AttendeeInvoice, update_data: dict[str, t.Any])
         invoice = AttendeeInvoice.objects.select_for_update().get(pk=invoice.pk)
         if invoice.status != AttendeeInvoice.InvoiceStatus.DRAFT:
             raise HttpError(409, str(_("Only draft invoices can be edited.")))
+
+        if {"line_items", "reverse_charge", "buyer_vat_country"} & update_data.keys():
+            update_data.update(_derive_line_item_fields(invoice, update_data))
 
         for field, value in update_data.items():
             setattr(invoice, field, value)
@@ -219,12 +394,6 @@ def update_draft_invoice(
     nulled = {field for field, value in update_data.items() if value is None} - _BLANKABLE_STRING_FIELDS
     if nulled:
         raise HttpError(422, str(_("Fields cannot be null: {fields}")).format(fields=", ".join(sorted(nulled))))
-
-    if "line_items" in update_data:
-        update_data["line_items"] = _normalize_line_items(update_data["line_items"])
-        # Recomputed only on an edit that touches the lines: doing it
-        # unconditionally would zero the totals of any row with empty line_items.
-        update_data.update(_derive_totals(update_data["line_items"]))
 
     # Coerce None -> "" for blankable string columns (FE sends null for cleared fields).
     for field in _BLANKABLE_STRING_FIELDS:

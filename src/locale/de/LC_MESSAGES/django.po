@@ -2170,6 +2170,9 @@ msgstr "Der Rechnungsname (Name der juristischen Person) ist erforderlich"
 msgid "Billing address is required"
 msgstr "Die Rechnungsadresse ist erforderlich"
 
+msgid "Billing address (street, postal code, city and country) is required"
+msgstr "Die Rechnungsadresse (Straße, Postleitzahl, Ort und Land) ist erforderlich"
+
 msgid "Provide either seat_ids or price_category_id, not both."
 msgstr "Gib entweder seat_ids oder price_category_id an, nicht beides."
 
@@ -3245,6 +3248,18 @@ msgstr "Der gezahlte Preis ist für Festpreisstufen nicht zulässig."
 msgid "Price paid is required for Pay What You Can tiers."
 msgstr ""
 "Der bezahlte Preis ist für \"Zahl-was-du-kannst\"-Kategorien erforderlich."
+
+msgid ""
+"A VAT exemption reason is required for a ticket tier with a 0% VAT rate."
+msgstr "Für eine Ticketkategorie mit 0 % MwSt.-Satz ist ein Grund für die Steuerbefreiung erforderlich."
+
+msgid "A reverse-charge invoice can't charge VAT. Set the VAT of every line to 0."
+msgstr "Eine Rechnung mit Reverse-Charge-Verfahren darf keine MwSt. ausweisen. Setze die MwSt. jeder Position auf 0."
+
+msgid ""
+"Some paid ticket tiers have a 0% VAT rate and no exemption reason. "
+"Add a reason to those tiers or set a default reason for the organization."
+msgstr "Einige kostenpflichtige Ticketkategorien haben einen MwSt.-Satz von 0 % und keinen Befreiungsgrund. Füge diesen Kategorien einen Grund hinzu oder lege einen Standardgrund für die Organisation fest."
 
 msgid "Tier IDs must match all tiers for this event exactly."
 msgstr ""
@@ -6965,3 +6980,141 @@ msgstr "j. M Y"
 msgctxt "wallet full datetime format"
 msgid "M d, Y h:i A"
 msgstr "j. M Y, H:i"
+
+#, python-format
+msgid ""
+"A payment dispute of <strong>%(amount)s %(currency)s</strong> has been "
+"closed: <strong>%(status)s</strong>."
+msgstr ""
+"Eine Zahlungsstreitigkeit über <strong>%(amount)s %(currency)s</strong> "
+"wurde abgeschlossen: <strong>%(status)s</strong>."
+
+#, python-format
+msgid ""
+"A payment dispute of <strong>%(amount)s %(currency)s</strong> has been "
+"opened."
+msgstr ""
+"Eine Zahlungsstreitigkeit über <strong>%(amount)s %(currency)s</strong> "
+"wurde eröffnet."
+
+msgid "Dispute Information"
+msgstr "Informationen zur Streitigkeit"
+
+msgid "Open the dispute in Stripe"
+msgstr "Streitigkeit in Stripe öffnen"
+
+#, python-format
+msgid ""
+"A payment dispute of %(amount)s %(currency)s has been closed: %(status)s."
+msgstr ""
+"Eine Zahlungsstreitigkeit über %(amount)s %(currency)s wurde abgeschlossen:"
+" %(status)s."
+
+#, python-format
+msgid "A payment dispute of %(amount)s %(currency)s has been opened."
+msgstr "Eine Zahlungsstreitigkeit über %(amount)s %(currency)s wurde eröffnet."
+
+msgid "Dispute Information:"
+msgstr "Informationen zur Streitigkeit:"
+
+#, python-format
+msgid "Payment dispute closed: %(status)s"
+msgstr "Zahlungsstreitigkeit abgeschlossen: %(status)s"
+
+#, python-format
+msgid "Payment dispute opened: %(amount)s %(currency)s"
+msgstr "Zahlungsstreitigkeit eröffnet: %(amount)s %(currency)s"
+
+msgid "Evidence due by:"
+msgstr "Nachweise fällig bis:"
+
+msgid ""
+"Disputes are answered in your Stripe Dashboard. Submit your evidence before"
+" the deadline above."
+msgstr ""
+"Streitigkeiten werden in deinem Stripe-Dashboard beantwortet. Reiche deine "
+"Nachweise vor der oben genannten Frist ein."
+
+msgid "Disputes"
+msgstr "Streitigkeiten"
+
+msgid "Bank cannot process"
+msgstr "Bank kann nicht verarbeiten"
+
+msgid "Check returned"
+msgstr "Scheck zurückgegeben"
+
+msgid "Credit not processed"
+msgstr "Gutschrift nicht verarbeitet"
+
+msgid "Customer initiated"
+msgstr "Vom Kunden veranlasst"
+
+msgid "Debit not authorized"
+msgstr "Lastschrift nicht autorisiert"
+
+msgid "Duplicate"
+msgstr "Duplikat"
+
+msgid "Fraudulent"
+msgstr "Betrügerisch"
+
+msgid "General"
+msgstr "Allgemein"
+
+msgid "Incorrect account details"
+msgstr "Falsche Kontodaten"
+
+msgid "Insufficient funds"
+msgstr "Unzureichende Deckung"
+
+msgid "Lost"
+msgstr "Verloren"
+
+msgid "Needs response"
+msgstr "Antwort erforderlich"
+
+msgid "Prevented"
+msgstr "Verhindert"
+
+msgid "Product not received"
+msgstr "Produkt nicht erhalten"
+
+msgid "Product unacceptable"
+msgstr "Produkt nicht akzeptabel"
+
+msgid "Subscription canceled"
+msgstr "Abonnement gekündigt"
+
+msgid "Under review"
+msgstr "In Prüfung"
+
+msgid "Unrecognized"
+msgstr "Nicht erkannt"
+
+msgid "Warning: closed"
+msgstr "Warnung: geschlossen"
+
+msgid "Warning: needs response"
+msgstr "Warnung: Antwort erforderlich"
+
+msgid "Warning: under review"
+msgstr "Warnung: in Prüfung"
+
+msgid "Won"
+msgstr "Gewonnen"
+
+msgid "Convert guest to full account"
+msgstr "Gast in vollwertiges Konto umwandeln"
+
+#, python-format
+msgid "Converted %d guest to a full account."
+msgid_plural "Converted %d guests to full accounts."
+msgstr[0] "%d Gast in ein vollwertiges Konto umgewandelt."
+msgstr[1] "%d Gäste in vollwertige Konten umgewandelt."
+
+#, python-format
+msgid "Skipped %d globally banned guest."
+msgid_plural "Skipped %d globally banned guests."
+msgstr[0] "%d gesperrter Gast übersprungen."
+msgstr[1] "%d gesperrte Gäste übersprungen."

@@ -13,6 +13,7 @@ from ninja import Schema
 from ninja.errors import HttpError
 
 from accounts import schema, tasks
+from accounts.dispatch import guest_converted
 from accounts.exceptions import ReferralForfeitureConfirmationRequiredError
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import blacklist_user_tokens, check_blacklist, create_token
@@ -387,21 +388,64 @@ def reset_password(token: str, new_password: str) -> RevelUser:
 
 
 @transaction.atomic
+def convert_guest(user: RevelUser, *, reactivate: bool = False) -> bool:
+    """Convert a guest into a full account: the single place every conversion path goes through.
+
+    In one transaction: locks the row (a concurrent or repeated conversion sees a non-guest, copies
+    the current values onto ``user`` and returns), clears ``guest``, marks the email verified,
+    optionally reactivates, enrolls an approved referral invitee and sends ``guest_converted`` (the
+    notifications app resets the preferences to the regular defaults, #1248). Nothing is swallowed
+    except the referral enrollment, which by design never blocks (see ``try_enroll_invitee``): a
+    receiver failure propagates and rolls the conversion back.
+
+    # ponytail: bulk writes (``.update(guest=False)``, shell fixes) bypass this by design; always
+    # convert through this service.
+
+    A non-guest is a no-op (``reactivate`` included). This does not check global bans: callers do
+    (password reset and OIDC before reaching here, the admin action per user).
+
+    Marking the email verified and enrolling referrals presumes the person owns the email: callers
+    (and staff running the admin action) must only convert when that ownership is established.
+
+    Args:
+        user: The user to convert.
+        reactivate: Also set ``is_active`` (OIDC login revives an inactive guest).
+
+    Returns:
+        True only when this call actually converted the user.
+    """
+    current = RevelUser.objects.select_for_update().values("guest", "email_verified", "is_active").get(pk=user.pk)
+    if not current["guest"]:
+        user.guest, user.email_verified, user.is_active = (
+            current["guest"],
+            current["email_verified"],
+            current["is_active"],
+        )
+        return False
+    user.guest = False
+    user.email_verified = True
+    update_fields = ["guest", "email_verified"]
+    if reactivate:
+        user.is_active = True
+        update_fields.append("is_active")
+    user.save(update_fields=update_fields)
+    logger.info("guest_user_converted_to_full_user", user_id=str(user.id), email=user.email)
+    referral_application_service.try_enroll_invitee(user)
+    guest_converted.send(sender=RevelUser, user=user)
+    return True
+
+
+@transaction.atomic
 def _apply_password_reset(user: RevelUser, token: str, new_password: str) -> RevelUser:
     """Set the new password and consume the token (the atomic half of ``reset_password``)."""
     validate_password(new_password, user=user)
     user.set_password(new_password)
     user.credentials_changed_at = timezone.now()
 
-    # Convert guest user to full user when setting password
+    user.save(update_fields=["password", "credentials_changed_at"])
+    # Setting a password converts a guest to a full user
     if user.guest:
-        user.guest = False
-        user.email_verified = True
-        user.save(update_fields=["password", "credentials_changed_at", "guest", "email_verified"])
-        logger.info("guest_user_converted_to_full_user", user_id=str(user.id), email=user.email)
-        referral_application_service.try_enroll_invitee(user)
-    else:
-        user.save(update_fields=["password", "credentials_changed_at"])
+        convert_guest(user)
 
     blacklist_token(token)
     # Reset is the account-recovery path — sign out everywhere, apps included (#1020).

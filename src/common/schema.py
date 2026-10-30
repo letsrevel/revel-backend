@@ -9,6 +9,7 @@ from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime, EmailStr, StringConstraints, field_validator, model_validator
 
 from common.constants import is_valid_country_code
+from common.country import normalize_country_code
 
 from .models import SiteSettings, Tag
 from .signing import get_file_url
@@ -26,6 +27,7 @@ OneToOneFiftyString = t.Annotated[str, StringConstraints(min_length=1, max_lengt
 # For update schemas (BillingInfoSchemaMixin), the field allows empty string to clear the value,
 # so the mixin uses its own annotation without min_length.
 VATCountryCode = t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=2, max_length=2)]
+VatExemptionReason = t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
 
 
 def viewer_from_context(context: t.Any) -> "RevelUser | AnonymousUser":
@@ -61,7 +63,24 @@ def validate_country_code(v: str | None) -> str | None:
     return v
 
 
-class BillingInfoSchemaMixin(Schema):
+class StructuredBillingAddressMixin(Schema):
+    """The six structured ``billing_*`` address fields (EN 16931), blank by default."""
+
+    billing_address_line1: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] = ""
+    billing_address_line2: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] = ""
+    billing_postal_code: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=20)] = ""
+    billing_city: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] = ""
+    billing_subdivision: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] = ""
+    billing_country_code: t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, max_length=2)] = ""
+
+    @field_validator("billing_country_code")
+    @classmethod
+    def validate_billing_country_code(cls, v: str) -> str:
+        """Validate billing_country_code (ISO 3166-1 alpha-2 or empty); the VAT prefix ``EL`` becomes ``GR``."""
+        return validate_country_code(normalize_country_code(v)) or ""
+
+
+class BillingInfoSchemaMixin(StructuredBillingAddressMixin):
     """Shared billing info fields for update schemas (org and user).
 
     All fields default to empty string. Use ``model_dump(exclude_unset=True)``
@@ -78,7 +97,7 @@ class BillingInfoSchemaMixin(Schema):
     @field_validator("vat_country_code")
     @classmethod
     def validate_vat_country_code(cls, v: str) -> str:
-        """Validate vat_country_code is a valid ISO 3166-1 alpha-2 code or empty."""
+        """Validate vat country code is a valid ISO 3166-1 alpha-2 code or empty (``EL`` stays: VAT prefix)."""
         return validate_country_code(v) or ""
 
     @field_validator("billing_email")

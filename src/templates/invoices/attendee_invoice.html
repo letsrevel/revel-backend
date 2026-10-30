@@ -38,7 +38,7 @@
     <div class="supplier-info">
       <div class="supplier-name">{{ invoice.seller_name }}</div>
       <div class="supplier-details">
-        {{ invoice.seller_address }}<br>
+        {% for line in invoice.seller_address_lines %}{{ line }}<br>{% endfor %}
         {% if invoice.seller_vat_id %}VAT: {{ invoice.seller_vat_id }}{% endif %}
       </div>
     </div>
@@ -47,6 +47,7 @@
       <div class="invoice-meta">
         <strong>Number</strong> {{ invoice.invoice_number }}<br>
         <strong>Date</strong> {% if invoice.issued_at %}{{ invoice.issued_at|date:"Y-m-d" }}{% else %}—{% endif %}<br>
+        {% if invoice.supply_date %}<strong>{% if invoice.supply_period_end %}Period{% else %}Date{% endif %} of supply</strong> {{ invoice.supply_date|date:"Y-m-d" }}{% if invoice.supply_period_end %} – {{ invoice.supply_period_end|date:"Y-m-d" }}{% endif %}<br>{% endif %}
         <strong>Currency</strong> {{ invoice.currency }}
       </div>
     </div>
@@ -58,7 +59,7 @@
     <div class="bill-to-label">Bill To</div>
     <div class="bill-to-name">{{ invoice.buyer_name }}</div>
     <div class="bill-to-details">
-      {% if invoice.buyer_address %}{{ invoice.buyer_address }}<br>{% endif %}
+      {% for line in invoice.buyer_address_lines %}{{ line }}<br>{% endfor %}
       {% if invoice.buyer_vat_id %}VAT: {{ invoice.buyer_vat_id }}{% endif %}
       {% if invoice.buyer_email %}<br>{{ invoice.buyer_email }}{% endif %}
     </div>
@@ -117,6 +118,13 @@
         <span>{{ invoice.total_vat|format_currency:invoice.currency }}</span>
       </div>
       {% endif %}
+      {% if invoice.rounding_amount %}
+      {# EN 16931 BT-114 (#1234): the cent no 2-dp net reaches at this rate, so Subtotal + VAT + Rounding = Total. #}
+      <div class="totals-row vat">
+        <span>Rounding</span>
+        <span>{{ invoice.rounding_amount|format_currency:invoice.currency }}</span>
+      </div>
+      {% endif %}
       <div class="totals-row total">
         <span>Total</span>
         <span>{{ invoice.total_gross|format_currency:invoice.currency }}</span>
@@ -126,6 +134,15 @@
       {# note, not an arithmetic row, so the column above still foots. #}
       <div class="totals-row" style="justify-content: flex-end;">
         <small style="color: #888;">Includes discount of {{ invoice.discount_amount_total|format_currency:invoice.currency }}</small>
+      </div>
+      {% endif %}
+      {% if invoice.payment_means_code == "48" and invoice.card_last4 %}
+      <div class="totals-row" style="justify-content: flex-end;">
+        <small style="color: #888;">Paid by card ending {{ invoice.card_last4 }}</small>
+      </div>
+      {% elif invoice.payment_method_label %}
+      <div class="totals-row" style="justify-content: flex-end;">
+        <small style="color: #888;">{{ invoice.payment_method_label }}</small>
       </div>
       {% endif %}
     </div>
@@ -151,6 +168,20 @@
         Virtual event — VAT charged at the seller's rate.<br>
         Depending on your country of residence,<br>
         VAT may instead be due there.
+      </div>
+      {% endif %}
+      {% if invoice.out_of_scope_text and not invoice.reverse_charge %}
+      {% if not is_export and not is_virtual_interim %}
+      <div class="footer-label">Tax Notice</div>
+      {% endif %}
+      <div class="notes-text">{{ invoice.out_of_scope_text }}</div>
+      {% endif %}
+      {% if invoice.exempt_reason_text and not invoice.reverse_charge %}
+      {% if not is_export and not is_virtual_interim %}
+      <div class="footer-label">Tax Notice</div>
+      {% endif %}
+      <div class="notes-text">
+        {% if invoice.exempt_reason_is_fallback %}Exempt from VAT{% else %}VAT exempt: {{ invoice.exempt_reason_text }}{% endif %}
       </div>
       {% endif %}
     </div>
