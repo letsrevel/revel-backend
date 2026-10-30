@@ -63,8 +63,8 @@ def _snapshot_reason(invoice: AttendeeInvoice) -> str | None:
         return "missing_seller_name"  # BT-27
     if not invoice.buyer_name.strip():
         return "missing_buyer_name"  # BT-44
-    if not invoice.seller_vat_id:
-        return "missing_seller_vat_id"
+    if not invoice.seller_vat_id and not invoice.seller_tax_registration_number:
+        return "missing_seller_vat_id"  # BT-31, or BT-32 for a small-business seller (#1244)
     if not invoice.seller_country_code:
         return "missing_seller_country"
     if not invoice.buyer_country_code:
@@ -72,11 +72,19 @@ def _snapshot_reason(invoice: AttendeeInvoice) -> str | None:
     return None
 
 
-def _lines_reason(lines: list[InvoiceLineItemDict], buyer_vat_id: str) -> str | None:
+def _lines_reason(lines: list[InvoiceLineItemDict], *, buyer_vat_id: str, seller_vat_id: str) -> str | None:
     if any(not item.get("vat_category") for item in lines):
         return "line_without_category"
-    if not buyer_vat_id and any(item.get("vat_category") == VatCategory.REVERSE_CHARGE for item in lines):
-        return "reverse_charge_without_buyer_vat_id"  # BR-AE-02
+    if any(item.get("vat_category") == VatCategory.REVERSE_CHARGE for item in lines):
+        # BR-AE-02: the seller's VAT identifier (BT-31) and the buyer's (BT-48); BT-32 is not enough here.
+        if not seller_vat_id:
+            return "reverse_charge_without_seller_vat_id"
+        if not buyer_vat_id:
+            return "reverse_charge_without_buyer_vat_id"
+    if not seller_vat_id and any(item.get("vat_category") == VatCategory.STANDARD for item in lines):
+        # BR-S-02: a standard-rated line needs BT-31 (or BT-63); the tax registration identifier (BT-32)
+        # alone only carries exempt lines (BR-E-02). A VAT-charging seller that lost its VAT ID gets no XML.
+        return "missing_seller_vat_id"
     categories = {item["vat_category"] for item in lines}
     if VatCategory.OUT_OF_SCOPE in categories and len(categories) > 1:
         return "out_of_scope_mixed"  # BR-O-11..14: category O stands alone in the invoice
@@ -87,15 +95,19 @@ def ineligibility_reason(invoice: AttendeeInvoice) -> str | None:
     """Return why ``invoice`` gets no EN 16931 XML, or ``None`` when it is eligible.
 
     Drafts (watermarked) and legacy rows never carry XML; the rest needs the seller VAT ID
-    (BT-31), both countries (BT-40, BT-55), a category on every line, a buyer VAT ID when
-    any line is reverse-charged, and no out-of-scope line next to another category. A CANCELLED invoice
-    (a full credit note cancelled it) stays eligible so a re-render matches the original.
+    (BT-31) or, for a small-business seller (#1244) whose lines are all exempt, its tax registration
+    number (BT-32: BR-E-02 accepts it, BR-S-02 does not), both countries (BT-40, BT-55), a category on
+    every line, both VAT IDs when any line is reverse-charged (BR-AE-02), and no out-of-scope line next
+    to another category. A
+    CANCELLED invoice (a full credit note cancelled it) stays eligible so a re-render matches the original.
     """
     if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
         return "draft"
     if not invoice.issued_at:
         return "missing_issued_at"
-    return _snapshot_reason(invoice) or _lines_reason(invoice.line_items, invoice.buyer_vat_id)
+    return _snapshot_reason(invoice) or _lines_reason(
+        invoice.line_items, buyer_vat_id=invoice.buyer_vat_id, seller_vat_id=invoice.seller_vat_id
+    )
 
 
 def credit_note_ineligibility_reason(credit_note: AttendeeInvoiceCreditNote) -> str | None:
@@ -111,7 +123,9 @@ def credit_note_ineligibility_reason(credit_note: AttendeeInvoiceCreditNote) -> 
         return "missing_issued_at"
     if credit_note.totals_method != TotalsMethod.EN16931:
         return "legacy_totals"
-    return _snapshot_reason(invoice) or _lines_reason(credit_note.line_items, invoice.buyer_vat_id)
+    return _snapshot_reason(invoice) or _lines_reason(
+        credit_note.line_items, buyer_vat_id=invoice.buyer_vat_id, seller_vat_id=invoice.seller_vat_id
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -139,11 +153,15 @@ def _not_subject_to_vat(lines: list[InvoiceLineItemDict]) -> bool:
 
 def _seller(invoice: AttendeeInvoice, address: PostalAddress, *, vat_id: bool) -> Seller:
     # BR-CO-26 wants BT-29, BT-30 or BT-31 on every seller. Where BR-O-02 forbids the VAT identifier
-    # (BT-31), the same number stays the one registered identifier we hold, carried as BT-29.
+    # (BT-31), or the seller has none (a small-business organizer identified by its tax registration
+    # number alone, BT-32, #1244), the one registered number we hold is also carried as BT-29.
+    vat_identifier = _opt(invoice.seller_vat_id) if vat_id else None
+    registered = invoice.seller_vat_id or invoice.seller_tax_registration_number
     return Seller(
         name=invoice.seller_name,
-        identifiers=() if vat_id else (Identifier(value=invoice.seller_vat_id),),
-        vat_identifier=_opt(invoice.seller_vat_id) if vat_id else None,
+        identifiers=(Identifier(value=registered),) if registered and not vat_identifier else (),
+        vat_identifier=vat_identifier,
+        tax_registration_identifier=_opt(invoice.seller_tax_registration_number),
         postal_address=SellerPostalAddress(
             address_line_1=_opt(address.line1),
             address_line_2=_opt(address.line2),

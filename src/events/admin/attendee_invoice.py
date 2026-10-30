@@ -59,6 +59,7 @@ class AttendeeInvoiceAdmin(ModelAdmin, EmailDeliveryAdminMixin, OrganizationLink
         "line_items",
         "seller_name",
         "seller_vat_id",
+        "seller_tax_registration_number",
         "seller_vat_country",
         "seller_address",
         "seller_address_line1",
@@ -124,6 +125,7 @@ class AttendeeInvoiceAdmin(ModelAdmin, EmailDeliveryAdminMixin, OrganizationLink
                 "fields": [
                     "seller_name",
                     "seller_vat_id",
+                    "seller_tax_registration_number",
                     "seller_vat_country",
                     "seller_address",
                     "seller_address_line1",

@@ -231,6 +231,8 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
                     "vat_rate",
                     "vat_id_validated",
                     "vat_id_validated_at",
+                    "tax_registration_number",
+                    "small_business_scheme",
                     "billing_address",
                     "billing_address_line1",
                     "billing_address_line2",

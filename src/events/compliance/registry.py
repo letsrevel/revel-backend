@@ -71,11 +71,15 @@ def get_policy_for_country(code: str | None) -> CountryCompliancePolicy:
     return cls(key)
 
 
-def resolve_country(vat_country_code: str | None, vat_id: str | None, city_iso2: str | None) -> str:
+def resolve_country(
+    vat_country_code: str | None, vat_id: str | None, city_iso2: str | None, billing_country_code: str | None = None
+) -> str:
     """Resolve an organizer's country of establishment from what it has declared.
 
     Order: the declared VAT country (set by the organizer, by VIES validation or from
-    the Stripe Connect account) → the VAT ID prefix → the organization's city.
+    the Stripe Connect account) → the VAT ID prefix → the structured billing address's
+    country (#1239; the one declaration an organizer without a VAT ID always makes, #1244)
+    → the organization's city.
 
     Returns:
         An ISO 3166-1 alpha-2 code, or ``""`` when nothing is declared.
@@ -85,13 +89,15 @@ def resolve_country(vat_country_code: str | None, vat_id: str | None, city_iso2:
     prefix = (vat_id or "").strip()[:2]
     if len(prefix) == 2 and prefix.isalpha():
         return normalize_country_code(prefix)
+    if country := normalize_country_code(billing_country_code):
+        return country
     return normalize_country_code(city_iso2)
 
 
 def resolve_org_country(org: "Organization") -> str:
     """Resolve an organization's country (see :func:`resolve_country`); select ``city`` on hot paths."""
     city_iso2 = org.city.iso2 if org.city_id and org.city else ""
-    return resolve_country(org.vat_country_code, org.vat_id, city_iso2)
+    return resolve_country(org.vat_country_code, org.vat_id, city_iso2, org.billing_country_code)
 
 
 def resolve_org_jurisdiction(org: "Organization") -> str:

@@ -37,6 +37,7 @@ from events.models import (
 )
 from events.models.organization import Organization as OrganizationModel
 from events.service.attendee_invoice_service import einvoice_missing_fields
+from events.utils.small_business import SmallBusinessScheme
 from questionnaires.models import QuestionnaireEvaluation
 
 from .attribution import AttributionPayloadMixin
@@ -149,6 +150,9 @@ class OrganizationBillingInfoSchema(Schema):
     vat_exemption_reason: str
     vat_id_validated: bool
     vat_id_validated_at: AwareDatetime | None = None
+    # Organizers without a VAT ID (#1244): national tax number (BT-32) and the small-business scheme.
+    tax_registration_number: str
+    small_business_scheme: SmallBusinessScheme
     billing_address: str
     billing_address_line1: str
     billing_address_line2: str
@@ -186,10 +190,15 @@ class OrganizationBillingInfoUpdateSchema(BillingInfoSchemaMixin):
 
     vat_country_code must be a valid ISO 3166-1 alpha-2 code.
     Conflict check with existing VAT ID prefix is done at the controller level.
+
+    ``tax_registration_number`` and ``small_business_scheme`` (#1244) are for organizers without an
+    EU VAT ID; the format of the number and the 0% rate a scheme implies are checked in the service.
     """
 
     vat_rate: Decimal | None = Field(None, ge=0, le=100)
     vat_exemption_reason: VatExemptionReason = ""
+    tax_registration_number: t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=32)] = ""
+    small_business_scheme: SmallBusinessScheme = SmallBusinessScheme.NONE
 
 
 class VATIdUpdateSchema(VATIdUpdateBaseSchema):
@@ -357,6 +366,8 @@ class OrganizationAdminDetailSchema(
     vat_exemption_reason: str
     vat_id_validated: bool
     vat_id_validated_at: AwareDatetime | None = None
+    tax_registration_number: str
+    small_business_scheme: SmallBusinessScheme
     billing_address: str
     billing_address_line1: str
     billing_address_line2: str

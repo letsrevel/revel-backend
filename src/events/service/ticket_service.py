@@ -34,6 +34,7 @@ from events.models import (
 )
 from events.models.mixins import VisibilityMixin
 from events.models.ticket import CancellationSource
+from events.service import small_business_scheme_service
 from events.service.attendee_vat_service import get_effective_vat_rate
 from events.service.seating.pricing import price_paid_is_admin_entered, recorded_or_resolved_price
 from events.service.waitlist_service import enqueue_waitlist_processing
@@ -484,11 +485,13 @@ def _assert_zero_rate_has_exemption_reason(tier: TicketTier, org: Organization) 
         HttpError 422: If the org invoices attendees, the tier is paid online, its effective VAT rate
             is 0 and neither the tier nor the org has an exemption reason.
     """
-    if org.invoicing_mode == Organization.InvoicingMode.NONE or not is_paid_online(tier):
-        return
     # The payload is dumped with ``mode="json"``, so the unsaved tier's ``vat_rate`` may still be a str.
     if tier.vat_rate is not None:
         tier.vat_rate = Decimal(tier.vat_rate)
+    # Whether or not it invoices: a small-business organizer must never charge VAT at checkout (#1244).
+    small_business_scheme_service.assert_tier_rate_allowed(tier, org)
+    if org.invoicing_mode == Organization.InvoicingMode.NONE or not is_paid_online(tier):
+        return
     if get_effective_vat_rate(tier, org) == 0 and not effective_vat_exemption_reason(tier, org):
         raise HttpError(422, str(_("A VAT exemption reason is required for a ticket tier with a 0% VAT rate.")))
 

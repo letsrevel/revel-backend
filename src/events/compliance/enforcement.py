@@ -28,10 +28,12 @@ from events.compliance.base import (
 from events.compliance.registry import (
     get_policy,
     get_policy_for_country,
+    resolve_org_country,
     resolve_org_jurisdiction,
 )
 from events.exceptions import CountryComplianceError
 from events.models import Organization, TicketTier
+from events.utils import small_business
 from events.utils.tier_pricing import parse_price_map
 
 if t.TYPE_CHECKING:
@@ -92,6 +94,21 @@ def attendee_invoicing_active(event: "Event") -> bool:
     return (
         org.invoicing_mode != Organization.InvoicingMode.NONE
         and attendee_invoicing_for_sale(sale_nexus(org, [event]), BuyerContext()).allowed
+        # #1244: the buyer-independent scheme gates generation applies (venue abroad; incomplete scheme identity).
+        and not small_business.scheme_sale_block(
+            org.small_business_scheme,
+            is_virtual=event.is_virtual,
+            venue_country=event.effective_vat_country,
+            buyer_country="",
+        )
+        and _scheme_identity_complete(org)
+    )
+
+
+def _scheme_identity_complete(org: Organization) -> bool:
+    """:func:`events.utils.small_business.scheme_identity_complete` for an organization's current state."""
+    return small_business.scheme_identity_complete(
+        org.small_business_scheme, org.vat_id_validated, resolve_org_country(org), org.tax_registration_number
     )
 
 
@@ -168,12 +185,21 @@ def event_compliance(event: "Event") -> EventCompliance:
 
     Select ``organization__city``, ``venue__city`` and ``city`` to keep this query-free.
     """
-    reach = sale_nexus(event.organization, [event])
+    org = event.organization
+    reach = sale_nexus(org, [event])
+    scheme = org.small_business_scheme
     if not attendee_invoicing_for_sale(reach, BuyerContext()).allowed:
         invoicing = AttendeeInvoicingCapability.BLOCKED
     elif any(not attendee_invoicing_for_sale(reach, BuyerContext(vat_country=code[:2])).allowed for code in reach):
         # A buyer whose VAT ID is from one of the reaching countries (a subdivision's: its country) would be refused.
         invoicing = AttendeeInvoicingCapability.BLOCKED_FOR_BUSINESS_BUYERS
+    elif small_business.scheme_sale_block(
+        scheme, is_virtual=event.is_virtual, venue_country=event.effective_vat_country, buyer_country=""
+    ) or not _scheme_identity_complete(org):
+        # A scheme organizer's physical event abroad, or one that cannot be identified yet (#1244): no invoice.
+        invoicing = AttendeeInvoicingCapability.BLOCKED
+    elif event.is_virtual and small_business.scheme_country(scheme):
+        invoicing = AttendeeInvoicingCapability.BLOCKED_FOR_FOREIGN_BUYERS  # same gate, decided per buyer
     else:
         invoicing = AttendeeInvoicingCapability.ALLOWED
     return EventCompliance(

@@ -25,10 +25,12 @@ from events.models.attendee_invoice import (
     TotalsMethod,
 )
 from events.models.ticket import TicketTier
+from events.service import small_business_scheme_service
 from events.service.attendee_invoice_lines import ProvenanceDict
 from events.service.attendee_invoice_service import _generate_and_save_pdf, invoice_compliance_decision
 from events.service.attendee_vat_service import out_of_scope_for
 from events.service.en16931_totals_service import compute_en16931_totals, sum_line_amounts
+from events.utils.small_business import is_small_business, scheme_exemption_reason
 from events.utils.vat_category import (
     EXEMPT_FALLBACK_TEXT,
     VatCategory,
@@ -169,9 +171,12 @@ def _recompute_vat_exemptions(
     that described lines no longer there cannot survive (#1242). A line without a tier (added by
     hand, or whose tier is gone) takes the organization's. Only on a legacy invoice, whose lines
     carry no ids at all, is the exempt text already stored kept (the generic fallback excepted).
+    A small-business organizer's statutory note always comes first (#1244), whatever the tiers say.
     """
-    org_reason = invoice.organization.vat_exemption_reason if invoice.organization else ""
-    exempt = [item for item in line_items if item["vat_category"] == VatCategory.EXEMPT]
+    org = invoice.organization
+    org_reason = org.vat_exemption_reason if org else ""
+    # ``.get``: at issue the stored lines come in as they are, and a legacy row's carry no category.
+    exempt = [item for item in line_items if item.get("vat_category") == VatCategory.EXEMPT]
     tiers = {
         str(tier.pk): tier
         for tier in TicketTier.objects.filter(pk__in={item["tier_id"] for item in exempt if "tier_id" in item})
@@ -190,6 +195,10 @@ def _recompute_vat_exemptions(
             )
         else:
             reasons.append(org_reason if has_provenance else legacy_reason)
+    note = scheme_exemption_reason(org.small_business_scheme) if org and is_small_business(org) else ""
+    # A legacy text may already carry the note (joined with a tier's reason): never print it twice.
+    if note and not any(note in reason for reason in reasons):
+        reasons.insert(0, note)
     return build_vat_exemptions((VatCategory(item["vat_category"]) for item in line_items), reasons)
 
 
@@ -299,12 +308,21 @@ def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.
 
     Raises:
         HttpError 422: If the resulting invoice is reverse-charge but a line still carries VAT
-            (EN 16931 BR-AE-05/08).
+            (EN 16931 BR-AE-05/08), or reverse-charge for an organizer under a small-business
+            scheme (no VAT ID, so no reverse charge: BR-AE-02/03, #1244).
     """
     reverse_charge = bool(update_data.get("reverse_charge", invoice.reverse_charge))
+    small_business = invoice.organization is not None and is_small_business(invoice.organization)
+    if reverse_charge and small_business:
+        raise HttpError(422, str(_("An organizer under a small-business scheme can't issue a reverse-charge invoice.")))
     submitted = update_data.get("line_items", invoice.line_items)
+    # No VAT shown, ever. A draft generated with VAT before the scheme was declared is therefore stuck:
+    # any edit (even a buyer-only one) re-derives its stored VAT lines and is refused until the lines are
+    # zeroed; its E lines then take the current statutory note. Accepted edge case, deliberately not papered over.
+    small_business_scheme_service.assert_draft_lines_exempt(invoice.organization, submitted)
     buyer_country = update_data.get("buyer_vat_country", invoice.buyer_vat_country)
-    out_of_scope = out_of_scope_for(invoice.event, invoice.seller_vat_country, buyer_country)
+    # Every line of a small-business organizer is exempt (E), never out of scope (#1244).
+    out_of_scope = not small_business and out_of_scope_for(invoice.event, invoice.seller_vat_country, buyer_country)
     line_items = _normalize_line_items(submitted, reverse_charge, out_of_scope, invoice.line_items)
     if reverse_charge and any(Decimal(i["vat_rate"]) or Decimal(i["vat_amount"]) for i in line_items):
         raise HttpError(422, str(_("A reverse-charge invoice can't charge VAT. Set the VAT of every line to 0.")))
@@ -432,8 +450,16 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
             raise HttpError(409, str(_("Cancelled invoices cannot be issued.")))
 
         if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
-            # A draft generated before the country gate must not become a legal document.
+            # A draft generated before the country gate must not become a legal document. Nor may a
+            # small-business organizer's draft for a sale outside its scheme's country (#1244).
             decision = invoice_compliance_decision(invoice)
+            if decision.allowed and invoice.organization is not None:
+                # The seller must be identifiable, and a scheme organizer's stored lines must show no VAT
+                # (a draft generated with VAT before the scheme was declared cannot be issued as it is).
+                decision = small_business_scheme_service.seller_identity_decision(invoice.organization)
+                small_business_scheme_service.assert_draft_lines_exempt(invoice.organization, invoice.line_items)
+            if decision.allowed:
+                decision = small_business_scheme_service.invoice_sale_decision(invoice)
             if not decision.allowed:
                 raise CountryComplianceError(decision.reason)
 
@@ -442,9 +468,19 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
             # invoice exists to recover a failed PDF generation, and that recovery
             # must stay available even for a row that drifted before #911 landed.
             _assert_totals_reconcile(invoice)
+            update_fields = ["status", "issued_at", "updated_at"]
+            if (
+                invoice.organization is not None
+                and is_small_business(invoice.organization)
+                and all("vat_category" in item for item in invoice.line_items)  # a legacy row has no map to redo
+            ):
+                # A draft generated before the scheme was declared carries no statutory note yet (#1244):
+                # stamp the exemption map now, lines untouched, so the issued document states the exemption.
+                invoice.vat_exemptions = _recompute_vat_exemptions(invoice, invoice.line_items)
+                update_fields.append("vat_exemptions")
             invoice.status = AttendeeInvoice.InvoiceStatus.ISSUED
             invoice.issued_at = timezone.now()
-            invoice.save(update_fields=["status", "issued_at", "updated_at"])
+            invoice.save(update_fields=update_fields)
 
     # (Re-)generate PDF without DRAFT watermark. Outside the lock: WeasyPrint is
     # slow, and once the status commits no edit can land -- update_draft_invoice

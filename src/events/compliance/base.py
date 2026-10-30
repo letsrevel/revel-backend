@@ -21,6 +21,8 @@ import pycountry
 from django.utils import timezone, translation
 from django.utils.translation import gettext_lazy as _
 
+from events.utils import small_business
+
 if t.TYPE_CHECKING:
     from django_stubs_ext import StrPromise
 
@@ -34,6 +36,8 @@ class AttendeeInvoicingCapability(enum.StrEnum):
     BLOCKED = "blocked"
     # Domestic B2B invoices must go through a national e-invoicing network.
     BLOCKED_FOR_BUSINESS_BUYERS = "blocked_for_business_buyers"
+    # A small-business-scheme organizer's virtual event (#1244): buyers outside the scheme's country are not invoiced.
+    BLOCKED_FOR_FOREIGN_BUYERS = "blocked_for_foreign_buyers"
 
 
 class PaymentChannelCapability(enum.StrEnum):
@@ -58,6 +62,10 @@ ESTABLISHMENT_ONLY: t.Final = frozenset({Nexus.ESTABLISHMENT})
 # ``SkippedFiscalDocument.ReasonCode``, whose values must stay equal to these.
 B2B_E_INVOICING: t.Final = "b2b_e_invoicing"
 FISCALIZED_INVOICING: t.Final = "fiscalized_invoicing"
+# The small-business refusals (#1244) are defined next to their rules in ``events.utils.small_business``.
+SMALL_BUSINESS_FOREIGN_VENUE: t.Final = small_business.SMALL_BUSINESS_FOREIGN_VENUE
+SMALL_BUSINESS_VIRTUAL_CROSS_BORDER: t.Final = small_business.SMALL_BUSINESS_VIRTUAL_CROSS_BORDER
+SELLER_IDENTITY_MISSING: t.Final = small_business.SELLER_IDENTITY_MISSING
 
 
 @dataclass(frozen=True, slots=True)

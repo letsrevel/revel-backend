@@ -84,8 +84,42 @@ def _telescoped_credit_note(org: Organization, event: Event, user: RevelUser) ->
     return make_credit_note(invoice, [line("7.77", "13.00")])
 
 
+_DE_19 = "Steuerbefreit gemäß § 19 UStG (Kleinunternehmerregelung)"
+_AT_6_1_27 = "Umsatzsteuerbefreit – Kleinunternehmer gem. § 6 Abs. 1 Z 27 UStG"
+
+
+def _small_business(
+    org: Organization, event: Event, user: RevelUser, *, country: str, tax_number: str, reason: str
+) -> AttendeeInvoice:
+    """#1244: no VAT ID; the tax registration number is BT-32 (and BT-29), every line E (BR-E-02, BR-E-10)."""
+    return make_invoice(
+        org,
+        event,
+        user,
+        lines=[line("24.90", "0.00", "E"), line("50.00", "0.00", "E", "VIP")],
+        seller_vat_id="",
+        seller_tax_registration_number=tax_number,
+        seller_country=country,
+        buyer_vat_id="",
+        buyer_country=country,
+        exempt_reason=reason,
+    )
+
+
+def _small_business_credit_note(org: Organization, event: Event, user: RevelUser) -> AttendeeInvoiceCreditNote:
+    invoice = _small_business(org, event, user, country="DE", tax_number="12/345/67890", reason=_DE_19)
+    return make_credit_note(invoice, [line("24.90", "0.00", "E", description="Refund — Event — Tier — Guest")])
+
+
 FIXTURES: dict[str, Build] = {
     "single_rate": lambda org, event, user: make_invoice(org, event, user, lines=[line("24.90", "13.00")]),
+    "small_business_de": lambda org, event, user: _small_business(
+        org, event, user, country="DE", tax_number="12/345/67890", reason=_DE_19
+    ),
+    "small_business_at": lambda org, event, user: _small_business(
+        org, event, user, country="AT", tax_number="12-345/6789", reason=_AT_6_1_27
+    ),
+    "small_business_credit_note": _small_business_credit_note,
     "mixed_s_e_with_rounding": _mixed_with_rounding,
     "reverse_charge": lambda org, event, user: make_invoice(
         org, event, user, lines=[line("100.00", "0.00", "AE")], reverse_charge=True, buyer_country="AT"

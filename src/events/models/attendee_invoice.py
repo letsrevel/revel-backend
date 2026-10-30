@@ -17,6 +17,7 @@ from django.db.models import Value
 from common.fields import ProtectedFileField
 from common.models import EmailDeliverableMixin, TimeStampedModel
 from common.postal_address import PostalAddress
+from events.utils.small_business import tax_number_label
 from events.utils.vat_category import EXEMPT_FALLBACK_TEXT, VatCategory
 
 
@@ -311,6 +312,8 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     seller_name = models.CharField(max_length=255)
     seller_vat_id = models.CharField(max_length=20, blank=True, default="")
     seller_vat_country = models.CharField(max_length=2, blank=True, default="")
+    # EN 16931 BT-32: the seller's national tax number, for small-business organizers without a VAT ID (#1244).
+    seller_tax_registration_number = models.CharField(max_length=32, blank=True, default="", db_default="")
     seller_address = models.TextField(blank=True, default="")
     seller_address_line1 = models.CharField(max_length=255, blank=True, default="", db_default="")
     seller_address_line2 = models.CharField(max_length=255, blank=True, default="", db_default="")
@@ -374,6 +377,11 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     def seller_address_lines(self) -> list[str]:
         """Printable seller address lines; the legacy text address for pre-structured invoices."""
         return self._lines(self.seller_postal_address, self.seller_address)
+
+    @property
+    def seller_tax_number_label(self) -> str:
+        """How the seller's tax registration number is labelled on the PDF (``Steuernummer`` for DE/AT)."""
+        return tax_number_label(self.seller_country_code or self.seller_vat_country)
 
     @property
     def buyer_address_lines(self) -> list[str]:

@@ -39,7 +39,7 @@
       <div class="supplier-name">{{ invoice.seller_name }}</div>
       <div class="supplier-details">
         {% for line in invoice.seller_address_lines %}{{ line }}<br>{% endfor %}
-        {% if invoice.seller_vat_id %}VAT: {{ invoice.seller_vat_id }}{% endif %}
+        {% if invoice.seller_vat_id %}VAT: {{ invoice.seller_vat_id }}{% elif invoice.seller_tax_registration_number %}{{ invoice.seller_tax_number_label }}: {{ invoice.seller_tax_registration_number }}{% endif %}
       </div>
     </div>
     <div class="invoice-badge">
