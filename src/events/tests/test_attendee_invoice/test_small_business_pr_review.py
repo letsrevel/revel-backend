@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from django.core.cache import cache
+from django.template.loader import render_to_string
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -531,6 +532,51 @@ class TestStatutoryNoteAtIssue:
         assert "Art. 132(1)(n) VAT Directive" in text
         assert issued.line_items == draft.line_items  # the lines themselves are untouched
         assert issued.seller_small_business_scheme == "de_19"  # stamped at issue: the PDF shows no VAT (#1258)
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_draft_follows_the_organizer_leaving_the_scheme(
+        self,
+        _mail: t.Any,
+        _pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Generated under de_19 (E lines, the §19 note); the organizer leaves the scheme; then it is issued."""
+        org = _make_small_business(organization)  # validated DE VAT ID
+        org.invoicing_mode = Organization.InvoicingMode.HYBRID
+        org.save()
+        event.vat_country_code = "DE"
+        event.save()
+        _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_left",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            net_amount=Decimal("100.00"),
+            vat_amount=Decimal("0.00"),
+            vat_rate=Decimal("0.00"),
+        )
+        draft = generate_attendee_invoice("cs_left")
+        assert draft is not None and draft.seller_small_business_scheme == "de_19"
+        assert draft.vat_exemptions["E"]["text"].startswith("Steuerbefreit gemäß § 19 UStG")
+        org.small_business_scheme = "none"
+        org.vat_exemption_reason = "Own exemption"
+        org.save()
+        issued = issue_draft_invoice(draft)
+        issued.refresh_from_db()
+        assert issued.seller_small_business_scheme == "none"
+        assert issued.vat_exemptions["E"]["text"] == "Own exemption"
+        assert issued.line_items == draft.line_items  # the lines stay as they were (E at 0%)
+        html = render_to_string(
+            "invoices/attendee_invoice.html",
+            {"invoice": issued, "is_draft": False, "is_export": False, "is_virtual_interim": False},
+        )
+        assert "<th>VAT</th>" in html and "Subtotal" in html  # the normal layout is back
+        assert "Steuerbefreit gemäß § 19 UStG" not in html
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     def test_non_scheme_draft_is_unchanged(
