@@ -120,6 +120,31 @@ class TestDraftLinesStayExempt:
         assert [li["vat_category"] for li in updated.line_items] == ["E"]
         assert DE_REASON in updated.vat_exemptions["E"]["text"]
 
+    def test_statutory_note_survives_a_tier_with_its_own_reason(
+        self, organization: Organization, event: Event, event_ticket_tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        """Per-tier reasons (#1242) resolve afresh on edit; the scheme note still leads the exempt text."""
+        _make_small_business(organization)
+        event_ticket_tier.vat_exemption_reason = "Tier wording"
+        event_ticket_tier.save()
+        invoice = _create_draft(organization, event, member_user)
+        line = {
+            **invoice.line_items[0],
+            "vat_rate": "0.00",
+            "vat_amount": "0.00",
+            "net_amount": "100.00",
+            "vat_category": "E",
+            "line_id": "1",
+            "tier_id": str(event_ticket_tier.pk),
+        }
+        invoice.line_items = [line]
+        invoice.save()
+        updated = update_draft_invoice(invoice, {"line_items": [{**line, "description": "Edited"}]})
+        updated.refresh_from_db()
+        text = updated.vat_exemptions["E"]["text"]
+        assert text.startswith(DE_REASON)
+        assert "Tier wording" in text
+
 
 # ---------------------------------------------------------------------------
 # H2 / H3: scheme ↔ country, and no way out once invoicing is on

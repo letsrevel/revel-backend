@@ -25,12 +25,12 @@ from events.models.attendee_invoice import (
     TotalsMethod,
 )
 from events.models.ticket import TicketTier
-from events.service.attendee_invoice_lines import ProvenanceDict
 from events.service import small_business_scheme_service
+from events.service.attendee_invoice_lines import ProvenanceDict
 from events.service.attendee_invoice_service import _generate_and_save_pdf, invoice_compliance_decision
 from events.service.attendee_vat_service import out_of_scope_for
 from events.service.en16931_totals_service import compute_en16931_totals, sum_line_amounts
-from events.utils.small_business import is_small_business
+from events.utils.small_business import is_small_business, scheme_exemption_reason
 from events.utils.vat_category import (
     EXEMPT_FALLBACK_TEXT,
     VatCategory,
@@ -171,8 +171,10 @@ def _recompute_vat_exemptions(
     that described lines no longer there cannot survive (#1242). A line without a tier (added by
     hand, or whose tier is gone) takes the organization's. Only on a legacy invoice, whose lines
     carry no ids at all, is the exempt text already stored kept (the generic fallback excepted).
+    A small-business organizer's statutory note always comes first (#1244), whatever the tiers say.
     """
-    org_reason = invoice.organization.vat_exemption_reason if invoice.organization else ""
+    org = invoice.organization
+    org_reason = org.vat_exemption_reason if org else ""
     exempt = [item for item in line_items if item["vat_category"] == VatCategory.EXEMPT]
     tiers = {
         str(tier.pk): tier
@@ -182,7 +184,7 @@ def _recompute_vat_exemptions(
     has_provenance = any("line_id" in item for item in invoice.line_items)
     stored = invoice.vat_exemptions.get("E", {}).get("text", "")
     legacy_reason = stored if stored and stored != EXEMPT_FALLBACK_TEXT else org_reason
-    reasons = []
+    reasons = [scheme_exemption_reason(org.small_business_scheme)] if org and is_small_business(org) else []
     for item in exempt:
         if (tier := tiers.get(item.get("tier_id", ""))) is not None:
             reasons.append(
