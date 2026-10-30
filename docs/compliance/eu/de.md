@@ -7,9 +7,11 @@ Issue: [#1232](https://github.com/letsrevel/revel-backend/issues/1232)
 ## Status
 
 **No restriction. Revel issues eligible attendee invoices as ZUGFeRD / Factur-X EN 16931 documents, so
-German organizers invoicing through Revel (which today requires an EU VAT ID) meet the E-Rechnung
-duty for domestic B2B sales once their transition ends (1 January 2027, or 1 January 2028 for
-prior-year turnover of at most 800,000 EUR).**
+German organizers invoicing through Revel meet the E-Rechnung duty for domestic B2B sales once their
+transition ends (1 January 2027, or 1 January 2028 for prior-year turnover of at most 800,000 EUR).
+Organizers identify themselves by a VIES-validated USt-IdNr. or, as *Kleinunternehmer* (§19 UStG),
+by their *Steuernummer*
+([#1244](https://github.com/letsrevel/revel-backend/issues/1244)).**
 
 Since 1 January 2025, an invoice for a supply between two businesses established in Germany must be an
 *E-Rechnung*: a structured invoice conforming to EN 16931, such as XRechnung or ZUGFeRD from the EN 16931
@@ -59,14 +61,36 @@ Not covered:
   (`SiteSettings.einvoice_facturx_enabled`) turns the embedding off. Already-issued documents are not
   backfilled; they gain XML only when re-rendered. Conformance is checked in CI against the official
   CEN EN 16931 rules through euinvoice.
+- **Kleinunternehmer (§19 UStG) without a USt-IdNr.**
+  ([#1244](https://github.com/letsrevel/revel-backend/issues/1244)). An organizer may declare the
+  small-business scheme (`Organization.small_business_scheme = de_19`) and its *Steuernummer*
+  (`tax_registration_number`) instead of a VIES-validated VAT ID. Turning invoicing on then requires: the
+  scheme, a format-valid Steuernummer (10 or 11 digits in the Land's format, or the 13-digit
+  bundeseinheitliches Format; a plausibility check only, there is no register to query), and
+  establishment in Germany (the declared VAT country, else the structured billing address's country).
+  The scheme means no VAT is ever charged: the organization's default rate must be 0%, no ticket tier
+  may carry a positive rate, and checkout never applies reverse charge for these organizers. Declaring the
+  scheme prefills the organization's exemption reason with "Steuerbefreit gemäß § 19 UStG
+  (Kleinunternehmerregelung)" (editable). On every invoice and credit note each line is EN 16931 category
+  E at 0% with that note (BR-E-10), the Steuernummer is printed where the VAT ID would be, and in the
+  Factur-X XML it is the Seller tax registration identifier (BT-32, `schemeID="FC"`), which BR-E-02
+  accepts in place of BT-31, repeated as BT-29 so BR-CO-26 holds; `vat_identifier` stays empty. §34a
+  UStDV lets these organizers issue a *sonstige Rechnung* at any time, so the plain-PDF fallback stays
+  legally fine. One sale is **not invoiced**: a *virtual* event sold to a business established in another
+  EU member state, which is taxed where the buyer is (Art. 44 / Art. 196 of Directive 2006/112/EC) and
+  would need a reverse-charge invoice with a seller VAT ID (BR-AE-02/03). It is recorded as a skipped
+  fiscal document (reason `small_business_virtual_b2b`, [#1091](https://github.com/letsrevel/revel-backend/issues/1091))
+  for the organizer to handle in its own software. CI validates DE and AT small-business fixtures against
+  the CEN rules.
 - **Not covered:** Revel cannot know an organizer's turnover, so it does not gate anything on the
-  800,000 EUR threshold; every eligible document gets the XML. Organizers without an EU VAT ID cannot
-  enable Revel invoicing today, because it requires a VIES-validated VAT ID. That covers *Kleinunternehmer*
-  (§19 UStG; §34a UStDV spares them the E-Rechnung) and also VAT-charging organizers who identify only by
-  their *Steuernummer* (§14 Abs. 4 UStG), who are not exempt. Supporting both, with the tax number as
-  BT-32, is tracked in [#1244](https://github.com/letsrevel/revel-backend/issues/1244). Until then this is
-  an open limitation.
-- The [common ticket content](index.md#common-ticket-content) applies.
+  800,000 EUR threshold or on the §19 thresholds (25,000 EUR prior year, 100,000 EUR current year);
+  every eligible document gets the XML, and the organizer is responsible for the scheme it declares.
+  **VAT-charging organizers that identify only by their Steuernummer** (§14 Abs. 4 Nr. 2 UStG allows
+  it) and hold no USt-IdNr. still cannot enable Revel invoicing: without a VIES-validated VAT ID Revel
+  cannot tell a taxable person from a consumer, and the USt-IdNr. is free from the BZSt. This is a
+  documented limitation, not a planned feature.
+- The [common ticket content](index.md#common-ticket-content) applies. The Steuernummer is not yet
+  printed on tickets (only the VAT ID is).
 
 ## Legal basis
 
@@ -80,9 +104,29 @@ Not covered:
   31 December 2027, prior-year *Gesamtumsatz* (§19 Abs. 2) up to 800,000 EUR. Nr. 3: supplies in 2027,
   a non-EN 16931 electronic format exchanged via EDI with consent (no paper).
   [§27 UStG](https://www.gesetze-im-internet.de/ustg_1980/__27.html)
-- **§34a UStDV**: invoices for supplies exempt under §19 Abs. 1 UStG (*Kleinunternehmer*) may always be
-  issued as a *sonstige Rechnung*, notwithstanding §14 Abs. 2 S. 2 UStG.
-  [§34a UStDV](https://www.gesetze-im-internet.de/ustdv_1980/__34a.html)
+- **§19 Abs. 1 UStG** (as amended from 1 January 2025): supplies of a domestic *Kleinunternehmer* are
+  *steuerfrei* when the prior-year total turnover did not exceed 25,000 EUR and the current year's does
+  not exceed 100,000 EUR. Showing VAT anyway means owing it (§14c UStG).
+  [§19 UStG](https://www.gesetze-im-internet.de/ustg_1980/__19.html)
+- **§14 Abs. 4 Nr. 2 UStG**: an invoice carries the issuer's *Steuernummer* or its USt-IdNr.; both are
+  equivalent for this purpose. The Steuernummer cannot be checked against VIES, so Revel can only check
+  its format. [§14 UStG](https://www.gesetze-im-internet.de/ustg_1980/__14.html)
+- **§34a UStDV**: invoices for supplies exempt under §19 Abs. 1 UStG (*Kleinunternehmer*) need only the
+  names and addresses, the issuer's Steuernummer or USt-IdNr. (or Kleinunternehmer-Identifikationsnummer),
+  the issue date, the supply, the consideration as one amount and a note that the small-business
+  exemption applies (S. 1 Nr. 5: "dass für die Lieferung oder sonstige Leistung die Steuerbefreiung für
+  Kleinunternehmer gilt"); they may always be issued as a *sonstige Rechnung*, notwithstanding §14 Abs. 2
+  S. 2 UStG. [§34a UStDV](https://www.gesetze-im-internet.de/ustdv_1980/__34a.html)
+- **EN 16931 (CEN 1.3.16)**: BR-E-02 requires the Seller VAT identifier (BT-31), the Seller tax
+  registration identifier (BT-32) or the tax representative's VAT identifier on an invoice with exempt
+  lines; BR-E-10 requires an exemption reason text or code per exempt VAT breakdown; BR-AE-02/03 require
+  the seller's and the buyer's VAT identifiers for reverse charge; BR-CO-26 requires BT-29, BT-30 or
+  BT-31 on the seller. There is no VATEX code for §19, so the reason is text only.
+  [euinvoice country notes](https://letsrevel.github.io/euinvoice/countries/#germany)
+- **Art. 18 of Implementing Regulation (EU) 282/2011**: a supplier may treat an EU customer without a
+  VAT identification number as a non-taxable person. This is why Revel's own platform-fee invoice to a
+  Kleinunternehmer carries Austrian VAT (see the open question below).
+  [Implementing Regulation 282/2011](https://eur-lex.europa.eu/eli/reg_impl/2011/282/oj)
 - **§33 UStDV**: invoices up to 250 EUR gross (whole invoice total) may always be issued as a *sonstige
   Rechnung*; S. 3 excludes supplies under §§3c, 6a and 13b UStG.
   [§33 UStDV](https://www.gesetze-im-internet.de/ustdv_1980/__33.html)
@@ -108,7 +152,22 @@ Not covered:
 - **§4 Nr. 20 UStG** exempts some cultural events (theatres, concerts and similar by public bodies or
   certified equivalents), whose invoices need no E-Rechnung. Whether to model it or leave it to the
   organizer.
-- A German VAT ID is used as a proxy for "established in Germany". Whether that is good enough.
+- A German VAT ID is used as a proxy for "established in Germany". Whether that is good enough. For
+  a Kleinunternehmer without a VAT ID, the structured billing address's country is the proxy.
+- **Platform-fee VAT for Kleinunternehmer (to confirm with the tax advisor before launch).** Revel's
+  own fee invoice (Revel → organizer) is unchanged by
+  [#1244](https://github.com/letsrevel/revel-backend/issues/1244): without a VIES-validated VAT ID the
+  organizer is treated as a non-business customer under Art. 18 IR 282/2011, so Revel charges Austrian
+  VAT instead of reverse-charging. A Kleinunternehmer cannot deduct input VAT anyway, so this does them
+  no harm, but whether a German Kleinunternehmer buying a B2B service from Austria should instead be
+  reverse-charged (and then owe German VAT under §13b UStG, which would also push them to get a
+  USt-IdNr.) has not been confirmed. Pinned by a test so a change is deliberate.
+- **Virtual events sold to non-EU buyers by a Kleinunternehmer.** Revel invoices every line of a
+  scheme organizer as exempt (E) with the §19 note, including a virtual event sold to a buyer outside
+  the EU, whose place of supply is outside Germany (category O would also be defensible). No VAT is
+  due either way; the wording is the open point.
+- The Steuernummer format check accepts 10, 11 or 13 digits after stripping separators; it does not
+  verify the Finanzamt prefix or a check digit.
 - Ticket-specific or event-specific rules (for example local levies) were not part of this review.
 
 ## Later layers
