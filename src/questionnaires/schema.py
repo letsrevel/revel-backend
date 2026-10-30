@@ -18,12 +18,12 @@ from questionnaires.models import (
     QuestionnaireSubmission,
 )
 
-# ---- MIME type constants for file upload validation ----
-
-# Common document MIME types
 # Generous per-kind ceiling on answers in one submission.
 MAX_SUBMISSION_ANSWERS = 1000
 
+# ---- MIME type constants for file upload validation ----
+
+# Common document MIME types
 DOCUMENT_MIME_TYPES: frozenset[str] = frozenset(
     {
         "application/pdf",

@@ -61,10 +61,10 @@ PROPAGATABLE_FIELDS = frozenset(
 # ``address`` + ``location`` are stored on Event as a coupled pair (human-readable
 # address text + PostGIS Point). Propagating one without the other would leave
 # occurrences with mismatched coordinates, so we always write both together.
+_COUPLED_FIELD_GROUPS: tuple[frozenset[str], ...] = (frozenset({"address", "location"}),)
+
 # Max occurrences materialized per run; the cursor resumes from the last one on the next run.
 MAX_OCCURRENCES_PER_RUN = 500
-
-_COUPLED_FIELD_GROUPS: tuple[frozenset[str], ...] = (frozenset({"address", "location"}),)
 
 
 def materialize_occurrence(series: EventSeries, dt: datetime, index: int) -> Event:
