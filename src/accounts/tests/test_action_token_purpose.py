@@ -9,12 +9,17 @@ email-verification, password-reset, deletion or unsubscribe tokens.
 import typing as t
 
 import pytest
+from ninja import Schema
 from ninja.errors import HttpError
+from ninja_extra.exceptions import AuthenticationFailed
 
 from accounts import schema
+from accounts.jwt import validate_otp_jwt
 from accounts.models import RevelUser
 from accounts.service import account as account_service
 from accounts.service.auth import get_token_pair_for_user
+from events.schema import VerifyOrganizationContactEmailJWTPayloadSchema
+from notifications.schema import EmailOptOutJWTPayloadSchema, OneClickUnsubscribePayload
 
 pytestmark = pytest.mark.django_db
 
@@ -26,11 +31,20 @@ ACTION_SCHEMAS: list[type[schema.BaseEmailJWTPayloadSchema]] = [
 ]
 
 
-@pytest.mark.parametrize("schema_class", ACTION_SCHEMAS)
+@pytest.mark.parametrize(
+    "schema_class",
+    [
+        *ACTION_SCHEMAS,
+        schema.EmailChangeJWTPayloadSchema,
+        VerifyOrganizationContactEmailJWTPayloadSchema,
+        OneClickUnsubscribePayload,
+        EmailOptOutJWTPayloadSchema,
+    ],
+)
 @pytest.mark.parametrize("which", ["access", "refresh"])
 def test_session_token_is_not_an_action_token(
     unverified_user: RevelUser,
-    schema_class: type[schema.BaseEmailJWTPayloadSchema],
+    schema_class: type[Schema],
     which: t.Literal["access", "refresh"],
 ) -> None:
     pair = get_token_pair_for_user(unverified_user)
@@ -69,3 +83,10 @@ def test_genuine_action_token_still_validates(
     )
     token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
     assert account_service.token_to_payload(token, schema_class).user_id == unverified_user.id
+
+
+@pytest.mark.parametrize("which", ["access", "refresh"])
+def test_session_token_is_not_an_otp_token(unverified_user: RevelUser, which: t.Literal["access", "refresh"]) -> None:
+    pair = get_token_pair_for_user(unverified_user)
+    with pytest.raises(AuthenticationFailed):
+        validate_otp_jwt(getattr(pair, which))
