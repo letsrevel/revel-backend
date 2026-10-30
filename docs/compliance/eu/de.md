@@ -68,8 +68,10 @@ Not covered:
   scheme, a format-valid Steuernummer (10 or 11 digits in the Land's format, or the 13-digit
   bundeseinheitliches Format; a plausibility check only, there is no register to query), and
   establishment in Germany (the declared VAT country, else the structured billing address's country).
-  The scheme means no VAT is ever charged: the organization's default rate must be 0%, no ticket tier
-  may carry a positive rate, and checkout never applies reverse charge for these organizers. Declaring the
+  The scheme means no VAT is ever charged: the organization's default rate must be 0%, a tier cannot be
+  given a positive rate and any rate a tier still carries (for example one copied by event duplication)
+  is ignored at checkout and on invoices (one effective-rate choke point), and checkout never applies
+  reverse charge for these organizers. Declaring the
   scheme prefills the organization's exemption reason with "Steuerbefreit gemäß § 19 UStG
   (Kleinunternehmerregelung)" (editable). On every invoice and credit note each line is EN 16931 category
   E at 0% with that note (BR-E-10), the Steuernummer is printed where the VAT ID would be, and in the
@@ -91,12 +93,14 @@ Not covered:
   a line cannot be edited to carry VAT, a draft cannot be switched to reverse charge, and issuing a draft
   runs the two gates. Credit notes do not: a credit note reverses the invoice it corrects as issued (an
   invoice issued with VAT before the scheme was declared is credited with that VAT), whatever the
-  organizer's scheme or the event's venue have become since. Once invoicing is on, the billing settings
-  refuse any change that would leave an organizer *without any VAT ID* unidentifiable (dropping the
-  scheme, blanking the tax number, moving the billing country), and generation itself skips such an
-  organizer's invoice (reason `seller_identity_missing`); a VIES organizer whose validation lapses keeps
-  today's behaviour and is still invoiced. CI validates DE and AT small-business fixtures against the CEN
-  rules.
+  organizer's scheme or the event's venue have become since. Once invoicing is on, a scheme organizer
+  without a VIES-validated USt-IdNr. (whatever VAT ID string it may have typed; VIES may have rejected
+  it) cannot make a billing change that would leave it unidentifiable (dropping the scheme, blanking the
+  tax number, moving the billing country), and generation itself skips such an organizer's invoice
+  (reason `seller_identity_missing`). Only a VIES-validated VAT ID lifts that guard; an organizer
+  without a scheme whose validation lapsed keeps today's behaviour and is still invoiced with its stored
+  VAT ID. The tier flag `invoicing_available` follows the same gates, so checkout never promises an
+  invoice generation would skip. CI validates DE and AT small-business fixtures against the CEN rules.
 - **Not covered:** Revel cannot know an organizer's turnover, so it does not gate anything on the
   800,000 EUR threshold or on the §19 thresholds (25,000 EUR prior year, 100,000 EUR current year);
   every eligible document gets the XML, and the organizer is responsible for the scheme it declares.

@@ -26,8 +26,9 @@ merchant of record they remain responsible for their tax and invoicing duties.
   (`tax_registration_number`, the nine-digit Abgabenkontonummer: two-digit Finanzamt plus seven digits,
   e.g. `12-345/6789`; format-checked only). Turning invoicing on requires the scheme, a format-valid
   Steuernummer and establishment in Austria (the declared VAT country, else the structured billing
-  address's country). The scheme means no VAT is charged on anything: the default rate must be 0%, no
-  tier may carry a positive rate, and checkout never applies reverse charge. Declaring it prefills the
+  address's country). The scheme means no VAT is charged on anything: the default rate must be 0%, a
+  tier cannot be given a positive rate and any rate a tier still carries is ignored at checkout and on
+  invoices (one effective-rate choke point), and checkout never applies reverse charge. Declaring it prefills the
   exemption reason with "Umsatzsteuerbefreit – Kleinunternehmer gem. § 6 Abs. 1 Z 27 UStG" (the
   wording of the WKO's Kleinunternehmer invoice template; editable), which satisfies § 11 Abs. 1 Z 3
   lit. e. Every invoice and credit-note line is EN 16931 category E at 0% with that note; the
@@ -40,10 +41,13 @@ merchant of record they remain responsible for their tax and invoicing duties.
   a business customer would also need reverse charge) are not invoiced; they are recorded as skipped
   fiscal documents (`small_business_foreign_venue`, `small_business_virtual_cross_border`) and the event
   detail reports `blocked` / `blocked_for_foreign_buyers`; issuing a draft runs the same gates, credit
-  notes never do (they reverse the invoice as issued). Once invoicing is on, billing changes that would
-  leave an organizer without any VAT ID unidentifiable are refused, and generation skips such an
-  organizer's invoice (`seller_identity_missing`); a lapsed VIES validation changes nothing. CI
-  validates an AT small-business fixture against the CEN rules.
+  notes never do: a credit note reverses the invoice it corrects as issued, so an invoice issued with
+  VAT before the scheme was declared is credited with that VAT. Once invoicing is on, a scheme
+  organizer without a VIES-validated UID (whatever UID string it may have typed) cannot make a billing
+  change that would leave it unidentifiable (dropping the scheme, blanking the tax number, moving the
+  billing country), and generation skips such an organizer's invoice (`seller_identity_missing`); only
+  a VIES-validated UID lifts that guard, and an organizer without a scheme whose validation lapsed
+  keeps today's behaviour. CI validates an AT small-business fixture against the CEN rules.
 - **Not covered:** VAT-charging organizers that hold only a Steuernummer and no UID still need a UID to
   invoice through Revel; without a VIES-validated VAT ID Revel cannot tell a taxable person from a
   consumer. Revel does not gate on the € 55,000 Kleinunternehmer threshold; the organizer is responsible
