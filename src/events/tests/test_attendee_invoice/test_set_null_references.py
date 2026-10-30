@@ -39,3 +39,13 @@ def test_invoice_of_a_deleted_user_can_still_be_saved(
     invoice.save()
     invoice.refresh_from_db()
     assert (invoice.user_id, invoice.buyer_name) == (None, "Renamed")
+
+
+def test_organization_less_draft_can_be_issued(
+    organization: Organization, event: Event, member_user: RevelUser
+) -> None:
+    draft = _create_draft(organization, event, member_user)
+    AttendeeInvoice.objects.filter(pk=draft.pk).update(organization=None)  # organization deleted
+    draft.refresh_from_db()
+
+    assert issue_draft_invoice(draft).status == AttendeeInvoice.InvoiceStatus.ISSUED

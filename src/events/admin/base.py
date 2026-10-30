@@ -83,6 +83,19 @@ class EmailDeliveryAdminMixin:
         self.message_user(request, f"Re-dispatched delivery for {count} document(s).", messages.SUCCESS)  # type: ignore[attr-defined]
 
 
+class CreatedByDefaultMixin:
+    """Attribute an admin-created row to the admin when ``created_by`` is left empty.
+
+    ``created_by`` is ``blank=True`` so the row stays valid after its creator is deleted (SET_NULL).
+    That must not let a new row be saved without a creator through the admin.
+    """
+
+    def save_model(self, request: HttpRequest, obj: t.Any, form: t.Any, change: bool) -> None:
+        if not change and obj.created_by_id is None:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)  # type: ignore[misc]
+
+
 class EventLinkMixin:
     """Mixin to add a link to an event."""
 
