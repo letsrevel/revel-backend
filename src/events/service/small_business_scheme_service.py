@@ -254,17 +254,24 @@ def assert_draft_lines_exempt(org: Organization | None, line_items: t.Iterable[t
 def assert_vat_id_change_allowed(org: Organization, new_vat_id: str) -> None:
     """Refuse a VAT-ID change (set, or clear with ``""``) that would leave a scheme organizer unidentifiable.
 
-    Judged on the pessimistic outcome, a stored but unvalidated ID (what a VIES failure persists): a
+    The candidate takes the new VAT ID and its country (the prefix, ``EL`` read as ``GR``; cleared on
+    delete), as VIES validation would set them. A declared scheme must still be the one of that country
+    (a DE scheme cannot hold an AT VAT ID, as the billing PATCH refuses too). The identity itself is
+    judged on the pessimistic outcome, a stored but unvalidated ID (what a VIES failure persists): a
     scheme organizer with invoicing on then needs its tax registration number to stand in.
 
     Raises:
-        HttpError 422: While invoicing is on, if :func:`scheme_path_identity_errors` would be non-empty.
+        HttpError 422: A scheme ≠ the new VAT country, or, while invoicing is on, a non-empty
+            :func:`scheme_path_identity_errors`.
     """
-    if org.invoicing_mode == Organization.InvoicingMode.NONE:
-        return
     candidate = copy.copy(org)
     candidate.vat_id = new_vat_id
+    candidate.vat_country_code = normalize_country_code(new_vat_id[:2]) if new_vat_id[:2].isalpha() else ""
     candidate.vat_id_validated = False
+    if is_small_business(candidate) and (error := _scheme_country_error(candidate)):
+        raise HttpError(422, error)
+    if org.invoicing_mode == Organization.InvoicingMode.NONE:
+        return
     if errors := scheme_path_identity_errors(org, candidate):
         raise HttpError(422, str(INVOICING_WOULD_STOP_MESSAGE).format(details="; ".join(errors)))
 

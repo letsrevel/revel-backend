@@ -72,7 +72,7 @@ def _snapshot_reason(invoice: AttendeeInvoice) -> str | None:
     return None
 
 
-def _lines_reason(lines: list[InvoiceLineItemDict], buyer_vat_id: str, seller_vat_id: str) -> str | None:
+def _lines_reason(lines: list[InvoiceLineItemDict], *, buyer_vat_id: str, seller_vat_id: str) -> str | None:
     if any(not item.get("vat_category") for item in lines):
         return "line_without_category"
     if any(item.get("vat_category") == VatCategory.REVERSE_CHARGE for item in lines):
@@ -105,7 +105,9 @@ def ineligibility_reason(invoice: AttendeeInvoice) -> str | None:
         return "draft"
     if not invoice.issued_at:
         return "missing_issued_at"
-    return _snapshot_reason(invoice) or _lines_reason(invoice.line_items, invoice.buyer_vat_id, invoice.seller_vat_id)
+    return _snapshot_reason(invoice) or _lines_reason(
+        invoice.line_items, buyer_vat_id=invoice.buyer_vat_id, seller_vat_id=invoice.seller_vat_id
+    )
 
 
 def credit_note_ineligibility_reason(credit_note: AttendeeInvoiceCreditNote) -> str | None:
@@ -122,7 +124,7 @@ def credit_note_ineligibility_reason(credit_note: AttendeeInvoiceCreditNote) -> 
     if credit_note.totals_method != TotalsMethod.EN16931:
         return "legacy_totals"
     return _snapshot_reason(invoice) or _lines_reason(
-        credit_note.line_items, invoice.buyer_vat_id, invoice.seller_vat_id
+        credit_note.line_items, buyer_vat_id=invoice.buyer_vat_id, seller_vat_id=invoice.seller_vat_id
     )
 
 

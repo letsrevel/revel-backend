@@ -13,6 +13,7 @@ from ninja.errors import HttpError
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
+from common.service.vies_service import VIESValidationResult
 from events.compliance import AttendeeInvoicingCapability
 from events.compliance.enforcement import event_compliance
 from events.exceptions import CountryComplianceError
@@ -133,7 +134,7 @@ class TestVatIdEndpointsGuard:
         self, organization: Organization, owner_client: Client
     ) -> None:
         org = self._scheme_org_with_validated_vat_id(organization)
-        with patch("common.service.vies_service.validate_vat_id_cached") as vies:
+        with patch("common.service.vies_service.validate_vat_id") as vies:
             response = owner_client.put(
                 reverse("api:set_vat_id", kwargs={"slug": org.slug}),
                 data='{"vat_id": "DE123456789"}',
@@ -147,6 +148,40 @@ class TestVatIdEndpointsGuard:
         org.invoicing_mode = Organization.InvoicingMode.AUTO
         org.save()
         assert owner_client.delete(reverse("api:delete_vat_id", kwargs={"slug": org.slug})).status_code == 204
+
+    def _put_vat_id(self, client: Client, org: Organization, vat_id: str) -> t.Any:
+        return client.put(
+            reverse("api:set_vat_id", kwargs={"slug": org.slug}),
+            data=f'{{"vat_id": "{vat_id}"}}',
+            content_type="application/json",
+        )
+
+    def test_set_a_foreign_vat_id_is_refused_before_vies(
+        self, organization: Organization, owner_client: Client
+    ) -> None:
+        """The candidate's country follows the new VAT ID's prefix: a DE scheme cannot hold an AT VAT ID (H2)."""
+        org = self._scheme_org_with_validated_vat_id(organization)
+        org.tax_registration_number = "12/345/67890"
+        org.save()
+        with patch("common.service.vies_service.validate_vat_id") as vies:
+            response = self._put_vat_id(owner_client, org, "ATU12345678")
+        assert response.status_code == 422, response.content
+        assert "established in Germany" in response.json()["detail"]
+        vies.assert_not_called()
+        org.refresh_from_db()
+        assert org.vat_id == "DE811234567"
+
+    def test_set_a_domestic_vat_id_goes_through(self, organization: Organization, owner_client: Client) -> None:
+        org = self._scheme_org_with_validated_vat_id(organization)
+        org.tax_registration_number = "12/345/67890"
+        org.save()
+        result = VIESValidationResult(valid=True, name="Kleine Bühne", address="Musterstraße 1", request_identifier="r")
+        with patch("common.service.vies_service.validate_vat_id", return_value=result) as vies:
+            response = self._put_vat_id(owner_client, org, "DE123456789")
+        assert response.status_code == 200, response.content
+        vies.assert_called_once()
+        org.refresh_from_db()
+        assert org.vat_id == "DE123456789"
 
 
 # ---------------------------------------------------------------------------
