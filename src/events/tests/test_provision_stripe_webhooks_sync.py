@@ -221,6 +221,14 @@ def test_sync_id_flags_pin_the_pair(stripe_mock: MagicMock) -> None:
     assert "--platform-id" in output
 
 
+def test_sync_rejects_the_same_id_for_both_roles(stripe_mock: MagicMock) -> None:
+    """One endpoint cannot be both the platform and the Connect endpoint."""
+    _list(stripe_mock, *_old())
+    with pytest.raises(CommandError, match="same endpoint"):
+        call_command("provision_stripe_webhooks", url=URL, sync=True, platform_id="we_p", connect_id="we_p")
+    stripe_mock.WebhookEndpoint.modify.assert_not_called()
+
+
 def test_sync_id_flag_must_be_at_url(stripe_mock: MagicMock) -> None:
     """A pinned id that targets another URL is rejected."""
     other = _ep("we_x", OLD_PLATFORM, url="https://other.example.com/hook")

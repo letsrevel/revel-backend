@@ -237,6 +237,8 @@ class Command(BaseCommand):
     def _resolve_pins(url: str, pins: dict[str, str | None], by_id: dict[str, t.Any]) -> dict[str, tuple[t.Any, str]]:
         """Validate ``--platform-id`` / ``--connect-id``: both must be enabled endpoints at ``url``."""
         pair: dict[str, tuple[t.Any, str]] = {}
+        if pins.get("platform") and pins.get("platform") == pins.get("connect"):
+            raise CommandError(f"--platform-id and --connect-id name the same endpoint ({pins['platform']}).")
         for kind, pin in pins.items():
             if pin is None:
                 continue
