@@ -95,9 +95,14 @@ _TAX_NUMBER_LABELS: t.Final[dict[str, str]] = {"DE": "Steuernummer", "AT": "Steu
 GENERIC_TAX_NUMBER_LABEL: t.Final = "Tax registration no."
 
 
+def is_scheme(scheme: str) -> bool:
+    """Whether ``scheme`` is a small-business scheme (not ``none`` / unknown)."""
+    return scheme in SCHEME_COUNTRIES
+
+
 def is_small_business(org: "Organization") -> bool:
     """Whether the organizer trades under a small-business VAT scheme (#1244): no VAT, no reverse charge."""
-    return org.small_business_scheme in SCHEME_COUNTRIES
+    return is_scheme(org.small_business_scheme)
 
 
 def scheme_country(scheme: str) -> str:

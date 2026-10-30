@@ -65,13 +65,18 @@
     </div>
   </div>
 
+  {# A small-business-scheme seller's document (#1258) shows no VAT rate, amount or total at all (AT § 11 Abs. 12/14 UStG, DE § 14c UStG, Art. 289): gross amounts and the statutory note only. #}
   <table class="items-table">
     <thead>
       <tr>
         <th>Description</th>
+        {% if invoice.seller_is_small_business %}
+        <th>Amount</th>
+        {% else %}
         <th>Net</th>
         <th>VAT</th>
         <th>Gross</th>
+        {% endif %}
       </tr>
     </thead>
     <tbody>
@@ -81,10 +86,14 @@
           {{ item.description }}
           {% if item.discount_amount and item.discount_amount != "0.00" %}<br><small style="color: #888;">Discount: -{{ item.discount_amount|format_number }}</small>{% endif %}
         </td>
+        {% if invoice.seller_is_small_business %}
+        <td>{{ item.unit_price_gross|format_number }}</td>
+        {% else %}
         <td>{{ item.net_amount|format_number }}</td>
         {# Per-line rate (#846): with a mixed-rate cart the totals row can claim no single rate, so this is the only place the breakdown survives. #}
         <td>{{ item.vat_amount|format_number }} <small style="color: #888;">({{ item.vat_rate }}%)</small></td>
         <td>{{ item.unit_price_gross|format_number }}</td>
+        {% endif %}
       </tr>
       {% endfor %}
     </tbody>
@@ -92,6 +101,7 @@
 
   <div class="totals">
     <div class="totals-box">
+      {% if not invoice.seller_is_small_business %}
       <div class="totals-row subtotal">
         <span>Subtotal</span>
         <span>{{ invoice.total_net|format_currency:invoice.currency }}</span>
@@ -117,6 +127,7 @@
         <span>VAT ({{ invoice.vat_rate }}%)</span>
         <span>{{ invoice.total_vat|format_currency:invoice.currency }}</span>
       </div>
+      {% endif %}
       {% endif %}
       {% if invoice.rounding_amount %}
       {# EN 16931 BT-114 (#1234): the cent no 2-dp net reaches at this rate, so Subtotal + VAT + Rounding = Total. #}

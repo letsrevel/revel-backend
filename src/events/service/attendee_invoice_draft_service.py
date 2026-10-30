@@ -479,6 +479,9 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
                 # stamp the exemption map now, lines untouched, so the issued document states the exemption.
                 invoice.vat_exemptions = _recompute_vat_exemptions(invoice, invoice.line_items)
                 update_fields.append("vat_exemptions")
+                # A draft generated before the scheme was declared (or before #1258) shows no VAT once issued.
+                invoice.seller_small_business_scheme = invoice.organization.small_business_scheme
+                update_fields.append("seller_small_business_scheme")
             if not invoice.issuer_name:  # a draft generated before the issuer snapshot existed (#1258)
                 invoice.issuer_name = platform_issuer_name()
                 update_fields.append("issuer_name")

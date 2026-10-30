@@ -49,22 +49,31 @@
     </div>
   </div>
 
+  {# A small-business-scheme seller's document (#1258) shows no VAT rate, amount or total at all (AT § 11 Abs. 12/14 UStG, DE § 14c UStG, Art. 289): gross amounts and the statutory note only. #}
   <table class="items-table">
     <thead>
       <tr>
         <th>Description</th>
+        {% if invoice.seller_is_small_business %}
+        <th>Amount</th>
+        {% else %}
         <th>Net</th>
         <th>VAT</th>
         <th>Gross</th>
+        {% endif %}
       </tr>
     </thead>
     <tbody>
       {% for item in credit_note.line_items %}
       <tr>
         <td>{{ item.description }}</td>
+        {% if invoice.seller_is_small_business %}
+        <td>{{ item.unit_price_gross|format_number }}</td>
+        {% else %}
         <td>{{ item.net_amount|format_number }}</td>
         <td>{{ item.vat_amount|format_number }}</td>
         <td>{{ item.unit_price_gross|format_number }}</td>
+        {% endif %}
       </tr>
       {% endfor %}
     </tbody>
@@ -72,6 +81,8 @@
 
   <div class="totals">
     <div class="totals-box">
+      {% if invoice.seller_is_small_business %}
+      {% else %}
       <div class="totals-row subtotal">
         <span>Subtotal</span>
         <span>{{ credit_note.amount_net|format_currency:invoice.currency }}</span>
@@ -86,6 +97,7 @@
         <span>VAT</span>
         <span>{{ credit_note.amount_vat|format_currency:invoice.currency }}</span>
       </div>
+      {% endif %}
       {% endif %}
       {% if credit_note.rounding_amount %}
       {# The credit note's own EN 16931 BT-114 (#1234), independent of the invoice's. #}

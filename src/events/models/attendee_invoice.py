@@ -17,7 +17,7 @@ from django.db.models import Value
 from common.fields import ProtectedFileField
 from common.models import EmailDeliverableMixin, TimeStampedModel
 from common.postal_address import PostalAddress
-from events.utils.small_business import tax_number_label
+from events.utils.small_business import SmallBusinessScheme, is_scheme, tax_number_label
 from events.utils.vat_category import EXEMPT_FALLBACK_TEXT, VatCategory
 
 
@@ -318,6 +318,11 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     seller_vat_country = models.CharField(max_length=2, blank=True, default="")
     # EN 16931 BT-32: the seller's national tax number, for small-business organizers without a VAT ID (#1244).
     seller_tax_registration_number = models.CharField(max_length=32, blank=True, default="", db_default="")
+    # The seller's small-business scheme at generation (#1258): such a document shows no VAT rate or amount
+    # at all (AT § 11 Abs. 12/14 UStG, DE § 14c UStG, Art. 289), only gross amounts and the statutory note.
+    seller_small_business_scheme = models.CharField(
+        max_length=12, choices=SmallBusinessScheme, default=SmallBusinessScheme.NONE, db_default="none"
+    )
     seller_address = models.TextField(blank=True, default="")
     seller_address_line1 = models.CharField(max_length=255, blank=True, default="", db_default="")
     seller_address_line2 = models.CharField(max_length=255, blank=True, default="", db_default="")
@@ -381,6 +386,11 @@ class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     def seller_address_lines(self) -> list[str]:
         """Printable seller address lines; the legacy text address for pre-structured invoices."""
         return self._lines(self.seller_postal_address, self.seller_address)
+
+    @property
+    def seller_is_small_business(self) -> bool:
+        """Whether the PDF hides every VAT rate, amount and total (a small-business-scheme seller, #1258)."""
+        return is_scheme(self.seller_small_business_scheme)
 
     @property
     def seller_tax_number_label(self) -> str:

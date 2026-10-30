@@ -444,6 +444,7 @@ class TestGeneration:
         assert invoice.vat_exemptions["E"]["text"] == DE_REASON
         assert invoice.total_vat == 0 and invoice.total_net == invoice.total_gross == Decimal("100.00")
         assert invoice.seller_vat_id == "DE811234567"  # BT-31 (#1258); the Steuernummer stays as BT-32
+        assert invoice.seller_small_business_scheme == Scheme.DE_19  # the PDF then shows no VAT at all
         assert invoice.seller_tax_registration_number == "12/345/67890"
         assert invoice.seller_country_code == "DE"
         assert invoice.reverse_charge is False
@@ -652,6 +653,7 @@ def test_platform_fee_to_an_austrian_scheme_organizer_stays_domestic(organizatio
         ("events_organization", "small_business_scheme", "'none'::character varying"),
         ("events_attendeeinvoice", "seller_tax_registration_number", "''::character varying"),
         ("events_attendeeinvoice", "issuer_name", "''::character varying"),
+        ("events_attendeeinvoice", "seller_small_business_scheme", "'none'::character varying"),
         ("events_attendeeinvoicecreditnote", "issuer_name", "''::character varying"),
     ],
 )

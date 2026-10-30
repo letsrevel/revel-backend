@@ -339,6 +339,7 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             seller_name=org.billing_name or org.name,
             seller_vat_id="" if small_business and not org.vat_id_validated else org.vat_id,
             seller_tax_registration_number=org.tax_registration_number,
+            seller_small_business_scheme=org.small_business_scheme,  # the PDF then shows no VAT at all (#1258)
             seller_vat_country=resolve_org_country(org) if event.is_virtual else event.effective_vat_country,
             seller_address=org.billing_address,
             **org.billing_postal_address().to_fields("seller_"),

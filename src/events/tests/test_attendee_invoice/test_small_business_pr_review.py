@@ -518,6 +518,7 @@ class TestStatutoryNoteAtIssue:
         assert text.startswith("Steuerbefreit gemäß § 19 UStG")
         assert "Art. 132(1)(n) VAT Directive" in text
         assert issued.line_items == draft.line_items  # the lines themselves are untouched
+        assert issued.seller_small_business_scheme == "de_19"  # stamped at issue: the PDF shows no VAT (#1258)
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     def test_non_scheme_draft_is_unchanged(
