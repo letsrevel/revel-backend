@@ -261,6 +261,14 @@ def test_is_paid_online_with_category_prices() -> None:
     assert is_paid_online(TicketTier(**base, category_prices=None)) is False
 
 
+def test_is_paid_online_pwyc_tier_with_category_prices() -> None:
+    """An ORM-written PWYC tier with a priced category still sells online (#1242)."""
+    cid = "6f1c1d0a-0000-4000-8000-000000000001"
+    fields: dict[str, object] = {"payment_method": "online", "price": "0", "price_type": "pwyc", "pwyc_min": "0"}
+    assert is_paid_online(TicketTier(**fields, category_prices={cid: "25.00"})) is True
+    assert is_paid_online(TicketTier(**fields, category_prices={})) is False
+
+
 def _paused_legacy_zero_tier(event: Event, org: Organization) -> TicketTier:
     tier = _legacy_zero_tier(event, org)
     tier.sales_paused = True

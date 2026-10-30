@@ -96,12 +96,16 @@ class InvoiceLineItemInputSchema(Schema):
     net_amount: _Money
     vat_amount: _Money
     vat_rate: _VatRate
+    # The payment this line charges. Echo it back unchanged to keep the line tied to its payment and
+    # tier (credit notes and the exemption reason follow it); only ids of the draft's own lines count.
+    payment_id: UUID | None = None
 
 
 class InvoiceLineItemSchema(InvoiceLineItemInputSchema):
     """Schema for a single line item in an attendee invoice response."""
 
     vat_category: VatCategory | None = None
+    tier_id: UUID | None = None
 
 
 class VatExemptionSchema(Schema):
