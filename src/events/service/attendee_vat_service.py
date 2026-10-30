@@ -30,6 +30,7 @@ from common.constants import EU_MEMBER_STATES
 from common.country import normalize_country_code
 from common.service.vat_utils import TWO_PLACES, calculate_vat_inclusive
 from common.service.vies_service import VIES_TIMEOUT_SECONDS
+from events.utils.small_business import is_small_business
 
 if t.TYPE_CHECKING:
     from events.models.attendee_invoice import AttendeeInvoice
@@ -101,6 +102,7 @@ def determine_attendee_vat(
     buyer_country: str,
     buyer_vat_id_valid: bool,
     is_virtual: bool = False,
+    seller_small_business: bool = False,
 ) -> AttendeeVATResult:
     """Determine VAT treatment for an attendee ticket purchase.
 
@@ -114,6 +116,10 @@ def determine_attendee_vat(
     44/196, buyer pays net); a non-EU buyer owes no EU VAT (pays net); EU B2C
     is charged the seller's rate as the interim OSS treatment.
 
+    A seller under a small-business scheme (#1244; DE § 19 UStG, AT § 6 Abs. 1
+    Z 27 UStG) charges no VAT on anything and never reverse-charges (it has no
+    VAT ID, EN 16931 BR-AE-02/03): every buyer pays the gross price with 0% VAT.
+
     Args:
         gross_price: The VAT-inclusive tier price.
         seller_vat_rate: The seller's (org) applicable VAT rate.
@@ -123,10 +129,19 @@ def determine_attendee_vat(
             (affects the price only for virtual events; always printed on
             B2B invoices).
         is_virtual: Whether the event is attended virtually.
+        seller_small_business: Whether the seller trades under a small-business scheme.
 
     Returns:
         AttendeeVATResult with effective price and VAT breakdown.
     """
+    if seller_small_business:
+        return AttendeeVATResult(
+            effective_price=gross_price,
+            net_amount=gross_price,
+            vat_amount=Decimal("0.00"),
+            vat_rate=Decimal("0.00"),
+            reverse_charge=False,
+        )
     breakdown = calculate_vat_inclusive(gross_price, seller_vat_rate)
     full_vat = AttendeeVATResult(
         effective_price=gross_price,
@@ -549,6 +564,7 @@ def calculate_vat_preview(
                 buyer_country=buyer_country,
                 buyer_vat_id_valid=buyer_vat_valid,
                 is_virtual=event.is_virtual,
+                seller_small_business=is_small_business(org),
             )
 
             line_net = (vat_result.net_amount * count).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
@@ -577,9 +593,11 @@ def calculate_vat_preview(
                 reverse_charge = True
 
     # Virtual EU B2C legally owes the buyer-country rate via OSS; we charge the
-    # seller's rate as the interim treatment and tell the buyer so (#869).
+    # seller's rate as the interim treatment and tell the buyer so (#869). A
+    # small-business seller charges no VAT at all, so there is nothing to disclose.
     virtual_b2c_disclaimer = (
         event.is_virtual
+        and not is_small_business(org)
         and not buyer_vat_valid
         and normalize_country_code(buyer_country) in EU_MEMBER_STATES
         and normalize_country_code(buyer_country) != normalize_country_code(org.vat_country_code)

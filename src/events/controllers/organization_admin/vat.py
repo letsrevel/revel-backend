@@ -21,6 +21,7 @@ from events.controllers.permissions import IsOrganizationOwner
 from events.service import (
     attendee_invoice_service,
     skipped_fiscal_document_service,
+    small_business_scheme_service,
     vies_service,
     zero_rate_guard_service,
 )
@@ -63,6 +64,7 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         update_data = payload.model_dump(exclude_unset=True)
         if not update_data:
             return organization
+        update_data = small_business_scheme_service.prepare_billing_update(organization, update_data)
         zero_rate_guard_service.assert_billing_update_keeps_zero_rate_reasons(organization, update_data)
         vies_service.update_org_billing_info(organization, update_data)
         return organization

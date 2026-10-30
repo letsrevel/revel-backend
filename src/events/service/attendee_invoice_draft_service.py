@@ -29,6 +29,7 @@ from events.service.attendee_invoice_lines import ProvenanceDict
 from events.service.attendee_invoice_service import _generate_and_save_pdf, invoice_compliance_decision
 from events.service.attendee_vat_service import out_of_scope_for
 from events.service.en16931_totals_service import compute_en16931_totals, sum_line_amounts
+from events.utils.small_business import is_small_business
 from events.utils.vat_category import (
     EXEMPT_FALLBACK_TEXT,
     VatCategory,
@@ -299,12 +300,17 @@ def _derive_line_item_fields(invoice: AttendeeInvoice, update_data: dict[str, t.
 
     Raises:
         HttpError 422: If the resulting invoice is reverse-charge but a line still carries VAT
-            (EN 16931 BR-AE-05/08).
+            (EN 16931 BR-AE-05/08), or reverse-charge for an organizer under a small-business
+            scheme (no VAT ID, so no reverse charge: BR-AE-02/03, #1244).
     """
     reverse_charge = bool(update_data.get("reverse_charge", invoice.reverse_charge))
+    small_business = invoice.organization is not None and is_small_business(invoice.organization)
+    if reverse_charge and small_business:
+        raise HttpError(422, str(_("An organizer under a small-business scheme can't issue a reverse-charge invoice.")))
     submitted = update_data.get("line_items", invoice.line_items)
     buyer_country = update_data.get("buyer_vat_country", invoice.buyer_vat_country)
-    out_of_scope = out_of_scope_for(invoice.event, invoice.seller_vat_country, buyer_country)
+    # Every line of a small-business organizer is exempt (E), never out of scope (#1244).
+    out_of_scope = not small_business and out_of_scope_for(invoice.event, invoice.seller_vat_country, buyer_country)
     line_items = _normalize_line_items(submitted, reverse_charge, out_of_scope, invoice.line_items)
     if reverse_charge and any(Decimal(i["vat_rate"]) or Decimal(i["vat_amount"]) for i in line_items):
         raise HttpError(422, str(_("A reverse-charge invoice can't charge VAT. Set the VAT of every line to 0.")))

@@ -167,6 +167,7 @@ class AttendeeInvoiceDetailSchema(AttendeeInvoiceSchema):
     card_last4: str
     seller_vat_id: str
     seller_vat_country: str
+    seller_tax_registration_number: str
     seller_address: str
     seller_address_line1: str
     seller_address_line2: str

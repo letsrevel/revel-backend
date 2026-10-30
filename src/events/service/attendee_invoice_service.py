@@ -34,7 +34,7 @@ from events.models.organization import Organization
 from events.models.refund import Refund
 from events.models.skipped_fiscal_document import SkippedFiscalDocument
 from events.models.ticket import Payment
-from events.service import skipped_fiscal_document_service
+from events.service import skipped_fiscal_document_service, small_business_scheme_service
 from events.service.attendee_invoice_lines import (
     _build_line_items,
     _exempt_reasons,
@@ -50,6 +50,7 @@ from events.service.zero_rate_guard_service import (
     zero_rate_tiers_missing_reason,
 )
 from events.utils.billing_address import snapshot_buyer_postal_address
+from events.utils.small_business import is_small_business
 from events.utils.supply_date import supply_dates_for
 from events.utils.vat_category import (
     VatCategory,
@@ -71,20 +72,22 @@ logger = structlog.get_logger(__name__)
 def einvoice_missing_fields(org: Organization) -> list[str]:
     """Return the organization fields still missing for compliant e-invoicing.
 
-    Covers the structured address, then the legal name and a VIES-validated VAT ID.
+    Covers the structured address, then the legal name and the seller's tax identity: a
+    VIES-validated VAT ID, or a small-business scheme with a tax registration number (#1244).
 
     Returns:
         Organization field names (e.g. ``"billing_city"``), in a stable order; ``"vat_id"``
-        stands for "VAT ID not VIES-validated" and ``"vat_exemption_reason"`` for a 0% default
-        rate without an exemption reason.
+        stands for "VAT ID not VIES-validated" (``"small_business_scheme"`` /
+        ``"tax_registration_number"`` for a scheme organizer, see
+        :func:`small_business_scheme_service.seller_identity_missing_fields`) and
+        ``"vat_exemption_reason"`` for a 0% default rate without an exemption reason.
     """
     missing = [
         f"billing_{PostalAddress.FIELD_SUFFIXES[name]}" for name in org.billing_postal_address().missing_fields()
     ]
     if not org.billing_name:
         missing.append("billing_name")
-    if not org.vat_id_validated:
-        missing.append("vat_id")
+    missing += small_business_scheme_service.seller_identity_missing_fields(org)
     if zero_rate_tiers_missing_reason(org):
         missing.append("vat_exemption_reason")
     return missing
@@ -94,6 +97,10 @@ def validate_invoicing_prerequisites(
     org: Organization, *, require_structured_address: bool = True, require_zero_rate_reasons: bool = True
 ) -> None:
     """Validate that an organization meets all requirements for attendee invoicing.
+
+    The seller is identified either by a VIES-validated EU VAT ID (an EU VAT country is then required)
+    or, for an organizer under a small-business scheme without a VAT ID (#1244), by its declared scheme
+    matching its country of establishment (DE or AT) plus a format-valid tax registration number.
 
     Args:
         org: The organization.
@@ -108,11 +115,14 @@ def validate_invoicing_prerequisites(
     """
     missing: list[str] = []
 
-    if not org.vat_country_code or org.vat_country_code not in EU_MEMBER_STATES:
-        missing.append(str(_("Organization must be EU-based (valid EU VAT country code required)")))
+    if is_small_business(org) and not org.vat_id_validated:
+        missing += small_business_scheme_service.scheme_prerequisite_errors(org)
+    else:
+        if not org.vat_country_code or org.vat_country_code not in EU_MEMBER_STATES:
+            missing.append(str(_("Organization must be EU-based (valid EU VAT country code required)")))
 
-    if not org.vat_id_validated:
-        missing.append(str(_("VAT ID must be validated via VIES")))
+        if not org.vat_id_validated:
+            missing.append(str(_("VAT ID must be validated via VIES")))
 
     if not org.billing_name:
         missing.append(str(_("Billing name (legal entity name) is required")))
@@ -224,12 +234,17 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
         return None
 
     event = first_payment.ticket.event
-    # Reverse charge: use the authoritative decision from checkout, not re-inferred
-    reverse_charge = bool(billing_snapshot.get("reverse_charge", False))
+    # Reverse charge: use the authoritative decision from checkout, not re-inferred. An organizer
+    # under a small-business scheme never reverse-charges and every line is exempt (E), #1244.
+    reverse_charge = bool(billing_snapshot.get("reverse_charge", False)) and not is_small_business(org)
     # The buyer (VAT-ID prefix + checkout VIES outcome) decides the BE/PL domestic-B2B case.
     buyer = BuyerContext.from_billing_snapshot(billing_snapshot)
-    out_of_scope = out_of_scope_for(event, org.vat_country_code, billing_snapshot.get("vat_country_code", ""))
+    out_of_scope = not is_small_business(org) and out_of_scope_for(
+        event, org.vat_country_code, billing_snapshot.get("vat_country_code", "")
+    )
     decision = compliance.attendee_invoicing_for_sale(compliance.sale_nexus(org, [event]), buyer)
+    if decision.allowed:
+        decision = small_business_scheme_service.virtual_b2b_decision(org, event, buyer)
     if not decision.allowed:
         # Defense in depth for orgs that enabled invoicing before the gate, moved
         # country, or sell into a restricted country (EU layer 1, #1057-#1067).
@@ -309,6 +324,7 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             # virtual event is supplied from the org's establishment (#869).
             seller_name=org.billing_name or org.name,
             seller_vat_id=org.vat_id,
+            seller_tax_registration_number=org.tax_registration_number,
             seller_vat_country=org.vat_country_code.upper() if event.is_virtual else event.effective_vat_country,
             seller_address=org.billing_address,
             **org.billing_postal_address().to_fields("seller_"),

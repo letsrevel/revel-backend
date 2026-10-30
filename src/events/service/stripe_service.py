@@ -73,6 +73,7 @@ from events.service.vat_service import (
     get_effective_vat_rate,
 )
 from events.utils.currency import to_stripe_amount
+from events.utils.small_business import is_small_business
 
 if t.TYPE_CHECKING:
     from events.schema.organization import StripeReturnTo
@@ -230,6 +231,7 @@ def _attendee_vat_from_context(
         buyer_country=context.buyer_country,
         buyer_vat_id_valid=context.buyer_vat_validated,
         is_virtual=is_virtual,
+        seller_small_business=is_small_business(org),
     )
     return vat_result, context.buyer_vat_validated
 

@@ -18,6 +18,7 @@ from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import BillingPostalAddressMixin, StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
 from events.utils.branding import OrganizationBranding
+from events.utils.small_business import SmallBusinessScheme
 from events.utils.visibility import get_excluded_org_ids, get_valid_member_org_ids
 
 from .mixins import (
@@ -343,6 +344,11 @@ class Organization(
         blank=True,
         default="",
         help_text="VIES request identifier from the last validation (compliance audit trail).",
+    )
+    # Organizers without an EU VAT ID (#1244; see events.utils.small_business): BT-32 tax number and scheme.
+    tax_registration_number = models.CharField(max_length=32, blank=True, default="", db_default="")
+    small_business_scheme = models.CharField(
+        max_length=12, choices=SmallBusinessScheme, default=SmallBusinessScheme.NONE, db_default="none"
     )
     billing_address = models.TextField(
         blank=True,

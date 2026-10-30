@@ -31,6 +31,8 @@ class SkippedFiscalDocumentReason(models.TextChoices):
 
     B2B_E_INVOICING = "b2b_e_invoicing"
     FISCALIZED_INVOICING = "fiscalized_invoicing"
+    # A small-business organizer (no VAT ID, #1244) sold a virtual event to a business in another EU country.
+    SMALL_BUSINESS_VIRTUAL_B2B = "small_business_virtual_b2b"
 
 
 class SkippedFiscalDocument(TimeStampedModel):

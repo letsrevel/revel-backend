@@ -58,6 +58,7 @@ ESTABLISHMENT_ONLY: t.Final = frozenset({Nexus.ESTABLISHMENT})
 # ``SkippedFiscalDocument.ReasonCode``, whose values must stay equal to these.
 B2B_E_INVOICING: t.Final = "b2b_e_invoicing"
 FISCALIZED_INVOICING: t.Final = "fiscalized_invoicing"
+SMALL_BUSINESS_VIRTUAL_B2B: t.Final = "small_business_virtual_b2b"
 
 
 @dataclass(frozen=True, slots=True)
