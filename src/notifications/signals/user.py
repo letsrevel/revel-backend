@@ -4,8 +4,8 @@ import structlog
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+from accounts.dispatch import guest_converted
 from accounts.models import RevelUser
-from accounts.signals import guest_converted
 from notifications.service.preferences import create_default_preferences, reset_converted_guest_preferences
 
 logger = structlog.get_logger(__name__)

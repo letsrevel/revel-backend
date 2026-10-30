@@ -1,8 +1,11 @@
 """``convert_guest``: the single guest -> account conversion path (#1248, #1253)."""
 
+import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.conf import settings
 from django.contrib import admin
 from django.test import RequestFactory
 
@@ -51,13 +54,6 @@ def test_second_call_is_a_noop_without_duplicate_enrolment(guest_user: RevelUser
     assert stale.guest is False  # fresh DB state is copied back
 
 
-def test_verify_email_false_keeps_email_unverified(guest_user: RevelUser) -> None:
-    convert_guest(guest_user, verify_email=False)
-
-    guest_user.refresh_from_db()
-    assert (guest_user.guest, guest_user.email_verified) == (False, False)
-
-
 def test_non_guest_is_a_noop(user: RevelUser) -> None:
     """Documented behaviour: converting a non-guest does nothing (no raise, no side effects)."""
     before = _prefs(user)
@@ -81,11 +77,7 @@ def test_admin_unticking_guest_goes_through_convert_guest(guest_user: RevelUser)
         _admin_save(guest_user, ["guest", "first_name"])
 
     guest_user.refresh_from_db()
-    assert (guest_user.guest, guest_user.email_verified, guest_user.first_name) == (
-        False,
-        False,
-        "Edited",
-    )  # the form value is respected
+    assert (guest_user.guest, guest_user.email_verified, guest_user.first_name) == (False, True, "Edited")
     enroll.assert_called_once()
     assert _prefs(guest_user) == get_default_notification_type_settings()
 
@@ -110,11 +102,43 @@ def test_admin_edit_of_regular_user_works(user: RevelUser) -> None:
     assert user.first_name == "Edited"
 
 
-def test_admin_can_convert_without_verifying_email(guest_user: RevelUser) -> None:
-    guest_user.guest = False
-    guest_user.email_verified = False
+def test_admin_stale_form_does_not_resend_conversion(guest_user: RevelUser) -> None:
+    """The guest was converted elsewhere after the admin form loaded: no second conversion, no stale write."""
+    stale = RevelUser.objects.get(pk=guest_user.pk)  # form loaded while still a guest
     with patch(ENROLL):
-        _admin_save(guest_user, ["guest"])
+        convert_guest(guest_user)
+    prefs_before = _prefs(guest_user)
+    stale.guest = False  # the stale form unticks guest
+    stale.first_name = "Edited"
+
+    with patch(ENROLL) as enroll, patch("notifications.signals.user.reset_converted_guest_preferences") as reset:
+        _admin_save(stale, ["guest", "first_name"])
+
+    enroll.assert_not_called()
+    reset.assert_not_called()
+    guest_user.refresh_from_db()
+    assert (guest_user.guest, guest_user.first_name) == (False, "Edited")
+    assert _prefs(guest_user) == prefs_before
+
+
+def test_admin_stale_form_with_unchanged_guest_does_not_revert_conversion(guest_user: RevelUser) -> None:
+    stale = RevelUser.objects.get(pk=guest_user.pk)
+    with patch(ENROLL):
+        convert_guest(guest_user)
+    stale.first_name = "Edited"  # guest still True on the stale instance, not in changed_data
+
+    _admin_save(stale, ["first_name"])
 
     guest_user.refresh_from_db()
-    assert (guest_user.guest, guest_user.email_verified) == (False, False)
+    assert (guest_user.guest, guest_user.first_name) == (False, "Edited")
+
+
+def test_guest_converted_lives_in_a_leaf_module() -> None:
+    """Importing the signal must not pull in the service/task chain (that chain formed an import cycle)."""
+    code = (
+        "import sys, accounts.dispatch;"
+        "bad = [m for m in sys.modules if m.startswith(('accounts.service', 'accounts.signals', 'accounts.tasks'))];"
+        "assert not bad, bad"
+    )
+    result = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, cwd=settings.BASE_DIR)
+    assert result.returncode == 0, result.stderr

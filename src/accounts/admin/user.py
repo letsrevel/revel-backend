@@ -269,12 +269,17 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
 
     def save_model(self, request: HttpRequest, obj: RevelUser, form: t.Any, change: bool) -> None:
         """Route unticking ``guest`` through :func:`convert_guest` so side effects always run (#1248)."""
-        converting = change and "guest" in form.changed_data and not obj.guest
+        # Decide from the DB, not the (possibly stale) form: never write guest=True over a row
+        # that was converted elsewhere, and only convert a row that is still a guest.
+        db_guest = RevelUser.objects.filter(pk=obj.pk).values_list("guest", flat=True).first() if change else None
+        if db_guest is not None and "guest" not in form.changed_data:
+            obj.guest = db_guest
+        converting = bool(db_guest) and "guest" in form.changed_data and not obj.guest
         if converting:
             obj.guest = True  # save the other edits as a guest first; convert_guest flips the flag
         super().save_model(request, obj, form, change)
         if converting:
-            convert_guest(obj, verify_email=obj.email_verified)
+            convert_guest(obj)
 
     @admin.action(description="Clear stale Stripe Connect account (superuser only)")
     def clear_stripe_connect_account(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:

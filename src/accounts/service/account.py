@@ -13,6 +13,7 @@ from ninja import Schema
 from ninja.errors import HttpError
 
 from accounts import schema, tasks
+from accounts.dispatch import guest_converted
 from accounts.exceptions import ReferralForfeitureConfirmationRequiredError
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import blacklist_user_tokens, check_blacklist, create_token
@@ -20,7 +21,6 @@ from accounts.models import Referral, ReferralCode, RevelUser
 from accounts.password_validation import validate_password
 from accounts.service import referral_application_service
 from accounts.service.referral_cleanup import assess_referral_forfeiture
-from accounts.signals import guest_converted
 from common.testing import (
     TOKEN_TYPE_DELETION,
     TOKEN_TYPE_EMAIL_CHANGE,
@@ -388,36 +388,30 @@ def reset_password(token: str, new_password: str) -> RevelUser:
 
 
 @transaction.atomic
-def convert_guest(user: RevelUser, *, verify_email: bool = True) -> None:
+def convert_guest(user: RevelUser) -> None:
     """Convert a guest into a full account: the single place every conversion path goes through.
 
-    In one transaction: re-reads the user under a row lock (a concurrent or repeated conversion
-    sees a non-guest and returns), clears ``guest``, optionally marks the email verified, enrolls
-    an approved referral invitee and sends ``guest_converted`` (the notifications app resets the
-    preferences to the regular defaults, #1248). Nothing is swallowed except the referral
-    enrollment, which by design never blocks (see ``try_enroll_invitee``): a receiver failure
-    propagates and rolls the conversion back.
+    In one transaction: locks the row (a concurrent or repeated conversion sees a non-guest,
+    refreshes ``user`` and returns), clears ``guest``, marks the email verified, enrolls an approved
+    referral invitee and sends ``guest_converted`` (the notifications app resets the preferences to
+    the regular defaults, #1248). Nothing is swallowed except the referral enrollment, which by
+    design never blocks (see ``try_enroll_invitee``): a receiver failure propagates and rolls the
+    conversion back.
 
     # ponytail: bulk writes (``.update(guest=False)``, shell fixes) bypass this by design; always
     # convert through this service.
 
-    A non-guest is a no-op. On return ``user``'s ``guest`` and ``email_verified`` reflect the DB.
+    A non-guest is a no-op.
 
     Args:
         user: The user to convert.
-        verify_email: Mark the email verified (default). The admin passes the form's own value.
     """
-    locked = RevelUser.objects.select_for_update().get(pk=user.pk)
-    user.guest, user.email_verified = locked.guest, locked.email_verified
-    if not locked.guest:
+    if not RevelUser.objects.select_for_update().only("guest").get(pk=user.pk).guest:
+        user.refresh_from_db(fields=["guest", "email_verified"])
         return
-    locked.guest = False
-    update_fields = ["guest"]
-    if verify_email:
-        locked.email_verified = True
-        update_fields.append("email_verified")
-    locked.save(update_fields=update_fields)
-    user.guest, user.email_verified = locked.guest, locked.email_verified
+    user.guest = False
+    user.email_verified = True
+    user.save(update_fields=["guest", "email_verified"])
     logger.info("guest_user_converted_to_full_user", user_id=str(user.id), email=user.email)
     referral_application_service.try_enroll_invitee(user)
     guest_converted.send(sender=RevelUser, user=user)
@@ -432,7 +426,8 @@ def _apply_password_reset(user: RevelUser, token: str, new_password: str) -> Rev
 
     user.save(update_fields=["password", "credentials_changed_at"])
     # Setting a password converts a guest to a full user
-    convert_guest(user)
+    if user.guest:
+        convert_guest(user)
 
     blacklist_token(token)
     # Reset is the account-recovery path — sign out everywhere, apps included (#1020).
