@@ -7,6 +7,7 @@ from ninja.errors import HttpError
 from pydantic import ValidationError as PydanticValidationError
 
 from accounts.models import RevelUser
+from common.models import SiteSettings
 from events import schema
 from events.exceptions import MembershipPolicyManageSubscriptionsOnlyError, RevenueReportCadenceOwnerOnlyError
 from events.models import Organization, TicketAttribution
@@ -90,6 +91,7 @@ def create_organization(
         contact_email_verified = True
 
     # Create the organization
+    site_settings = SiteSettings.get_solo()
     organization = Organization.objects.create(
         name=name,
         slug=slug or "",  # empty → the SluggedModel mixin derives it from the name
@@ -103,6 +105,8 @@ def create_organization(
         location_maps_url=location_maps_url,
         location_maps_embed=location_maps_embed,
         attribution=attribution,
+        platform_fee_percent=site_settings.default_platform_fee_percent,
+        platform_fee_fixed=site_settings.default_platform_fee_fixed,
     )
 
     # Send verification email if contact email is not auto-verified
