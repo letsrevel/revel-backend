@@ -867,6 +867,21 @@ class TestBatchAddressVisibilityParity:
         assert checker.can_see_address(random_user.id) == event.can_user_see_address(random_user)
         assert checker.can_see_address(random_user.id) is False
 
+    def test_attendees_only_visibility_maybe_rsvp_cannot_see(
+        self,
+        event: Event,
+        rsvp_user: RevelUser,
+    ) -> None:
+        """ATTENDEES_ONLY visibility: a MAYBE RSVP is not confirmed attendance."""
+        EventRSVP.objects.create(event=event, user=rsvp_user, status=EventRSVP.RsvpStatus.MAYBE)
+        event.visibility_settings = {"address_visibility": ResourceVisibility.ATTENDEES_ONLY}
+        event.save()
+
+        checker = BatchParticipationChecker(event)
+
+        assert checker.can_see_address(rsvp_user.id) == event.can_user_see_address(rsvp_user)
+        assert checker.can_see_address(rsvp_user.id) is False
+
     def test_attendees_only_visibility_rsvp_users_can_see(
         self,
         event: Event,

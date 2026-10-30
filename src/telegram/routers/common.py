@@ -124,6 +124,11 @@ async def handle_connect(message: Message, tg_user: TelegramUser) -> None:
     """Handles the /connect command to generate OTP for account linking."""
     logger.info("telegram_user_requested_account_linking", telegram_id=tg_user.telegram_id)
 
+    # The code links whoever redeems it, so never post it where other chat members can read it.
+    if message.chat.type != "private":
+        await message.answer("Please send /connect in a private chat with me.")
+        return
+
     # Check if already linked
     if tg_user.user_id:
         await message.answer("Your account is already linked!")

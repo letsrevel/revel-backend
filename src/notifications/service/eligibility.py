@@ -48,13 +48,17 @@ class BatchParticipationChecker:
         self.staff_user_ids: set[UUID] = set(self.organization.staff_members.values_list("id", flat=True))
         self.staff_user_ids.add(self.organization.owner_id)
 
-        # Active RSVPs (YES or MAYBE)
-        self.rsvp_user_ids: set[UUID] = set(
-            EventRSVP.objects.filter(
-                event=self.event,
-                status__in=[EventRSVP.RsvpStatus.YES, EventRSVP.RsvpStatus.MAYBE],
-            ).values_list("user_id", flat=True)
-        )
+        # Active RSVPs (YES or MAYBE); only YES is confirmed attendance for address visibility
+        rsvps = EventRSVP.objects.filter(
+            event=self.event,
+            status__in=[EventRSVP.RsvpStatus.YES, EventRSVP.RsvpStatus.MAYBE],
+        ).values_list("user_id", "status")
+        self.rsvp_user_ids: set[UUID] = set()
+        self.yes_rsvp_user_ids: set[UUID] = set()
+        for user_id, status in rsvps:
+            self.rsvp_user_ids.add(user_id)
+            if status == EventRSVP.RsvpStatus.YES:
+                self.yes_rsvp_user_ids.add(user_id)
 
         # Active tickets - need to handle payment method logic
         # ACTIVE tickets always count, PENDING only for non-ONLINE payment methods
@@ -212,7 +216,7 @@ class BatchParticipationChecker:
 
         # Check event relationships for PRIVATE and ATTENDEES_ONLY
         has_ticket = self.has_active_ticket(user_id)
-        has_rsvp = self.has_active_rsvp(user_id)
+        has_rsvp = user_id in self.yes_rsvp_user_ids
 
         # ATTENDEES_ONLY: Only ticket holders or RSVPs (confirmed attendance)
         if address_visibility == ResourceVisibility.ATTENDEES_ONLY:
