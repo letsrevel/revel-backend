@@ -11,7 +11,12 @@ from django.core.checks import Warning
 from django.utils import timezone
 
 from common import keys
-from common.checks import UNSUBSCRIBE_KEYS_CHECK_ID, check_secret_key_rotation
+from common.checks import (
+    SALT_COMMA_CHECK_ID,
+    UNSUBSCRIBE_KEYS_CHECK_ID,
+    check_salt_key_comma,
+    check_secret_key_rotation,
+)
 
 ALG = "HS256"
 
@@ -85,6 +90,18 @@ class TestRotationCheck:
         settings.SECRET_KEY_FALLBACKS = ["old"]
         settings.UNSUBSCRIBE_SIGNING_KEYS = ["u", "old"]
         assert check_secret_key_rotation(None) == []
+
+
+class TestSaltCommaCheck:
+    def test_warns_on_comma_in_primary_salt(self, settings: t.Any) -> None:
+        settings.SALT_KEY = ["salt,with,comma", "other"]
+        msgs = check_salt_key_comma(None)
+        assert [m.id for m in msgs] == [SALT_COMMA_CHECK_ID]
+        assert isinstance(msgs[0], Warning)
+
+    def test_quiet_without_comma(self, settings: t.Any) -> None:
+        settings.SALT_KEY = ["plain-salt", "fallback,ignored"]
+        assert check_salt_key_comma(None) == []
 
 
 def test_no_direct_secret_key_reads_in_source() -> None:

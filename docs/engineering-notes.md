@@ -426,10 +426,19 @@ container that cannot decrypt a row written under the new key reads garbage and 
 corrupting it permanently. **Never remove a key that has ever been primary until the data is
 re-encrypted.**
 
-Unsubscribe links sit in mailboxes for years (up to `UNSUBSCRIBE_TOKEN_LIFETIME_DAYS`, 10 years), so pin
-`UNSUBSCRIBE_SIGNING_KEYS=<new>,<old SECRET_KEY>` before dropping `SECRET_KEY_FALLBACKS`
-(`manage.py check` warns with `common.W006` until set). On any later rotation, **prepend** a new key and
-keep every older one until its links have expired; never replace the list.
+Unsubscribe links sit in mailboxes for years (up to `UNSUBSCRIBE_TOKEN_LIFETIME_DAYS`, 10 years), so give
+them their own list before dropping `SECRET_KEY_FALLBACKS` (`manage.py check` warns with `common.W006`
+until set). It is also rolled out in two stages, because during a rolling deploy new containers would
+otherwise sign links that old containers reject:
+
+1. **Introduce:** `UNSUBSCRIBE_SIGNING_KEYS=<current key>,<new key>`. Containers keep signing with the
+   current key while every container learns the new one. When pinning for the first time, the current key
+   is the current `SECRET_KEY`.
+2. **Promote**, once every container has that list: `<new key>,<old key>,...older keys`. Keep every older
+   key until its links have expired; never replace the list.
+
+`SALT_KEY` is read verbatim but `SALT_KEY_FALLBACKS` is comma-separated: a primary salt containing a comma
+triggers `common.W007` and must be re-encrypted under a comma-free salt before it is rotated out.
 
 `EncryptedFieldMixin.keys`/`.f` are `cached_property` on the shared field instance: tests that
 switch key settings must pop them from `field.__dict__`.

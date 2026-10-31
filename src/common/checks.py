@@ -24,6 +24,7 @@ FOREIGN_SENDER_DOMAIN_CHECK_ID = "common.W004"
 CUSTOM_DOMAIN_URL_TEMPLATE_INVALID_CHECK_ID = "common.E002"
 CUSTOM_DOMAIN_URL_TEMPLATE_HTTPS_CHECK_ID = "common.W005"
 UNSUBSCRIBE_KEYS_CHECK_ID = "common.W006"
+SALT_COMMA_CHECK_ID = "common.W007"
 
 # The old BASE_URL default: the demo *frontend* host, never a valid API origin (#1039).
 _OLD_DEFAULT_HOST = "demo.letsrevel.io"
@@ -192,6 +193,32 @@ def check_secret_key_rotation(app_configs: t.Any, **kwargs: t.Any) -> list[Check
                     "before dropping SECRET_KEY_FALLBACKS, or links already in mailboxes will break."
                 ),
                 id=UNSUBSCRIBE_KEYS_CHECK_ID,
+            )
+        ]
+    return []
+
+
+@register()
+def check_salt_key_comma(app_configs: t.Any, **kwargs: t.Any) -> list[CheckMessage]:
+    """Warn when the primary salt contains a comma.
+
+    ``SALT_KEY`` is read verbatim, but ``SALT_KEY_FALLBACKS`` is comma-separated, so such a salt
+    could not be listed there once it is rotated out. A Warning, so it never blocks a deploy.
+
+    Args:
+        app_configs: Django's app filter (unused; the check is global).
+        **kwargs: Django's check kwargs (unused).
+
+    Returns:
+        A Warning when ``SALT_KEY[0]`` contains a comma.
+    """
+    if "," in str(settings.SALT_KEY[0]):
+        return [
+            Warning(
+                "SALT_KEY contains a comma; SALT_KEY_FALLBACKS is comma-separated, so this salt cannot be "
+                "rotated safely through it.",
+                hint="Re-encrypt under a comma-free salt first.",
+                id=SALT_COMMA_CHECK_ID,
             )
         ]
     return []
