@@ -8,6 +8,7 @@ import typing as t
 from uuid import UUID
 
 import structlog
+from django.contrib.auth.models import AnonymousUser
 from django.db import transaction
 
 from accounts.models import RevelUser
@@ -28,7 +29,7 @@ logger = structlog.get_logger(__name__)
 __all__ = ["format_event_datetime", "get_event_timezone"]
 
 
-def get_event_location_for_user(event: Event, user: RevelUser) -> tuple[str, str]:
+def get_event_location_for_user(event: Event, user: RevelUser | AnonymousUser) -> tuple[str, str]:
     """Get event location info respecting address visibility for the user.
 
     Args:

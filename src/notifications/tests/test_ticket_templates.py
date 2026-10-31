@@ -133,7 +133,7 @@ class TestGenerateIcsAttachment:
         ics_bytes = b"BEGIN:VCALENDAR\nVERSION:2.0\nEND:VCALENDAR"
         mock_ics.return_value = ics_bytes
 
-        result = _generate_ics_attachment(ticket_event)
+        result = _generate_ics_attachment(ticket_event, True)
 
         assert result is not None
         assert result["mimetype"] == "text/calendar"
@@ -148,7 +148,7 @@ class TestGenerateIcsAttachment:
         """Should return None and log exception on failure."""
         mock_ics.side_effect = Exception("ICS generation failed")
 
-        result = _generate_ics_attachment(ticket_event)
+        result = _generate_ics_attachment(ticket_event, True)
 
         assert result is None
 

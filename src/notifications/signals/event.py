@@ -62,8 +62,8 @@ def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
             if address_url:
                 context["address_url"] = address_url
 
-            # Optional fields, only included when set.
-            if instance.cancellation_reason:
+            # Optional fields, only included when set and visible to this recipient.
+            if instance.cancellation_reason and instance.can_user_see_cancellation_reason(user):
                 context["cancellation_reason"] = instance.cancellation_reason
             # alternative_event_url may be added by admin in a future enhancement
             if hasattr(instance, "alternative_event_url") and instance.alternative_event_url:

@@ -7,11 +7,16 @@ from django.db import transaction
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
+from accounts.models import RevelUser
 from events.models import Event, Ticket, TicketTier
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
-from notifications.service.notification_helpers import format_event_datetime, notify_org_staff
+from notifications.service.notification_helpers import (
+    format_event_datetime,
+    get_event_location_for_user,
+    notify_org_staff,
+)
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -34,17 +39,33 @@ def _get_ticket_action_for_payment_method(payment_method: str) -> str | None:
     return action_map.get(payment_method)
 
 
-def _build_base_event_context(event: Event) -> dict[str, t.Any]:
+def _staff_location_context(event: Event) -> dict[str, t.Any]:
+    """Unrestricted location fields for staff/owner contexts (staff always see the address)."""
+    context: dict[str, t.Any] = {"event_location": event.full_address()}
+    if event.location_maps_url:
+        context["address_url"] = event.location_maps_url
+    return context
+
+
+def _build_base_event_context(event: Event, user: RevelUser | None) -> dict[str, t.Any]:
     """Build common event context fields used across notifications.
+
+    The location respects the recipient's address visibility.
 
     Args:
         event: Event to build context for
+        user: The recipient (ticket holder), or ``None`` for a staff context, which always
+            gets the unrestricted location.
 
     Returns:
         Dictionary with event_id, event_name, event_location, event_url, event_start_formatted,
         organization_id, organization_name, and optionally address_url
     """
-    event_location = event.full_address()
+    if user is None:
+        staff_location = _staff_location_context(event)
+        event_location, address_url = staff_location["event_location"], staff_location.get("address_url", "")
+    else:
+        event_location, address_url = get_event_location_for_user(event, user)
     frontend_base_url = frontend_base_url_for(event.organization)
     frontend_url = f"{frontend_base_url}/events/{event.id}"
 
@@ -60,17 +81,16 @@ def _build_base_event_context(event: Event) -> dict[str, t.Any]:
         "organization_name": event.organization.name,
     }
 
-    # Include maps URL if available (ticket holders can always see address)
-    if event.location_maps_url:
-        context["address_url"] = event.location_maps_url
+    if address_url:
+        context["address_url"] = address_url
 
     return context
 
 
-def _build_ticket_created_context(ticket: Ticket) -> dict[str, t.Any]:
-    """Build notification context for TICKET_CREATED."""
+def _build_ticket_created_context(ticket: Ticket, *, for_staff: bool = False) -> dict[str, t.Any]:
+    """Build notification context for TICKET_CREATED (unrestricted location when ``for_staff``)."""
     event = ticket.event
-    base_context = _build_base_event_context(event)
+    base_context = _build_base_event_context(event, None if for_staff else ticket.user)
 
     # Get manual payment instructions if available
     manual_payment_instructions = None
@@ -96,7 +116,7 @@ def _build_ticket_created_context(ticket: Ticket) -> dict[str, t.Any]:
 def _build_ticket_updated_context(ticket: Ticket, old_status: str) -> dict[str, t.Any]:
     """Build notification context for TICKET_UPDATED."""
     event = ticket.event
-    base_context = _build_base_event_context(event)
+    base_context = _build_base_event_context(event, ticket.user)
 
     # Determine action based on status change
     action = "updated"
@@ -163,6 +183,7 @@ def _send_ticket_created_notifications(ticket: Ticket) -> None:
     # Notify staff/owners with additional context (staff templates attach nothing)
     staff_context = {
         **base_context,
+        **_staff_location_context(ticket.event),
         "ticket_holder_name": ticket.user.get_display_name(),
         "ticket_holder_email": ticket.user.email,
     }
@@ -211,7 +232,6 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
     base_context: dict[str, t.Any] = {
         "event_id": str(event.id),
         "event_name": event.name,
-        "event_location": event.full_address(),
         "event_url": frontend_url,
         "event_start_formatted": event_start_formatted,
         "organization_id": str(event.organization_id),
@@ -221,9 +241,6 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
         # mixed-payment-method cart); every other tier-derived value is per-ticket.
         "payment_method": first_ticket.tier.payment_method,
     }
-
-    if event.location_maps_url:
-        base_context["address_url"] = event.location_maps_url
 
     # Fetch staff ONCE for all tickets
     staff_and_owners = list(get_staff_for_notification(event.organization_id, NotificationType.STAFF_TICKET_CREATED))
@@ -251,7 +268,11 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
             "total_price": str(ticket_price),
             "frontend_url": frontend_url,
         }
-        ticket_context = dict(shared_context)
+        # The holder's copy respects their address visibility; staff get the full location.
+        event_location, address_url = get_event_location_for_user(event, ticket.user)
+        ticket_context = {**shared_context, "event_location": event_location}
+        if address_url:
+            ticket_context["address_url"] = address_url
         if ticket.status == Ticket.TicketStatus.PENDING:
             # Same rule as the single-ticket path: no attachments before payment.
             ticket_context["include_pdf"] = False
@@ -269,6 +290,7 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
         # Notify staff/owners
         staff_context = {
             **shared_context,
+            **_staff_location_context(event),
             "ticket_holder_name": ticket.user.get_display_name(),
             "ticket_holder_email": ticket.user.email,
         }
@@ -337,6 +359,7 @@ def _send_ticket_cancelled_notifications(ticket: Ticket, old_status: str) -> Non
     # Notify staff/owners with additional context
     staff_context = {
         **base_context,
+        **_staff_location_context(ticket.event),
         "ticket_holder_name": ticket.user.get_display_name(),
         "ticket_holder_email": ticket.user.email,
     }
@@ -358,9 +381,8 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
 
         # If payment was just completed (PENDING→ACTIVE), notify staff/owners
         if old_status == Ticket.TicketStatus.PENDING:
-            context = _build_ticket_created_context(ticket)
             staff_context = {
-                **context,
+                **_build_ticket_created_context(ticket, for_staff=True),
                 "ticket_holder_name": ticket.user.get_display_name(),
                 "ticket_holder_email": ticket.user.email,
             }
