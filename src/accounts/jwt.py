@@ -117,7 +117,12 @@ def validate_otp_jwt(
             audience=audience,
             algorithms=algorithms,
         )
+        # ``TOTPJWTPayload`` defaults ``type``; a token without the claim (e.g. a session token) must not pass.
+        if decoded_jwt.get("type") != "totp-access":
+            raise AuthenticationFailed("Invalid token type.")
         return TypeAdapter(TOTPJWTPayload).validate_python(decoded_jwt)
+    except AuthenticationFailed:
+        raise
     except ExpiredSignatureError as e:
         logger.debug("token_has_expired")
         raise AuthenticationFailed("Token has expired.") from e
