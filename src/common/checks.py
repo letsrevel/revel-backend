@@ -23,6 +23,8 @@ FRONTEND_BASE_URL_LOCAL_CHECK_ID = "common.W003"
 FOREIGN_SENDER_DOMAIN_CHECK_ID = "common.W004"
 CUSTOM_DOMAIN_URL_TEMPLATE_INVALID_CHECK_ID = "common.E002"
 CUSTOM_DOMAIN_URL_TEMPLATE_HTTPS_CHECK_ID = "common.W005"
+UNSUBSCRIBE_KEYS_CHECK_ID = "common.W006"
+SALT_COMMA_CHECK_ID = "common.W007"
 
 # The old BASE_URL default: the demo *frontend* host, never a valid API origin (#1039).
 _OLD_DEFAULT_HOST = "demo.letsrevel.io"
@@ -164,6 +166,59 @@ def check_custom_domain_url_template(app_configs: t.Any, **kwargs: t.Any) -> lis
                 f"CUSTOM_DOMAIN_URL_TEMPLATE {settings.CUSTOM_DOMAIN_URL_TEMPLATE!r} does not use https.",
                 hint="Tenant links in emails should be HTTPS; use https://{hostname}.",
                 id=CUSTOM_DOMAIN_URL_TEMPLATE_HTTPS_CHECK_ID,
+            )
+        ]
+    return []
+
+
+@register()
+def check_secret_key_rotation(app_configs: t.Any, **kwargs: t.Any) -> list[CheckMessage]:
+    """Warn when SECRET_KEY is being rotated but unsubscribe links still depend on it.
+
+    Unsubscribe links sit in mailboxes for years, far beyond any fallback window.
+
+    Args:
+        app_configs: Django's app filter (unused; the check is global).
+        **kwargs: Django's check kwargs (unused).
+
+    Returns:
+        A Warning while ``SECRET_KEY_FALLBACKS`` is set without ``UNSUBSCRIBE_SIGNING_KEYS``.
+    """
+    if settings.SECRET_KEY_FALLBACKS and not settings.UNSUBSCRIBE_SIGNING_KEYS:
+        return [
+            Warning(
+                "SECRET_KEY is being rotated but unsubscribe tokens still depend on it.",
+                hint=(
+                    "Set UNSUBSCRIBE_SIGNING_KEYS (new key first, the pre-rotation SECRET_KEY after it) "
+                    "before dropping SECRET_KEY_FALLBACKS, or links already in mailboxes will break."
+                ),
+                id=UNSUBSCRIBE_KEYS_CHECK_ID,
+            )
+        ]
+    return []
+
+
+@register()
+def check_salt_key_comma(app_configs: t.Any, **kwargs: t.Any) -> list[CheckMessage]:
+    """Warn when the primary salt contains a comma.
+
+    ``SALT_KEY`` is read verbatim, but ``SALT_KEY_FALLBACKS`` is comma-separated, so such a salt
+    could not be listed there once it is rotated out. A Warning, so it never blocks a deploy.
+
+    Args:
+        app_configs: Django's app filter (unused; the check is global).
+        **kwargs: Django's check kwargs (unused).
+
+    Returns:
+        A Warning when ``SALT_KEY[0]`` contains a comma.
+    """
+    if "," in str(settings.SALT_KEY[0]):
+        return [
+            Warning(
+                "SALT_KEY contains a comma; SALT_KEY_FALLBACKS is comma-separated, so this salt cannot be "
+                "rotated safely through it.",
+                hint="Re-encrypt under a comma-free salt first.",
+                id=SALT_COMMA_CHECK_ID,
             )
         ]
     return []

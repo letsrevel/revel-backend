@@ -403,3 +403,42 @@ negative:
   "anything other than 200" — and never `!= 403`, which a `404` from a renamed path satisfies.
 - Construct the attack payload against the *vulnerable* code first and watch the test go RED. A
   negative test that has never been red is a test of nothing.
+
+## Key rotation (`SECRET_KEY`, `SALT_KEY`)
+
+Sign with `common.keys.signing_key()` and verify with `common.keys.decode_jwt(..., verification_keys())`;
+never read `settings.SECRET_KEY` directly (a test enforces this). The `*_FALLBACKS` lists are plain
+comma-separated (newest first, no quoting; `#`, quotes and backslashes are kept verbatim).
+`SALT_KEY` itself is never comma-split.
+
+Rotate in two phases, because during `docker rollout` old and new containers run side by side:
+
+1. **Introduce.** Keep the old key primary and add the NEW key to `SECRET_KEY_FALLBACKS` /
+   `SALT_KEY_FALLBACKS`. Roll out. Every container can now read both keys; nothing writes with the new one.
+2. **Promote.** Make the new key primary and put the old key first in the fallbacks. Roll out.
+
+Then run `manage.py rotate_encrypted_fields` (`--dry-run` first), then `--verify` (decrypts with the
+primary key only; non-zero exit on any failure), and drop the fallbacks after the grace window
+(refresh tokens: `REFRESH_TOKEN_LIFETIME_DAYS`).
+
+Why two phases: `EncryptedFieldMixin` swallows `InvalidToken` and returns the raw ciphertext, so an old
+container that cannot decrypt a row written under the new key reads garbage and saves it back,
+corrupting it permanently. **Never remove a key that has ever been primary until the data is
+re-encrypted.**
+
+Unsubscribe links sit in mailboxes for years (up to `UNSUBSCRIBE_TOKEN_LIFETIME_DAYS`, 10 years), so give
+them their own list before dropping `SECRET_KEY_FALLBACKS` (`manage.py check` warns with `common.W006`
+until set). It is also rolled out in two stages, because during a rolling deploy new containers would
+otherwise sign links that old containers reject:
+
+1. **Introduce:** `UNSUBSCRIBE_SIGNING_KEYS=<current key>,<new key>`. Containers keep signing with the
+   current key while every container learns the new one. When pinning for the first time, the current key
+   is the current `SECRET_KEY`.
+2. **Promote**, once every container has that list: `<new key>,<old key>,...older keys`. Keep every older
+   key until its links have expired; never replace the list.
+
+`SALT_KEY` is read verbatim but `SALT_KEY_FALLBACKS` is comma-separated: a primary salt containing a comma
+triggers `common.W007` and must be re-encrypted under a comma-free salt before it is rotated out.
+
+`EncryptedFieldMixin.keys`/`.f` are `cached_property` on the shared field instance: tests that
+switch key settings must pop them from `field.__dict__`.

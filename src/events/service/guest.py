@@ -19,6 +19,7 @@ from pydantic import TypeAdapter, ValidationError
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import check_blacklist, create_token
 from accounts.models import RevelUser
+from common.keys import decode_jwt, signing_key, verification_keys
 from events import models, schema
 from events.exceptions import GuestAccountExistsError, GuestCartTooLargeError
 from events.service.event_manager import EventManager
@@ -156,7 +157,7 @@ def create_guest_rsvp_token(
         exp=timezone.now() + timedelta(hours=1),
         jti=str(uuid4()),
     )
-    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    token = create_token(payload.model_dump(mode="json"), signing_key(), settings.JWT_ALGORITHM)
     logger.info("guest_rsvp_token_created", user_id=str(user.id), event_id=str(event_id), answer=answer)
     return token
 
@@ -279,7 +280,7 @@ def create_guest_ticket_token(
         log_tier_ids = [str(tier_id)]
         log_ticket_count = len(tickets)
 
-    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    token = create_token(payload.model_dump(mode="json"), signing_key(), settings.JWT_ALGORITHM)
     logger.info(
         "guest_ticket_token_created",
         user_id=str(user.id),
@@ -304,8 +305,8 @@ def validate_and_decode_guest_token(token: str) -> schema.GuestActionPayload:
     """
     # Decode JWT manually
     try:
-        raw_payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience=settings.JWT_AUDIENCE
+        raw_payload = decode_jwt(
+            token, verification_keys(), algorithms=[settings.JWT_ALGORITHM], audience=settings.JWT_AUDIENCE
         )
     except jwt.ExpiredSignatureError:
         logger.warning("guest_token_validation_expired")

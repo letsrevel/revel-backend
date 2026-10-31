@@ -20,7 +20,7 @@ Why HMAC over MinIO/S3:
     - Avoids vendor lock-in while keeping architecture minimal
 
 Security:
-    - Uses Django's SECRET_KEY with a domain-specific prefix for isolation
+    - Uses Django's SECRET_KEY (and SECRET_KEY_FALLBACKS when verifying) with a domain-specific prefix for isolation
     - Signatures are 16 hex chars (64 bits) - sufficient for URL signing given:
       1. Rate limiting (100 requests/min per IP)
       2. Short URL validity (1 hour default)
@@ -52,6 +52,8 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.db.models.fields.files import FieldFile
 
+from common.keys import signing_key, verification_keys
+
 __all__ = [
     "DEFAULT_EXPIRES_IN",
     "PROTECTED_PATH_PREFIX",
@@ -81,23 +83,23 @@ _KEY_DOMAIN = "revel:signed-url:v1"
 PROTECTED_PATH_PREFIX = "protected/"
 
 
-@lru_cache(maxsize=1)
-def _get_signing_key() -> bytes:
-    """Get the signing key, derived from Django's SECRET_KEY.
+@lru_cache(maxsize=8)
+def _derive_key(secret_key: str) -> bytes:
+    """Derive the HMAC key for one SECRET_KEY value.
 
-    Uses HKDF-like domain separation to ensure the signing key
-    is cryptographically isolated from other uses of SECRET_KEY.
-
-    The key is lazily computed on first use and cached for the lifetime
-    of the process. This avoids issues with settings not being configured
-    at module import time (e.g., during some test setups).
+    Uses simple domain separation (``sha256(domain:secret)``) so the signing key is
+    cryptographically isolated from other uses of SECRET_KEY. Keyed on the secret, so it is
+    computed lazily and never goes stale when the settings change (e.g. during a rotation).
 
     Returns:
         Bytes suitable for HMAC-SHA256 signing.
     """
-    # Simple domain separation: hash(domain || secret_key)
-    # This ensures our signing key is distinct from other uses of SECRET_KEY
-    return hashlib.sha256(f"{_KEY_DOMAIN}:{settings.SECRET_KEY}".encode()).digest()
+    return hashlib.sha256(f"{_KEY_DOMAIN}:{secret_key}".encode()).digest()
+
+
+def _signature(key: bytes, path: str, expires: int) -> str:
+    message = f"{path}:{expires}"
+    return hmac.new(key, message.encode(), hashlib.sha256).hexdigest()[:SIGNATURE_LENGTH]
 
 
 def generate_signature(path: str, expires: int) -> str:
@@ -110,13 +112,7 @@ def generate_signature(path: str, expires: int) -> str:
     Returns:
         Hex-encoded signature (truncated to SIGNATURE_LENGTH chars).
     """
-    message = f"{path}:{expires}"
-    sig = hmac.new(
-        _get_signing_key(),
-        message.encode(),
-        hashlib.sha256,
-    ).hexdigest()[:SIGNATURE_LENGTH]
-    return sig
+    return _signature(_derive_key(signing_key()), path, expires)
 
 
 def verify_signature(path: str, exp: str, sig: str) -> bool:
@@ -139,10 +135,9 @@ def verify_signature(path: str, exp: str, sig: str) -> bool:
     if expires <= time.time():
         return False
 
-    # Generate expected signature and compare
-    expected = generate_signature(path, expires)
+    # Accept a signature made with any current or previous (rotated-out) key
     try:
-        return hmac.compare_digest(sig, expected)
+        return any(hmac.compare_digest(sig, _signature(_derive_key(key), path, expires)) for key in verification_keys())
     except ValueError, TypeError:
         return False
 

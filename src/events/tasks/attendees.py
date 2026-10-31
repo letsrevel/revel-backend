@@ -15,6 +15,7 @@ from django.utils import translation
 from django.utils.translation import gettext as _
 
 from accounts.models import RevelUser
+from common.keys import decode_jwt, verification_keys
 from common.models import SiteSettings
 from common.tasks import send_email
 from events.models import AttendeeVisibilityFlag, Event, EventRSVP, Organization, Ticket
@@ -128,8 +129,8 @@ def build_attendee_visibility_flags(event_id: str) -> None:
 def _token_event_id(token: str) -> UUID | None:
     """The event id carried by a guest confirmation token, or None if it can't be read."""
     try:
-        payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience=settings.JWT_AUDIENCE
+        payload = decode_jwt(
+            token, verification_keys(), algorithms=[settings.JWT_ALGORITHM], audience=settings.JWT_AUDIENCE
         )
         return UUID(str(payload["event_id"]))
     except jwt.PyJWTError, KeyError, ValueError:

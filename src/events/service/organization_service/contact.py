@@ -10,6 +10,7 @@ from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import check_blacklist, create_token
 from accounts.models import RevelUser
 from accounts.service.account import token_to_payload
+from common.keys import signing_key
 from events import schema, tasks
 from events.models import Organization, OrganizationContactMessage
 
@@ -35,7 +36,7 @@ def create_and_send_contact_email_verification(
         email=email,
         exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
     )
-    token = create_token(verification_payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    token = create_token(verification_payload.model_dump(mode="json"), signing_key(), settings.JWT_ALGORITHM)
 
     # Send verification email
     def send_verification_email() -> None:
