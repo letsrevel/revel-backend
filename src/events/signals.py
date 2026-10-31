@@ -311,6 +311,19 @@ def invalidate_permission_snapshot(
     permission_snapshot.invalidate_my_permissions(instance.user_id)
 
 
+@receiver(post_save, sender=OrganizationMember)
+@receiver(post_delete, sender=OrganizationMember)
+def rebuild_visibility_on_membership_change(
+    sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any
+) -> None:
+    """Rebuild the persisted attendee visibility flags of the events this member takes part in.
+
+    Member-scoped attendee privacy only counts active memberships, so any membership write (join,
+    removal, status change) can change it. Scoped to the member's own events, so it stays cheap.
+    """
+    trigger_visibility_flags_for_user(instance.user_id)
+
+
 @receiver(pre_save, sender=OrganizationMember)
 def capture_member_old_tier(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
     """Stash the pre-save tier id so post_save can detect tier changes."""

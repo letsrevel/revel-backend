@@ -23,6 +23,7 @@ from events.models import (
     VenueSeat,
     VenueSector,
 )
+from events.utils.tier_pricing import validate_category_prices
 
 pytestmark = pytest.mark.django_db
 
@@ -237,6 +238,36 @@ def test_foreign_venue_category_rejected(
     # Named, not a bare UUID — the tier form has to render this to an admin.
     assert "Annex Balcony" in exc_info.value.message_dict["category_prices"][0]
     assert str(foreign.id) not in exc_info.value.message_dict["category_prices"][0]
+
+
+def test_other_organization_category_name_not_disclosed(
+    event: Event, organization: Organization, sector: VenueSector, premium: PriceCategory
+) -> None:
+    """A category belonging to another organization is rejected without revealing its name."""
+    other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization.owner)
+    other_venue = Venue.objects.create(organization=other_org, name="Elsewhere")
+    foreign = PriceCategory.objects.create(venue=other_venue, name="Secret Lounge", color="#aa0000")
+    paint(sector, "A1", premium)
+    tier = make_tier(event, sector, category_prices={str(premium.id): "50.00", str(foreign.id): "20.00"})
+    with pytest.raises(ValidationError) as exc_info:
+        tier.full_clean()
+    message = exc_info.value.message_dict["category_prices"][0]
+    assert "Secret Lounge" not in message
+
+
+def test_unknown_category_on_tier_without_event_falls_back_to_raw_id(venue: Venue, sector: VenueSector) -> None:
+    """A tier with no event yet has no organization scope: validation still fails, naming raw ids."""
+    unknown = uuid.uuid4()
+    tier = TicketTier(
+        name="Unsaved",
+        venue=venue,
+        sector=sector,
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+        category_prices={str(unknown): "50.00"},
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        validate_category_prices(tier)
+    assert str(unknown) in exc_info.value.message_dict["category_prices"][0]
 
 
 def test_unknown_category_id_rejected(event: Event, sector: VenueSector) -> None:

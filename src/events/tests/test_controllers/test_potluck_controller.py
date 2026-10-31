@@ -188,6 +188,48 @@ class TestCreatePotluckItemPermissions:
         response = nonmember_client.post(url, data=orjson.dumps(payload), content_type="application/json")
         assert response.status_code == 200
 
+    def test_claim_potluck_item_with_cancelled_ticket_forbidden(
+        self, nonmember_client: Client, event: Event, nonmember_user: RevelUser
+    ) -> None:
+        """A user whose only ticket is cancelled cannot claim potluck items."""
+        tier = event.ticket_tiers.first()
+        assert tier is not None
+        models.Ticket.objects.create(
+            guest_name="Test Guest",
+            event=event,
+            user=nonmember_user,
+            tier=tier,
+            status=models.Ticket.TicketStatus.CANCELLED,
+        )
+        potluck_item = PotluckItem.objects.create(event=event, name="Napkins", item_type="supplies", is_suggested=True)
+        url = reverse("api:claim_potluck_item", kwargs={"event_id": event.id, "item_id": potluck_item.id})
+        response = nonmember_client.post(url)
+        assert response.status_code == 403
+        potluck_item.refresh_from_db()
+        assert potluck_item.assignee is None
+
+    def test_unclaim_potluck_item_with_cancelled_ticket_succeeds(
+        self, nonmember_client: Client, event: Event, nonmember_user: RevelUser
+    ) -> None:
+        """A user whose ticket was cancelled can still release an item they already hold."""
+        tier = event.ticket_tiers.first()
+        assert tier is not None
+        models.Ticket.objects.create(
+            guest_name="Test Guest",
+            event=event,
+            user=nonmember_user,
+            tier=tier,
+            status=models.Ticket.TicketStatus.CANCELLED,
+        )
+        potluck_item = PotluckItem.objects.create(
+            event=event, name="Napkins", item_type="supplies", is_suggested=True, assignee=nonmember_user
+        )
+        url = reverse("api:unclaim_potluck_item", kwargs={"event_id": event.id, "item_id": potluck_item.id})
+        response = nonmember_client.post(url)
+        assert response.status_code == 200, response.content
+        potluck_item.refresh_from_db()
+        assert potluck_item.assignee is None
+
     def test_create_potluck_item_by_attendee_with_rsvp(
         self, nonmember_client: Client, event: Event, nonmember_user: RevelUser
     ) -> None:

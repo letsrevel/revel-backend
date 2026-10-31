@@ -5,7 +5,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -84,6 +84,18 @@ def create_organization_token(
     )
 
 
+def list_organization_tokens(organization: Organization, user: RevelUser) -> QuerySet[OrganizationToken]:
+    """Tokens of ``organization`` that ``user`` may see.
+
+    Staff-granting tokens are owner-only to create/update/delete, and the id is a bearer
+    credential, so non-owners must not be able to read them either.
+    """
+    qs = OrganizationToken.objects.filter(organization=organization).select_related("organization", "membership_tier")
+    if organization.owner_id != user.pk:
+        qs = qs.exclude(grants_staff_status=True)
+    return qs
+
+
 def _resolve_membership_tier(organization: Organization, tier_id: UUID | None) -> MembershipTier | None:
     """Resolve a ``MembershipTier`` belonging to ``organization`` by id."""
     if tier_id is None:
@@ -119,7 +131,9 @@ def create_organization_token_from_payload(
     if payload.grants_staff_status and organization.owner_id != requested_by.pk:
         raise OrganizationTokenStaffGrantForbidden
 
-    data = payload.model_dump(exclude_unset=True)
+    # Not ``exclude_unset``: omitted fields must take the schema's documented defaults
+    # (single use, 24h), not the constructor's unlimited/60-minute fallbacks.
+    data = payload.model_dump()
     tier_id = data.pop("membership_tier_id", None)
     membership_tier = _resolve_membership_tier(organization, tier_id)
 
