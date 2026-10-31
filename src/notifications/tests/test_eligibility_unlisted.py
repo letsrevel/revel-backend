@@ -158,3 +158,69 @@ class TestUnlistedAddressVisibilityBatchParity:
         checker = BatchParticipationChecker(unlisted_event)
         assert checker.can_see_address(random_user.id) is True
         assert unlisted_event.can_user_see_address(random_user) is True
+
+
+class TestAddressVisibilityTicketAndRsvpParity:
+    """can_see_address matches Event.can_user_see_address for non-active tickets and MAYBE RSVPs."""
+
+    def _assert_parity(self, event: Event, user: RevelUser, expected: bool) -> None:
+        checker = BatchParticipationChecker(event)
+        assert checker.can_see_address(user.id) is expected
+        assert event.can_user_see_address(user) is expected
+
+    @pytest.mark.parametrize("visibility", [ResourceVisibility.ATTENDEES_ONLY, ResourceVisibility.PRIVATE])
+    def test_checked_in_ticket_holder_can_see(
+        self, unlisted_event: Event, ticket_tier: TicketTier, ticket_user: RevelUser, visibility: str
+    ) -> None:
+        Ticket.objects.create(
+            event=unlisted_event,
+            user=ticket_user,
+            tier=ticket_tier,
+            guest_name="Checked In",
+            status=Ticket.TicketStatus.CHECKED_IN,
+        )
+        unlisted_event.visibility_settings = {"address_visibility": visibility}
+        unlisted_event.save()
+
+        self._assert_parity(unlisted_event, ticket_user, True)
+
+    def test_pending_online_ticket_holder_can_see(
+        self, unlisted_event: Event, ticket_tier: TicketTier, ticket_user: RevelUser
+    ) -> None:
+        ticket_tier.payment_method = TicketTier.PaymentMethod.ONLINE
+        ticket_tier.save()
+        Ticket.objects.create(
+            event=unlisted_event,
+            user=ticket_user,
+            tier=ticket_tier,
+            guest_name="Pending",
+            status=Ticket.TicketStatus.PENDING,
+        )
+        unlisted_event.visibility_settings = {"address_visibility": ResourceVisibility.ATTENDEES_ONLY}
+        unlisted_event.save()
+
+        self._assert_parity(unlisted_event, ticket_user, True)
+
+    def test_cancelled_ticket_holder_cannot_see(
+        self, unlisted_event: Event, ticket_tier: TicketTier, ticket_user: RevelUser
+    ) -> None:
+        Ticket.objects.create(
+            event=unlisted_event,
+            user=ticket_user,
+            tier=ticket_tier,
+            guest_name="Cancelled",
+            status=Ticket.TicketStatus.CANCELLED,
+        )
+        unlisted_event.visibility_settings = {"address_visibility": ResourceVisibility.ATTENDEES_ONLY}
+        unlisted_event.save()
+
+        self._assert_parity(unlisted_event, ticket_user, False)
+
+    def test_private_maybe_rsvp_without_invitation_cannot_see(
+        self, unlisted_event: Event, rsvp_user: RevelUser
+    ) -> None:
+        EventRSVP.objects.create(event=unlisted_event, user=rsvp_user, status=EventRSVP.RsvpStatus.MAYBE)
+        unlisted_event.visibility_settings = {"address_visibility": ResourceVisibility.PRIVATE}
+        unlisted_event.save()
+
+        self._assert_parity(unlisted_event, rsvp_user, False)

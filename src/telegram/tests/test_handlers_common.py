@@ -4,6 +4,7 @@ from datetime import timedelta
 from unittest.mock import AsyncMock
 
 import pytest
+from aiogram.types import Chat
 from asgiref.sync import sync_to_async
 
 from accounts.models import RevelUser
@@ -306,6 +307,21 @@ class TestHandleConnect:
         otp = await AccountOTP.objects.aget(tg_user=tg_user)
         assert otp.pk != expired_otp.pk
         assert not otp.is_expired()
+
+    @pytest.mark.asyncio
+    async def test_refuses_outside_private_chat(
+        self,
+        mock_message: AsyncMock,
+        aiogram_user: t.Any,
+    ) -> None:
+        """The linking code must never be posted where other chat members can read it."""
+        tg_user = await _get_unlinked_tg_user(aiogram_user.id)
+        mock_message.chat = Chat(id=-100123, type="group")
+
+        await handle_connect(mock_message, tg_user=tg_user)
+
+        assert "private chat" in mock_message.answer.call_args.args[0].lower()
+        assert not await AccountOTP.objects.filter(tg_user=tg_user).aexists()
 
     @pytest.mark.asyncio
     async def test_otp_formatted_in_groups(
