@@ -19,6 +19,7 @@ from notifications.schema import (
     UpdateNotificationPreferenceSchema,
 )
 from notifications.service import announcement_mute
+from notifications.service.preferences import create_default_preferences
 from notifications.service.unsubscribe import confirm_unsubscribe
 
 
@@ -34,13 +35,13 @@ class NotificationPreferenceController(UserAwareController):
     @route.get("", response=NotificationPreferenceSchema)
     def get_preferences(self) -> NotificationPreference:
         """Get current user's notification preferences."""
-        prefs, _ = NotificationPreference.objects.get_or_create(user=self.user())
+        prefs, _ = create_default_preferences(self.user())
         return prefs
 
     @route.patch("", response=NotificationPreferenceSchema, throttle=WriteThrottle())
     def update_preferences(self, payload: UpdateNotificationPreferenceSchema) -> NotificationPreference:
         """Update notification preferences."""
-        prefs, _ = NotificationPreference.objects.get_or_create(user=self.user())
+        prefs, _ = create_default_preferences(self.user())
 
         update_data = payload.model_dump(exclude_unset=True)
 
@@ -61,7 +62,7 @@ class NotificationPreferenceController(UserAwareController):
     )
     def enable_channel(self, channel: ChannelType) -> NotificationPreference:
         """Enable a notification channel."""
-        prefs, _ = NotificationPreference.objects.get_or_create(user=self.user())
+        prefs, _ = create_default_preferences(self.user())
 
         if prefs.enable_channel(channel):
             prefs.save(update_fields=["enabled_channels", "notification_type_settings", "updated_at"])
@@ -75,7 +76,7 @@ class NotificationPreferenceController(UserAwareController):
     )
     def disable_channel(self, channel: ChannelType) -> NotificationPreference:
         """Disable a notification channel."""
-        prefs, _ = NotificationPreference.objects.get_or_create(user=self.user())
+        prefs, _ = create_default_preferences(self.user())
 
         if prefs.disable_channel(channel):
             prefs.save(update_fields=["enabled_channels", "notification_type_settings", "updated_at"])

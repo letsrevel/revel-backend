@@ -363,6 +363,53 @@ class TestHandleConnect:
 
 class TestHandleUnsubscribe:
     @pytest.mark.asyncio
+    async def test_unsubscribe_recreates_missing_prefs_with_defaults(
+        self,
+        mock_message: AsyncMock,
+        django_user: RevelUser,
+    ) -> None:
+        """A missing preference row is recreated via create_default_preferences (#1254)."""
+        from notifications.enums import DeliveryChannel, NotificationType
+        from notifications.models import NotificationPreference
+
+        tg_user = await _get_tg_user(django_user)
+        await NotificationPreference.objects.filter(user=django_user).adelete()
+
+        await handle_unsubscribe(mock_message, tg_user=tg_user, user=django_user)
+
+        prefs = await NotificationPreference.objects.aget(user=django_user)
+        assert prefs.enabled_channels == [DeliveryChannel.IN_APP, DeliveryChannel.EMAIL]
+        # The default override keeps its other channel; only TELEGRAM is removed.
+        org_contact = prefs.notification_type_settings[NotificationType.ORG_CONTACT_MESSAGE_RECEIVED]
+        assert org_contact["channels"] == [DeliveryChannel.IN_APP]
+        for setting in prefs.notification_type_settings.values():
+            assert DeliveryChannel.TELEGRAM not in (setting.get("channels") or [])
+
+    @pytest.mark.asyncio
+    async def test_unsubscribe_recreates_missing_guest_prefs_with_guest_defaults(
+        self,
+        mock_message: AsyncMock,
+        django_user: RevelUser,
+    ) -> None:
+        """A recreated guest row gets guest type settings (#1254)."""
+        from notifications.enums import DeliveryChannel, NotificationType
+        from notifications.models import NotificationPreference
+
+        tg_user = await _get_tg_user(django_user)
+        guest = await RevelUser.objects.acreate_user(
+            username="tg-guest@example.com", email="tg-guest@example.com", password="password", guest=True
+        )
+        await NotificationPreference.objects.filter(user=guest).adelete()
+
+        await handle_unsubscribe(mock_message, tg_user=tg_user, user=guest)
+
+        prefs = await NotificationPreference.objects.aget(user=guest)
+        assert prefs.enabled_channels == [DeliveryChannel.IN_APP, DeliveryChannel.EMAIL]
+        assert prefs.notification_type_settings[NotificationType.ORG_ANNOUNCEMENT] == {"enabled": False}
+        for setting in prefs.notification_type_settings.values():
+            assert DeliveryChannel.TELEGRAM not in (setting.get("channels") or [])
+
+    @pytest.mark.asyncio
     async def test_unsubscribe(
         self,
         mock_message: AsyncMock,
