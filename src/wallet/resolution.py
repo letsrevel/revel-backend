@@ -29,6 +29,7 @@ class TicketLocation(t.NamedTuple):
     address: str | None
     sector: VenueSector | None
     seat_label: str | None
+    address_withheld: bool = False  # an address exists but this holder may not see it
 
 
 def resolve_ticket_location(ticket: Ticket) -> TicketLocation:
@@ -55,13 +56,15 @@ def resolve_ticket_location(ticket: Ticket) -> TicketLocation:
     venue = ticket.tier.venue or ticket.venue or event.venue
     sector = ticket.tier.sector or ticket.sector
     address = (venue.full_address() if venue else None) or event.address or None
+    can_see = bool(address) and event.can_user_see_address(ticket.user)
 
     return TicketLocation(
         venue=venue,
         venue_name=venue.name if venue else None,
-        address=address if event.can_user_see_address(ticket.user) else None,
+        address=address if can_see else None,
         sector=sector,
         seat_label=ticket.seat.label if ticket.seat else None,
+        address_withheld=bool(address) and not can_see,
     )
 
 
@@ -75,6 +78,7 @@ class SeriesWindow(t.NamedTuple):
     tz: ZoneInfo
     start: datetime
     end: datetime
+    address_withheld: bool = False  # an address exists but this holder may not see it
 
 
 def resolve_series_window(held_pass: HeldSeriesPass) -> SeriesWindow:
@@ -116,12 +120,14 @@ def resolve_series_window(held_pass: HeldSeriesPass) -> SeriesWindow:
 
     venue = representative.venue
     address = (venue.full_address() if venue else None) or representative.address or None
+    can_see = bool(address) and representative.can_user_see_address(held_pass.user)
     return SeriesWindow(
         representative_event=representative,
         venue=venue,
         venue_name=venue.name if venue else None,
-        address=address if representative.can_user_see_address(held_pass.user) else None,
+        address=address if can_see else None,
         tz=get_event_timezone(representative),
         start=representative.start,
         end=max(event.end for event in events),
+        address_withheld=bool(address) and not can_see,
     )

@@ -47,6 +47,17 @@ def _brand_suffix(org: Organization) -> str:
     return "-" + hashlib.sha256(brand.model_dump_json().encode()).hexdigest()[:8]
 
 
+def _address_suffix(withheld: bool) -> str:
+    """Class-ID suffix for the address-hidden variant, ``""`` for the address-visible one.
+
+    The class is shared by every holder of an event, and Google serves an existing class
+    ID unchanged, so whichever holder saved first would decide for everyone whether the
+    venue address shows. Holders who may not see the address get their own class instead;
+    the address-visible variant keeps the original ID so already-issued classes still work.
+    """
+    return "-noaddr" if withheld else ""
+
+
 def _localized(value: str) -> dict[str, t.Any]:
     """Wrap a string in Google's LocalizedString shape."""
     return {"defaultValue": {"language": "en", "value": value}}
@@ -151,7 +162,7 @@ def build_ticket_payload(ticket: Ticket) -> dict[str, t.Any]:
     brand_suffix = _brand_suffix(org)
 
     cls = _build_class(
-        class_id=_pass_id("event", f"{event.id}{brand_suffix}"),
+        class_id=_pass_id("event", f"{event.id}{brand_suffix}{_address_suffix(location.address_withheld)}"),
         issuer_name=org.name,
         event_name=event.name,
         start=event.start,
@@ -215,7 +226,7 @@ def build_series_pass_payload(held_pass: HeldSeriesPass) -> dict[str, t.Any]:
     brand_suffix = _brand_suffix(org)
 
     cls = _build_class(
-        class_id=_pass_id("series", f"{series_pass.id}{brand_suffix}"),
+        class_id=_pass_id("series", f"{series_pass.id}{brand_suffix}{_address_suffix(window.address_withheld)}"),
         issuer_name=org.name,
         event_name=series_pass.name,
         start=window.start,

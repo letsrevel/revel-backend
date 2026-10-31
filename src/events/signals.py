@@ -47,7 +47,7 @@ from events.utils import format_event_datetime, get_invitation_message
 from events.utils.frontend_urls import frontend_base_url_for
 from events.utils.reserved_slug_tokens import invalidate_reserved_tokens_cache
 from notifications.enums import NotificationType
-from notifications.service.notification_helpers import get_event_location_for_user
+from notifications.service.eligibility import BatchParticipationChecker
 from notifications.signals import notification_requested
 
 __all__ = ["unclaim_user_potluck_items"]
@@ -479,10 +479,13 @@ def handle_event_opened_notify_followers(sender: type[Event], instance: Event, c
     def send_follower_notifications() -> None:
         frontend_base_url = frontend_base_url_for(organization)
         event_series = instance.event_series
+        # One batched visibility checker for all followers (no per-follower queries)
+        checker = BatchParticipationChecker(instance)
+        full_address = instance.full_address()
 
         for user, notification_type in get_followers_for_new_event_notification(organization, event_series):
             # Address (and city) only for followers allowed to see it
-            visible_location, _ = get_event_location_for_user(instance, user)
+            visible_location = full_address if checker.can_see_address(user.id) else ""
             context: dict[str, t.Any] = {
                 "organization_id": str(organization.id),
                 "organization_name": organization.name,
