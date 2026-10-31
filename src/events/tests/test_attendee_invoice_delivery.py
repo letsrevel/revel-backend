@@ -470,6 +470,25 @@ class TestEnsurePdfExists:
         mock_pdf.assert_called_once()
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_saving_pdf_does_not_overwrite_concurrent_changes(
+        self,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """Attaching the PDF writes only the file field, not the rest of a possibly stale instance."""
+        inv = _create_invoice(organization, event, member_user)
+        stale = AttendeeInvoice.objects.get(pk=inv.pk)
+        AttendeeInvoice.objects.filter(pk=inv.pk).update(buyer_name="Changed Elsewhere")
+
+        ensure_pdf_exists(stale)
+
+        inv.refresh_from_db()
+        assert inv.pdf_file
+        assert inv.buyer_name == "Changed Elsewhere"
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     def test_skips_generation_when_pdf_exists(
         self,
         mock_pdf: t.Any,

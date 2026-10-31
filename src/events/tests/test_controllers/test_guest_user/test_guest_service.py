@@ -3,11 +3,12 @@
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import jwt
 import pytest
 from django.conf import settings
+from django.http import Http404
 from django.utils import timezone
 from ninja.errors import HttpError
 from ninja_jwt.token_blacklist.models import BlacklistedToken
@@ -64,6 +65,16 @@ class TestGuestServiceLayer:
         # Act & Assert
         with pytest.raises(GuestAccountExistsError):
             guest_service.get_or_create_guest_user(existing_regular_user.email, "New", "Name")
+
+    def test_get_or_create_guest_user_rejects_inactive_guest(self, existing_guest_user: RevelUser) -> None:
+        """A deactivated guest account is refused up front, not handed a new confirmation link."""
+        existing_guest_user.is_active = False
+        existing_guest_user.save(update_fields=["is_active"])
+
+        with pytest.raises(HttpError) as exc_info:
+            guest_service.get_or_create_guest_user(existing_guest_user.email)
+
+        assert exc_info.value.status_code == 403
 
     def test_create_guest_rsvp_token(self, existing_guest_user: RevelUser, guest_event: Event) -> None:
         """Test creating a guest RSVP JWT token."""
@@ -373,6 +384,25 @@ class TestGuestServiceLayer:
         assert result.checkout_url is None
         mock_send_email.assert_called_once()
 
+    def test_guest_checkout_never_saves_billing_to_profile(
+        self, guest_event_with_tickets: Event, online_tier: TicketTier
+    ) -> None:
+        """Guest checkout is unauthenticated, so billing info is never persisted to a profile."""
+        billing = schema.BuyerBillingInfoSchema.model_validate({"billing_name": "Buyer", "save_to_profile": True})
+        group = CartGroup(tier=online_tier, items=[schema.TicketPurchaseItem(guest_name="G")])
+
+        with (
+            patch("events.service.batch_ticket_service.BatchTicketService") as mock_service,
+            patch("events.service.stripe_service.resolve_attendee_vat_for_reserve") as mock_resolve,
+        ):
+            mock_service.return_value.create_batch.return_value = ([], uuid4())
+            guest_service.handle_guest_ticket_checkout(
+                guest_event_with_tickets, [group], "billing@test.com", "B", "T", billing_info=billing
+            )
+
+        assert mock_service.return_value.create_batch.call_args.kwargs["billing_info"].save_to_profile is False
+        assert mock_resolve.call_args.kwargs["billing_info"].save_to_profile is False
+
     @patch("events.tasks.send_guest_ticket_confirmation.delay")
     def test_handle_guest_ticket_checkout_rejects_oversized_cart(
         self, mock_send_email: Mock, guest_event_with_tickets: Event, offline_tier: TicketTier
@@ -520,3 +550,16 @@ class TestGuestServiceLayer:
             token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience=settings.JWT_AUDIENCE
         )
         assert not BlacklistedToken.objects.filter(token__jti=payload_decoded["jti"]).exists()
+
+    def test_confirm_guest_action_rejects_inactive_user(
+        self, guest_event: Event, existing_guest_user: RevelUser
+    ) -> None:
+        """A deactivated account cannot complete a confirmation link."""
+        token = guest_service.create_guest_rsvp_token(existing_guest_user, guest_event.id, "yes")
+        existing_guest_user.is_active = False
+        existing_guest_user.save(update_fields=["is_active"])
+
+        with pytest.raises(Http404):
+            guest_service.confirm_guest_action(token)
+
+        assert not EventRSVP.objects.filter(user=existing_guest_user, event=guest_event).exists()

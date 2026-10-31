@@ -462,6 +462,7 @@ def _generate_and_save_pdf(invoice: AttendeeInvoice) -> None:
     names the current platform operator.
     """
     template = "invoices/attendee_invoice.html"
+    rendered_status = invoice.status  # the status this render is for; re-checked under lock before attaching
     context = {
         "invoice": invoice,
         "issuance_statement": issuance_statement(invoice.issuer_name, invoice.seller_name),
@@ -471,7 +472,17 @@ def _generate_and_save_pdf(invoice: AttendeeInvoice) -> None:
     }
     pdf_bytes = facturx_pdf_for(invoice, lambda pdf_a3: render_pdf(template, context, pdf_a3=pdf_a3))
     filename = f"{invoice.invoice_number}.pdf"
-    invoice.pdf_file.save(filename, ContentFile(pdf_bytes), save=True)
+    with transaction.atomic():
+        # The render is slow and unlocked: the invoice may have been issued (or re-rendered) meanwhile, so
+        # only attach to a row still in the state this PDF was rendered for; never overwrite an issued PDF.
+        locked = AttendeeInvoice.objects.select_for_update().get(pk=invoice.pk)
+        if locked.status != rendered_status or locked.pdf_file:
+            invoice.status = locked.status
+            invoice.pdf_file = locked.pdf_file
+            return
+        locked.pdf_file.save(filename, ContentFile(pdf_bytes), save=False)
+        locked.save(update_fields=["pdf_file", "updated_at"])  # not a full-row write of a possibly stale instance
+        invoice.pdf_file = locked.pdf_file
 
 
 def ensure_pdf_exists(invoice: AttendeeInvoice) -> None:
@@ -928,7 +939,14 @@ def _generate_credit_note_pdf(credit_note: AttendeeInvoiceCreditNote) -> None:
     }
     pdf_bytes = facturx_pdf_for(credit_note, lambda pdf_a3: render_pdf(template, context, pdf_a3=pdf_a3))
     filename = f"{credit_note.credit_note_number}.pdf"
-    credit_note.pdf_file.save(filename, ContentFile(pdf_bytes), save=True)
+    with transaction.atomic():
+        locked = AttendeeInvoiceCreditNote.objects.select_for_update().get(pk=credit_note.pk)
+        if locked.pdf_file:  # a concurrent render already attached one; keep it
+            credit_note.pdf_file = locked.pdf_file
+            return
+        locked.pdf_file.save(filename, ContentFile(pdf_bytes), save=False)
+        locked.save(update_fields=["pdf_file", "updated_at"])
+        credit_note.pdf_file = locked.pdf_file
 
 
 def ensure_credit_note_pdf_exists(credit_note: AttendeeInvoiceCreditNote) -> None:

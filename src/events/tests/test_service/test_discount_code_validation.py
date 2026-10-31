@@ -364,6 +364,31 @@ class TestValidateDiscountCode:
         assert exc_info.value.status_code == 400
         assert "maximum number of times" in str(exc_info.value.message)
 
+    def test_per_user_max_uses_counts_checked_in_tickets(
+        self,
+        dc_org: Organization,
+        dc_paid_tier: TicketTier,
+        dc_event: Event,
+        dc_buyer: RevelUser,
+        dc_percentage: DiscountCode,
+    ) -> None:
+        """A checked-in ticket still holds a redemption of the per-user limit."""
+        Ticket.objects.create(
+            event=dc_event,
+            user=dc_buyer,
+            tier=dc_paid_tier,
+            guest_name="Buyer",
+            discount_code=dc_percentage,
+            status=Ticket.TicketStatus.CHECKED_IN,
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            discount_code_service.validate_discount_code(
+                code="SAVE20", organization=dc_org, tier=dc_paid_tier, user=dc_buyer, batch_size=1
+            )
+
+        assert exc_info.value.status_code == 400
+
     def test_per_user_limit_considers_batch_size(
         self,
         dc_org: Organization,

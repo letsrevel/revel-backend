@@ -194,7 +194,8 @@ def _render_and_save_statement_pdf(statement: ReferralPayoutStatement) -> None:
             "is_b2b": is_b2b,
         },
     )
-    statement.pdf_file.save(f"{statement.document_number}.pdf", ContentFile(pdf_bytes), save=True)
+    statement.pdf_file.save(f"{statement.document_number}.pdf", ContentFile(pdf_bytes), save=False)
+    statement.save(update_fields=["pdf_file", "updated_at"])  # not a full-row write of a possibly stale instance
 
 
 def ensure_payout_statement_pdf_exists(statement: ReferralPayoutStatement) -> None:

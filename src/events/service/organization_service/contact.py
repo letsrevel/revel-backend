@@ -149,17 +149,16 @@ def verify_contact_email(token: str) -> Organization:
     payload = token_to_payload(token, schema.VerifyOrganizationContactEmailJWTPayloadSchema)
     check_blacklist(payload.jti)
 
-    organization = Organization.objects.filter(id=payload.organization_id).first()
+    # Lock the row and compare in Python (not iexact: DB collation case folding can equate e.g. dotless i
+    # with i), so an email change landing between read and write can never get the new address verified.
+    organization = Organization.objects.select_for_update().filter(id=payload.organization_id).first()
     if not organization:
         raise HttpError(400, str(_("Organization not found.")))
-
-    # Check that the email in the token matches the current contact email
-    if not organization.contact_email or organization.contact_email.lower() != payload.email.lower():
+    if (organization.contact_email or "").lower() != payload.email.lower():
         raise HttpError(400, str(_("This verification link is for a different email address.")))
-
-    # Mark as verified
-    blacklist_token(token)
     organization.contact_email_verified = True
-    organization.save(update_fields=["contact_email_verified"])
+    organization.save(update_fields=["contact_email_verified", "updated_at"])
+
+    blacklist_token(token)
 
     return organization

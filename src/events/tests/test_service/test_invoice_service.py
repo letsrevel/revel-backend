@@ -90,6 +90,7 @@ def org_no_billing(owner: RevelUser) -> Organization:
         slug="no-billing-org",
         owner=owner,
         contact_email="contact@nobilling.com",
+        contact_email_verified=True,
     )
 
 
@@ -383,6 +384,12 @@ class TestGetInvoiceRecipients:
         assert "owner@example.com" in recipients
         assert "contact@nobilling.com" in recipients
         assert len(recipients) == 2
+
+    def test_unverified_contact_email_is_not_a_fallback(self, org_no_billing: Organization) -> None:
+        """An unverified contact email never receives invoices."""
+        org_no_billing.contact_email_verified = False
+        org_no_billing.save()
+        assert get_invoice_recipients(org_no_billing) == ["owner@example.com"]
 
     def test_deduplication_when_owner_matches_billing(self, org: Organization) -> None:
         """Duplicate emails are deduplicated."""

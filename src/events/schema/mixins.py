@@ -4,7 +4,7 @@ import re
 import typing as t
 
 from ninja import Schema
-from pydantic import AnyUrl, Field, HttpUrl, field_validator
+from pydantic import AnyUrl, Field, HttpUrl, ValidationError, field_validator
 
 from common.schema import StrippedString
 from events import models
@@ -177,14 +177,16 @@ def _validate_social_media_url(url: str, field_name: str) -> None:
     Raises:
         ValueError: If the URL doesn't match the expected platform.
     """
-    from urllib.parse import urlparse
-
     allowed_domains = _SOCIAL_MEDIA_PATTERNS.get(field_name, ())
     if not allowed_domains:
         return
 
-    parsed = urlparse(url)
-    hostname = parsed.hostname or ""
+    # Parse with the same parser the field's AnyUrl uses (WHATWG: `\` acts as `/`), so the host
+    # checked here is the host that gets stored; urllib reads some backslash URLs differently.
+    try:
+        hostname = AnyUrl(url).host or ""
+    except ValidationError as exc:
+        raise ValueError(f"Invalid URL: {url}") from exc
 
     if hostname not in allowed_domains:
         platform_name = field_name.replace("_url", "").replace("_", " ").title()

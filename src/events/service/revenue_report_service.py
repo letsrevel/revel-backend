@@ -17,7 +17,7 @@ from common.models import FileExport
 from common.service.export_service import complete_export, fail_export, start_export
 from common.tasks import send_email
 from events.models import Organization
-from events.service.export.formatting import LABEL_FONT, auto_fit_columns, style_header_row
+from events.service.export.formatting import LABEL_FONT, auto_fit_columns, sanitize_cell, style_header_row
 from events.service.revenue_aggregation import (
     ReportScope,
     RevenueReportData,
@@ -202,8 +202,8 @@ def build_xlsx(data: RevenueReportData) -> bytes:
                 [
                     row.date.isoformat(),
                     row.payment_id,
-                    row.event,
-                    row.tier,
+                    sanitize_cell(row.event),
+                    sanitize_cell(row.tier),
                     row.buyer_country,
                     row.reverse_charge,
                     row.gross,
@@ -233,9 +233,9 @@ def build_xlsx(data: RevenueReportData) -> bytes:
             [
                 membership_row.date.isoformat(),
                 membership_row.payment_id,
-                membership_row.member_email,
-                membership_row.member_name,
-                membership_row.plan,
+                sanitize_cell(membership_row.member_email),
+                sanitize_cell(membership_row.member_name),
+                sanitize_cell(membership_row.plan),
                 membership_row.gross,
                 membership_row.currency,
                 membership_row.status,
@@ -275,10 +275,10 @@ def _append_skipped_sheet(wb: Workbook, data: RevenueReportData) -> None:
                 doc.kind,
                 doc.reason_code,
                 doc.policy_country,
-                doc.event.name if doc.event else "",
-                doc.buyer_name,
-                doc.buyer_email,
-                doc.buyer_vat_id,
+                sanitize_cell(doc.event.name) if doc.event else "",
+                sanitize_cell(doc.buyer_name),
+                sanitize_cell(doc.buyer_email),
+                sanitize_cell(doc.buyer_vat_id),
                 doc.buyer_vat_country,
                 doc.buyer_vat_id_status,
                 ", ".join(f"{bucket['vat_rate'].normalize():f}%" for bucket in doc.vat_breakdown),
@@ -289,7 +289,7 @@ def _append_skipped_sheet(wb: Workbook, data: RevenueReportData) -> None:
                 doc.invoice.invoice_number if doc.invoice else "",
                 doc.stripe_session_id,
                 doc.resolved_at.astimezone(tz).date().isoformat() if doc.resolved_at else "",
-                doc.external_reference,
+                sanitize_cell(doc.external_reference),
             ]
         )
     _format_numeric_columns(sheet, money_cols=(12, 13, 14))

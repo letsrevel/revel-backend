@@ -25,6 +25,7 @@ from events.models import (
     MembershipSubscriptionPlan,
     MembershipTier,
 )
+from events.models.invoice import PlatformFeeInvoice
 from events.models.organization import Organization
 from events.models.ticket import Payment, Ticket, TicketTier
 from events.service.invoice_service import (
@@ -698,6 +699,35 @@ class TestPlatformFeeInvoiceLineRows:
         assert len(rows) == 2
         assert _row_amount(rows[0]) == Decimal("2.05")
         assert _row_amount(rows[1]) == Decimal("0.82")
+
+    def test_ensure_invoice_pdf_does_not_overwrite_concurrent_changes(
+        self,
+        mock_html_cls: MagicMock,
+        org: Organization,
+        sub_event: Event,
+        ticket_tier: TicketTier,
+        buyer: RevelUser,
+        site_settings: SiteSettings,
+    ) -> None:
+        """Re-attaching a lost PDF writes only the file field, not the rest of a stale instance."""
+        mock_html_cls.return_value.write_pdf.return_value = None
+        _create_ticket_payment(
+            event=sub_event,
+            tier=ticket_tier,
+            user=buyer,
+            suffix="_stale",
+            created_at=timezone.make_aware(datetime(2028, 5, 10, 12, 0)),
+        )
+        invoice = generate_invoices_for_period(date(2028, 5, 1), date(2028, 5, 31))[0]
+        PlatformFeeInvoice.objects.filter(pk=invoice.pk).update(pdf_file="")
+        stale = PlatformFeeInvoice.objects.get(pk=invoice.pk)
+        PlatformFeeInvoice.objects.filter(pk=invoice.pk).update(currency="USD")
+
+        ensure_invoice_pdf_exists(stale)
+
+        invoice.refresh_from_db()
+        assert invoice.pdf_file
+        assert invoice.currency == "USD"
 
     def test_regenerated_pdf_still_reconciles_after_a_refund(
         self,
