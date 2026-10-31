@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.30.0] - 2026-10-31
+
+### Added
+- Organization billing info (`GET`/`PATCH /organization-admin/{slug}/billing-info`) now includes `tiers_charging_vat`: the ticket tiers of events that have not ended and are not cancelled whose own VAT rate is above 0%, with event and tier ids and names and the rate, ordered by event start. These are the tiers that block declaring a small-business VAT scheme, so the frontend can link straight to each one. The list is empty once a scheme is declared, because tier rates are then ignored.
+
 ## [2.29.0] - 2026-10-31
 
 ### Added
