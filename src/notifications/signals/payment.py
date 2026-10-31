@@ -20,7 +20,11 @@ from notifications.context_schemas import (
     StaffPaymentDisputedContext,
 )
 from notifications.enums import NotificationType
-from notifications.service.notification_helpers import format_event_datetime, notify_org_staff
+from notifications.service.notification_helpers import (
+    format_event_datetime,
+    get_event_location_for_user,
+    notify_org_staff,
+)
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -82,7 +86,7 @@ def _send_payment_confirmation(payment: Payment) -> None:
 
     # Format event details in event's timezone
     event_start_formatted = format_event_datetime(event.start, event)
-    event_location = event.full_address()
+    event_location, _ = get_event_location_for_user(event, payment.user)
 
     # Format payment date in event's timezone
     payment_date = format_event_datetime(payment.created_at, event)

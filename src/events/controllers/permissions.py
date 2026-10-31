@@ -50,6 +50,22 @@ def scope_allows(request: HttpRequest, action: models.PermissionKey) -> None:
         raise InsufficientScopeError(sorted(needed)[0] if needed else None)
 
 
+def require_series_pass_link_access(request: HttpRequest, organization: models.Organization) -> None:
+    """Gate inline ``series_pass_links`` on the same grants as the dedicated tier-links endpoint.
+
+    That endpoint needs ``edit_event_series`` plus the ``org:tickets`` scope (it triggers free
+    ticket materialization for pass holders), so an event edit/create carrying links needs both.
+
+    Raises:
+        PermissionDenied: The user lacks ``edit_event_series`` on the organization.
+        InsufficientScopeError: An app token lacks the scopes unlocking either key.
+    """
+    scope_allows(request, "edit_event_series")
+    scope_allows(request, "manage_tickets")
+    if not organization.has_org_permission(t.cast(UUID, request.user.id), "edit_event_series"):
+        raise PermissionDenied(str(_("You do not have permission to link series passes.")))
+
+
 class RootPermission(BasePermission):
     def __init__(self, action: str) -> None:
         """Store the action."""
@@ -216,7 +232,12 @@ class PotluckItemPermission(RootPermission):
         if not obj.potluck_open and self.action == "create_potluck_item":
             return False
 
-        if models.Ticket.objects.filter(event=obj, user=user).exists():
+        # Cancelled tickets don't confer attendance (same rule as Event attendee checks), but
+        # releasing an item the user already holds must keep working after a cancellation.
+        tickets = models.Ticket.objects.filter(event=obj, user=user)
+        if self.action != "unclaim_potluck_item":
+            tickets = tickets.exclude(status=models.Ticket.TicketStatus.CANCELLED)
+        if tickets.exists():
             return True
 
         if models.EventRSVP.objects.filter(event=obj, user=user, status=models.EventRSVP.RsvpStatus.YES).exists():

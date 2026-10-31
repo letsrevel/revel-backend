@@ -2,6 +2,7 @@
 
 import re
 import typing as t
+from html import escape
 
 import structlog
 from aiogram import F, Router
@@ -47,7 +48,7 @@ async def handle_start(message: Message, tg_user: TelegramUser, state: FSMContex
         user = tg_user.user
         assert user is not None  # user_id is set, so user must exist
         await message.answer(
-            f"Welcome back, {user.display_name}!\n\nI am your Revel companion.\n\n{consent}",
+            f"Welcome back, {escape(user.display_name)}!\n\nI am your Revel companion.\n\n{consent}",
             # Clears the legacy reply keyboard that older clients still have persisted.
             reply_markup=keyboards.remove_keyboard,
         )
@@ -123,6 +124,11 @@ async def handle_privacy(message: Message, tg_user: TelegramUser) -> None:
 async def handle_connect(message: Message, tg_user: TelegramUser) -> None:
     """Handles the /connect command to generate OTP for account linking."""
     logger.info("telegram_user_requested_account_linking", telegram_id=tg_user.telegram_id)
+
+    # The code links whoever redeems it, so never post it where other chat members can read it.
+    if message.chat.type != "private":
+        await message.answer("Please send /connect in a private chat with me.")
+        return
 
     # Check if already linked
     if tg_user.user_id:

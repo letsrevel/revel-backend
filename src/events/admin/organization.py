@@ -3,6 +3,7 @@
 
 import typing as t
 
+from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
 from django.db import transaction
@@ -15,6 +16,7 @@ from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
 from unfold.contrib.filters.admin import AutocompleteSelectFilter, RangeDateFilter
 
+from accounts.models import RevelUser
 from common.models import STRIPE_CONNECTED_Q
 from events import models
 from events.admin.base import (
@@ -28,6 +30,7 @@ from events.admin.base import (
     VenueInline,
 )
 from events.service import custom_domain_service, turnstile_hostname_service
+from events.service.organization_service import contact as contact_service
 from events.service.tenant_service import invalidate_tenant_cache
 
 
@@ -112,9 +115,30 @@ class AcquisitionSourceFilter(admin.SimpleListFilter):
         return queryset
 
 
+class OrganizationAdminForm(forms.ModelForm):  # type: ignore[type-arg]
+    """Resets contact verification state before model validation runs."""
+
+    def clean(self) -> dict[str, t.Any] | None:
+        """Un-verify a changed contact email, unless the superuser set the flag in the same save.
+
+        ``Organization.clean()`` (run by ``_post_clean``) rejects a contact method without a verified
+        email, and ``contact_method`` is not a form field, so the reset has to happen here, ahead of it.
+        The service path (``update_contact_email``) resets it the same way.
+        """
+        cleaned = super().clean()
+        if "contact_email" in self.changed_data and "contact_email_verified" not in self.changed_data:
+            self.instance.contact_email_verified = False
+            self.instance.contact_method = models.Organization.ContactMethod.NONE
+            if cleaned is not None and "contact_email_verified" in cleaned:
+                cleaned["contact_email_verified"] = False  # construct_instance would restore the old value
+        return cleaned
+
+
 @admin.register(models.Organization)
 class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     """Admin model for Organizations."""
+
+    form = OrganizationAdminForm
 
     SUPERUSER_ONLY_FIELDS: t.ClassVar[tuple[str, ...]] = (
         "vat_id_validated",
@@ -143,7 +167,26 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         answer for it must go. Invalidation waits for commit, so a rolled-back save leaves the cache alone.
         Switching it back on also signs out the sessions issued before it was switched off.
         """
+        # A changed VAT ID is no longer the one that was validated; reset the derived state as the
+        # service path does. The contact-email reset happens earlier, in OrganizationAdminForm.clean().
+        if "vat_id" in form.changed_data:
+            obj.vat_id_validated_at = None
+            obj.vies_request_identifier = ""
+            if "vat_id_validated" not in form.changed_data:
+                obj.vat_id_validated = False
+            if obj.vat_id:
+                # Same derivation as common.service.vies_service.set_vat_id. That setter (via
+                # set_org_vat_id) is not called here: it does synchronous VIES I/O and raises HttpError.
+                obj.vat_country_code = obj.vat_id[:2].upper()
         super().save_model(request, obj, form, change)
+        if (
+            obj.contact_email
+            and "contact_email" in form.changed_data
+            and "contact_email_verified" not in form.changed_data
+        ):
+            contact_service.create_and_send_contact_email_verification(
+                obj, obj.contact_email, t.cast(RevelUser, request.user)
+            )
         flipped = "custom_domain_enabled" in form.changed_data
         if flipped and obj.custom_domain_enabled:
             custom_domain_service.restart_domain_sessions(obj)

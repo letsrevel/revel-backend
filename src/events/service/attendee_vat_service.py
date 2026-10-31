@@ -275,8 +275,10 @@ def validate_and_resolve_buyer_country(
 
     # Derive country from VAT ID prefix only if VIES validated it
     buyer_country = vat_country_code
-    if not buyer_country and vat_id and len(vat_id) >= 2 and vat_id_valid:
-        buyer_country = vat_id[:2].upper()
+    if not buyer_country and vat_id and len(vat_id.strip()) >= 2 and vat_id_valid:
+        from common.service.vies_service import parse_vat_id
+
+        buyer_country = parse_vat_id(vat_id)[0]  # same normalization VIES validated against
 
     return vat_id_valid, vat_id_validation_error, buyer_country
 

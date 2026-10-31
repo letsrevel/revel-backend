@@ -10,7 +10,7 @@ from django.dispatch import receiver
 from events.models import Event, EventRSVP, EventWaitList, Ticket
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
-from notifications.service.notification_helpers import format_event_datetime
+from notifications.service.notification_helpers import format_event_datetime, get_event_location_for_user
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -53,7 +53,6 @@ def _build_waitlist_spot_context(event: Event, spots_available: int) -> dict[str
         Context dictionary for notification
     """
     frontend_base_url = frontend_base_url_for(event.organization)
-    event_location = event.full_address()
     event_start_formatted = format_event_datetime(event.start, event)
 
     return {
@@ -61,7 +60,6 @@ def _build_waitlist_spot_context(event: Event, spots_available: int) -> dict[str
         "event_name": event.name,
         "event_start": event.start.isoformat() if event.start else "",
         "event_start_formatted": event_start_formatted,
-        "event_location": event_location,
         "event_url": f"{frontend_base_url}/events/{event.id}",
         "organization_id": str(event.organization_id),
         "organization_name": event.organization.name,
@@ -86,7 +84,8 @@ def _notify_waitlist(event: Event, spots_available: int) -> None:
             sender=EventWaitList,
             user=waitlist_entry.user,
             notification_type=NotificationType.WAITLIST_SPOT_AVAILABLE,
-            context=context,
+            # Location respects each waitlisted user's address visibility
+            context={**context, "event_location": get_event_location_for_user(event, waitlist_entry.user)[0]},
         )
 
     logger.info(

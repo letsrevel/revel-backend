@@ -22,6 +22,9 @@ from common.fields import MAX_IMAGE_PIXELS
 # the source image itself rather than merely left out of the ``save()`` call.
 _METADATA_INFO_KEYS = ("exif", "xmp", "XML:com.adobe.xmp", "Raw profile type exif", "comment")
 
+# TIFF IFD tags carrying metadata: XMP, IPTC-NAA, Photoshop image resources.
+_TIFF_METADATA_TAGS = (700, 33723, 34377)
+
 
 def strip_exif(image_file: File) -> InMemoryUploadedFile:  # type: ignore[type-arg]
     """Strip EXIF data from a Django File or InMemoryUploadedFile.
@@ -47,6 +50,11 @@ def strip_exif(image_file: File) -> InMemoryUploadedFile:  # type: ignore[type-a
     # extra ~3x (Image.frombytes on tobytes()) — a memory-DoS guard for large images.
     for key in _METADATA_INFO_KEYS:
         image.info.pop(key, None)
+    # TIFF keeps XMP / IPTC / Photoshop blocks in IFD tags that Pillow re-writes on save.
+    for tag in _TIFF_METADATA_TAGS:
+        for ifd in (getattr(image, "tag_v2", None), getattr(image, "tag", None)):
+            if ifd is not None and tag in ifd:
+                del ifd[tag]
     image.save(output, format=_format)
     output.seek(0)
 

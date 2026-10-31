@@ -2,6 +2,7 @@
 
 import typing as t
 import uuid
+from html import escape
 
 import structlog
 from aiogram import F, Router
@@ -64,7 +65,7 @@ async def cb_handle_rsvp(callback: CallbackQuery, user: RevelUser, tg_user: Tele
         if e.eligibility.next_step == NextStep.JOIN_WAITLIST:
             keyboard = await sync_to_async(get_event_eligible_keyboard)(event, e.eligibility, user)
             await callback.message.answer(
-                f"⌛ Sorry, <b>{event.name}</b> is currently full.\n\n"
+                f"⌛ Sorry, <b>{escape(event.name)}</b> is currently full.\n\n"
                 f"{e.eligibility.reason}\n\n"
                 f"You can join the waitlist to be notified when spots become available.",
                 reply_markup=keyboard,
@@ -75,14 +76,15 @@ async def cb_handle_rsvp(callback: CallbackQuery, user: RevelUser, tg_user: Tele
 
         # For other ineligibility cases, show a generic message
         await callback.message.answer(
-            f"❌ Sorry, you are not eligible to RSVP for <b>{event.name}</b>.\n\nReason: {e.eligibility.reason}",
+            f"❌ Sorry, you are not eligible to RSVP for <b>{escape(event.name)}</b>.\n\n"
+            f"Reason: {e.eligibility.reason}",
             parse_mode="HTML",
         )
         await callback.answer()
         return
 
     # Only send success message if RSVP actually succeeded
-    await callback.message.answer(_get_rsvp_response_text(status).format(event.name))  # type: ignore[arg-type]
+    await callback.message.answer(_get_rsvp_response_text(status).format(escape(event.name)))  # type: ignore[arg-type]
     await callback.answer()
 
 
@@ -109,7 +111,7 @@ async def cb_handle_request_invitation(callback: CallbackQuery, user: RevelUser,
     try:
         await sync_to_async(event_service.create_invitation_request)(event=event, user=user, message=None)
         await callback.message.answer(
-            f"✅ Your invitation request for <b>{event.name}</b> has been sent to the organizers. "
+            f"✅ Your invitation request for <b>{escape(event.name)}</b> has been sent to the organizers. "
             f"You'll be notified when they respond."
         )
     except Exception as e:
@@ -133,7 +135,7 @@ async def cb_handle_become_member(callback: CallbackQuery, user: RevelUser, tg_u
             organization=organization, user=user, message=None
         )
         await callback.message.answer(
-            f"✅ Your membership request for <b>{organization.name}</b> has been sent to the organizers. "
+            f"✅ Your membership request for <b>{escape(organization.name)}</b> has been sent to the organizers. "
             f"You'll be notified when they respond."
         )
     except Exception as e:
@@ -163,7 +165,7 @@ async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_u
 
         if not event.waitlist_open:
             await callback.message.answer(
-                f"❌ The waitlist for <b>{event.name}</b> is not currently open.",
+                f"❌ The waitlist for <b>{escape(event.name)}</b> is not currently open.",
                 parse_mode="HTML",
             )
             await callback.answer()
@@ -172,7 +174,7 @@ async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_u
         # Idempotency: already on the waitlist.
         if await EventWaitList.objects.filter(event=event, user=user).aexists():
             await callback.message.answer(
-                f"ℹ️ You are already on the waitlist for <b>{event.name}</b>!", parse_mode="HTML"
+                f"ℹ️ You are already on the waitlist for <b>{escape(event.name)}</b>!", parse_mode="HTML"
             )
             await callback.answer()
             return
@@ -184,7 +186,7 @@ async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_u
         eligibility = await sync_to_async(lambda: EligibilityService(user, event).check_eligibility())()
         if eligibility.allowed:
             await callback.message.answer(
-                f"✅ <b>{event.name}</b> has spots available — you can register directly!",
+                f"✅ <b>{escape(event.name)}</b> has spots available — you can register directly!",
                 parse_mode="HTML",
             )
             await callback.answer()
@@ -192,7 +194,7 @@ async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_u
 
         if eligibility.next_step not in {NextStep.JOIN_WAITLIST, NextStep.WAIT_FOR_OPEN_SPOT}:
             await callback.message.answer(
-                f"❌ Sorry, you are not eligible to join the waitlist for <b>{event.name}</b>.\n\n"
+                f"❌ Sorry, you are not eligible to join the waitlist for <b>{escape(event.name)}</b>.\n\n"
                 f"Reason: {eligibility.reason}",
                 parse_mode="HTML",
             )
@@ -203,10 +205,12 @@ async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_u
         await sync_to_async(enqueue_waitlist_processing)(event.id)
 
         if created:
-            await callback.message.answer(f"✅ You are on the waitlist for <b>{event.name}</b>!", parse_mode="HTML")
+            await callback.message.answer(
+                f"✅ You are on the waitlist for <b>{escape(event.name)}</b>!", parse_mode="HTML"
+            )
         else:
             await callback.message.answer(
-                f"ℹ️ You are already on the waitlist for <b>{event.name}</b>!", parse_mode="HTML"
+                f"ℹ️ You are already on the waitlist for <b>{escape(event.name)}</b>!", parse_mode="HTML"
             )
         await callback.answer()
     except Exception as e:
@@ -232,8 +236,8 @@ async def cb_handle_invitation_request_accept(
     try:
         await sync_to_async(event_service.approve_invitation_request)(checked_entity, decided_by=user)
         await callback.message.edit_text(
-            f"✅ Invitation request from <b>{checked_entity.user.get_display_name()}</b> "
-            f"for <b>{checked_entity.event.name}</b> has been <b>accepted</b>.",
+            f"✅ Invitation request from <b>{escape(checked_entity.user.get_display_name())}</b> "
+            f"for <b>{escape(checked_entity.event.name)}</b> has been <b>accepted</b>.",
             reply_markup=None,
             parse_mode="HTML",
         )
@@ -264,8 +268,8 @@ async def cb_handle_invitation_request_reject(
     try:
         await sync_to_async(event_service.reject_invitation_request)(checked_entity, decided_by=user)
         await callback.message.edit_text(
-            f"❌ Invitation request from <b>{checked_entity.user.get_display_name()}</b> "
-            f"for <b>{checked_entity.event.name}</b> has been <b>rejected</b>.",
+            f"❌ Invitation request from <b>{escape(checked_entity.user.get_display_name())}</b> "
+            f"for <b>{escape(checked_entity.event.name)}</b> has been <b>rejected</b>.",
             reply_markup=None,
             parse_mode="HTML",
         )
@@ -296,8 +300,8 @@ async def cb_handle_whitelist_request_approve(
     try:
         await sync_to_async(whitelist_service.approve_whitelist_request)(checked_entity, decided_by=user)
         await callback.message.edit_text(
-            f"✅ Whitelist request from <b>{checked_entity.user.get_display_name()}</b> "
-            f"for <b>{checked_entity.organization.name}</b> has been <b>approved</b>.",
+            f"✅ Whitelist request from <b>{escape(checked_entity.user.get_display_name())}</b> "
+            f"for <b>{escape(checked_entity.organization.name)}</b> has been <b>approved</b>.",
             reply_markup=None,
             parse_mode="HTML",
         )
@@ -328,8 +332,8 @@ async def cb_handle_whitelist_request_reject(
     try:
         await sync_to_async(whitelist_service.reject_whitelist_request)(checked_entity, decided_by=user)
         await callback.message.edit_text(
-            f"❌ Whitelist request from <b>{checked_entity.user.get_display_name()}</b> "
-            f"for <b>{checked_entity.organization.name}</b> has been <b>rejected</b>.",
+            f"❌ Whitelist request from <b>{escape(checked_entity.user.get_display_name())}</b> "
+            f"for <b>{escape(checked_entity.organization.name)}</b> has been <b>rejected</b>.",
             reply_markup=None,
             parse_mode="HTML",
         )

@@ -206,7 +206,7 @@ def tenant_event(public_event: Event) -> Event:
 
 
 def test_ticket_base_context_uses_tenant_origin(tenant_event: Event) -> None:
-    ctx = _build_base_event_context(tenant_event)
+    ctx = _build_base_event_context(tenant_event, tenant_event.organization.owner)
 
     assert ctx["event_url"] == f"{TENANT}/events/{tenant_event.id}"
     assert ctx["organization_id"] == str(tenant_event.organization_id)
@@ -221,7 +221,8 @@ def test_waitlist_context_uses_tenant_origin(tenant_event: Event) -> None:
 def test_ticket_base_context_stays_on_platform_when_kill_switch_off(public_event: Event, platform_url: str) -> None:
     _set_domain(public_event.organization, enabled=False)
 
-    ctx = _build_base_event_context(Event.objects.select_related("organization").get(pk=public_event.pk))
+    event = Event.objects.select_related("organization").get(pk=public_event.pk)
+    ctx = _build_base_event_context(event, event.organization.owner)
 
     assert ctx["event_url"] == f"{platform_url}/events/{public_event.id}"
 

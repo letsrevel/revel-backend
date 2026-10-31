@@ -287,6 +287,8 @@ class TestVerifyContactEmail:
         # Assert
         assert verified_org.contact_email_verified is True
         assert verified_org.id == organization.id
+        # The returned instance reflects the DB row, including the bumped updated_at.
+        assert verified_org.updated_at > organization.updated_at
 
     def test_verify_contact_email_wrong_email_fails(
         self, organization: Organization, organization_owner_user: RevelUser

@@ -51,17 +51,18 @@ def _generate_pdf_attachment(ticket: Ticket) -> AttachmentResult | None:
         return None
 
 
-def _generate_ics_attachment(event: Event) -> dict[str, t.Any] | None:
+def _generate_ics_attachment(event: Event, include_address: bool) -> dict[str, t.Any] | None:
     """Generate ICS calendar attachment for an event.
 
     Args:
         event: The event to generate ICS for.
+        include_address: Whether the recipient may see the event address.
 
     Returns:
         Attachment dict with content_base64 and mimetype, or None on error.
     """
     try:
-        ics_content = event.ics()
+        ics_content = event.ics(include_address=include_address)
         return {
             "content_base64": base64.b64encode(ics_content).decode("utf-8"),
             "mimetype": "text/calendar",
@@ -218,6 +219,18 @@ def _load_event(event_id: str) -> Event | None:
         return None
 
 
+def _build_ics_attachment(ticket: Ticket | None, event_id: str) -> dict[str, t.Any] | None:
+    """Build the ICS attachment, including the address only when the ticket holder may see it.
+
+    Fails closed: without the ticket we cannot vouch for the holder's address visibility.
+    ``ticket.event`` is already select_related by ``Ticket.objects.full()``, so no extra load.
+    """
+    if ticket is not None:
+        return _generate_ics_attachment(ticket.event, ticket.event.can_user_see_address(ticket.user))
+    event = _load_event(event_id)
+    return _generate_ics_attachment(event, False) if event else None
+
+
 def _build_ticket_attachments(
     ticket_id: str | None,
     event_id: str | None,
@@ -242,11 +255,8 @@ def _build_ticket_attachments(
 
     attachments: dict[str, t.Any] = {}
 
-    # Load ticket if needed for PDF or pkpass
-    ticket = _load_ticket(ticket_id) if include_pdf or include_pkpass else None
-
-    # Load event if needed for ICS
-    event = _load_event(event_id) if include_ics else None
+    # Load ticket if needed for PDF, pkpass or the ICS address-visibility check
+    ticket = _load_ticket(ticket_id) if include_pdf or include_pkpass or include_ics else None
 
     # Generate attachments — helpers return (attachment_dict, raw_bytes) tuples
     # so raw bytes are available for caching without a base64 round-trip.
@@ -258,9 +268,8 @@ def _build_ticket_attachments(
         if pdf_result is not None:
             attachments["ticket.pdf"], pdf_bytes = pdf_result
 
-    if include_ics and event:
-        if ics := _generate_ics_attachment(event):
-            attachments["event.ics"] = ics
+    if include_ics and (ics := _build_ics_attachment(ticket, event_id)):
+        attachments["event.ics"] = ics
 
     if include_pkpass and ticket:
         pkpass_result = _generate_pkpass_attachment(ticket)

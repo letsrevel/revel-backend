@@ -1,6 +1,8 @@
 # src/telegram/service.py
 """Telegram service layer."""
 
+from html import escape
+
 from asgiref.sync import async_to_sync
 from django.core.cache import cache
 from django.db import transaction
@@ -72,7 +74,7 @@ def connect_accounts(user: RevelUser, otp: str) -> None:
     transaction.on_commit(
         lambda: send_message_task.delay(
             tg_user.telegram_id,
-            message=f"✅ Account linked successfully!\n\nWelcome to Revel, {user.display_name}!",
+            message=f"✅ Account linked successfully!\n\nWelcome to Revel, {escape(user.display_name)}!",
         )
     )
 

@@ -64,6 +64,7 @@ def invoice_org_no_billing_email(invoice_owner: RevelUser) -> Organization:
         slug="no-billing-org",
         owner=invoice_owner,
         contact_email="contact@nobilling.com",
+        contact_email_verified=True,
     )
 
 

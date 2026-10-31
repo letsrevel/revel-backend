@@ -12,7 +12,11 @@ from events.models import EventInvitation, EventInvitationRequest, PendingEventI
 from events.tasks import build_attendee_visibility_flags
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
-from notifications.service.notification_helpers import format_event_datetime, notify_org_staff
+from notifications.service.notification_helpers import (
+    format_event_datetime,
+    get_event_location_for_user,
+    notify_org_staff,
+)
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -31,8 +35,8 @@ def handle_invitation_save(
     def send_invitation_notification() -> None:
         event = instance.event
 
-        # Build location string
-        event_location = event.full_address()
+        # Location respects the invitee's address visibility
+        event_location, _ = get_event_location_for_user(event, instance.user)
 
         # Build frontend URL
         frontend_base_url = frontend_base_url_for(event.organization)

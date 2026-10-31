@@ -102,7 +102,8 @@ def summary_from_markdown(md: str | None) -> str:
     """
     if not md:
         return ""
-    rendered = render_markdown(md)
+    # Drop render_markdown's truncation marker so it can never be picked as the summary.
+    rendered = render_markdown(md).removesuffix("<p>…</p>")
     fragment = _first_block_text(_NON_HEADING_BLOCK, rendered) or _first_block_text(_HEADING_BLOCK, rendered)
     text = fragment or _collapse_whitespace(html.unescape(strip_tags(rendered)))
     if not text:

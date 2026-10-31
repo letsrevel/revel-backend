@@ -327,7 +327,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
             cleared += 1
         self.message_user(request, f"Cleared the Stripe Connect account of {cleared} user(s).")
 
-    @admin.action(description="Send verification email")
+    @admin.action(description="Send verification email", permissions=["change"])
     def send_verification_email(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
         """Send verification email to selected users."""
         sent_count = 0
@@ -362,7 +362,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
                 messages.WARNING,
             )
 
-    @admin.action(description="Send password reset email")
+    @admin.action(description="Send password reset email", permissions=["change"])
     def send_password_reset_email(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
         """Send password reset email to selected users."""
         sent_count = 0
@@ -397,7 +397,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
                 messages.WARNING,
             )
 
-    @admin.action(description=_("Ban selected users (global ban by email)"))
+    @admin.action(description=_("Ban selected users (global ban by email)"), permissions=["change"])
     def ban_selected_users(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
         """Create global email bans for selected users, deactivating them."""
         banned_count = 0

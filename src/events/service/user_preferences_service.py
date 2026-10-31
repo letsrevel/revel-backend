@@ -54,7 +54,7 @@ class VisibilityContext:
             EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).values_list("user_id", flat=True)
         )
         org_member_ids = set(
-            OrganizationMember.objects.filter(organization_id=org_id).values_list("user_id", flat=True)
+            OrganizationMember.objects.for_visibility().filter(organization_id=org_id).values_list("user_id", flat=True)
         )
 
         return cls(
@@ -250,14 +250,8 @@ def resolve_visibility(
     )
 
     is_same_org_member = (
-        OrganizationMember.objects.filter(
-            organization_id=org_id,
-            user=viewer,
-        ).exists()
-        and OrganizationMember.objects.filter(
-            organization_id=org_id,
-            user=target,
-        ).exists()
+        OrganizationMember.objects.for_visibility().filter(organization_id=org_id, user=viewer).exists()
+        and OrganizationMember.objects.for_visibility().filter(organization_id=org_id, user=target).exists()
     )
 
     match visibility:

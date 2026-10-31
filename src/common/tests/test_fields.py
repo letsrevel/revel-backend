@@ -505,3 +505,35 @@ class TestProtectedPrefixConstant:
     def test_protected_prefix_ends_with_slash(self) -> None:
         """Test that PROTECTED_PREFIX ends with a slash."""
         assert PROTECTED_PREFIX.endswith("/")
+
+
+def test_render_markdown_truncates_oversized_input() -> None:
+    """Oversized input is truncated before rendering rather than rendered in full."""
+    from structlog.testing import capture_logs
+
+    from common.sanitizers import MAX_RENDER_MARKDOWN_CHARS, render_markdown
+
+    with capture_logs() as logs:
+        html = render_markdown("a" * (MAX_RENDER_MARKDOWN_CHARS + 1000))
+    assert len(html) < MAX_RENDER_MARKDOWN_CHARS + 100
+    assert html.endswith("<p>…</p>")
+    assert any(
+        entry["event"] == "render_markdown_truncated" and entry["original_length"] == MAX_RENDER_MARKDOWN_CHARS + 1000
+        for entry in logs
+    )
+
+
+def test_render_markdown_skips_tables_for_pathological_column_count() -> None:
+    """A header with thousands of pipes would make the tables extension pad every row; skip it."""
+    from common.sanitizers import render_markdown
+
+    header = "|" * 6000
+    text = header + "\n" + "\n".join(["|---|"] + ["| x |"] * 200)
+    html = render_markdown(text)
+    assert "<table" not in html
+
+
+def test_render_markdown_renders_normal_table() -> None:
+    from common.sanitizers import render_markdown
+
+    assert "<table>" in render_markdown("| a | b |\n|---|---|\n| 1 | 2 |")

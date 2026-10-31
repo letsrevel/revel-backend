@@ -15,7 +15,6 @@ from stripe.checkout import Session
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
-from common.postal_address import PostalAddress
 from common.service.exchange_rate_service import convert as convert_currency
 from common.service.stripe_config import configure_stripe
 from common.service.stripe_connect_service import (
@@ -36,6 +35,7 @@ from events.exceptions import SessionTotalMismatchError as SessionTotalMismatchE
 from events.models import Event, HeldSeriesPass, Organization, Payment, Ticket, TicketTier
 from events.models.attendee_invoice import BuyerBillingSnapshot, VatIdStatus
 from events.service.attendee_vat_service import get_effective_vat_rate
+from events.service.billing_profile import _build_billing_snapshot, _save_billing_to_profile
 
 # Re-exported: the pending-checkout batch cleanup lives in its own module (file-length
 # limit) but callers and tests keep addressing it via the stripe_service namespace.
@@ -154,55 +154,6 @@ def stripe_verify_account(organization: Organization) -> Organization:
         organization.save(update_fields=update_fields)
 
     return organization
-
-
-def _build_billing_snapshot(
-    billing_info: "BuyerBillingInfoSchema",
-    vat_id_validated: bool,
-    reverse_charge: bool,
-    vat_id_status: str,
-) -> BuyerBillingSnapshot:
-    """Build a buyer billing snapshot dict from checkout billing info.
-
-    ``vat_id_status`` records the tri-state VIES outcome (valid / invalid / unavailable),
-    which the compliance gates read to tell real business buyers from mistyped VAT IDs.
-    """
-    return BuyerBillingSnapshot(
-        billing_name=billing_info.billing_name,
-        vat_id=billing_info.vat_id,
-        vat_country_code=billing_info.vat_country_code,
-        vat_id_validated=vat_id_validated,
-        vat_id_status=vat_id_status,
-        billing_address=billing_info.billing_address,
-        billing_email=billing_info.billing_email,
-        reverse_charge=reverse_charge,
-        billing_address_line1=billing_info.billing_address_line1,
-        billing_address_line2=billing_info.billing_address_line2,
-        billing_postal_code=billing_info.billing_postal_code,
-        billing_city=billing_info.billing_city,
-        billing_subdivision=billing_info.billing_subdivision,
-        billing_country_code=billing_info.billing_country_code,
-    )
-
-
-def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSchema") -> None:
-    """Save buyer billing info to the user's billing profile."""
-    from accounts.models import UserBillingProfile
-
-    profile, _ = UserBillingProfile.objects.get_or_create(user=user)
-    address = PostalAddress.from_fields(billing_info, "billing_").to_fields("billing_")
-    structured = {f: v for f, v in address.items() if f in billing_info.model_fields_set}  # sent fields only
-    fields_to_update = ["billing_name", "billing_address", "billing_email", *structured]
-    profile.billing_name = billing_info.billing_name
-    profile.billing_address = billing_info.billing_address
-    profile.billing_email = billing_info.billing_email
-    for field, value in structured.items():
-        setattr(profile, field, value)
-    if billing_info.vat_id:
-        profile.vat_id = billing_info.vat_id
-        profile.vat_country_code = billing_info.vat_country_code
-        fields_to_update.extend(["vat_id", "vat_country_code"])
-    profile.save(update_fields=fields_to_update)
 
 
 def _attendee_vat_from_context(
@@ -661,7 +612,9 @@ def reserve_batch_payments(
     )
 
     if billing_info and billing_info.save_to_profile:
-        _save_billing_to_profile(user, billing_info)
+        _save_billing_to_profile(
+            user, billing_info, vat_id_validated=bool(buyer_vat_context and buyer_vat_context.buyer_vat_validated)
+        )
 
 
 @transaction.atomic

@@ -26,6 +26,7 @@ from accounts.models import (
 )
 from accounts.service.payout_statement_service import (
     DOCUMENT_NUMBER_PREFIX,
+    ensure_payout_statement_pdf_exists,
     generate_payout_statement,
 )
 from common.models import SiteSettings
@@ -453,6 +454,27 @@ class TestSnapshotsAndPDF:
 
         assert statement.pdf_file
         mock_html_cls.assert_called_once()
+
+    @patch("common.service.invoice_utils.HTML")
+    def test_ensure_pdf_does_not_overwrite_concurrent_changes(
+        self,
+        mock_html_cls: MagicMock,
+        payout: ReferralPayout,
+        b2b_billing_profile: UserBillingProfile,
+        site_settings: SiteSettings,
+    ) -> None:
+        """Re-attaching a lost PDF writes only the file field, not the rest of a stale instance."""
+        mock_html_cls.return_value.write_pdf.return_value = None
+        statement = generate_payout_statement(payout)
+        ReferralPayoutStatement.objects.filter(pk=statement.pk).update(pdf_file="")
+        stale = ReferralPayoutStatement.objects.get(pk=statement.pk)
+        ReferralPayoutStatement.objects.filter(pk=statement.pk).update(referrer_name="Changed Elsewhere")
+
+        ensure_payout_statement_pdf_exists(stale)
+
+        statement.refresh_from_db()
+        assert statement.pdf_file
+        assert statement.referrer_name == "Changed Elsewhere"
 
     @patch("common.service.invoice_utils.HTML")
     def test_pdf_filename_matches_document_number(

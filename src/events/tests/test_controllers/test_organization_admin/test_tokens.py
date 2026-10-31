@@ -398,3 +398,51 @@ def test_update_token_disable_staff_when_membership_true_succeeds(
     data = response.json()
     assert data["grants_staff_status"] is False
     assert data["grants_membership"] is True
+
+
+def test_list_tokens_hides_staff_granting_tokens_from_non_owner(
+    organization: Organization, organization_staff_user: RevelUser, organization_owner_user: RevelUser
+) -> None:
+    """Non-owner managers do not see staff-granting tokens in the list; the owner does."""
+    default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+    staff_token = OrganizationToken.objects.create(
+        organization=organization,
+        name="Staff Token",
+        issuer=organization_owner_user,
+        grants_staff_status=True,
+        grants_membership=True,
+        membership_tier=default_tier,
+    )
+    member_token = OrganizationToken.objects.create(
+        organization=organization,
+        name="Member Token",
+        issuer=organization_owner_user,
+        grants_membership=True,
+        membership_tier=default_tier,
+    )
+    url = reverse("api:list_organization_tokens", kwargs={"slug": organization.slug})
+
+    staff_client = _make_staff_client(organization, organization_staff_user)
+    ids = {r["id"] for r in staff_client.get(url).json()["results"]}
+    assert member_token.id in ids
+    assert staff_token.id not in ids
+
+    owner_access = RefreshToken.for_user(organization_owner_user).access_token  # type: ignore[attr-defined]
+    owner_client = Client(HTTP_AUTHORIZATION=f"Bearer {owner_access}")
+    owner_ids = {r["id"] for r in owner_client.get(url).json()["results"]}
+    assert {member_token.id, staff_token.id} <= owner_ids
+
+
+def test_create_token_applies_documented_schema_defaults(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """Omitted ``max_uses`` and ``duration`` take the schema defaults (single use, 24h)."""
+    default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+    url = reverse("api:create_organization_token", kwargs={"slug": organization.slug})
+    payload = {"name": "Defaults", "membership_tier_id": str(default_tier.id)}
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+    assert response.status_code == 200
+    token = OrganizationToken.objects.get(pk=response.json()["id"])
+    assert token.max_uses == 1
+    assert token.expires_at is not None
+    assert timezone.now() + timedelta(hours=23) < token.expires_at < timezone.now() + timedelta(hours=25)

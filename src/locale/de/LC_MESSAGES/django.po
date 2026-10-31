@@ -2967,9 +2967,14 @@ msgstr ""
 msgid "Series passes are not supported on recurring series."
 msgstr "Serienpässe werden für wiederkehrende Serien nicht unterstützt."
 
-#, python-format
-msgid "Event '%s' does not belong to this series."
-msgstr "Event '%s' gehört nicht zu dieser Serie."
+msgid "Event does not belong to this series."
+msgstr "Event gehört nicht zu dieser Serie."
+
+msgid "You do not have permission to refund tickets."
+msgstr "Du hast keine Berechtigung, Tickets zu erstatten."
+
+msgid "You do not have permission to link series passes."
+msgstr "Du hast keine Berechtigung, Serienpässe zu verknüpfen."
 
 #, python-format
 msgid "Event '%s' is not open."

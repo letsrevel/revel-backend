@@ -202,3 +202,76 @@ class TestFollowerNotificationVisibility:
         ]
         assert len(follower_calls) == 1
         assert follower_calls[0].kwargs["user"] == nonmember_user
+
+
+class TestFollowerAddressVisibility:
+    """The follower notification carries the address only for followers who may see it."""
+
+    def _open_event(
+        self,
+        organization: Organization,
+        django_capture_on_commit_callbacks: t.Any,
+        address_visibility: str,
+        query_bound: int | None = None,
+    ) -> list[t.Any]:
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save()
+        event = Event.objects.create(
+            organization=organization,
+            name="Addr Event",
+            slug=f"addr-event-{address_visibility}",
+            event_type=Event.EventType.PUBLIC,
+            visibility=Event.Visibility.PUBLIC,
+            address="1 Secret Street",
+            visibility_settings={"address_visibility": address_visibility},
+            max_attendees=100,
+            start=timezone.now(),
+            status=Event.EventStatus.DRAFT,
+        )
+        with patch("events.signals.notification_requested.send") as mock_send:
+            with django_capture_on_commit_callbacks(execute=True):
+                event.status = Event.EventStatus.OPEN
+                event.save(update_fields=["status"])
+        return [c for c in mock_send.call_args_list if c.kwargs.get("notification_type") in FOLLOWER_NOTIFICATION_TYPES]
+
+    def _follow(self, organization: Organization, django_user_model: t.Any, n: int) -> None:
+        for i in range(n):
+            user = django_user_model.objects.create_user(
+                username=f"fol{n}-{i}@example.com", email=f"fol{n}-{i}@example.com", password="x"
+            )
+            OrganizationFollow.objects.create(
+                user=user, organization=organization, is_archived=False, notify_new_events=True
+            )
+
+    def test_restricted_address_hidden_from_followers(
+        self, organization: Organization, django_user_model: t.Any, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        self._follow(organization, django_user_model, 2)
+        calls = self._open_event(organization, django_capture_on_commit_callbacks, "members-only")
+        assert len(calls) == 2
+        assert all(c.kwargs["context"]["event_location"] == "" for c in calls)
+
+    def test_public_address_shown_to_followers(
+        self, organization: Organization, django_user_model: t.Any, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        self._follow(organization, django_user_model, 2)
+        calls = self._open_event(organization, django_capture_on_commit_callbacks, "public")
+        assert len(calls) == 2
+        assert all("1 Secret Street" in c.kwargs["context"]["event_location"] for c in calls)
+
+    def test_query_count_does_not_grow_with_followers(
+        self, organization: Organization, django_user_model: t.Any, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        """Address visibility is batched: 8 followers cost no more queries than 2 (small slack for the fan-out)."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        self._follow(organization, django_user_model, 2)
+        with CaptureQueriesContext(connection) as few:
+            self._open_event(organization, django_capture_on_commit_callbacks, "members-only")
+        self._follow(organization, django_user_model, 6)
+        organization.refresh_from_db()
+        with CaptureQueriesContext(connection) as many:
+            calls = self._open_event(organization, django_capture_on_commit_callbacks, "staff-only")
+        assert len(calls) == 8
+        assert len(many) <= len(few) + 4

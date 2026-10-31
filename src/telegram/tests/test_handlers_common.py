@@ -4,6 +4,7 @@ from datetime import timedelta
 from unittest.mock import AsyncMock
 
 import pytest
+from aiogram.types import Chat
 from asgiref.sync import sync_to_async
 
 from accounts.models import RevelUser
@@ -47,6 +48,24 @@ class TestHandleStart:
         site_settings = SiteSettings.get_solo()
         site_settings.frontend_base_url = url
         site_settings.save()
+
+    @pytest.mark.asyncio
+    async def test_linked_user_display_name_is_html_escaped(
+        self,
+        mock_message: AsyncMock,
+        mock_fsm_context: AsyncMock,
+        django_user: RevelUser,
+    ) -> None:
+        django_user.first_name = "<b>Eve</b>"
+        django_user.last_name = ""
+        await django_user.asave()
+        tg_user = await _get_tg_user(django_user)
+
+        await handle_start(mock_message, tg_user=tg_user, state=mock_fsm_context)
+
+        text = mock_message.answer.call_args.args[0]
+        assert "&lt;b&gt;Eve&lt;/b&gt;" in text
+        assert "<b>Eve</b>" not in text
 
     @pytest.mark.asyncio
     async def test_linked_user(
@@ -306,6 +325,21 @@ class TestHandleConnect:
         otp = await AccountOTP.objects.aget(tg_user=tg_user)
         assert otp.pk != expired_otp.pk
         assert not otp.is_expired()
+
+    @pytest.mark.asyncio
+    async def test_refuses_outside_private_chat(
+        self,
+        mock_message: AsyncMock,
+        aiogram_user: t.Any,
+    ) -> None:
+        """The linking code must never be posted where other chat members can read it."""
+        tg_user = await _get_unlinked_tg_user(aiogram_user.id)
+        mock_message.chat = Chat(id=-100123, type="group")
+
+        await handle_connect(mock_message, tg_user=tg_user)
+
+        assert "private chat" in mock_message.answer.call_args.args[0].lower()
+        assert not await AccountOTP.objects.filter(tg_user=tg_user).aexists()
 
     @pytest.mark.asyncio
     async def test_otp_formatted_in_groups(

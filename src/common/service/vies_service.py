@@ -87,6 +87,11 @@ class HasBillingFields(t.Protocol):
 # ---------------------------------------------------------------------------
 
 
+def normalize_vat_id(vat_id: str) -> str:
+    """Canonical VAT ID form (upper-case, all whitespace removed) shared by validation and country resolution."""
+    return "".join(vat_id.split()).upper()
+
+
 def parse_vat_id(vat_id: str) -> tuple[str, str]:
     """Split a full VAT ID into country code and number.
 
@@ -96,7 +101,7 @@ def parse_vat_id(vat_id: str) -> tuple[str, str]:
     Returns:
         Tuple of (country_code, vat_number).
     """
-    vat_id = vat_id.strip().upper()
+    vat_id = normalize_vat_id(vat_id)
     return vat_id[:2], vat_id[2:]
 
 
@@ -114,7 +119,7 @@ def validate_vat_id(vat_id: str, *, timeout: float = VIES_TIMEOUT_SECONDS) -> VI
         VIESUnavailableError: If the VIES service is unreachable or returns an error.
         ValueError: If the VAT ID format is invalid.
     """
-    normalized = vat_id.strip().upper()
+    normalized = normalize_vat_id(vat_id)
     if len(normalized) < 3:
         raise ValueError(f"Invalid VAT ID format: {vat_id}")
 
@@ -169,7 +174,7 @@ def validate_vat_id_cached(vat_id: str, *, timeout: float = VIES_TIMEOUT_SECONDS
         VIESUnavailableError: If VIES is unavailable (not cached).
         ValueError: If the VAT ID format is invalid.
     """
-    normalized = vat_id.strip().upper().replace(" ", "")
+    normalized = normalize_vat_id(vat_id)
     cache_key = f"vies:validation:{normalized}"
 
     cached = cache.get(cache_key)

@@ -8,8 +8,8 @@ Model imports are deferred to avoid circular-import issues when submodules
 
 import base64
 import mimetypes
+import re
 import typing as t
-from collections import defaultdict
 from datetime import datetime
 from io import BytesIO
 from zoneinfo import ZoneInfo
@@ -162,21 +162,9 @@ def format_organization_datetime(
         return date_format(dt_in_org_tz, fmt or default_date_format())
 
 
-class _SafeAccessStr(str):
-    """Empty string that silently absorbs attribute and item access.
-
-    Used as the defaultdict factory for format_map so that unknown placeholders
-    — including dotted ones like {user.email} or indexed ones like {user[0]} —
-    always resolve to an empty string instead of raising AttributeError/KeyError.
-    """
-
-    def __getattr__(self, name: str) -> "_SafeAccessStr":
-        """Return an empty safe string for any attribute access."""
-        return _SafeAccessStr()
-
-    def __getitem__(self, key: object) -> "_SafeAccessStr":
-        """Return an empty safe string for any item access."""
-        return _SafeAccessStr()
+# Only exact ``{name}`` placeholders are substituted and ``{{``/``}}`` are literal braces; nothing
+# else in the organizer's text is interpreted.
+_PLACEHOLDER_RE = re.compile(r"\{\{|\}\}|\{([^{}]*)\}")
 
 
 def get_invitation_message(display_name: str, event: "models.Event") -> str:
@@ -197,19 +185,20 @@ def get_invitation_message(display_name: str, event: "models.Event") -> str:
         event: The event the invitation is for.
     """
     if event.invitation_message:
-        safe_context: dict[str, _SafeAccessStr] = {
-            "user_name": _SafeAccessStr(display_name),
-            "event_name": _SafeAccessStr(event.name),
-            "organization_name": _SafeAccessStr(event.organization.name),
-            "event_date": _SafeAccessStr(
-                format_event_datetime(event.start, event, fmt="F j, Y") if event.start else ""
-            ),
+        values = {
+            "user_name": display_name,
+            "event_name": event.name,
+            "organization_name": event.organization.name,
+            "event_date": format_event_datetime(event.start, event, fmt="F j, Y") if event.start else "",
         }
-        try:
-            return event.invitation_message.format_map(defaultdict(_SafeAccessStr, safe_context))
-        except ValueError, AttributeError:
-            logger.warning("invitation_message_format_error", event_id=str(event.id))
-            return event.invitation_message
+
+        def _substitute(match: re.Match[str]) -> str:
+            token = match.group(0)
+            if token in ("{{", "}}"):
+                return token[0]
+            return values.get(match.group(1), "")
+
+        return _PLACEHOLDER_RE.sub(_substitute, event.invitation_message)
 
     context = {"display_name": display_name, "event": event}
     return render_to_string("events/default_invitation_message.txt", context=context)
@@ -389,7 +378,8 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
         "guest_name": ticket.guest_name,
         "tier_name": ticket.tier.name,
         "start_datetime": format_event_datetime(event.start, event),
-        "address": event.full_address(),
+        # Respect the holder's address visibility (e.g. members-only address on a public ticketed event).
+        "address": event.full_address() if event.can_user_see_address(ticket.user) else "",
         "qr_code_base64": qr_code_base64,
         "ticket_id": str(ticket.id),
         "ticket_id_short": str(ticket.id)[:8].upper(),

@@ -61,7 +61,7 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
 
     Raises:
         GuestAccountExistsError: 400 with ``code`` if a non-guest user with this email exists.
-        HttpError: If the email is globally banned.
+        HttpError: 403 if the email is globally banned or the existing guest account is inactive.
     """
     from accounts.service.global_ban_service import BAN_ERROR_MESSAGE, is_email_globally_banned
 
@@ -96,6 +96,11 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
         # Non-guest user exists, reject
         logger.warning("guest_user_creation_blocked_existing_account", email=email)
         raise GuestAccountExistsError()
+
+    # A deactivated (e.g. banned) guest must not get a fresh confirmation link or a hold.
+    if not existing_user.is_active:
+        logger.warning("guest_user_creation_blocked_inactive_account", email=email)
+        raise HttpError(403, str(BAN_ERROR_MESSAGE))
 
     # Guest user already exists — keep existing names (and language) to prevent overwrite by
     # third parties: these endpoints are anonymous, anyone can submit a guest's email.
@@ -488,6 +493,10 @@ def handle_guest_ticket_checkout(
     for group in groups:
         assert_sale_window(group.tier)
 
+    # Guest checkout is unauthenticated: never write billing info into a profile, which
+    # could belong to a registered account that merely shares the typed email.
+    billing_info = billing_info.model_copy(update={"save_to_profile": False}) if billing_info else None
+
     # Run the VIES round-trip HERE, before any row lock is taken: claim_invitation_link
     # below locks the EventToken row for the rest of the request (ATOMIC_REQUESTS — the
     # inner atomic() only releases a savepoint), and create_batch takes the tier locks.
@@ -639,7 +648,7 @@ def confirm_guest_action(
     payload = validate_and_decode_guest_token(token)
 
     # Get user
-    user = get_object_or_404(RevelUser, id=payload.user_id)
+    user = get_object_or_404(RevelUser, id=payload.user_id, is_active=True)
 
     if isinstance(payload, schema.GuestRSVPJWTPayloadSchema):
         # Handle RSVP confirmation

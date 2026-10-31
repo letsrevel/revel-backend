@@ -9,6 +9,12 @@ callers translate to the exception type their framework expects.
 
 import typing as t
 import zoneinfo
+from datetime import datetime, timedelta
+
+from django.utils import timezone
+
+# How far in the past a new rule's dtstart may be, bounding initial materialization.
+MAX_DTSTART_LOOKBACK_DAYS = 366
 
 
 class RecurrenceValidationError(ValueError):
@@ -89,6 +95,14 @@ def validate_boundaries(dtstart: t.Any, until: t.Any, count: t.Any) -> None:
         )
     if until and dtstart and until <= dtstart:
         raise RecurrenceValidationError("until", "Must be after dtstart.")
+
+
+def validate_dtstart_lookback(dtstart: datetime) -> None:
+    """Reject a ``dtstart`` further in the past than ``MAX_DTSTART_LOOKBACK_DAYS``."""
+    if dtstart < timezone.now() - timedelta(days=MAX_DTSTART_LOOKBACK_DAYS):
+        raise RecurrenceValidationError(
+            "dtstart", f"Must not be more than {MAX_DTSTART_LOOKBACK_DAYS} days in the past."
+        )
 
 
 def validate_monthly_field_ranges(

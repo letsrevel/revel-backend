@@ -47,6 +47,7 @@ from events.utils import format_event_datetime, get_invitation_message
 from events.utils.frontend_urls import frontend_base_url_for
 from events.utils.reserved_slug_tokens import invalidate_reserved_tokens_cache
 from notifications.enums import NotificationType
+from notifications.service.eligibility import BatchParticipationChecker
 from notifications.signals import notification_requested
 
 __all__ = ["unclaim_user_potluck_items"]
@@ -311,6 +312,19 @@ def invalidate_permission_snapshot(
     permission_snapshot.invalidate_my_permissions(instance.user_id)
 
 
+@receiver(post_save, sender=OrganizationMember)
+@receiver(post_delete, sender=OrganizationMember)
+def rebuild_visibility_on_membership_change(
+    sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any
+) -> None:
+    """Rebuild the persisted attendee visibility flags of the events this member takes part in.
+
+    Member-scoped attendee privacy only counts active memberships, so any membership write (join,
+    removal, status change) can change it. Scoped to the member's own events, so it stays cheap.
+    """
+    trigger_visibility_flags_for_user(instance.user_id)
+
+
 @receiver(pre_save, sender=OrganizationMember)
 def capture_member_old_tier(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
     """Stash the pre-save tier id so post_save can detect tier changes."""
@@ -452,14 +466,6 @@ def _should_notify_followers_for_event(event: Event, created: bool) -> bool:
     return old_status is not None and old_status != Event.EventStatus.OPEN
 
 
-def _get_event_location_string(event: Event) -> str:
-    """Build a human-readable location string for an event."""
-    location = event.address or ""
-    if event.city:
-        location = f"{location}, {event.city.name}" if location else event.city.name
-    return location
-
-
 @receiver(post_save, sender=Event)
 def handle_event_opened_notify_followers(sender: type[Event], instance: Event, created: bool, **kwargs: t.Any) -> None:
     """Notify followers when an event becomes OPEN.
@@ -486,9 +492,13 @@ def handle_event_opened_notify_followers(sender: type[Event], instance: Event, c
     def send_follower_notifications() -> None:
         frontend_base_url = frontend_base_url_for(organization)
         event_series = instance.event_series
-        event_location = _get_event_location_string(instance)
+        # One batched visibility checker for all followers (no per-follower queries)
+        checker = BatchParticipationChecker(instance)
+        full_address = instance.full_address()
 
         for user, notification_type in get_followers_for_new_event_notification(organization, event_series):
+            # Address (and city) only for followers allowed to see it
+            visible_location = full_address if checker.can_see_address(user.id) else ""
             context: dict[str, t.Any] = {
                 "organization_id": str(organization.id),
                 "organization_name": organization.name,
@@ -497,7 +507,7 @@ def handle_event_opened_notify_followers(sender: type[Event], instance: Event, c
                 "event_description": instance.description or "",
                 "event_start": instance.start.isoformat() if instance.start else "",
                 "event_start_formatted": format_event_datetime(instance.start, instance),
-                "event_location": event_location,
+                "event_location": visible_location,
                 "event_url": f"{frontend_base_url}/events/{instance.id}",
             }
 
