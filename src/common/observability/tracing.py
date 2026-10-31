@@ -21,7 +21,7 @@ logger = structlog.get_logger(__name__)
 
 # Query params that carry credentials (email-link tokens, signed-URL signatures, org/event
 # access tokens, OAuth/OIDC callback code+state). Their values must never reach Tempo (#1042).
-REDACTED_QUERY_PARAMS = frozenset({"token", "sig", "ot", "et", "code", "state"})
+REDACTED_QUERY_PARAMS = frozenset({"token", "sig", "ot", "et", "code", "state", "access_token"})
 # Path segments that carry credentials: org/event invitation tokens
 # (``/claim-invitation/{token}``) and the integrations webhook secret
 # (``/{provider}/webhook/{secret}``, where the path *is* the authentication).

@@ -1,15 +1,15 @@
 """Admin classes for membership subscription models."""
 
 from django.contrib import admin
-from simple_history.admin import SimpleHistoryAdmin
 from unfold.admin import ModelAdmin
 
+from common.admin import GuardedHistoryAdmin
 from events import models
 from events.admin.base import OrganizationLinkMixin, UserLinkMixin
 
 
 @admin.register(models.MembershipSubscriptionPlan)
-class MembershipSubscriptionPlanAdmin(SimpleHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+class MembershipSubscriptionPlanAdmin(GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
     """Admin for MembershipSubscriptionPlan."""
 
     list_display = [
@@ -32,7 +32,7 @@ class MembershipSubscriptionPlanAdmin(SimpleHistoryAdmin, ModelAdmin):  # type: 
 
 
 @admin.register(models.MembershipSubscription)
-class MembershipSubscriptionAdmin(SimpleHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
+class MembershipSubscriptionAdmin(GuardedHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for MembershipSubscription.
 
     Lifecycle fields (``status``, ``cancelled_at``, ``current_period_*``) are
@@ -76,7 +76,7 @@ class MembershipSubscriptionAdmin(SimpleHistoryAdmin, ModelAdmin, UserLinkMixin,
 
 
 @admin.register(models.MembershipPayment)
-class MembershipPaymentAdmin(SimpleHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+class MembershipPaymentAdmin(GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
     """Admin for MembershipPayment.
 
     ``status`` and the period fields are readonly to keep refunds and
@@ -115,7 +115,7 @@ class MembershipPaymentAdmin(SimpleHistoryAdmin, ModelAdmin):  # type: ignore[mi
 
 
 @admin.register(models.CustomerProfile)
-class CustomerProfileAdmin(SimpleHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
+class CustomerProfileAdmin(GuardedHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for the per-(user, organization) Stripe Customer reference."""
 
     list_display = ["__str__", "user_link", "organization_link", "stripe_customer_id", "created_at"]
