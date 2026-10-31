@@ -19,6 +19,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from notifications.enums import DeliveryChannel, DeliveryStatus, NotificationType
 from notifications.models import Notification, NotificationDelivery, NotificationPreference
+from notifications.service.preferences import create_default_preferences
 
 from .base import BaseBenchmarkCommand, BenchmarkResult, BenchmarkScenario
 
@@ -129,7 +130,7 @@ class NotificationsBenchmark(BaseBenchmarkCommand):
             all_users.append(user)
 
             # Update notification preferences (may already exist from signal)
-            pref, _ = NotificationPreference.objects.get_or_create(user=user)
+            pref, _ = create_default_preferences(user)
             pref.digest_frequency = NotificationPreference.DigestFrequency.DAILY
             pref.digest_send_time = timezone.now().time()
             pref.save()

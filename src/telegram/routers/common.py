@@ -160,9 +160,9 @@ async def handle_unsubscribe(message: Message, tg_user: TelegramUser, user: Reve
 
     # Get or create notification preferences and disable telegram channel
     from notifications.enums import DeliveryChannel
-    from notifications.models import NotificationPreference
+    from notifications.service.preferences import create_default_preferences
 
-    prefs, _ = await NotificationPreference.objects.aget_or_create(user=user)
+    prefs, _ = await sync_to_async(create_default_preferences)(user)
 
     if prefs.disable_channel(DeliveryChannel.TELEGRAM):
         await prefs.asave(update_fields=["enabled_channels", "notification_type_settings", "updated_at"])

@@ -8,10 +8,11 @@
 from accounts.models import RevelUser
 from events.models import Organization
 from notifications.models import NotificationPreference
+from notifications.service.preferences import create_default_preferences
 
 
 def _preferences(user: RevelUser) -> NotificationPreference:
-    prefs, _ = NotificationPreference.objects.get_or_create(user=user)
+    prefs, _ = create_default_preferences(user)
     return prefs
 
 
