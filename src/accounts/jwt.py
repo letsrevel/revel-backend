@@ -15,6 +15,8 @@ from ninja_jwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from ninja_jwt.utils import datetime_from_epoch
 from pydantic import UUID4, BaseModel, ConfigDict, TypeAdapter, field_serializer
 
+from common.keys import decode_jwt, signing_key, verification_keys
+
 logger = structlog.get_logger(__file__)
 
 # Module constant: the raise site in ``consume_one_shot_token`` shadows ``_``
@@ -107,13 +109,13 @@ def validate_otp_jwt(
     Raises:
         AuthenticationFailed: If token verification fails.
     """
-    key = key or settings.SECRET_KEY
+    keys = [key] if key else verification_keys()
     audience = audience or settings.JWT_AUDIENCE
     algorithms = algorithms or [settings.JWT_ALGORITHM]
     try:
-        decoded_jwt = jwt.decode(
+        decoded_jwt = decode_jwt(
             token,
-            key=key,
+            keys,
             audience=audience,
             algorithms=algorithms,
         )
@@ -231,7 +233,7 @@ def _blacklist(
     algorithms: list[str] | None = None,
 ) -> tuple[BlacklistedToken, bool]:
     """The blacklist write; also reports whether this call created the blacklist row."""
-    key = key or settings.SECRET_KEY
+    key = key or signing_key()
     audience = audience or settings.JWT_AUDIENCE
     algorithms = algorithms or [settings.JWT_ALGORITHM]
     payload = jwt.decode(token, key=key, audience=audience, algorithms=algorithms, options={"verify_signature": False})
@@ -278,7 +280,7 @@ def create_impersonation_request_token(
         "admin_user_id": admin_user_id,
         "target_user_id": target_user_id,
     }
-    return create_token(payload, settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    return create_token(payload, signing_key(), settings.JWT_ALGORITHM)
 
 
 def validate_impersonation_request_token(
@@ -291,7 +293,7 @@ def validate_impersonation_request_token(
 
     Args:
         token: The JWT token string.
-        key: Optional secret key (defaults to settings.SECRET_KEY).
+        key: Optional secret key (defaults to the current and fallback SECRET_KEYs).
         audience: Optional audience (defaults to settings.JWT_AUDIENCE).
         algorithms: Optional list of algorithms (defaults to [settings.JWT_ALGORITHM]).
 
@@ -301,13 +303,13 @@ def validate_impersonation_request_token(
     Raises:
         AuthenticationFailed: If token verification fails.
     """
-    key = key or settings.SECRET_KEY
+    keys = [key] if key else verification_keys()
     audience = audience or settings.JWT_AUDIENCE
     algorithms = algorithms or [settings.JWT_ALGORITHM]
     try:
-        decoded_jwt = jwt.decode(
+        decoded_jwt = decode_jwt(
             token,
-            key=key,
+            keys,
             audience=audience,
             algorithms=algorithms,
         )
@@ -353,7 +355,7 @@ def create_oidc_login_token(*, user_id: str, return_url: str, jti: str) -> str:
         "user_id": user_id,
         "return_url": return_url,
     }
-    return create_token(payload, settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    return create_token(payload, signing_key(), settings.JWT_ALGORITHM)
 
 
 def validate_oidc_login_token(token: str) -> OIDCLoginPayload:
@@ -363,8 +365,8 @@ def validate_oidc_login_token(token: str) -> OIDCLoginPayload:
         AuthenticationFailed: If the token is expired, malformed, or of the wrong type.
     """
     try:
-        decoded = jwt.decode(
-            token, key=settings.SECRET_KEY, audience=settings.JWT_AUDIENCE, algorithms=[settings.JWT_ALGORITHM]
+        decoded = decode_jwt(
+            token, verification_keys(), audience=settings.JWT_AUDIENCE, algorithms=[settings.JWT_ALGORITHM]
         )
         if decoded.get("type") != "oidc-login":
             raise AuthenticationFailed("Invalid token type.")

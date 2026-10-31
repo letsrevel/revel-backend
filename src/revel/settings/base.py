@@ -26,7 +26,16 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = config("SECRET_KEY")
-SALT_KEY = config("SALT_KEY")
+# Previous keys, newest first, still accepted for verification/decryption during a rotation.
+# Django's signing, ``common.keys`` and django-fernet-encrypted-fields all honour it.
+SECRET_KEY_FALLBACKS: list[str] = config("SECRET_KEY_FALLBACKS", default="", cast=Csv(strip=" "))
+# The primary salt is read verbatim (never comma-split: a salt containing a comma would make every
+# encrypted column unreadable). The list form is what django-fernet-encrypted-fields accepts; the
+# first entry encrypts, the rest only decrypt.
+SALT_KEY_FALLBACKS: list[str] = config("SALT_KEY_FALLBACKS", default="", cast=Csv(strip=" "))
+SALT_KEY: list[str] = [config("SALT_KEY"), *SALT_KEY_FALLBACKS]
+# Dedicated keys for unsubscribe tokens (new key first). Empty: they use SECRET_KEY(+fallbacks).
+UNSUBSCRIBE_SIGNING_KEYS: list[str] = config("UNSUBSCRIBE_SIGNING_KEYS", default="", cast=Csv(strip=" "))
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DEBUG", default=False, cast=bool)

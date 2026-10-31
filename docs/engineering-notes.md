@@ -403,3 +403,19 @@ negative:
   "anything other than 200" — and never `!= 403`, which a `404` from a renamed path satisfies.
 - Construct the attack payload against the *vulnerable* code first and watch the test go RED. A
   negative test that has never been red is a test of nothing.
+
+## Key rotation (`SECRET_KEY`, `SALT_KEY`)
+
+Sign with `common.keys.signing_key()` and verify with `common.keys.decode_jwt(..., verification_keys())`;
+never read `settings.SECRET_KEY` directly (a test enforces this). Order of a rotation:
+
+1. Set the new `SECRET_KEY` (and/or `SALT_KEY`), moving the old values to `SECRET_KEY_FALLBACKS` /
+   `SALT_KEY_FALLBACKS` (comma-separated, newest first). `SALT_KEY` itself is never comma-split.
+2. Pin `UNSUBSCRIBE_SIGNING_KEYS=<new>,<old SECRET_KEY>` (unsubscribe links outlive any fallback
+   window; `manage.py check` warns with `common.W006` until this is set).
+3. Roll out, then run `manage.py rotate_encrypted_fields` (`--dry-run` first), then `--verify`
+   (decrypts with the primary key only; non-zero exit on any failure).
+4. After the token grace period (refresh tokens: `REFRESH_TOKEN_LIFETIME_DAYS`), drop the fallbacks.
+
+`EncryptedFieldMixin.keys`/`.f` are `cached_property` on the shared field instance: tests that
+switch key settings must pop them from `field.__dict__`.

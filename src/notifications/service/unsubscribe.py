@@ -13,6 +13,7 @@ from ninja.errors import HttpError
 from accounts.jwt import check_blacklist, create_token
 from accounts.models import RevelUser
 from accounts.service.account import token_to_payload
+from common.keys import unsubscribe_signing_key, unsubscribe_verification_keys
 from events.models import Organization
 from notifications.enums import MANDATORY_TYPES, DeliveryChannel, NotificationType
 from notifications.models import EmailSuppression, Notification, NotificationPreference
@@ -49,7 +50,7 @@ def generate_unsubscribe_token(
         notification_type=NotificationType(notification_type) if notification_type else None,
         organization_id=organization_id,
     )
-    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    token = create_token(payload.model_dump(mode="json"), unsubscribe_signing_key(), settings.JWT_ALGORITHM)
     logger.debug("unsubscribe_token_generated", user_id=str(user.id))
     return token
 
@@ -89,7 +90,7 @@ def generate_email_opt_out_token(email: str, organization_id: UUID | None) -> st
         organization_id=organization_id,
         exp=timezone.now() + settings.UNSUBSCRIBE_TOKEN_LIFETIME,
     )
-    return create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    return create_token(payload.model_dump(mode="json"), unsubscribe_signing_key(), settings.JWT_ALGORITHM)
 
 
 def _reject_if_email_changed(payload: OneClickUnsubscribePayload, user: RevelUser) -> None:
@@ -114,7 +115,7 @@ def confirm_unsubscribe(token: str, preferences: UpdateNotificationPreferenceSch
     Returns:
         The updated notification preferences
     """
-    payload = token_to_payload(token, OneClickUnsubscribePayload)
+    payload = token_to_payload(token, OneClickUnsubscribePayload, unsubscribe_verification_keys())
     check_blacklist(payload.jti)
     user = get_object_or_404(RevelUser, id=payload.user_id)
     _reject_if_email_changed(payload, user)
@@ -171,7 +172,7 @@ def one_click_unsubscribe(token: str) -> None:
         HttpError: 400 if the token is invalid, expired, or its address is stale.
     """
     if _token_type(token) == "email_opt_out":
-        opt_out = token_to_payload(token, EmailOptOutJWTPayloadSchema)
+        opt_out = token_to_payload(token, EmailOptOutJWTPayloadSchema, unsubscribe_verification_keys())
         org_id = opt_out.organization_id
         if org_id and not Organization.objects.filter(pk=org_id).exists():
             org_id = None
@@ -184,7 +185,7 @@ def one_click_unsubscribe(token: str) -> None:
         logger.info("one_click_invitation_opt_out", organization_id=str(org_id) if org_id else None)
         return
 
-    payload = token_to_payload(token, OneClickUnsubscribePayload)
+    payload = token_to_payload(token, OneClickUnsubscribePayload, unsubscribe_verification_keys())
     check_blacklist(payload.jti)
     user = RevelUser.objects.filter(pk=payload.user_id).first()
     if user is None:

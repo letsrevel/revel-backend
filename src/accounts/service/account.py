@@ -21,6 +21,7 @@ from accounts.models import Referral, ReferralCode, RevelUser
 from accounts.password_validation import validate_password
 from accounts.service import referral_application_service
 from accounts.service.referral_cleanup import assess_referral_forfeiture
+from common.keys import decode_jwt, signing_key, verification_keys
 from common.testing import (
     TOKEN_TYPE_DELETION,
     TOKEN_TYPE_EMAIL_CHANGE,
@@ -147,7 +148,7 @@ def create_verification_token(user: RevelUser) -> str:
         email=user.email,
         exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
     )
-    token = create_token(verification_payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    token = create_token(verification_payload.model_dump(mode="json"), signing_key(), settings.JWT_ALGORITHM)
     store_test_token(TOKEN_TYPE_VERIFICATION, token)
     return token
 
@@ -166,7 +167,7 @@ def create_password_reset_token(user: RevelUser) -> str:
         email=user.email,
         exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
     )
-    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    token = create_token(payload.model_dump(mode="json"), signing_key(), settings.JWT_ALGORITHM)
     store_test_token(TOKEN_TYPE_PASSWORD_RESET, token)
     return token
 
@@ -185,7 +186,7 @@ def create_deletion_token(user: RevelUser) -> str:
         email=user.email,
         exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
     )
-    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    token = create_token(payload.model_dump(mode="json"), signing_key(), settings.JWT_ALGORITHM)
     store_test_token(TOKEN_TYPE_DELETION, token)
     return token
 
@@ -471,7 +472,7 @@ def create_email_change_token(user: RevelUser, new_email: str) -> str:
         exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
         iat=timezone.now(),
     )
-    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    token = create_token(payload.model_dump(mode="json"), signing_key(), settings.JWT_ALGORITHM)
     store_test_token(TOKEN_TYPE_EMAIL_CHANGE, token)
     return token
 
@@ -737,19 +738,20 @@ def start_data_export(user: RevelUser) -> None:
 T = t.TypeVar("T", bound=Schema)
 
 
-def token_to_payload(token: str, schema_class: t.Type[T]) -> T:
+def token_to_payload(token: str, schema_class: t.Type[T], keys: list[str] | None = None) -> T:
     """Decode a token and validate it against a schema.
 
     Args:
         token (str): The token to decode.
         schema_class (t.Type[Schema]): The schema to validate the token against.
+        keys: Keys to verify the signature with (defaults to the current and fallback SECRET_KEYs).
 
     Returns:
         Schema: The decoded and validated token.
     """
     try:
-        _payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience=settings.JWT_AUDIENCE
+        _payload = decode_jwt(
+            token, keys or verification_keys(), algorithms=[settings.JWT_ALGORITHM], audience=settings.JWT_AUDIENCE
         )
         # The schemas default ``type`` for construction; a decoded token must state exactly that type,
         # or a session token (same key and audience, no ``type`` claim) would inherit the purpose.

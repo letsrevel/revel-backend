@@ -16,6 +16,7 @@ from django.utils.translation import gettext_lazy as _
 from pydantic import BaseModel, ValidationError
 
 from accounts.jwt import create_token
+from common.keys import decode_jwt, signing_key, verification_keys
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError
 
@@ -45,14 +46,14 @@ def mint_state(*, organization_id: UUID, user_id: UUID, provider: str) -> str:
         "user_id": str(user_id),
         "provider": provider,
     }
-    return create_token(payload, settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    return create_token(payload, signing_key(), settings.JWT_ALGORITHM)
 
 
 def validate_state(state: str) -> ConnectStatePayload:
     """Verify signature, expiry and type; return the bound identifiers."""
     try:
-        decoded = jwt.decode(
-            state, key=settings.SECRET_KEY, audience=settings.JWT_AUDIENCE, algorithms=[settings.JWT_ALGORITHM]
+        decoded = decode_jwt(
+            state, verification_keys(), audience=settings.JWT_AUDIENCE, algorithms=[settings.JWT_ALGORITHM]
         )
         if decoded.get("type") != _TOKEN_TYPE:
             raise jwt.InvalidTokenError("wrong type")

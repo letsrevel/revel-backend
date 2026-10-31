@@ -19,6 +19,7 @@ from accounts.jwt import TOTPJWTPayload, check_blacklist, create_token, validate
 from accounts.jwt import blacklist as blacklist_token
 from accounts.models import RevelUser
 from accounts.service.tenant_session import tenant_claims
+from common.keys import signing_key
 
 logger = structlog.get_logger(__name__)
 
@@ -38,15 +39,13 @@ def get_temporary_otp_jwt(user: RevelUser) -> str:
         exp=datetime.now() + timedelta(minutes=5),
         jti=uuid4().hex,
     )
-    return create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    return create_token(payload.model_dump(mode="json"), signing_key(), settings.JWT_ALGORITHM)
 
 
 @transaction.atomic
 def verify_otp_jwt(token: str, otp: str) -> tuple[RevelUser, bool]:
     """Verify the OTP JWT token."""
-    validated_token = validate_otp_jwt(
-        token, key=settings.SECRET_KEY, audience=settings.JWT_AUDIENCE, algorithms=[settings.JWT_ALGORITHM]
-    )
+    validated_token = validate_otp_jwt(token)
     check_blacklist(validated_token.jti)
     if validated_token.type != "totp-access":
         logger.warning("otp_verification_invalid_token_type", token_type=validated_token.type)  # type: ignore[unreachable]
