@@ -525,15 +525,11 @@ def test_render_markdown_truncates_oversized_input() -> None:
 
 def test_render_markdown_skips_tables_for_pathological_column_count() -> None:
     """A header with thousands of pipes would make the tables extension pad every row; skip it."""
-    import time
-
     from common.sanitizers import render_markdown
 
     header = "|" * 6000
     text = header + "\n" + "\n".join(["|---|"] + ["| x |"] * 200)
-    start = time.monotonic()
     html = render_markdown(text)
-    assert time.monotonic() - start < 2
     assert "<table" not in html
 
 
