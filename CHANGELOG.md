@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.28.2] - 2026-10-31
+
+### Changed
+- Inline `series_pass_links` on event create/edit now require the `edit_event_series` permission (and the `org:tickets` scope for app tokens), matching the dedicated series tier-links endpoint. Payloads without links are unaffected.
+- Cancelling an event with `refund_tickets=true`, and its refund preview, now require the `manage_tickets` permission.
+- Platform invoices fall back to the organization's contact email only when it is verified; otherwise they go to the owner (and billing email) only.
+- Guest checkout and guest RSVP refuse an existing guest account that has been deactivated.
+- Request-size limits on endpoints that drive server work:
+  - venue sector shapes ≤ 500 vertices and ≤ 10,000 seats per sector or bulk seat request
+  - VAT preview ≤ 20 items and ≤ 1,000 tickets in total
+  - new recurrence rules may start at most 366 days in the past, and occurrence generation never backfills further than that
+  - questionnaire submissions ≤ 1,000 answers
+  - organization membership grace/revival windows ≤ 3,650 days
+- Markdown rendered for emails, Telegram and external listings is capped at 50,000 characters (truncation is marked), and very wide tables are rendered as plain text.
+
+### Fixed
+- Per-user ticket limits and per-user discount-code limits now count checked-in tickets.
+- Organization staff tokens: owners are the only ones who can see staff-granting invitation links, and newly created links default to single use and 24 hours as documented.
+- Attendee-list privacy no longer counts cancelled or banned memberships as membership, and membership changes rebuild the affected visibility.
+- Potluck items can no longer be claimed with a cancelled ticket (releasing an already-claimed item still works).
+- Notifications, ticket PDFs, calendar files and wallet passes now respect each recipient's address visibility, and cancellation reasons are only sent to people entitled to see them.
+- Changing a VAT ID at checkout or in the admin resets its validation state, and VAT IDs are normalized the same way for validation and country detection.
+- Organization contact-email verification only applies to the address the link was sent for, and editing the contact email in the admin no longer fails for organizations with a contact method set (a verification email is sent instead).
+- Invoice, credit-note and payout-statement PDFs no longer overwrite concurrent changes to the same record.
+- Revenue report spreadsheets neutralize formula-like cell values.
+- Telegram messages escape user- and organizer-provided names; `/connect` only replies in private chats.
+- Social media links are validated with the same URL parser used to store them.
+- TIFF uploads have XMP/IPTC metadata removed along with EXIF.
+
+### Security
+- Hardened account-action and one-time token validation.
+- Admin actions with side effects now require change permission, history reverts require change permission, and financial snapshot fields are read-only in the ticket inline.
+- Credentials are redacted from exception logs and traces; the Silk profiler, when enabled, is restricted to superusers.
+
 ## [2.28.1] - 2026-10-30
 
 ### Added
