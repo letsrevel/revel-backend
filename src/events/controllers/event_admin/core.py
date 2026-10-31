@@ -167,12 +167,12 @@ class EventAdminCoreController(EventAdminBaseController):
             # Cancelling is ``manage_event``, but ``refund_tickets`` runs the same Stripe sweep
             # the per-ticket refund route gates behind ``manage_tickets`` — and ``org:tickets``
             # is the only scope whose consent label names refunds. An app token therefore needs
-            # it as well; ``scope_allows`` is a no-op for session principals, so staff in a
-            # browser are untouched. Checked in the handler because the requirement is
+            # it as well. For session principals ``scope_allows`` is a no-op, so the org
+            # permission is enforced below. Checked in the handler because the requirement is
             # conditional on the body, which a declarative ``permissions=`` entry cannot see.
             request = t.cast(HttpRequest, self.context.request)  # type: ignore[union-attr]
             scope_allows(request, "manage_tickets")
-            # Session principals: same org-permission the per-ticket refund route enforces.
+            # Same org-permission the per-ticket refund route enforces (applies to every principal).
             if not event.organization.has_org_permission(self.user().id, "manage_tickets"):
                 raise HttpError(403, str(_("You do not have permission to refund tickets.")))
         return event_service.update_status(
@@ -190,8 +190,14 @@ class EventAdminCoreController(EventAdminBaseController):
         # ``org:tickets`` alongside the baseline: the response carries the connected account's
         # live Stripe balance and the event's refundable revenue, which ``org:events``'s label
         # never promises and ``org:tickets``'s ("see ... revenue") does. Same pattern as the
-        # member roster (R-123): ``RequireScope`` constrains app tokens only.
-        permissions=[RequireScope("org:read"), RequireScope("org:tickets"), EventPermission("manage_event")],
+        # member roster (R-123): ``RequireScope`` constrains app tokens only. The matching org
+        # permission (``manage_tickets``, as on cancel-with-refunds) constrains staff.
+        permissions=[
+            RequireScope("org:read"),
+            RequireScope("org:tickets"),
+            EventPermission("manage_event"),
+            EventPermission("manage_tickets"),
+        ],
         throttle=UserDefaultThrottle(),  # read-only — don't burn the class-level WriteThrottle budget
     )
     def cancellation_refund_preview(self, event_id: UUID) -> schema.EventRefundPreviewSchema:

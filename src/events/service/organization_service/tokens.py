@@ -5,7 +5,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -82,6 +82,18 @@ def create_organization_token(
         grants_staff_status=grants_staff_status,
         membership_tier=membership_tier,
     )
+
+
+def list_organization_tokens(organization: Organization, user: RevelUser) -> QuerySet[OrganizationToken]:
+    """Tokens of ``organization`` that ``user`` may see.
+
+    Staff-granting tokens are owner-only to create/update/delete, and the id is a bearer
+    credential, so non-owners must not be able to read them either.
+    """
+    qs = OrganizationToken.objects.filter(organization=organization).select_related("organization", "membership_tier")
+    if organization.owner_id != user.pk:
+        qs = qs.exclude(grants_staff_status=True)
+    return qs
 
 
 def _resolve_membership_tier(organization: Organization, tier_id: UUID | None) -> MembershipTier | None:

@@ -23,6 +23,7 @@ from events.models import (
     VenueSeat,
     VenueSector,
 )
+from events.utils.tier_pricing import validate_category_prices
 
 pytestmark = pytest.mark.django_db
 
@@ -252,6 +253,21 @@ def test_other_organization_category_name_not_disclosed(
         tier.full_clean()
     message = exc_info.value.message_dict["category_prices"][0]
     assert "Secret Lounge" not in message
+
+
+def test_unknown_category_on_tier_without_event_falls_back_to_raw_id(venue: Venue, sector: VenueSector) -> None:
+    """A tier with no event yet has no organization scope: validation still fails, naming raw ids."""
+    unknown = uuid.uuid4()
+    tier = TicketTier(
+        name="Unsaved",
+        venue=venue,
+        sector=sector,
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+        category_prices={str(unknown): "50.00"},
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        validate_category_prices(tier)
+    assert str(unknown) in exc_info.value.message_dict["category_prices"][0]
 
 
 def test_unknown_category_id_rejected(event: Event, sector: VenueSector) -> None:

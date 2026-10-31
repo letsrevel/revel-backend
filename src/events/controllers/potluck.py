@@ -140,7 +140,7 @@ class PotluckController(UserAwareController):
         response=schema.PotluckItemRetrieveSchema,
         # Session-only for the same reason as ``create`` above.
         auth=I18nJWTAuth(),
-        permissions=[PotluckItemPermission("claim_potluck_item")],
+        permissions=[PotluckItemPermission("unclaim_potluck_item")],
     )
     def unclaim_potluck_item(self, event_id: UUID, item_id: UUID) -> PotluckItem:
         """Release a potluck item you previously claimed.
