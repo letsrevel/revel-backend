@@ -211,6 +211,7 @@ from .organization import (
     StripeConnectSchema,
     StripeReturnTo,
     TenantOrganizationSchema,
+    TierChargingVatSchema,
     VATIdUpdateSchema,
     VerifyOrganizationContactEmailJWTPayloadSchema,
 )
@@ -761,6 +762,7 @@ __all__ = [
     "TicketTierSchema",
     "TicketTierUpdateSchema",
     "TierCategoryPriceSchema",
+    "TierChargingVatSchema",
     "TierPricingGapSchema",
     "TierRemainingTicketsSchema",
     "TierSeatPricingSchema",

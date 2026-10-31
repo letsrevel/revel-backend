@@ -37,6 +37,7 @@ from events.models import (
 )
 from events.models.organization import Organization as OrganizationModel
 from events.service.attendee_invoice_service import einvoice_missing_fields
+from events.service.small_business_scheme_service import live_tiers_charging_vat
 from events.utils.small_business import SmallBusinessScheme
 from questionnaires.models import QuestionnaireEvaluation
 
@@ -143,6 +144,16 @@ def _compliance(obj: Organization) -> OrganizationComplianceSchema:
     )
 
 
+class TierChargingVatSchema(Schema):
+    """A live ticket tier that still charges VAT, which blocks declaring a small-business scheme."""
+
+    event_id: UUID
+    event_name: str
+    tier_id: UUID
+    tier_name: str
+    vat_rate: Decimal
+
+
 class OrganizationBillingInfoSchema(Schema):
     """Read-only schema for organization billing info and VAT settings."""
 
@@ -167,6 +178,8 @@ class OrganizationBillingInfoSchema(Schema):
     invoicing_mode: OrganizationModel.InvoicingMode
     compliance: OrganizationComplianceSchema
     einvoice_missing_fields: list[str]
+    # Live tiers blocking a scheme declaration; empty once a scheme is declared (tier rates are then ignored).
+    tiers_charging_vat: list[TierChargingVatSchema]
 
     @staticmethod
     def resolve_compliance(obj: Organization) -> OrganizationComplianceSchema:
@@ -186,6 +199,25 @@ class OrganizationBillingInfoSchema(Schema):
     def resolve_einvoice_missing_fields(obj: Organization) -> list[str]:
         """Organization fields still missing for compliant e-invoicing."""
         return einvoice_missing_fields(obj)
+
+    @staticmethod
+    def resolve_tiers_charging_vat(obj: Organization) -> list[TierChargingVatSchema]:
+        """Live tiers with a positive VAT rate: the ones that block declaring a small-business scheme.
+
+        Empty once a scheme is declared, because tier rates are then ignored (they charge nothing).
+        """
+        if obj.small_business_scheme != SmallBusinessScheme.NONE:
+            return []
+        return [
+            TierChargingVatSchema(
+                event_id=tier.event_id,
+                event_name=tier.event.name,
+                tier_id=tier.pk,
+                tier_name=tier.name,
+                vat_rate=t.cast(Decimal, tier.vat_rate),  # the queryset filters vat_rate > 0, so never None
+            )
+            for tier in live_tiers_charging_vat(obj)
+        ]
 
 
 class OrganizationBillingInfoUpdateSchema(BillingInfoSchemaMixin):
