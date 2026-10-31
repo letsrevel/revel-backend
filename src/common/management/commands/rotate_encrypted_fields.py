@@ -12,6 +12,7 @@ Output is ``app.Model.field`` and counts; values and row identifiers are never p
 """
 
 import typing as t
+from argparse import ArgumentTypeError
 
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from django.apps import apps
@@ -54,16 +55,26 @@ def _batches(model: type[models.Model], name: str, size: int, *, lock: bool) -> 
         last = rows[-1][0]
 
 
+def _positive_int(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise ArgumentTypeError("must be at least 1")
+    return number
+
+
 class Command(BaseCommand):
     help = "Re-encrypt encrypted model fields under the primary SECRET_KEY/SALT_KEY (key rotation)."
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Add CLI arguments."""
-        parser.add_argument("--dry-run", action="store_true", help="Count rows that need rotating; write nothing.")
-        parser.add_argument(
+        mode = parser.add_mutually_exclusive_group()
+        mode.add_argument("--dry-run", action="store_true", help="Count rows that need rotating; write nothing.")
+        mode.add_argument(
             "--verify", action="store_true", help="Decrypt every row with ONLY the primary key; fail on any miss."
         )
-        parser.add_argument("--batch-size", type=int, default=500, help="Rows per transaction (default: 500).")
+        parser.add_argument(
+            "--batch-size", type=_positive_int, default=500, help="Rows per transaction (default: 500)."
+        )
 
     def handle(self, *args: t.Any, **options: t.Any) -> None:
         """Rotate (or dry-run / verify) every encrypted field."""
@@ -111,6 +122,8 @@ class Command(BaseCommand):
                     failed += 1
             rotated += len(updates)
             if not dry_run:
+                # ponytail: one UPDATE per row; fine for the current row counts (thousands).
+                # Upgrade path: bulk_update with Value(..., output_field=TextField()) per batch.
                 for pk, new in updates:
                     # Value(...) bypasses the field's own encryption, which would encrypt a second time.
                     model._base_manager.filter(pk=pk).update(**{field.name: Value(new, output_field=TextField())})

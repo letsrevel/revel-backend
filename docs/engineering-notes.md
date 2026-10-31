@@ -407,15 +407,29 @@ negative:
 ## Key rotation (`SECRET_KEY`, `SALT_KEY`)
 
 Sign with `common.keys.signing_key()` and verify with `common.keys.decode_jwt(..., verification_keys())`;
-never read `settings.SECRET_KEY` directly (a test enforces this). Order of a rotation:
+never read `settings.SECRET_KEY` directly (a test enforces this). The `*_FALLBACKS` lists are plain
+comma-separated (newest first, no quoting; `#`, quotes and backslashes are kept verbatim).
+`SALT_KEY` itself is never comma-split.
 
-1. Set the new `SECRET_KEY` (and/or `SALT_KEY`), moving the old values to `SECRET_KEY_FALLBACKS` /
-   `SALT_KEY_FALLBACKS` (comma-separated, newest first). `SALT_KEY` itself is never comma-split.
-2. Pin `UNSUBSCRIBE_SIGNING_KEYS=<new>,<old SECRET_KEY>` (unsubscribe links outlive any fallback
-   window; `manage.py check` warns with `common.W006` until this is set).
-3. Roll out, then run `manage.py rotate_encrypted_fields` (`--dry-run` first), then `--verify`
-   (decrypts with the primary key only; non-zero exit on any failure).
-4. After the token grace period (refresh tokens: `REFRESH_TOKEN_LIFETIME_DAYS`), drop the fallbacks.
+Rotate in two phases, because during `docker rollout` old and new containers run side by side:
+
+1. **Introduce.** Keep the old key primary and add the NEW key to `SECRET_KEY_FALLBACKS` /
+   `SALT_KEY_FALLBACKS`. Roll out. Every container can now read both keys; nothing writes with the new one.
+2. **Promote.** Make the new key primary and put the old key first in the fallbacks. Roll out.
+
+Then run `manage.py rotate_encrypted_fields` (`--dry-run` first), then `--verify` (decrypts with the
+primary key only; non-zero exit on any failure), and drop the fallbacks after the grace window
+(refresh tokens: `REFRESH_TOKEN_LIFETIME_DAYS`).
+
+Why two phases: `EncryptedFieldMixin` swallows `InvalidToken` and returns the raw ciphertext, so an old
+container that cannot decrypt a row written under the new key reads garbage and saves it back,
+corrupting it permanently. **Never remove a key that has ever been primary until the data is
+re-encrypted.**
+
+Unsubscribe links sit in mailboxes for years (up to `UNSUBSCRIBE_TOKEN_LIFETIME_DAYS`, 10 years), so pin
+`UNSUBSCRIBE_SIGNING_KEYS=<new>,<old SECRET_KEY>` before dropping `SECRET_KEY_FALLBACKS`
+(`manage.py check` warns with `common.W006` until set). On any later rotation, **prepend** a new key and
+keep every older one until its links have expired; never replace the list.
 
 `EncryptedFieldMixin.keys`/`.f` are `cached_property` on the shared field instance: tests that
 switch key settings must pop them from `field.__dict__`.

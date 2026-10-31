@@ -7,6 +7,7 @@ from uuid import uuid4
 import pyotp
 import pytest
 from ninja.errors import HttpError
+from ninja_extra.exceptions import AuthenticationFailed
 
 from accounts import schema as accounts_schema
 from accounts.models import RevelUser
@@ -53,7 +54,7 @@ def _case(name: str, user: RevelUser) -> tuple[str, t.Callable[[str], object], t
     if name == "verify_email":
         return account_service.create_verification_token(user), _verify_email, HttpError
     if name == "otp":
-        return auth_service.get_temporary_otp_jwt(user), _otp(user), Exception
+        return auth_service.get_temporary_otp_jwt(user), _otp(user), AuthenticationFailed
     if name == "guest":
         return (
             guest_service.create_guest_rsvp_token(user, uuid4(), "yes"),
@@ -79,8 +80,10 @@ def test_old_key_accepted_while_fallback_then_rejected(family: str, user: RevelU
     _rotate(settings, fallbacks=[old])
     verify(token)  # does not raise
     _rotate(settings, fallbacks=[])
-    with pytest.raises(error):
+    with pytest.raises(error) as exc:
         verify(token)
+    if type(exc.value) is HttpError:
+        assert exc.value.status_code == 400  # signature failure, not e.g. the blacklist's 401
 
 
 def test_signed_file_url(settings: t.Any) -> None:

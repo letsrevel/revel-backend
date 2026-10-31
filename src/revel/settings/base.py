@@ -25,17 +25,28 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
+
+
+def split_keys(name: str) -> list[str]:
+    """Comma-separated key list from the environment, kept verbatim.
+
+    Deliberately not decouple's ``Csv``: it is shlex-based, so ``#``, quotes and backslashes (all
+    valid in Django secret keys) would be treated as comments/escapes and silently truncate keys.
+    """
+    return [k.strip() for k in str(config(name, default="")).split(",") if k.strip()]
+
+
 SECRET_KEY = config("SECRET_KEY")
 # Previous keys, newest first, still accepted for verification/decryption during a rotation.
 # Django's signing, ``common.keys`` and django-fernet-encrypted-fields all honour it.
-SECRET_KEY_FALLBACKS: list[str] = config("SECRET_KEY_FALLBACKS", default="", cast=Csv(strip=" "))
+SECRET_KEY_FALLBACKS: list[str] = split_keys("SECRET_KEY_FALLBACKS")
 # The primary salt is read verbatim (never comma-split: a salt containing a comma would make every
 # encrypted column unreadable). The list form is what django-fernet-encrypted-fields accepts; the
 # first entry encrypts, the rest only decrypt.
-SALT_KEY_FALLBACKS: list[str] = config("SALT_KEY_FALLBACKS", default="", cast=Csv(strip=" "))
+SALT_KEY_FALLBACKS: list[str] = split_keys("SALT_KEY_FALLBACKS")
 SALT_KEY: list[str] = [config("SALT_KEY"), *SALT_KEY_FALLBACKS]
 # Dedicated keys for unsubscribe tokens (new key first). Empty: they use SECRET_KEY(+fallbacks).
-UNSUBSCRIBE_SIGNING_KEYS: list[str] = config("UNSUBSCRIBE_SIGNING_KEYS", default="", cast=Csv(strip=" "))
+UNSUBSCRIBE_SIGNING_KEYS: list[str] = split_keys("UNSUBSCRIBE_SIGNING_KEYS")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DEBUG", default=False, cast=bool)

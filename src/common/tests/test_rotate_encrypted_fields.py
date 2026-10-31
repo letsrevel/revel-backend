@@ -120,3 +120,14 @@ def test_salt_rotation(settings: t.Any, rows: tuple[RevelUser, PlatformConnectio
 
 def test_single_key_has_nothing_to_rotate(rows: tuple[RevelUser, PlatformConnection]) -> None:
     assert "nothing to rotate" in _run()
+
+
+@pytest.mark.parametrize("value", ["0", "-5"])
+def test_batch_size_must_be_positive(value: str) -> None:
+    with pytest.raises(CommandError):
+        _run("--batch-size", value)
+
+
+def test_dry_run_and_verify_are_exclusive() -> None:
+    with pytest.raises(CommandError):
+        _run("--dry-run", "--verify")

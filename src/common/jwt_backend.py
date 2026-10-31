@@ -12,7 +12,7 @@ __all__ = ["FallbackTokenBackend"]
 
 
 class FallbackTokenBackend(TokenBackend):
-    """``TokenBackend`` whose HS* decoding tries every key from ``verification_keys()``."""
+    """HS* decoding tries the backend's own signing key first, then every key from ``verification_keys()``."""
 
     def decode(self, token: str, verify: bool = True) -> dict[str, t.Any]:
         """Decode like the parent, falling back to older keys on a signature mismatch only.
@@ -25,7 +25,7 @@ class FallbackTokenBackend(TokenBackend):
         try:
             return decode_jwt(
                 token,
-                verification_keys(),
+                list(dict.fromkeys([self.signing_key, *verification_keys()])),
                 algorithms=[self.algorithm],
                 audience=self.audience,
                 issuer=self.issuer,
