@@ -369,7 +369,7 @@ class TestHandleUnsubscribe:
         django_user: RevelUser,
     ) -> None:
         """A missing preference row is recreated via create_default_preferences (#1254)."""
-        from notifications.enums import DeliveryChannel
+        from notifications.enums import DeliveryChannel, NotificationType
         from notifications.models import NotificationPreference
 
         tg_user = await _get_tg_user(django_user)
@@ -379,6 +379,9 @@ class TestHandleUnsubscribe:
 
         prefs = await NotificationPreference.objects.aget(user=django_user)
         assert prefs.enabled_channels == [DeliveryChannel.IN_APP, DeliveryChannel.EMAIL]
+        # The default override keeps its other channel; only TELEGRAM is removed.
+        org_contact = prefs.notification_type_settings[NotificationType.ORG_CONTACT_MESSAGE_RECEIVED]
+        assert org_contact["channels"] == [DeliveryChannel.IN_APP]
         for setting in prefs.notification_type_settings.values():
             assert DeliveryChannel.TELEGRAM not in (setting.get("channels") or [])
 
