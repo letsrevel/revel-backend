@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.31.0] - 2026-10-31
+
+### Added
+- Each `tiers_charging_vat` item on organization billing info now includes `event_requires_ticket`. It is `false` for tiers of RSVP-only events: those tiers can still be sold through the API and still block declaring a small-business VAT scheme, so a client can tell the organizer to turn ticketing on for that event before editing the tier.
+
 ## [2.30.0] - 2026-10-31
 
 ### Added
