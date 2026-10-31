@@ -13,6 +13,7 @@ import copy
 import typing as t
 from decimal import Decimal, InvalidOperation
 
+from django.db.models import QuerySet
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -158,12 +159,17 @@ def seller_identity_missing_fields(org: Organization) -> list[str]:
     return missing
 
 
-def _live_tiers_charging_vat(org: Organization) -> bool:
-    """Whether a tier of an event that has not ended still carries a positive VAT rate of its own."""
+def live_tiers_charging_vat(org: Organization) -> QuerySet[TicketTier]:
+    """Tiers of events that have not ended that still carry a positive VAT rate of their own.
+
+    The one source for both the declaration guard and the ``tiers_charging_vat`` billing-info field.
+    """
     return (
         TicketTier.objects.filter(event__organization=org, event__end__gte=timezone.now(), vat_rate__gt=0)
         .exclude(event__status=Event.EventStatus.CANCELLED)
-        .exists()
+        .select_related("event")
+        .prefetch_related(None)  # the default manager prefetches membership tiers; not needed here
+        .order_by("event__start", "name", "pk")
     )
 
 
@@ -198,7 +204,7 @@ def _assert_scheme_declaration_allowed(org: Organization, candidate: Organizatio
         )
     # Only when declaring (none -> scheme): afterwards any tier rate is ignored at the effective-rate
     # choke point, so a copied rate must not block unrelated billing edits.
-    if org.small_business_scheme == SmallBusinessScheme.NONE and _live_tiers_charging_vat(org):
+    if org.small_business_scheme == SmallBusinessScheme.NONE and live_tiers_charging_vat(org).exists():
         raise HttpError(
             422, str(_("Some ticket tiers still charge VAT. Set them to 0% before declaring a small-business scheme."))
         )
