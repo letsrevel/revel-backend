@@ -147,8 +147,9 @@ def _compliance(obj: Organization) -> OrganizationComplianceSchema:
 class TierChargingVatSchema(Schema):
     """A tier of a live event whose own VAT rate is above 0%, which blocks declaring a small-business scheme.
 
-    ``event_requires_ticket`` is false for RSVP-only events, whose tiers can still be sold: the UI can tell the
-    organizer to turn ticketing on to edit such a tier.
+    ``event_requires_ticket`` is false for RSVP-only events. Their tiers can still be sold through the API
+    (``TicketSalesGate`` skips RSVP events rather than blocking them), so they are listed; the flag lets a
+    client flag such events to the organizer.
     """
 
     event_id: UUID
