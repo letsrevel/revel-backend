@@ -615,3 +615,27 @@ class TestSiblingFormatInvalidation:
         ticket_file_service.cache_files(self._fresh(ticket_with_tier), pdf_bytes=b"%PDF-b")
 
         assert self._fresh(ticket_with_tier).pkpass_file
+
+
+class TestContentHashAddressVisibility:
+    """The cached files print the address, so the hash must track the holder's visibility."""
+
+    def test_changes_when_address_visibility_flips(
+        self, ticket_with_tier: Ticket, revel_user_factory: RevelUserFactory
+    ) -> None:
+        """Losing (or gaining) address visibility regenerates cached files."""
+        # The org owner (the fixture holder) always sees the address, so use a plain holder.
+        Ticket.objects.filter(pk=ticket_with_tier.pk).update(user=revel_user_factory())
+        event = ticket_with_tier.event
+        event.address = "1 Hidden Street"
+        event.visibility_settings = {"address_visibility": "members-only"}
+        event.save()
+        ticket = Ticket.objects.full().get(pk=ticket_with_tier.pk)
+        hidden = ticket_file_service.compute_content_hash(ticket)
+
+        # Flip visibility without touching any timestamp the hash already covers.
+        ticket.event.visibility_settings = {"address_visibility": "public"}
+        ticket.event._address_visibility_cache = {}
+        visible = ticket_file_service.compute_content_hash(ticket)
+
+        assert hidden != visible

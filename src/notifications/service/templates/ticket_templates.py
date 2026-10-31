@@ -219,6 +219,18 @@ def _load_event(event_id: str) -> Event | None:
         return None
 
 
+def _build_ics_attachment(ticket: Ticket | None, event_id: str) -> dict[str, t.Any] | None:
+    """Build the ICS attachment, including the address only when the ticket holder may see it.
+
+    Fails closed: without the ticket we cannot vouch for the holder's address visibility.
+    ``ticket.event`` is already select_related by ``Ticket.objects.full()``, so no extra load.
+    """
+    if ticket is not None:
+        return _generate_ics_attachment(ticket.event, ticket.event.can_user_see_address(ticket.user))
+    event = _load_event(event_id)
+    return _generate_ics_attachment(event, False) if event else None
+
+
 def _build_ticket_attachments(
     ticket_id: str | None,
     event_id: str | None,
@@ -243,11 +255,8 @@ def _build_ticket_attachments(
 
     attachments: dict[str, t.Any] = {}
 
-    # Load ticket if needed for PDF or pkpass
+    # Load ticket if needed for PDF, pkpass or the ICS address-visibility check
     ticket = _load_ticket(ticket_id) if include_pdf or include_pkpass or include_ics else None
-
-    # Load event if needed for ICS
-    event = _load_event(event_id) if include_ics else None
 
     # Generate attachments — helpers return (attachment_dict, raw_bytes) tuples
     # so raw bytes are available for caching without a base64 round-trip.
@@ -259,11 +268,8 @@ def _build_ticket_attachments(
         if pdf_result is not None:
             attachments["ticket.pdf"], pdf_bytes = pdf_result
 
-    if include_ics and event:
-        # Fail closed: without the ticket holder we cannot vouch for their address visibility.
-        can_see_address = ticket is not None and event.can_user_see_address(ticket.user)
-        if ics := _generate_ics_attachment(event, can_see_address):
-            attachments["event.ics"] = ics
+    if include_ics and (ics := _build_ics_attachment(ticket, event_id)):
+        attachments["event.ics"] = ics
 
     if include_pkpass and ticket:
         pkpass_result = _generate_pkpass_attachment(ticket)

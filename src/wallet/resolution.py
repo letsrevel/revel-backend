@@ -37,7 +37,8 @@ def resolve_ticket_location(ticket: Ticket) -> TicketLocation:
     Priority (most specific first): the tier's venue, then the ticket's own
     venue, then the event's; the tier's sector, then the ticket's. The address
     prefers the resolved venue's full address and falls back to the event's
-    free-text address.
+    free-text address. It is ``None`` when the ticket holder is not allowed to
+    see the event address (``Event.can_user_see_address``).
 
     Every input is already loaded on the pass-generating paths
     (``Ticket.objects.full()`` selects ``tier``, ``seat`` and ``event``), so this
@@ -53,11 +54,12 @@ def resolve_ticket_location(ticket: Ticket) -> TicketLocation:
     event = ticket.event
     venue = ticket.tier.venue or ticket.venue or event.venue
     sector = ticket.tier.sector or ticket.sector
+    address = (venue.full_address() if venue else None) or event.address or None
 
     return TicketLocation(
         venue=venue,
         venue_name=venue.name if venue else None,
-        address=(venue.full_address() if venue else None) or event.address or None,
+        address=address if event.can_user_see_address(ticket.user) else None,
         sector=sector,
         seat_label=ticket.seat.label if ticket.seat else None,
     )
@@ -82,7 +84,8 @@ def resolve_series_window(held_pass: HeldSeriesPass) -> SeriesWindow:
     is the soonest covered event that has not yet ended, falling back to the
     latest-starting past one once the series is over. ``start`` follows the
     representative; ``end`` is the latest end across *all* covered events, so the
-    pass stays valid until the series is fully over.
+    pass stays valid until the series is fully over. The address is withheld
+    (``None``) when the pass holder cannot see the representative event's address.
 
     Args:
         held_pass: The held series pass to resolve a window for.
@@ -112,11 +115,12 @@ def resolve_series_window(held_pass: HeldSeriesPass) -> SeriesWindow:
         )
 
     venue = representative.venue
+    address = (venue.full_address() if venue else None) or representative.address or None
     return SeriesWindow(
         representative_event=representative,
         venue=venue,
         venue_name=venue.name if venue else None,
-        address=(venue.full_address() if venue else None) or representative.address or None,
+        address=address if representative.can_user_see_address(held_pass.user) else None,
         tz=get_event_timezone(representative),
         start=representative.start,
         end=max(event.end for event in events),

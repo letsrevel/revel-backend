@@ -74,6 +74,9 @@ def compute_content_hash(ticket: Ticket) -> str:
     # non-English holder) is regenerated.
     if (language := ticket.user.language) and language != settings.LANGUAGE_CODE:
         parts.append(f"lang={language}")
+    # The printed address depends on the holder's visibility (e.g. members-only), which can flip
+    # (membership granted, RSVP added) without bumping any timestamp above.
+    parts.append(f"addr={ticket.event.can_user_see_address(ticket.user)}")
     raw = "|".join(parts)
     return hashlib.sha256(raw.encode()).hexdigest()
 

@@ -466,7 +466,7 @@ def send_pending_invitation_email(self: t.Any, pending_invitation_id: str) -> No
     from common.tasks import send_email
     from events.models import PendingEventInvitation
     from notifications.service.email_policy import suppression_for
-    from notifications.service.notification_helpers import format_event_datetime
+    from notifications.service.notification_helpers import format_event_datetime, get_event_location_for_user
     from notifications.service.org_sender import build_list_unsubscribe_headers, org_from_address, org_reply_to
     from notifications.service.unsubscribe import generate_email_opt_out_token
 
@@ -499,7 +499,7 @@ def send_pending_invitation_email(self: t.Any, pending_invitation_id: str) -> No
         "event_start_formatted": format_event_datetime(event.start, event),
         "event_end_formatted": format_event_datetime(event.end, event),
         # No account yet: apply the anonymous address policy
-        "event_location": event.full_address() if event.can_user_see_address(AnonymousUser()) else "",
+        "event_location": get_event_location_for_user(event, AnonymousUser())[0],
         "organization_name": event.organization.name,
         "signup_url": f"{frontend_base_url}/auth/register",
         "frontend_base_url": frontend_base_url,

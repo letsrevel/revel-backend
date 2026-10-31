@@ -47,20 +47,25 @@ def _staff_location_context(event: Event) -> dict[str, t.Any]:
     return context
 
 
-def _build_base_event_context(event: Event, user: RevelUser) -> dict[str, t.Any]:
+def _build_base_event_context(event: Event, user: RevelUser | None) -> dict[str, t.Any]:
     """Build common event context fields used across notifications.
 
     The location respects the recipient's address visibility.
 
     Args:
         event: Event to build context for
-        user: The recipient (ticket holder)
+        user: The recipient (ticket holder), or ``None`` for a staff context, which always
+            gets the unrestricted location.
 
     Returns:
         Dictionary with event_id, event_name, event_location, event_url, event_start_formatted,
         organization_id, organization_name, and optionally address_url
     """
-    event_location, address_url = get_event_location_for_user(event, user)
+    if user is None:
+        staff_location = _staff_location_context(event)
+        event_location, address_url = staff_location["event_location"], staff_location.get("address_url", "")
+    else:
+        event_location, address_url = get_event_location_for_user(event, user)
     frontend_base_url = frontend_base_url_for(event.organization)
     frontend_url = f"{frontend_base_url}/events/{event.id}"
 
@@ -82,10 +87,10 @@ def _build_base_event_context(event: Event, user: RevelUser) -> dict[str, t.Any]
     return context
 
 
-def _build_ticket_created_context(ticket: Ticket) -> dict[str, t.Any]:
-    """Build notification context for TICKET_CREATED."""
+def _build_ticket_created_context(ticket: Ticket, *, for_staff: bool = False) -> dict[str, t.Any]:
+    """Build notification context for TICKET_CREATED (unrestricted location when ``for_staff``)."""
     event = ticket.event
-    base_context = _build_base_event_context(event, ticket.user)
+    base_context = _build_base_event_context(event, None if for_staff else ticket.user)
 
     # Get manual payment instructions if available
     manual_payment_instructions = None
@@ -376,10 +381,8 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
 
         # If payment was just completed (PENDING→ACTIVE), notify staff/owners
         if old_status == Ticket.TicketStatus.PENDING:
-            context = _build_ticket_created_context(ticket)
             staff_context = {
-                **context,
-                **_staff_location_context(ticket.event),
+                **_build_ticket_created_context(ticket, for_staff=True),
                 "ticket_holder_name": ticket.user.get_display_name(),
                 "ticket_holder_email": ticket.user.email,
             }

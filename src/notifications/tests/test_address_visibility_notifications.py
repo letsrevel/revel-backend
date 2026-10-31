@@ -197,3 +197,58 @@ def test_ticket_ics_includes_address_when_visible(ticket_event: Event, active_ti
     )
 
     assert ADDRESS in base64.b64decode(attachments["event.ics"]["content_base64"]).decode()
+
+
+def test_payment_confirmation_hides_restricted_address(ticket_event: Event, buyer_ticket: Ticket) -> None:
+    """A non-member buyer does not get a members-only address in the payment confirmation."""
+    from decimal import Decimal
+
+    from events.models import Payment
+    from notifications.signals import payment as payment_signals
+
+    _restrict(ticket_event, ResourceVisibility.MEMBERS_ONLY)
+    payment = Payment.objects.create(
+        ticket=buyer_ticket,
+        user=buyer_ticket.user,
+        amount=Decimal("10.00"),
+        platform_fee=Decimal("0.00"),
+        currency="EUR",
+        status=Payment.PaymentStatus.SUCCEEDED,
+        stripe_session_id="cs_test_addr",
+    )
+    payment = Payment.objects.select_related("ticket__event__organization", "ticket__tier").get(pk=payment.pk)
+
+    with patch("notifications.signals.payment.notification_requested.send") as send_mock:
+        payment_signals._send_payment_confirmation(payment)
+
+    assert _contexts(send_mock)[0]["event_location"] == ""
+
+
+def test_cancelled_ticket_holder_email_has_no_attendees_only_address(ticket_event: Event, buyer_ticket: Ticket) -> None:
+    """Intended: a cancelled ticket no longer confers attendance, so the holder's TICKET_CANCELLED
+    context carries no address on an ATTENDEES_ONLY event (staff still get it)."""
+    _restrict(ticket_event, ResourceVisibility.ATTENDEES_ONLY)
+    buyer_ticket.status = Ticket.TicketStatus.CANCELLED
+    buyer_ticket.save()
+    ticket = Ticket.objects.get(pk=buyer_ticket.pk)
+
+    with (
+        patch("notifications.signals.ticket.notification_requested.send") as send_mock,
+        patch("notifications.signals.ticket.notify_org_staff") as staff_mock,
+    ):
+        ticket_signals._send_ticket_cancelled_notifications(ticket, Ticket.TicketStatus.ACTIVE)
+
+    assert _contexts(send_mock, ticket.user)[0]["event_location"] == ""
+    assert staff_mock.call_args.kwargs["context"]["event_location"] == ADDRESS
+
+
+def test_staff_context_for_created_ticket_is_unrestricted(ticket_event: Event, buyer_ticket: Ticket) -> None:
+    """The staff variant of the created context carries the full address without a holder lookup."""
+    _restrict(ticket_event, ResourceVisibility.MEMBERS_ONLY)
+    ticket = Ticket.objects.get(pk=buyer_ticket.pk)
+
+    with patch.object(ticket_signals, "get_event_location_for_user") as holder_lookup:
+        context = ticket_signals._build_ticket_created_context(ticket, for_staff=True)
+
+    holder_lookup.assert_not_called()
+    assert context["event_location"] == ADDRESS
