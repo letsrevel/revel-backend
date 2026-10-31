@@ -8,7 +8,7 @@ from django.utils import timezone
 from accounts.models import RevelUser, UserBillingProfile
 from events.models.attendee_invoice import BuyerBillingSnapshot
 from events.schema.checkout import BuyerBillingInfoSchema
-from events.service.stripe_service import _build_billing_snapshot, _save_billing_to_profile
+from events.service.billing_profile import _build_billing_snapshot, _save_billing_to_profile
 from events.utils.billing_address import snapshot_buyer_postal_address
 
 ADDRESS: dict[str, str] = {
