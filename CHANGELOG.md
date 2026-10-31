@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.28.4] - 2026-10-31
+
+### Security
+- `pyasn1` updated to 0.6.5 (transitive dependency), fixing four published advisories.
+
 ## [2.28.3] - 2026-10-31
 
 ### Fixed
