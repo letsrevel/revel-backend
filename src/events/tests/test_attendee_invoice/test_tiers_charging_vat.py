@@ -146,3 +146,27 @@ def test_empty_once_a_scheme_is_declared_since_tier_rates_are_then_ignored(
     with CaptureQueriesContext(connection) as ctx:
         assert OrganizationBillingInfoSchema.resolve_tiers_charging_vat(organization) == []
     assert len(ctx) == 0
+
+
+def test_tiers_of_rsvp_only_events_are_ignored(
+    organization: Organization, event: Event, event_ticket_tier: TicketTier, owner_client: Client
+) -> None:
+    """An RSVP-only event sells nothing, so a leftover tier rate neither is listed nor blocks a scheme."""
+    event_ticket_tier.vat_rate = Decimal("19.00")
+    event_ticket_tier.save()
+    Event.objects.filter(pk=event.pk).update(requires_ticket=False)
+    assert _get(owner_client, organization)["tiers_charging_vat"] == []
+
+    Organization.objects.filter(pk=organization.pk).update(
+        vat_rate=Decimal("0.00"),
+        billing_country_code="DE",
+        vat_id="DE811234567",
+        vat_id_validated=True,
+        vat_country_code="DE",
+    )
+    response = owner_client.patch(
+        reverse("api:update_billing_info", kwargs={"slug": organization.slug}),
+        data=orjson.dumps({"small_business_scheme": "de_19"}),
+        content_type="application/json",
+    )
+    assert response.status_code == 200, response.content
