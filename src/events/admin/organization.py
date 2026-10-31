@@ -149,8 +149,14 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
             obj.vat_id_validated = False
             obj.vat_id_validated_at = None
             obj.vies_request_identifier = ""
+            # Same derivation as common.service.vies_service.set_vat_id. That setter (via
+            # set_org_vat_id) is not called here: it does synchronous VIES I/O and raises HttpError.
+            obj.vat_country_code = obj.vat_id[:2].upper()
         if "contact_email" in form.changed_data and "contact_email_verified" not in form.changed_data:
             obj.contact_email_verified = False
+            # Organization.clean() rejects a contact method without a verified email; the service
+            # path (update_contact_email) resets it the same way.
+            obj.contact_method = models.Organization.ContactMethod.NONE
         super().save_model(request, obj, form, change)
         flipped = "custom_domain_enabled" in form.changed_data
         if flipped and obj.custom_domain_enabled:

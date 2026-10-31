@@ -38,7 +38,17 @@ def test_ban_and_retry_actions_require_change_permission(rf: RequestFactory) -> 
 def test_ticket_inline_snapshots_are_readonly() -> None:
     """The financial snapshot fields are not editable through the inline."""
     inline = TicketInline(Organization, site)
-    for field in ("refund_policy_snapshot", "price_paid", "discount_amount", "offline_refund_amount", "attribution"):
+    for field in (
+        "refund_policy_snapshot",
+        "price_paid",
+        "discount_amount",
+        "offline_refund_amount",
+        "attribution",
+        "checked_in_by",
+        "discount_code",
+        "held_pass",
+        "file_content_hash",
+    ):
         assert field in inline.readonly_fields
 
 
@@ -54,8 +64,11 @@ def test_history_revert_post_requires_change_permission(rf: RequestFactory) -> N
 def test_org_admin_resets_derived_state_on_identity_change(rf: RequestFactory, organization: Organization) -> None:
     """Changing vat_id / contact_email in the admin clears validation / verification."""
     organization.vat_id_validated = True
+    organization.vies_request_identifier = "WAPIAAAA"
     organization.contact_email_verified = True
+    organization.contact_method = Organization.ContactMethod.EMAIL
     organization.vat_id = "ATU12345678"
+    organization.vat_country_code = "AT"
     organization.contact_email = "old@example.com"
     organization.save()
     admin_instance = t.cast(OrganizationAdmin, site._registry[Organization])
@@ -63,7 +76,7 @@ def test_org_admin_resets_derived_state_on_identity_change(rf: RequestFactory, o
     class _Form:
         changed_data = ["vat_id", "contact_email"]
 
-    organization.vat_id = "ATU87654321"
+    organization.vat_id = "DE123456789"
     organization.contact_email = "new@example.com"
     admin_instance.save_model(rf.post("/"), organization, _Form(), True)
 
@@ -71,3 +84,30 @@ def test_org_admin_resets_derived_state_on_identity_change(rf: RequestFactory, o
     assert organization.vat_id_validated is False
     assert organization.vat_id_validated_at is None
     assert organization.contact_email_verified is False
+    assert organization.vies_request_identifier == ""
+    assert organization.vat_country_code == "DE"
+    # Organization.clean() would reject EMAIL on an unverified address; the reset must not 500.
+    assert organization.contact_method == Organization.ContactMethod.NONE
+
+
+def test_user_email_actions_require_change_permission(rf: RequestFactory) -> None:
+    """View-only staff are not offered the verification / password-reset email actions."""
+    request = rf.get("/")
+    request.user = _view_only_staff()
+    actions = site._registry[RevelUser].get_actions(request)
+    assert "send_verification_email" not in actions
+    assert "send_password_reset_email" not in actions
+
+
+def test_every_history_admin_is_guarded() -> None:
+    """Every SimpleHistoryAdmin registered must use the guarded base (revert needs change permission)."""
+    from simple_history.admin import SimpleHistoryAdmin
+
+    from common.admin import GuardedHistoryAdmin
+
+    unguarded = [
+        type(a).__name__
+        for a in site._registry.values()
+        if isinstance(a, SimpleHistoryAdmin) and not isinstance(a, GuardedHistoryAdmin)
+    ]
+    assert unguarded == []

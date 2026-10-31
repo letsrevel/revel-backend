@@ -1,6 +1,7 @@
 import typing as t
 
 from django.contrib import admin
+from django.contrib.admin.utils import unquote
 from django.core.exceptions import PermissionDenied
 from django.db.models import F, OuterRef, Subquery
 from django.http import HttpRequest
@@ -24,8 +25,10 @@ class HistoryRevertRequiresChangeMixin:
     def history_form_view(  # type: ignore[no-untyped-def]
         self, request: HttpRequest, object_id: str, version_id: str, extra_context: t.Any = None
     ):
-        if request.method == "POST" and not self.has_change_permission(request):  # type: ignore[attr-defined]
-            raise PermissionDenied
+        if request.method == "POST":
+            obj = self.get_object(request, unquote(object_id))  # type: ignore[attr-defined]
+            if not self.has_change_history_permission(request, obj):  # type: ignore[attr-defined]
+                raise PermissionDenied
         return super().history_form_view(request, object_id, version_id, extra_context)  # type: ignore[misc]
 
 

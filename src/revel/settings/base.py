@@ -40,6 +40,20 @@ SILKY_PYTHON_PROFILER = config("SILKY_PYTHON_PROFILER", default=False, cast=bool
 SILKY_AUTHENTICATION = True
 SILKY_AUTHORISATION = True
 SILKY_PERMISSIONS = lambda user: user.is_superuser  # noqa: E731
+# Silk's own defaults plus the credentials our endpoints carry.
+SILKY_SENSITIVE_KEYS = {
+    "username",
+    "api",
+    "token",
+    "key",
+    "secret",
+    "password",
+    "signature",
+    "refresh",
+    "refresh_token",
+    "access",
+    "access_token",
+}
 
 # Throttling - disable for load testing
 DISABLE_THROTTLING = config("DISABLE_THROTTLING", default=False, cast=bool)
@@ -347,6 +361,8 @@ SERVICE_URL = CSRF_TRUSTED_ORIGINS[0]
 SERVICE_URL += ":8000" if "localhost" in SERVICE_URL else ""
 SERVICE_DESCRIPTION = config("SERVICE_DESCRIPTION", default="The Revel API")
 ADMIN_URL = config("ADMIN_URL", default="admin/")
+# Silk's login_required redirect lands on the Django admin login (the only interactive login).
+LOGIN_URL = f"/{ADMIN_URL.strip('/')}/login/" if ADMIN_URL else "/admin/login/"
 
 # OTP
 TOTP_ISSUER_NAME = config("TOTP_ISSUER_NAME", default="Revel")

@@ -246,11 +246,11 @@ class EventRSVPInline(TabularInline):  # type: ignore[misc]
 class TicketInline(TabularInline):  # type: ignore[misc]
     model = models.Ticket
     extra = 0
-    autocomplete_fields = ["user", "tier", "checked_in_by"]
+    autocomplete_fields = ["user", "tier"]
     # raw_id: these rendered as plain <select>s over EVERY seat/venue/sector/discount
     # code/held pass in the DB, with one __str__ query per <option>, per ticket row +
     # empty form — thousands of queries on a seated event's change page (#880).
-    raw_id_fields = ["venue", "sector", "seat", "discount_code", "held_pass"]
+    raw_id_fields = ["venue", "sector", "seat"]
     # Financial snapshots stay as written at purchase, same as on TicketAdmin.
     readonly_fields = [
         "id",
@@ -264,6 +264,10 @@ class TicketInline(TabularInline):  # type: ignore[misc]
         "cancelled_at",
         "cancelled_by",
         "cancellation_source",
+        "checked_in_by",
+        "discount_code",
+        "held_pass",
+        "file_content_hash",
     ]
     can_delete = False
 
