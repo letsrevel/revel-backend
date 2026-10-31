@@ -34,9 +34,19 @@ def test_vat_preview_item_count_is_capped() -> None:
 
 
 def test_vat_preview_item_count_boundary() -> None:
-    assert VATPreviewItemSchema(tier_id=uuid4(), count=50).count == 50
+    assert VATPreviewItemSchema(tier_id=uuid4(), count=1000).count == 1000
+    assert VATPreviewItemSchema(tier_id=uuid4(), count=51).count == 51
     with pytest.raises(ValidationError):
-        VATPreviewItemSchema(tier_id=uuid4(), count=51)
+        VATPreviewItemSchema(tier_id=uuid4(), count=1001)
+
+
+def test_vat_preview_total_ticket_budget() -> None:
+    billing = {"billing_name": "A"}
+    ok = [{"tier_id": str(uuid4()), "count": 500} for _ in range(2)]
+    VATPreviewRequestSchema.model_validate({"billing_info": billing, "items": ok})
+    over = ok + [{"tier_id": str(uuid4()), "count": 1}]
+    with pytest.raises(ValidationError):
+        VATPreviewRequestSchema.model_validate({"billing_info": billing, "items": over})
 
 
 def test_bulk_seat_requests_are_capped() -> None:

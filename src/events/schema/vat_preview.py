@@ -10,15 +10,17 @@ from .checkout import BuyerBillingInfoSchema
 
 # Mirror the real checkout limits in checkout.py (MultiTierCheckoutPayload.items max 20,
 # CheckoutGroupSchema.tickets max 50) so the preview accepts exactly what checkout can price.
+# The deprecated per-tier checkout can carry more than 50 tickets in one item, so the ticket
+# bound is a shared budget across the whole request (20 groups x 50) rather than a per-item cap.
 MAX_VAT_PREVIEW_ITEMS = 20
-MAX_VAT_PREVIEW_TICKETS_PER_ITEM = 50
+MAX_VAT_PREVIEW_TICKETS = 1000
 
 
 class VATPreviewItemSchema(Schema):
     """Single item in a VAT preview request."""
 
     tier_id: UUID
-    count: int = Field(..., ge=1, le=MAX_VAT_PREVIEW_TICKETS_PER_ITEM)
+    count: int = Field(..., ge=1, le=MAX_VAT_PREVIEW_TICKETS)
     price_category_id: UUID | None = Field(
         default=None,
         description=(
@@ -51,6 +53,13 @@ class VATPreviewRequestSchema(Schema):
     items: list[VATPreviewItemSchema] = Field(..., min_length=1, max_length=MAX_VAT_PREVIEW_ITEMS)
     discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
     price_per_ticket: Decimal | None = Field(None, ge=1, description="PWYC price override")
+
+    @model_validator(mode="after")
+    def validate_total_ticket_budget(self) -> "VATPreviewRequestSchema":
+        """Bound the total tickets priced across all items, not just per item."""
+        if sum(item.count for item in self.items) > MAX_VAT_PREVIEW_TICKETS:
+            raise ValueError(f"A VAT preview may cover at most {MAX_VAT_PREVIEW_TICKETS} tickets in total.")
+        return self
 
 
 class VATPreviewLineItemSchema(Schema):

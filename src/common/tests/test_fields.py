@@ -516,7 +516,28 @@ def test_render_markdown_truncates_oversized_input() -> None:
     with capture_logs() as logs:
         html = render_markdown("a" * (MAX_RENDER_MARKDOWN_CHARS + 1000))
     assert len(html) < MAX_RENDER_MARKDOWN_CHARS + 100
+    assert html.endswith("<p>…</p>")
     assert any(
         entry["event"] == "render_markdown_truncated" and entry["original_length"] == MAX_RENDER_MARKDOWN_CHARS + 1000
         for entry in logs
     )
+
+
+def test_render_markdown_skips_tables_for_pathological_column_count() -> None:
+    """A header with thousands of pipes would make the tables extension pad every row; skip it."""
+    import time
+
+    from common.sanitizers import render_markdown
+
+    header = "|" * 6000
+    text = header + "\n" + "\n".join(["|---|"] + ["| x |"] * 200)
+    start = time.monotonic()
+    html = render_markdown(text)
+    assert time.monotonic() - start < 2
+    assert "<table" not in html
+
+
+def test_render_markdown_renders_normal_table() -> None:
+    from common.sanitizers import render_markdown
+
+    assert "<table>" in render_markdown("| a | b |\n|---|---|\n| 1 | 2 |")
