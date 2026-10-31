@@ -2,6 +2,7 @@
 
 import re
 import typing as t
+from html import escape
 
 import structlog
 from aiogram import F, Router
@@ -47,7 +48,7 @@ async def handle_start(message: Message, tg_user: TelegramUser, state: FSMContex
         user = tg_user.user
         assert user is not None  # user_id is set, so user must exist
         await message.answer(
-            f"Welcome back, {user.display_name}!\n\nI am your Revel companion.\n\n{consent}",
+            f"Welcome back, {escape(user.display_name)}!\n\nI am your Revel companion.\n\n{consent}",
             # Clears the legacy reply keyboard that older clients still have persisted.
             reply_markup=keyboards.remove_keyboard,
         )

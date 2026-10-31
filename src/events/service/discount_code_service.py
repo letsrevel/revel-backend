@@ -304,11 +304,14 @@ def _check_per_user_usage(dc: DiscountCode, user: RevelUser, batch_size: int) ->
     Raises:
         HttpError: If per-user usage limit would be exceeded.
     """
-    user_usage = Ticket.objects.filter(
-        discount_code=dc,
-        user=user,
-        status__in=Ticket.HELD_STATUSES,
-    ).count()
+    user_usage = (
+        Ticket.objects.filter(
+            discount_code=dc,
+            user=user,
+        )
+        .exclude(status=Ticket.TicketStatus.CANCELLED)
+        .count()
+    )
     if user_usage + batch_size > dc.max_uses_per_user:
         raise HttpError(400, str(_("You have already used this discount code the maximum number of times.")))
 
@@ -613,11 +616,14 @@ def apply_discount(discount_code: DiscountCode, user: RevelUser, batch_size: int
 
     # Re-check per-user limit under lock.
     # user_usage already includes tickets from this transaction's bulk_create.
-    user_usage = Ticket.objects.filter(
-        discount_code=dc,
-        user=user,
-        status__in=Ticket.HELD_STATUSES,
-    ).count()
+    user_usage = (
+        Ticket.objects.filter(
+            discount_code=dc,
+            user=user,
+        )
+        .exclude(status=Ticket.TicketStatus.CANCELLED)
+        .count()
+    )
     if user_usage > dc.max_uses_per_user:
         raise HttpError(400, str(_("You have already used this discount code the maximum number of times.")))
 

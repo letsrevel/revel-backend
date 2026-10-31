@@ -61,7 +61,7 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
 
     Raises:
         GuestAccountExistsError: 400 with ``code`` if a non-guest user with this email exists.
-        HttpError: If the email is globally banned.
+        HttpError: 403 if the email is globally banned or the existing guest account is inactive.
     """
     from accounts.service.global_ban_service import BAN_ERROR_MESSAGE, is_email_globally_banned
 
@@ -96,6 +96,11 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
         # Non-guest user exists, reject
         logger.warning("guest_user_creation_blocked_existing_account", email=email)
         raise GuestAccountExistsError()
+
+    # A deactivated (e.g. banned) guest must not get a fresh confirmation link or a hold.
+    if not existing_user.is_active:
+        logger.warning("guest_user_creation_blocked_inactive_account", email=email)
+        raise HttpError(403, str(BAN_ERROR_MESSAGE))
 
     # Guest user already exists — keep existing names (and language) to prevent overwrite by
     # third parties: these endpoints are anonymous, anyone can submit a guest's email.

@@ -189,7 +189,8 @@ def ensure_invoice_pdf_exists(invoice: PlatformFeeInvoice) -> None:
     if invoice.pdf_file:
         return
     pdf_bytes = render_invoice_pdf(invoice)
-    invoice.pdf_file.save(f"{invoice.invoice_number}.pdf", ContentFile(pdf_bytes), save=True)
+    invoice.pdf_file.save(f"{invoice.invoice_number}.pdf", ContentFile(pdf_bytes), save=False)
+    invoice.save(update_fields=["pdf_file", "updated_at"])  # not a full-row write of a possibly stale instance
 
 
 def get_invoice_recipients(org: Organization) -> list[str]:

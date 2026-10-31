@@ -49,6 +49,24 @@ class TestHandleStart:
         site_settings.save()
 
     @pytest.mark.asyncio
+    async def test_linked_user_display_name_is_html_escaped(
+        self,
+        mock_message: AsyncMock,
+        mock_fsm_context: AsyncMock,
+        django_user: RevelUser,
+    ) -> None:
+        django_user.first_name = "<b>Eve</b>"
+        django_user.last_name = ""
+        await django_user.asave()
+        tg_user = await _get_tg_user(django_user)
+
+        await handle_start(mock_message, tg_user=tg_user, state=mock_fsm_context)
+
+        text = mock_message.answer.call_args.args[0]
+        assert "&lt;b&gt;Eve&lt;/b&gt;" in text
+        assert "<b>Eve</b>" not in text
+
+    @pytest.mark.asyncio
     async def test_linked_user(
         self,
         mock_message: AsyncMock,

@@ -780,9 +780,6 @@ class Ticket(PreserveTicketNumberMixin, TimeStampedModel):
         CHECKED_IN = "checked_in", "Checked In"
         CANCELLED = "cancelled", "Cancelled"
 
-    # Statuses that still hold the buyer's allowance (per-user ticket / discount-use limits).
-    HELD_STATUSES = (TicketStatus.PENDING, TicketStatus.ACTIVE, TicketStatus.CHECKED_IN)
-
     event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="tickets")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="tickets")
     status = models.CharField(max_length=20, choices=TicketStatus.choices, default=TicketStatus.ACTIVE, db_index=True)

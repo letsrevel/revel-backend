@@ -82,7 +82,7 @@ class UserEventStatus:
     """User's status for an event including tickets, RSVP, and purchase limits.
 
     ``event_remaining`` is the event-scoped per-user budget shared across every tier
-    (``Event.max_tickets_per_user`` minus the user's held (PENDING/ACTIVE/CHECKED_IN) tickets across all
+    (``Event.max_tickets_per_user`` minus the user's held (non-cancelled) tickets across all
     tiers; None when the event sets no cap). It floors at 0 rather than going negative,
     which an organizer lowering the cap below what a buyer already holds would otherwise
     produce. It is the same term each tier's layered ``remaining`` folds in, exposed
@@ -316,8 +316,10 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
     # above: one snapshot rather than two independently-read counts, one query fewer, and
     # available early enough that the eligibility/RSVP returns below can report the event
     # budget too — the shape a first-time buyer gets otherwise carries no limits at all (#901).
-    # Held statuses (PENDING, ACTIVE, CHECKED_IN), matching the layered-cap contract in BatchTicketService.
-    user_ticket_counts: dict[UUID, int] = Counter(tk.tier_id for tk in tickets if tk.status in Ticket.HELD_STATUSES)
+    # Held = every non-cancelled status (future statuses count by default); see the BatchTicketService layered caps.
+    user_ticket_counts: dict[UUID, int] = Counter(
+        tk.tier_id for tk in tickets if tk.status != Ticket.TicketStatus.CANCELLED
+    )
     user_event_count = sum(user_ticket_counts.values())  # cart-wide, invariant across tiers
     event_cap = event.max_tickets_per_user
     event_remaining = max(0, event_cap - user_event_count) if event_cap is not None else None

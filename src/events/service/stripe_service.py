@@ -185,9 +185,16 @@ def _build_billing_snapshot(
     )
 
 
-def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSchema") -> None:
-    """Save buyer billing info to the user's billing profile."""
+def _save_billing_to_profile(
+    user: RevelUser, billing_info: "BuyerBillingInfoSchema", *, vat_id_validated: bool = False
+) -> None:
+    """Save buyer billing info to the user's billing profile.
+
+    ``vat_id_validated`` is the fresh VIES result for ``billing_info.vat_id`` obtained at checkout
+    (False when the ID was not checked on this path); it is recorded when the profile's VAT ID changes.
+    """
     from accounts.models import UserBillingProfile
+    from common.service.vies_service import parse_vat_id
 
     profile, _ = UserBillingProfile.objects.get_or_create(user=user)
     address = PostalAddress.from_fields(billing_info, "billing_").to_fields("billing_")
@@ -199,10 +206,10 @@ def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSch
     for field, value in structured.items():
         setattr(profile, field, value)
     if billing_info.vat_id:
-        if billing_info.vat_id != profile.vat_id:
-            # A different VAT ID has not been checked against VIES: drop the old ID's state.
-            profile.vat_id_validated = False
-            profile.vat_id_validated_at = None
+        if "".join(parse_vat_id(billing_info.vat_id)) != "".join(parse_vat_id(profile.vat_id)):
+            # A different VAT ID: drop the old ID's state, recording the checkout's fresh VIES result if any.
+            profile.vat_id_validated = vat_id_validated
+            profile.vat_id_validated_at = timezone.now() if vat_id_validated else None
             profile.vies_request_identifier = ""
             fields_to_update.extend(["vat_id_validated", "vat_id_validated_at", "vies_request_identifier"])
         profile.vat_id = billing_info.vat_id
@@ -667,7 +674,9 @@ def reserve_batch_payments(
     )
 
     if billing_info and billing_info.save_to_profile:
-        _save_billing_to_profile(user, billing_info)
+        _save_billing_to_profile(
+            user, billing_info, vat_id_validated=bool(buyer_vat_context and buyer_vat_context.buyer_vat_validated)
+        )
 
 
 @transaction.atomic

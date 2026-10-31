@@ -66,6 +66,16 @@ class TestGuestServiceLayer:
         with pytest.raises(GuestAccountExistsError):
             guest_service.get_or_create_guest_user(existing_regular_user.email, "New", "Name")
 
+    def test_get_or_create_guest_user_rejects_inactive_guest(self, existing_guest_user: RevelUser) -> None:
+        """A deactivated guest account is refused up front, not handed a new confirmation link."""
+        existing_guest_user.is_active = False
+        existing_guest_user.save(update_fields=["is_active"])
+
+        with pytest.raises(HttpError) as exc_info:
+            guest_service.get_or_create_guest_user(existing_guest_user.email)
+
+        assert exc_info.value.status_code == 403
+
     def test_create_guest_rsvp_token(self, existing_guest_user: RevelUser, guest_event: Event) -> None:
         """Test creating a guest RSVP JWT token."""
         # Act

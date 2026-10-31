@@ -156,12 +156,12 @@ def verify_contact_email(token: str) -> Organization:
     # Conditional update: only verify if the stored email still equals the token's email, so an
     # email change landing between a read and this write can never get the new address verified.
     matched = Organization.objects.filter(pk=organization.pk, contact_email__iexact=payload.email).update(
-        contact_email_verified=True
+        contact_email_verified=True, updated_at=timezone.now()
     )
     if not matched:
         raise HttpError(400, str(_("This verification link is for a different email address.")))
 
     blacklist_token(token)
-    organization.contact_email_verified = True
+    organization.refresh_from_db()
 
     return organization

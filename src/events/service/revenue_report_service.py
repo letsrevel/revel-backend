@@ -278,7 +278,7 @@ def _append_skipped_sheet(wb: Workbook, data: RevenueReportData) -> None:
                 sanitize_cell(doc.event.name) if doc.event else "",
                 sanitize_cell(doc.buyer_name),
                 sanitize_cell(doc.buyer_email),
-                doc.buyer_vat_id,
+                sanitize_cell(doc.buyer_vat_id),
                 doc.buyer_vat_country,
                 doc.buyer_vat_id_status,
                 ", ".join(f"{bucket['vat_rate'].normalize():f}%" for bucket in doc.vat_breakdown),
@@ -289,7 +289,7 @@ def _append_skipped_sheet(wb: Workbook, data: RevenueReportData) -> None:
                 doc.invoice.invoice_number if doc.invoice else "",
                 doc.stripe_session_id,
                 doc.resolved_at.astimezone(tz).date().isoformat() if doc.resolved_at else "",
-                doc.external_reference,
+                sanitize_cell(doc.external_reference),
             ]
         )
     _format_numeric_columns(sheet, money_cols=(12, 13, 14))

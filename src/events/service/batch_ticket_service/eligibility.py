@@ -241,7 +241,7 @@ class PurchaseEligibilityMixin(BatchTicketContext):
                 across every tier of the event (the event-cap layer).
 
         Returns:
-            Number of PENDING + ACTIVE tickets the user has.
+            Number of held (non-cancelled) tickets the user has.
 
         The event-cap count is provenance-blind: series-pass-materialized, box-office,
         and waitlist-claimed tickets all consume the buyer's event-wide allowance —
@@ -252,8 +252,7 @@ class PurchaseEligibilityMixin(BatchTicketContext):
         qs = Ticket.objects.filter(
             event=self.event,
             user=self.user,
-            status__in=Ticket.HELD_STATUSES,
-        )
+        ).exclude(status=Ticket.TicketStatus.CANCELLED)
         if tier is not None:
             qs = qs.filter(tier=tier)
         return qs.count()
@@ -369,8 +368,8 @@ class PurchaseEligibilityMixin(BatchTicketContext):
                 event=self.event,
                 user=self.user,
                 tier_id__in=capped_tier_ids,
-                status__in=Ticket.HELD_STATUSES,
             )
+            .exclude(status=Ticket.TicketStatus.CANCELLED)
             .values("tier_id")
             .annotate(count=Count("id"))
         }

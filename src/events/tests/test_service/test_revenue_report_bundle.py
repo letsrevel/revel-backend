@@ -379,7 +379,7 @@ def test_membership_and_skipped_sheets_neutralise_formula_cells(
         event=None,
         buyer_name="@SUM(A1)",
         buyer_email="b@example.com",
-        buyer_vat_id="",
+        buyer_vat_id="=HYPERLINK(1)",
         buyer_vat_country="",
         buyer_vat_id_status="",
         vat_breakdown=[],
@@ -390,7 +390,7 @@ def test_membership_and_skipped_sheets_neutralise_formula_cells(
         invoice=None,
         stripe_session_id="",
         resolved_at=None,
-        external_reference="",
+        external_reference="+cmd|calc",
     )
     data = dataclasses.replace(
         membership_report_data, membership_payments=[row], skipped_documents=[t.cast(t.Any, doc)]
@@ -400,3 +400,5 @@ def test_membership_and_skipped_sheets_neutralise_formula_cells(
 
     assert wb["Membership payments"]["D2"].value == "'=1+1"
     assert wb["Documents to issue yourself"]["F2"].value == "'@SUM(A1)"
+    assert wb["Documents to issue yourself"]["H2"].value == "'=HYPERLINK(1)"
+    assert wb["Documents to issue yourself"]["S2"].value == "'+cmd|calc"

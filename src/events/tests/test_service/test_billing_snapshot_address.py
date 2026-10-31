@@ -147,3 +147,26 @@ def test_save_to_profile_keeps_vies_state_when_vat_id_unchanged(django_user_mode
     _save_billing_to_profile(user, _info(vat_id="ATU12345678", vat_country_code="AT"))
 
     assert UserBillingProfile.objects.get(user=user).vat_id_validated is True
+
+
+@pytest.mark.django_db
+def test_save_to_profile_keeps_vies_state_when_only_formatting_differs(django_user_model: type[RevelUser]) -> None:
+    user = django_user_model.objects.create_user(username="vat3@example.com", email="vat3@example.com", password="p")
+    UserBillingProfile.objects.create(user=user, vat_id="ATU12345678", vat_country_code="AT", vat_id_validated=True)
+
+    _save_billing_to_profile(user, _info(vat_id=" atu12345678 ", vat_country_code="AT"))
+
+    assert UserBillingProfile.objects.get(user=user).vat_id_validated is True
+
+
+@pytest.mark.django_db
+def test_save_to_profile_records_fresh_vies_result_when_vat_id_changes(django_user_model: type[RevelUser]) -> None:
+    user = django_user_model.objects.create_user(username="vat4@example.com", email="vat4@example.com", password="p")
+    UserBillingProfile.objects.create(user=user, vat_id="ATU12345678", vat_country_code="AT", vat_id_validated=True)
+
+    _save_billing_to_profile(user, _info(vat_id="DE123456789", vat_country_code="DE"), vat_id_validated=True)
+
+    profile = UserBillingProfile.objects.get(user=user)
+    assert profile.vat_id == "DE123456789"
+    assert profile.vat_id_validated is True
+    assert profile.vat_id_validated_at is not None
