@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.29.0] - 2026-10-31
+
+### Added
+- **Key rotation support**: `SECRET_KEY` and `SALT_KEY` can now be rotated as routine maintenance, without logging users out or invalidating outstanding links
+  - New optional settings `SECRET_KEY_FALLBACKS` and `SALT_KEY_FALLBACKS` (comma-separated): tokens, signed URLs and encrypted fields are accepted under any listed key, and new ones use the primary key
+  - New optional `UNSUBSCRIBE_SIGNING_KEYS` gives unsubscribe links their own long-lived key list, independent of `SECRET_KEY`
+  - New `rotate_encrypted_fields` management command (`--dry-run`, `--verify`, `--batch-size`) re-encrypts stored encrypted fields under the current primary key
+  - New system checks: a warning when `SECRET_KEY` fallbacks are set but unsubscribe links still depend on `SECRET_KEY`, and when `SALT_KEY` contains a comma
+  - The rotation procedure is documented in `docs/engineering-notes.md`
+
+### Fixed
+- A user whose notification preferences were missing now gets the standard defaults (in-app and email channels, plus the guest-specific defaults for guest accounts) when the preferences are recreated from the preferences API, unsubscribe links, announcement mutes, notification delivery or the Telegram `/unsubscribe` command; previously the recreated row had no delivery channels.
+
 ## [2.28.4] - 2026-10-31
 
 ### Security
