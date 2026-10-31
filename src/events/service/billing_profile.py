@@ -2,6 +2,7 @@
 
 import typing as t
 
+from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -9,6 +10,7 @@ from common.postal_address import PostalAddress
 from events.models.attendee_invoice import BuyerBillingSnapshot
 
 if t.TYPE_CHECKING:
+    from accounts.models import UserBillingProfile
     from events.schema.ticket import BuyerBillingInfoSchema
 
 
@@ -50,9 +52,19 @@ def _save_billing_to_profile(
     (False when the ID was not checked on this path); it is recorded when the profile's VAT ID changes.
     """
     from accounts.models import UserBillingProfile
-    from common.service.vies_service import parse_vat_id
 
-    profile, _ = UserBillingProfile.objects.get_or_create(user=user)
+    with transaction.atomic():
+        UserBillingProfile.objects.get_or_create(user=user)
+        profile = UserBillingProfile.objects.select_for_update().get(user=user)  # serialize VAT-state compares
+        _apply_billing_to_profile(profile, billing_info, vat_id_validated=vat_id_validated)
+
+
+def _apply_billing_to_profile(
+    profile: "UserBillingProfile", billing_info: "BuyerBillingInfoSchema", *, vat_id_validated: bool
+) -> None:
+    """Write ``billing_info`` onto the (locked) ``profile``."""
+    from common.service.vies_service import normalize_vat_id
+
     address = PostalAddress.from_fields(billing_info, "billing_").to_fields("billing_")
     structured = {f: v for f, v in address.items() if f in billing_info.model_fields_set}  # sent fields only
     fields_to_update = ["billing_name", "billing_address", "billing_email", *structured]
@@ -62,13 +74,14 @@ def _save_billing_to_profile(
     for field, value in structured.items():
         setattr(profile, field, value)
     if billing_info.vat_id:
-        if "".join(parse_vat_id(billing_info.vat_id)) != "".join(parse_vat_id(profile.vat_id)):
+        normalized_vat_id = normalize_vat_id(billing_info.vat_id)
+        if normalized_vat_id != normalize_vat_id(profile.vat_id):
             # A different VAT ID: drop the old ID's state, recording the checkout's fresh VIES result if any.
             profile.vat_id_validated = vat_id_validated
             profile.vat_id_validated_at = timezone.now() if vat_id_validated else None
             profile.vies_request_identifier = ""
             fields_to_update.extend(["vat_id_validated", "vat_id_validated_at", "vies_request_identifier"])
         profile.vat_id = billing_info.vat_id
-        profile.vat_country_code = billing_info.vat_country_code
+        profile.vat_country_code = normalized_vat_id[:2]  # the ID's own prefix wins over a submitted country
         fields_to_update.extend(["vat_id", "vat_country_code"])
     profile.save(update_fields=fields_to_update)

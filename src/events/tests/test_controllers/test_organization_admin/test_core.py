@@ -788,6 +788,31 @@ class TestVerifyContactEmail:
         organization.refresh_from_db()
         assert organization.contact_email_verified is False
 
+    def test_verify_contact_email_dotless_i_does_not_match(
+        self, organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
+    ) -> None:
+        """A token for an address with a dotless i must not verify an address with a plain i."""
+        organization.contact_email = "info@example.com"
+        organization.contact_email_verified = False
+        organization.save()
+
+        from django.utils import timezone
+
+        verification_payload = schema.VerifyOrganizationContactEmailJWTPayloadSchema(
+            organization_id=organization.id,
+            user_id=organization_owner_user.id,
+            email="ınfo@example.com",
+            exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
+        )
+        token = create_token(verification_payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+        url = reverse("api:verify_contact_email", kwargs={"slug": organization.slug})
+
+        response = organization_owner_client.post(url, data={"token": token}, content_type="application/json")
+
+        assert response.status_code == 400, response.content
+        organization.refresh_from_db()
+        assert organization.contact_email_verified is False
+
 
 # --- Tests for contact_method on PUT and POST update-contact-email ---
 

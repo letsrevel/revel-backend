@@ -373,3 +373,12 @@ class TestValidateAndResolveBuyerCountryTimeout:
         _, _, country = validate_and_resolve_buyer_country(" de123456789", None)
 
         assert country == "DE"
+
+    @patch("common.service.vies_service.validate_vat_id_cached")
+    def test_country_derived_when_id_has_inner_whitespace(self, mock_validate: MagicMock) -> None:
+        """Inner spaces are stripped exactly as VIES validation does, so 'D E123456789' resolves to DE."""
+        mock_validate.return_value = VIESValidationResult(valid=True, name="", address="", request_identifier="")
+
+        _, _, country = validate_and_resolve_buyer_country("D E123456789", None)
+
+        assert country == "DE"
