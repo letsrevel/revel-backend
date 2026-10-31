@@ -133,3 +133,16 @@ def test_the_resolver_costs_one_query_and_the_guard_shares_its_queryset(
     assert len(ctx) == 1
     assert len(result) == 3
     assert service.live_tiers_charging_vat(organization).exists()
+
+
+def test_empty_once_a_scheme_is_declared_since_tier_rates_are_then_ignored(
+    organization: Organization, event_ticket_tier: TicketTier, owner_client: Client
+) -> None:
+    event_ticket_tier.vat_rate = Decimal("19.00")
+    event_ticket_tier.save()
+    Organization.objects.filter(pk=organization.pk).update(small_business_scheme="de_19")
+    organization.refresh_from_db()
+    assert _get(owner_client, organization)["tiers_charging_vat"] == []
+    with CaptureQueriesContext(connection) as ctx:
+        assert OrganizationBillingInfoSchema.resolve_tiers_charging_vat(organization) == []
+    assert len(ctx) == 0

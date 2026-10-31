@@ -178,6 +178,7 @@ class OrganizationBillingInfoSchema(Schema):
     invoicing_mode: OrganizationModel.InvoicingMode
     compliance: OrganizationComplianceSchema
     einvoice_missing_fields: list[str]
+    # Live tiers blocking a scheme declaration; empty once a scheme is declared (tier rates are then ignored).
     tiers_charging_vat: list[TierChargingVatSchema]
 
     @staticmethod
@@ -201,7 +202,12 @@ class OrganizationBillingInfoSchema(Schema):
 
     @staticmethod
     def resolve_tiers_charging_vat(obj: Organization) -> list[TierChargingVatSchema]:
-        """Live tiers with a positive VAT rate: the ones that block declaring a small-business scheme."""
+        """Live tiers with a positive VAT rate: the ones that block declaring a small-business scheme.
+
+        Empty once a scheme is declared, because tier rates are then ignored (they charge nothing).
+        """
+        if obj.small_business_scheme != SmallBusinessScheme.NONE:
+            return []
         return [
             TierChargingVatSchema(
                 event_id=tier.event_id,
