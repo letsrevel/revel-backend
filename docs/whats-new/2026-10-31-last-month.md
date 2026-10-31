@@ -3,7 +3,7 @@
 A month of making Revel ready for Europe's paperwork. The **EU compliance package** adapts
 ticketing and invoicing to each country's fiscal rules, and attendee invoices are now
 **EN 16931 e-invoices** with embedded **Factur-X / ZUGFeRD** data. The engine behind them is
-**euinvoice**, which we've released as an open-source Python library. Organizations can also run
+**[euinvoice](https://github.com/letsrevel/euinvoice)**, which we've released as an open-source Python library. Organizations can also run
 Revel **on their own domain with their own brand colors**. New organizers land on a **launchpad**
 that walks them to their first published event. And thanks to **CodeRabbit**, Revel is more
 secure than it was a month ago.
@@ -47,10 +47,10 @@ secure than it was a month ago.
   so they add up to the invoiced amount to the cent. Revenue reports split plain 0% sales from
   reverse-charge ones.
 
-### 📦 euinvoice: our e-invoicing engine, now open source
+### 📦 [euinvoice](https://github.com/letsrevel/euinvoice): our e-invoicing engine, now open source
 
 Everything above runs on **[euinvoice](https://github.com/letsrevel/euinvoice)**, a small, typed,
-**MIT-licensed** Python library we built and published on PyPI (`pip install euinvoice`):
+**MIT-licensed** Python library we built and published on [PyPI](https://pypi.org/project/euinvoice/) (`pip install euinvoice`):
 
 - one EN 16931 model, written out as **UBL** or **CII**;
 - **Peppol BIS 3.0**, **XRechnung 3.0**, **Factur-X / ZUGFeRD** (generate and embed in PDF/A-3),
@@ -60,7 +60,7 @@ Everything above runs on **[euinvoice](https://github.com/letsrevel/euinvoice)**
 - framework-free: bytes in, bytes out, with no Django, network or file-system access in the core.
 
 It's pre-1.0 (currently 0.2.1). If you work with European e-invoices in Python, try it, file
-issues and send PRs. Docs: [letsrevel.github.io/euinvoice](https://letsrevel.github.io/euinvoice/).
+[issues](https://github.com/letsrevel/euinvoice/issues) and send PRs. Docs: [letsrevel.github.io/euinvoice](https://letsrevel.github.io/euinvoice/).
 
 ## 🎨 Your Brand, Your Domain
 
