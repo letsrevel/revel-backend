@@ -3,27 +3,32 @@
 from datetime import datetime, timedelta
 
 import pytest
+from django.utils import timezone
 from freezegun import freeze_time
 
 from events.models import Event, EventSeries
 from events.service import recurrence_service
+from events.utils.recurrence_validators import MAX_DTSTART_LOOKBACK_DAYS
 
 pytestmark = pytest.mark.django_db
 
 
 @freeze_time("2026-04-06 00:00:00")
-def test_generation_materializes_at_most_the_per_run_cap(
-    active_series: EventSeries, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A run stops at the cap and the next run resumes from the last materialized occurrence."""
-    monkeypatch.setattr(recurrence_service, "MAX_OCCURRENCES_PER_RUN", 2)
+def test_generation_floors_old_dtstart_and_still_reaches_horizon(active_series: EventSeries) -> None:
+    """An ancient dtstart with a reset cursor never materializes below the floor, yet fills the window."""
+    rule = active_series.recurrence_rule
+    assert rule is not None
+    rule.dtstart = timezone.now() - timedelta(days=3 * 365)
+    rule.save()
+    active_series.last_generated_until = None
+    active_series.save()
 
-    first = recurrence_service.generate_series_events(active_series)
-    second = recurrence_service.generate_series_events(active_series)
+    created = recurrence_service.generate_series_events(active_series)
 
-    assert len(first) == 2
-    assert second
-    assert {e.start for e in first}.isdisjoint({e.start for e in second})
+    floor = timezone.now() - timedelta(days=MAX_DTSTART_LOOKBACK_DAYS)
+    assert created
+    assert min(e.start for e in created) >= floor
+    assert max(e.start for e in created) > timezone.now() + timedelta(weeks=2)
 
 
 @freeze_time("2026-04-06 00:00:00")

@@ -246,6 +246,12 @@ class QuestionnaireSubmissionSchema(Schema):
             + [fu.question_id for fu in self.file_upload_answers]
         )
 
+        if len(all_question_ids) > MAX_SUBMISSION_ANSWERS:
+            raise PydanticCustomError(
+                "too_many_answers",
+                f"A submission may contain at most {MAX_SUBMISSION_ANSWERS} answers in total.",
+            )
+
         duplicates = {qid for qid, n in Counter(all_question_ids).items() if n > 1}
 
         if duplicates:

@@ -17,6 +17,7 @@ from events.models import Event, EventSeries, Organization, RecurrenceRule
 from events.models.event_series import MAX_GENERATION_WINDOW_WEEKS
 from events.service.duplication import duplicate_event
 from events.suppression import suppress_event_notifications
+from events.utils.recurrence_validators import MAX_DTSTART_LOOKBACK_DAYS
 from events.utils.visibility_settings import build_visibility_settings_update
 
 logger = structlog.get_logger(__name__)
@@ -62,9 +63,6 @@ PROPAGATABLE_FIELDS = frozenset(
 # address text + PostGIS Point). Propagating one without the other would leave
 # occurrences with mismatched coordinates, so we always write both together.
 _COUPLED_FIELD_GROUPS: tuple[frozenset[str], ...] = (frozenset({"address", "location"}),)
-
-# Max occurrences materialized per run; the cursor resumes from the last one on the next run.
-MAX_OCCURRENCES_PER_RUN = 500
 
 
 def materialize_occurrence(series: EventSeries, dt: datetime, index: int) -> Event:
@@ -240,6 +238,8 @@ def _materialize_due_occurrences(
     )
     # Offset start_from by 1 second so dtstart itself is included in between().
     start_from = locked_series.last_generated_until or (rule_model.dtstart - timedelta(seconds=1))
+    # Never materialize further back than the lookback floor, regardless of dtstart or a reset cursor.
+    start_from = max(start_from, timezone.now() - timedelta(days=MAX_DTSTART_LOOKBACK_DAYS))
     # Defense against horizon decreases (e.g. user lowers generation_window_weeks):
     # without this cap, start_from could exceed horizon and silently stall generation.
     if start_from > horizon:
@@ -270,10 +270,6 @@ def _materialize_due_occurrences(
             continue
         created.append(materialize_occurrence(locked_series, dt, index=next_index))
         next_index += 1
-        if len(created) >= MAX_OCCURRENCES_PER_RUN:
-            # Cursor stops at the last materialized occurrence; the next run continues from here.
-            horizon = dt
-            break
 
     return created, horizon
 

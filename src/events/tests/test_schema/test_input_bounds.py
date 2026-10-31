@@ -12,6 +12,7 @@ from events.schema import VenueSectorCreateSchema
 from events.schema.organization import OrganizationEditSchema
 from events.schema.recurrence_rule import RecurrenceRuleCreateSchema
 from events.schema.vat_preview import VATPreviewItemSchema, VATPreviewRequestSchema
+from events.schema.venue import VenueSeatBulkCreateSchema, VenueSeatBulkUpdateSchema
 
 
 def test_sector_polygon_vertex_count_is_capped() -> None:
@@ -32,8 +33,21 @@ def test_vat_preview_item_count_is_capped() -> None:
     assert VATPreviewItemSchema(tier_id=uuid4(), count=5).count == 5
 
 
+def test_vat_preview_item_count_boundary() -> None:
+    assert VATPreviewItemSchema(tier_id=uuid4(), count=50).count == 50
+    with pytest.raises(ValidationError):
+        VATPreviewItemSchema(tier_id=uuid4(), count=51)
+
+
+def test_bulk_seat_requests_are_capped() -> None:
+    with pytest.raises(ValidationError):
+        VenueSeatBulkCreateSchema.model_validate({"seats": [{"label": str(i)} for i in range(10_001)]})
+    with pytest.raises(ValidationError):
+        VenueSeatBulkUpdateSchema.model_validate({"seats": [{"label": str(i)} for i in range(10_001)]})
+
+
 def test_vat_preview_items_length_is_capped() -> None:
-    items = [{"tier_id": str(uuid4()), "count": 1} for _ in range(51)]
+    items = [{"tier_id": str(uuid4()), "count": 1} for _ in range(21)]
     with pytest.raises(ValidationError):
         VATPreviewRequestSchema.model_validate({"billing_info": {"billing_name": "A"}, "items": items})
 

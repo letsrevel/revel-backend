@@ -8,9 +8,10 @@ from pydantic import Field, model_validator
 
 from .checkout import BuyerBillingInfoSchema
 
-# ponytail: generous per-request ceilings; no platform-wide per-checkout cap exists to mirror.
-MAX_VAT_PREVIEW_ITEMS = 50
-MAX_VAT_PREVIEW_TICKETS_PER_ITEM = 500
+# Mirror the real checkout limits in checkout.py (MultiTierCheckoutPayload.items max 20,
+# CheckoutGroupSchema.tickets max 50) so the preview accepts exactly what checkout can price.
+MAX_VAT_PREVIEW_ITEMS = 20
+MAX_VAT_PREVIEW_TICKETS_PER_ITEM = 50
 
 
 class VATPreviewItemSchema(Schema):

@@ -11,6 +11,7 @@ from __future__ import annotations
 from urllib.parse import unquote, urlparse
 
 import nh3
+import structlog
 
 # Allowed HTML tags for markdown content - intentionally restrictive
 ALLOWED_TAGS = {
@@ -140,6 +141,8 @@ def sanitize_markdown(text: str | None) -> str:
     return sanitize_html(text)
 
 
+logger = structlog.get_logger(__name__)
+
 MAX_RENDER_MARKDOWN_CHARS = 50_000
 
 
@@ -163,7 +166,9 @@ def render_markdown(text: str | None) -> str:
     import markdown
 
     # ponytail: cap input so pathological tables can't make rendering quadratic; truncate, don't fail.
-    text = text[:MAX_RENDER_MARKDOWN_CHARS]
+    if len(text) > MAX_RENDER_MARKDOWN_CHARS:
+        logger.warning("render_markdown_truncated", original_length=len(text), limit=MAX_RENDER_MARKDOWN_CHARS)
+        text = text[:MAX_RENDER_MARKDOWN_CHARS]
 
     # Render markdown to HTML
     html = markdown.markdown(

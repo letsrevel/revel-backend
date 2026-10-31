@@ -404,6 +404,7 @@ class VenueSeatBulkCreateSchema(Schema):
     seats: list[VenueSeatInputSchema] = Field(
         ...,
         min_length=1,
+        max_length=MAX_SEATS_PER_SECTOR_REQUEST,
         description="List of seats to create in the sector.",
     )
 
@@ -487,6 +488,7 @@ class VenueSeatBulkUpdateSchema(Schema):
     seats: list[VenueSeatBulkUpdateItemSchema] = Field(
         ...,
         min_length=1,
+        max_length=MAX_SEATS_PER_SECTOR_REQUEST,
         description="List of seats to update with their new values.",
     )
 

@@ -509,7 +509,14 @@ class TestProtectedPrefixConstant:
 
 def test_render_markdown_truncates_oversized_input() -> None:
     """Oversized input is truncated before rendering rather than rendered in full."""
+    from structlog.testing import capture_logs
+
     from common.sanitizers import MAX_RENDER_MARKDOWN_CHARS, render_markdown
 
-    html = render_markdown("a" * (MAX_RENDER_MARKDOWN_CHARS + 1000))
+    with capture_logs() as logs:
+        html = render_markdown("a" * (MAX_RENDER_MARKDOWN_CHARS + 1000))
     assert len(html) < MAX_RENDER_MARKDOWN_CHARS + 100
+    assert any(
+        entry["event"] == "render_markdown_truncated" and entry["original_length"] == MAX_RENDER_MARKDOWN_CHARS + 1000
+        for entry in logs
+    )
