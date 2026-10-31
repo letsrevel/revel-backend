@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.28.3] - 2026-10-31
+
+### Fixed
+- Invitation messages: only the documented `{user_name}`, `{event_name}`, `{organization_name}` and `{event_date}` placeholders are substituted; other brace syntax in a custom message is no longer interpreted.
+
 ## [2.28.2] - 2026-10-31
 
 ### Changed
