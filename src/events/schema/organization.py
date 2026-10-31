@@ -145,13 +145,19 @@ def _compliance(obj: Organization) -> OrganizationComplianceSchema:
 
 
 class TierChargingVatSchema(Schema):
-    """A live ticket tier that still charges VAT, which blocks declaring a small-business scheme."""
+    """A tier of a live event whose own VAT rate is above 0%, which blocks declaring a small-business scheme.
+
+    ``event_requires_ticket`` is false for RSVP-only events. Their tiers can still be sold through the API
+    (``TicketSalesGate`` skips RSVP events rather than blocking them), so they are listed; the flag lets a
+    client flag such events to the organizer.
+    """
 
     event_id: UUID
     event_name: str
     tier_id: UUID
     tier_name: str
     vat_rate: Decimal
+    event_requires_ticket: bool
 
 
 class OrganizationBillingInfoSchema(Schema):
@@ -178,7 +184,8 @@ class OrganizationBillingInfoSchema(Schema):
     invoicing_mode: OrganizationModel.InvoicingMode
     compliance: OrganizationComplianceSchema
     einvoice_missing_fields: list[str]
-    # Live tiers blocking a scheme declaration; empty once a scheme is declared (tier rates are then ignored).
+    # Tiers of events not ended or cancelled whose own rate is above 0% (RSVP-only events included, as their
+    # tiers can still be sold): they block a scheme declaration. Empty once a scheme is declared (rates ignored).
     tiers_charging_vat: list[TierChargingVatSchema]
 
     @staticmethod
@@ -202,9 +209,10 @@ class OrganizationBillingInfoSchema(Schema):
 
     @staticmethod
     def resolve_tiers_charging_vat(obj: Organization) -> list[TierChargingVatSchema]:
-        """Live tiers with a positive VAT rate: the ones that block declaring a small-business scheme.
+        """Tiers of events not ended or cancelled with an own VAT rate above 0%, RSVP-only events included.
 
-        Empty once a scheme is declared, because tier rates are then ignored (they charge nothing).
+        These block declaring a small-business scheme. Empty once a scheme is declared,
+        because tier rates are then ignored (they charge nothing).
         """
         if obj.small_business_scheme != SmallBusinessScheme.NONE:
             return []
@@ -215,6 +223,7 @@ class OrganizationBillingInfoSchema(Schema):
                 tier_id=tier.pk,
                 tier_name=tier.name,
                 vat_rate=t.cast(Decimal, tier.vat_rate),  # the queryset filters vat_rate > 0, so never None
+                event_requires_ticket=tier.event.requires_ticket,
             )
             for tier in live_tiers_charging_vat(obj)
         ]
