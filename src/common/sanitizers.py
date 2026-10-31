@@ -11,6 +11,7 @@ from __future__ import annotations
 from urllib.parse import unquote, urlparse
 
 import nh3
+import structlog
 
 # Allowed HTML tags for markdown content - intentionally restrictive
 ALLOWED_TAGS = {
@@ -140,6 +141,13 @@ def sanitize_markdown(text: str | None) -> str:
     return sanitize_html(text)
 
 
+logger = structlog.get_logger(__name__)
+
+MAX_RENDER_MARKDOWN_CHARS = 50_000
+MAX_MARKDOWN_TABLE_COLUMNS = 64
+TRUNCATION_MARKER = "\n\n…"
+
+
 def render_markdown(text: str | None) -> str:
     """Render markdown to HTML for internal use (emails, Telegram).
 
@@ -159,10 +167,21 @@ def render_markdown(text: str | None) -> str:
 
     import markdown
 
+    # ponytail: cap input so pathological tables can't make rendering quadratic; truncate, don't fail.
+    if len(text) > MAX_RENDER_MARKDOWN_CHARS:
+        logger.warning("render_markdown_truncated", original_length=len(text), limit=MAX_RENDER_MARKDOWN_CHARS)
+        text = text[:MAX_RENDER_MARKDOWN_CHARS] + TRUNCATION_MARKER
+
+    # The tables extension pads every row to the header width, so a wide header over many rows
+    # multiplies out regardless of the char cap. Skip it when any line has an absurd column count.
+    extensions = ["fenced_code"]
+    if not any(line.count("|") > MAX_MARKDOWN_TABLE_COLUMNS for line in text.splitlines()):
+        extensions.insert(0, "tables")
+
     # Render markdown to HTML
     html = markdown.markdown(
         text,
-        extensions=["tables", "fenced_code"],
+        extensions=extensions,
         output_format="html",
     )
 

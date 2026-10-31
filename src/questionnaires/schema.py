@@ -1,5 +1,5 @@
 import typing as t
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -17,6 +17,9 @@ from questionnaires.models import (
     QuestionnaireFile,
     QuestionnaireSubmission,
 )
+
+# Generous per-kind ceiling on answers in one submission.
+MAX_SUBMISSION_ANSWERS = 1000
 
 # ---- MIME type constants for file upload validation ----
 
@@ -225,9 +228,13 @@ class FileUploadSubmissionSchema(Schema):
 
 class QuestionnaireSubmissionSchema(Schema):
     questionnaire_id: UUID
-    multiple_choice_answers: list[MultipleChoiceSubmissionSchema] = Field(default_factory=list)
-    free_text_answers: list[FreeTextSubmissionSchema] = Field(default_factory=list)
-    file_upload_answers: list[FileUploadSubmissionSchema] = Field(default_factory=list)
+    multiple_choice_answers: list[MultipleChoiceSubmissionSchema] = Field(
+        default_factory=list, max_length=MAX_SUBMISSION_ANSWERS
+    )
+    free_text_answers: list[FreeTextSubmissionSchema] = Field(default_factory=list, max_length=MAX_SUBMISSION_ANSWERS)
+    file_upload_answers: list[FileUploadSubmissionSchema] = Field(
+        default_factory=list, max_length=MAX_SUBMISSION_ANSWERS
+    )
     status: QuestionnaireSubmission.QuestionnaireSubmissionStatus
 
     @model_validator(mode="after")
@@ -239,7 +246,13 @@ class QuestionnaireSubmissionSchema(Schema):
             + [fu.question_id for fu in self.file_upload_answers]
         )
 
-        duplicates = {qid for qid in all_question_ids if all_question_ids.count(qid) > 1}
+        if len(all_question_ids) > MAX_SUBMISSION_ANSWERS:
+            raise PydanticCustomError(
+                "too_many_answers",
+                f"A submission may contain at most {MAX_SUBMISSION_ANSWERS} answers in total.",
+            )
+
+        duplicates = {qid for qid, n in Counter(all_question_ids).items() if n > 1}
 
         if duplicates:
             raise PydanticCustomError(

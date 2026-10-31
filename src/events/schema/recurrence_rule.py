@@ -53,6 +53,7 @@ class RecurrenceRuleCreateSchema(Schema):
             weekday=self.weekday,
         )
         recurrence_validators.validate_boundaries(self.dtstart, self.until, self.count)
+        recurrence_validators.validate_dtstart_lookback(self.dtstart)
         recurrence_validators.validate_timezone(self.timezone)
         return self
 

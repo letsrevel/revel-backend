@@ -227,3 +227,10 @@ def test_tier_hidden_covers_visibility_pause_and_remote_pause(clean_event: Event
     tier.sales_paused = False
     tier.visibility = TicketTier.Visibility.UNLISTED
     assert mapper.tier_hidden(tier, False) is True
+
+
+def test_summary_ignores_truncation_marker() -> None:
+    from common.sanitizers import MAX_RENDER_MARKDOWN_CHARS
+
+    md = "# Heading only\n\n# " + "y" * MAX_RENDER_MARKDOWN_CHARS
+    assert mapper.summary_from_markdown(md) == "Heading only"

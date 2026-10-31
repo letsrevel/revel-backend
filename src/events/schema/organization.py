@@ -53,6 +53,9 @@ from .mixins import (
     get_image_field_url,
 )
 
+# Upper bound (10 years) so timedelta arithmetic in the expiry sweep cannot overflow.
+MAX_MEMBERSHIP_POLICY_DAYS = 3650
+
 
 class OrganizationCreateSchema(CityEditMixin, AttributionPayloadMixin):
     """Schema for creating a new organization."""
@@ -81,8 +84,8 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     accept_membership_requests: bool = False
     contact_method: Organization.ContactMethod = Organization.ContactMethod.NONE
     revenue_report_cadence: Organization.RevenueReportCadence = Organization.RevenueReportCadence.NONE
-    membership_grace_period_days: t.Annotated[int, Field(ge=0)] = 7
-    membership_subscription_revival_window_days: t.Annotated[int, Field(ge=0)] = 30
+    membership_grace_period_days: t.Annotated[int, Field(ge=0, le=MAX_MEMBERSHIP_POLICY_DAYS)] = 7
+    membership_subscription_revival_window_days: t.Annotated[int, Field(ge=0, le=MAX_MEMBERSHIP_POLICY_DAYS)] = 30
     membership_refund_policy: StrippedString = ""
     # Membership eligibility policy defaults (overridable per tier). The questionnaire id
     # is validated (org-scoped, MEMBERSHIP type) in the service layer before persisting.

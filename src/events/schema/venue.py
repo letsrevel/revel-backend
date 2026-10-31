@@ -74,8 +74,12 @@ class Coordinate2D(Schema):
         return value
 
 
-# A polygon is a list of at least 3 coordinate points
-PolygonShape = t.Annotated[list[Coordinate2D], Field(min_length=3)]
+# Caps keep the point-in-polygon check (vertices x seats) bounded at parse time.
+MAX_POLYGON_VERTICES = 500
+MAX_SEATS_PER_SECTOR_REQUEST = 10_000
+
+# A polygon is a list of at least 3 (and at most MAX_POLYGON_VERTICES) coordinate points
+PolygonShape = t.Annotated[list[Coordinate2D], Field(min_length=3, max_length=MAX_POLYGON_VERTICES)]
 
 
 def point_in_polygon(point: Coordinate2D, polygon: list[Coordinate2D]) -> bool:
@@ -353,7 +357,7 @@ class VenueSectorCreateSchema(Schema):
             "are served publicly on the anonymous seating chart and tier seats endpoint."
         ),
     )
-    seats: list[VenueSeatInputSchema] = Field(default_factory=list)
+    seats: list[VenueSeatInputSchema] = Field(default_factory=list, max_length=MAX_SEATS_PER_SECTOR_REQUEST)
 
     @model_validator(mode="after")
     def validate_seat_positions(self) -> "VenueSectorCreateSchema":
@@ -400,6 +404,7 @@ class VenueSeatBulkCreateSchema(Schema):
     seats: list[VenueSeatInputSchema] = Field(
         ...,
         min_length=1,
+        max_length=MAX_SEATS_PER_SECTOR_REQUEST,
         description="List of seats to create in the sector.",
     )
 
@@ -483,6 +488,7 @@ class VenueSeatBulkUpdateSchema(Schema):
     seats: list[VenueSeatBulkUpdateItemSchema] = Field(
         ...,
         min_length=1,
+        max_length=MAX_SEATS_PER_SECTOR_REQUEST,
         description="List of seats to update with their new values.",
     )
 
