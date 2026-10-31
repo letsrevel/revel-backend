@@ -8,6 +8,7 @@ from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
 from django.http import HttpRequest
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
@@ -309,6 +310,41 @@ def invalidate_permission_snapshot(
     it must invalidate explicitly.
     """
     permission_snapshot.invalidate_my_permissions(instance.user_id)
+
+
+@receiver(pre_save, sender=OrganizationMember)
+def capture_member_old_status(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
+    """Stash the pre-save status so post_save can detect status changes."""
+    if instance.pk:
+        instance._old_status = (  # type: ignore[attr-defined]
+            OrganizationMember.objects.filter(pk=instance.pk).values_list("status", flat=True).first()
+        )
+
+
+@receiver(post_save, sender=OrganizationMember)
+@receiver(post_delete, sender=OrganizationMember)
+def rebuild_visibility_on_membership_change(
+    sender: type[OrganizationMember], instance: OrganizationMember, created: bool = False, **kwargs: t.Any
+) -> None:
+    """Rebuild attendee visibility flags of the org's not-yet-ended events when membership changes.
+
+    Member-scoped attendee privacy only counts active memberships, but the flags are persisted, so a
+    membership that is created, removed, or changes status (e.g. to CANCELLED/BANNED) must rebuild them.
+    """
+    if kwargs.get("signal") is post_save and not created:
+        if getattr(instance, "_old_status", None) == instance.status:
+            return
+    event_ids = list(
+        Event.objects.filter(organization_id=instance.organization_id, end__gte=timezone.now()).values_list(
+            "id", flat=True
+        )
+    )
+    for event_id in event_ids:
+        _rebuild_visibility_on_commit(str(event_id))
+
+
+def _rebuild_visibility_on_commit(event_id: str) -> None:
+    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
 
 
 @receiver(pre_save, sender=OrganizationMember)
