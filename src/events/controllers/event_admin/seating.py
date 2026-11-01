@@ -7,6 +7,7 @@ from common.authentication import ScopedJWTAuth
 from common.throttling import WriteThrottle
 from events import models, schema
 from events.controllers.permissions import EventPermission
+from events.service.batch_ticket_service.eligibility import assert_event_sells_tickets
 from events.service.seating import box_office
 from events.service.seating import overrides as overrides_service
 from oauth.permissions import RequireScope
@@ -57,6 +58,7 @@ class EventAdminSeatingController(EventAdminBaseController):
         """
         event = self.get_one(event_id)
         tier = get_object_or_404(models.TicketTier, pk=payload.tier_id, event=event)
+        assert_event_sells_tickets(event)  # before resolve_recipient, so an RSVP-only request creates no user
         recipient = box_office.resolve_recipient(payload.email, payload.user_id, payload.first_name, payload.last_name)
         ticket = box_office.sell(
             event,

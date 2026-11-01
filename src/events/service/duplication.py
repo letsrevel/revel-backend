@@ -189,10 +189,14 @@ def _duplicate_ticket_tiers(
 ) -> None:
     """Duplicate ticket tiers from template, resetting quantity_sold and shifting sales dates.
 
+    An RSVP-only destination (``requires_ticket`` false) gets no tiers.
+
     Iterates ``TicketTier._meta.concrete_fields`` with an explicit exclusion list so that
     new tier fields are propagated by default. The previous field-by-field enumeration
     silently dropped any field added after it was written.
     """
+    if not new_event.requires_ticket:
+        return
     for tier in template_event.ticket_tiers.all():
         copy_kwargs: dict[str, t.Any] = {}
         for field in tier._meta.concrete_fields:

@@ -67,6 +67,23 @@ class TestTierCreation:
         assert response.status_code == 200, response.content
 
 
+class TestDuplication:
+    def test_duplicate_rsvp_only_event_copies_no_tiers(
+        self, organization_owner_client: Client, public_event: Event
+    ) -> None:
+        _rsvp_event(public_event)
+        _tier(public_event)
+        url = reverse("api:duplicate_event", kwargs={"event_id": public_event.pk})
+        payload = {"name": "RSVP Copy", "start": (public_event.start + timedelta(days=7)).isoformat()}
+
+        response = _post(organization_owner_client, url, payload)
+
+        assert response.status_code == 200, response.content
+        new_event = Event.objects.get(pk=response.json()["id"])
+        assert new_event.requires_ticket is False
+        assert new_event.ticket_tiers.count() == 0
+
+
 class TestCheckoutRefused:
     def test_auth_single_tier(self, member_client: Client, public_event: Event) -> None:
         event = _rsvp_event(public_event)
