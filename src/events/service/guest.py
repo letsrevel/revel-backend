@@ -476,10 +476,11 @@ def handle_guest_ticket_checkout(
     from events.service.seating.pick import resolve_requested_zone
     from events.tasks import send_guest_ticket_confirmation
 
+    # RSVP-only first: such an event sells nothing to anyone, logged in or not.
+    assert_event_sells_tickets(event)
     # Check if event allows guest access
     if not event.can_attend_without_login:
         raise HttpError(400, str(_("This event requires login to purchase tickets.")))
-    assert_event_sells_tickets(event)
 
     # Enforce the holder-name requirement HERE, before the payment-method branch: the
     # non-online branch defers create_batch to the confirmation click, so a nameless

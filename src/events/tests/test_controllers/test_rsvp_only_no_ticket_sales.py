@@ -106,6 +106,16 @@ class TestCheckoutRefused:
 
         _assert_rsvp_only(_post(client, url, data))
 
+    def test_guest_rsvp_only_error_wins_over_login_required(self, client: Client, public_event: Event) -> None:
+        event = _rsvp_event(public_event)
+        event.can_attend_without_login = False
+        event.save(update_fields=["can_attend_without_login"])
+        tier = _tier(event)
+        url = reverse("api:guest_ticket_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk})
+        data = {"email": "guest@example.com", "first_name": "G", "last_name": "Uest", "tickets": [{"guest_name": "G"}]}
+
+        _assert_rsvp_only(_post(client, url, data))
+
 
 class TestRequiresTicketIsCreateOnly:
     @freeze_time("2030-03-25 00:00:00")
