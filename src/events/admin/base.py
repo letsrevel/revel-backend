@@ -227,6 +227,12 @@ class TicketTierInline(TabularInline):  # type: ignore[misc]
     # and fire one __str__ query per <option>, per row + empty form (#880).
     raw_id_fields = ["venue", "sector", "restricted_to_membership_tiers"]
 
+    def has_add_permission(self, request: HttpRequest, obj: models.Event | None = None) -> bool:
+        """Block adding tiers to RSVP-only events, which sell nothing (#1295)."""
+        if obj is not None and not obj.requires_ticket:
+            return False
+        return super().has_add_permission(request, obj)
+
 
 class EventInvitationInline(TabularInline):  # type: ignore[misc]
     model = models.EventInvitation
