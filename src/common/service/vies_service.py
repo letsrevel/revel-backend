@@ -276,7 +276,7 @@ def set_vat_id(
         entity_id: ID string for structured logging.
         entity_type: Label for structured logging.
         on_vies_unavailable: Optional callback invoked when VIES is down
-            (e.g., to queue a background retry task). Called before raising HttpError.
+            (e.g., to queue a background retry task). Called before raising VATIdSavedPendingError.
         rollback_on_invalid: If True, clears the VAT ID when VIES returns invalid.
         result: A VIES decision the caller already took for ``vat_id``; VIES is then not asked again.
 

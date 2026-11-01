@@ -41,8 +41,9 @@ def _dispatch_fee_resync_if_changed(org: "Organization", before: Decimal | None)
     Runs in a ``finally`` in the wrappers below: several generic operations
     persist a VAT-state change *and then* raise (invalid VAT ID saves
     ``vat_id_validated=False`` before the 400; a VIES outage saves the ID
-    unvalidated before the 503 — and Ninja turns the ``HttpError`` into a
-    response, so under ``ATOMIC_REQUESTS`` the transaction still commits).
+    unvalidated before the 503 — and Ninja's registered exception handlers turn
+    both the ``HttpError`` and ``VATIdSavedPendingError`` into responses, so under
+    ``ATOMIC_REQUESTS`` the transaction still commits).
     Deferred via ``on_commit`` so the task never races the commit; outside a
     transaction (Celery) it runs immediately.
     """
@@ -72,8 +73,8 @@ def set_org_vat_id(org: "Organization", vat_id: str) -> None:
     def _queue_retry() -> None:
         from events.tasks import revalidate_single_vat_id_task
 
-        # _queue_retry runs right before set_vat_id raises HttpError(503). There
-        # is no inner atomic block, and Django Ninja turns the HttpError into a
+        # _queue_retry runs right before set_vat_id raises VATIdSavedPendingError.
+        # There is no inner atomic block, and its registered handler turns it into a
         # 503 *response* (no exception reaches the ATOMIC_REQUESTS wrapper), so
         # the request transaction commits and on_commit fires — deferring avoids
         # the retry task racing the commit of the org's freshly-set vat_id.

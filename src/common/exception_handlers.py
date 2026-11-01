@@ -13,6 +13,11 @@ every app's ``exception_handlers.py`` stays a thin declarative table:
   ``{"detail": ...}`` (for exceptions raised bare, where ``str(exc)`` is empty).
 - :func:`register_handlers` — install a ``{exc_type: handler}`` mapping on the API.
 
+``common`` also owns one handler of its own, :func:`handle_vies_unavailable`, for the
+coded VAT-ID 503s raised by the shared VIES service; it needs a ``code`` in the body, so it
+can't use the generic builders, and :func:`register` installs it from ``CommonConfig.ready``
+like any other app.
+
 Ninja Extra dispatches exceptions by MRO — most specific registered handler
 wins — so app-specific handlers take precedence over the generic
 ``ValidationError → 400`` global defined in :mod:`api.api`.
