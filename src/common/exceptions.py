@@ -18,6 +18,7 @@ class VIESUnavailableCode(str, enum.Enum):
     """
 
     SAVED_PENDING = "vies_unavailable_saved_pending"
+    SAVED_UNVALIDATED = "vies_unavailable_saved_unvalidated"
     NOT_SAVED = "vies_unavailable_not_saved"
 
 
@@ -29,7 +30,7 @@ class VIESUnavailableResponseError(Exception):
 
 
 class VATIdSavedPendingError(VIESUnavailableResponseError):
-    """VIES is down: the VAT ID was saved unvalidated and a retry is pending."""
+    """VIES is down: the VAT ID was saved unvalidated and a background revalidation is queued."""
 
     code = VIESUnavailableCode.SAVED_PENDING
     message = _(
@@ -42,3 +43,10 @@ class VATIdNotSavedError(VIESUnavailableResponseError):
 
     code = VIESUnavailableCode.NOT_SAVED
     message = _("VIES validation service is temporarily unavailable. Please try again later.")
+
+
+class VATIdSavedUnvalidatedError(VIESUnavailableResponseError):
+    """VIES is down: the VAT ID was saved unvalidated and nothing retries it; the client should retry later."""
+
+    code = VIESUnavailableCode.SAVED_UNVALIDATED
+    message = VATIdSavedPendingError.message  # same msgid: no catalog change

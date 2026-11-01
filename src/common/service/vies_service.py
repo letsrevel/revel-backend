@@ -21,7 +21,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
-from common.exceptions import VATIdSavedPendingError
+from common.exceptions import VATIdSavedPendingError, VATIdSavedUnvalidatedError
 
 logger = structlog.get_logger(__name__)
 
@@ -282,7 +282,8 @@ def set_vat_id(
 
     Raises:
         HttpError 400: If VIES says the VAT ID is invalid.
-        VATIdSavedPendingError: If VIES is unavailable (the VAT ID is saved, unvalidated).
+        VATIdSavedPendingError: VIES is unavailable; saved unvalidated, ``on_vies_unavailable`` queued a retry.
+        VATIdSavedUnvalidatedError: As above, but no callback was given, so nothing retries.
     """
     entity.vat_id = vat_id
     entity.vat_country_code = vat_id[:2].upper()
@@ -299,8 +300,9 @@ def set_vat_id(
             raise HttpError(400, str(_("The VAT ID is not valid according to VIES.")))
     except VIESUnavailableError:
         logger.warning("vies_unavailable", **{f"{entity_type}_id": entity_id})
-        if on_vies_unavailable:
-            on_vies_unavailable()
+        if not on_vies_unavailable:
+            raise VATIdSavedUnvalidatedError
+        on_vies_unavailable()
         raise VATIdSavedPendingError
 
     entity.refresh_from_db()
