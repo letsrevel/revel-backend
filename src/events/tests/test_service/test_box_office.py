@@ -97,6 +97,27 @@ def test_sell_at_the_door_on_free_seat(
     assert tier.quantity_sold == 1
 
 
+def test_sell_rejected_on_rsvp_only_event(
+    seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, recipient: RevelUser
+) -> None:
+    """RSVP-only events sell nothing, door sales and comps included (#1295)."""
+    event, seats = seated_event
+    event.requires_ticket = False
+    event.save(update_fields=["requires_ticket"])
+
+    with pytest.raises(HttpError) as exc:
+        box_office.sell(
+            event,
+            tier,
+            seat_id=seats[0].id,
+            payment_method=TicketTier.PaymentMethod.FREE,
+            recipient=recipient,
+        )
+
+    assert exc.value.status_code == 400
+    assert not Ticket.objects.filter(event=event).exists()
+
+
 def test_sell_comp_records_zero_price_paid(
     seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, recipient: RevelUser
 ) -> None:

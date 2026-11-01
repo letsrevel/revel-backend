@@ -458,8 +458,8 @@ def handle_guest_ticket_checkout(
         Stripe `checkout_url`.
 
     Raises:
-        HttpError: If event doesn't allow guest access, the cart is malformed, tier
-            issues, or eligibility checks fail.
+        HttpError: If event doesn't allow guest access, the event is RSVP-only (400), the
+            cart is malformed, tier issues, or eligibility checks fail.
         GuestAccountExistsError: 400 with ``code`` if the email belongs to a non-guest account.
         GuestCartTooLargeError: 400 with ``code`` if (non-online carts) the confirmation
             token would exceed ``_GUEST_TOKEN_MAX_CHARS``.
