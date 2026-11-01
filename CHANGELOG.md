@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.32.0] - 2026-11-01
+
+### Added
+- The VAT-ID endpoints (`PUT /organization-admin/{slug}/vat-id` and `PUT /me/billing/vat-id`) now include a machine-readable `code` in their 503 responses while VIES is unavailable, so clients no longer have to guess from the message what happened:
+  - `vies_unavailable_saved_pending`: the VAT ID was saved unvalidated and a background revalidation is queued (organizations)
+  - `vies_unavailable_saved_unvalidated`: the VAT ID was saved unvalidated and no retry is queued; retry later (personal billing profiles)
+  - `vies_unavailable_not_saved`: the change was refused and nothing was saved
+  - Status code and message text are unchanged.
+
 ## [2.31.0] - 2026-10-31
 
 ### Added
