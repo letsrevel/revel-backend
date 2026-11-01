@@ -197,7 +197,11 @@ class ResponseMessage(Schema):
 
 
 class VIESUnavailableErrorSchema(Schema):
-    """503 body while VIES is down; ``code`` tells "saved, validation pending" from "refused, nothing saved"."""
+    """503 body while VIES is down.
+
+    ``code`` distinguishes "saved, revalidation queued", "saved, unvalidated, client must retry" and
+    "refused, nothing saved" (see :class:`common.exceptions.VIESUnavailableCode`).
+    """
 
     detail: str
     code: VIESUnavailableCode

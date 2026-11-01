@@ -10,11 +10,17 @@ if t.TYPE_CHECKING:
 
 
 class VIESUnavailableCode(str, enum.Enum):
-    """Stable discriminators for the two VAT-ID 503s raised while VIES is down.
+    """Stable discriminators for the VAT-ID 503s raised while VIES is down.
 
-    Both share one status, but the frontend must tell them apart: one saved the VAT ID (validation
-    pending), the other refused and wrote nothing. Renaming a value is a breaking change; rewording
-    the message is always safe.
+    All share one status, but the frontend must tell them apart:
+
+    - ``vies_unavailable_saved_pending``: the VAT ID was saved unvalidated and a background
+      revalidation is queued (organizations).
+    - ``vies_unavailable_saved_unvalidated``: the VAT ID was saved unvalidated and NO retry is
+      queued; the client must retry later (personal billing profiles).
+    - ``vies_unavailable_not_saved``: the change was refused and nothing was written.
+
+    Renaming a value is a breaking change; rewording the message is always safe.
     """
 
     SAVED_PENDING = "vies_unavailable_saved_pending"
