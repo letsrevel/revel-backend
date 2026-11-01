@@ -456,6 +456,10 @@ class TestSetVATId:
         )
 
         assert response.status_code == 503
+        assert response.json()["code"] == "vies_unavailable_saved_unvalidated"
+        billing_profile.refresh_from_db()
+        assert billing_profile.vat_id == "IT12345678901"
+        assert billing_profile.vat_id_validated is False
 
     def test_rejects_invalid_format(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
         """VAT ID with invalid format is rejected at schema level."""

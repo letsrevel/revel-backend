@@ -21,6 +21,8 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
+from common.exceptions import VATIdSavedPendingError, VATIdSavedUnvalidatedError
+
 logger = structlog.get_logger(__name__)
 
 VIES_REST_URL = "https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number"
@@ -274,13 +276,14 @@ def set_vat_id(
         entity_id: ID string for structured logging.
         entity_type: Label for structured logging.
         on_vies_unavailable: Optional callback invoked when VIES is down
-            (e.g., to queue a background retry task). Called before raising HttpError.
+            (e.g., to queue a background retry task). Called before raising VATIdSavedPendingError.
         rollback_on_invalid: If True, clears the VAT ID when VIES returns invalid.
         result: A VIES decision the caller already took for ``vat_id``; VIES is then not asked again.
 
     Raises:
         HttpError 400: If VIES says the VAT ID is invalid.
-        HttpError 503: If VIES is unavailable.
+        VATIdSavedPendingError: VIES is unavailable; saved unvalidated, ``on_vies_unavailable`` queued a retry.
+        VATIdSavedUnvalidatedError: As above, but no callback was given, so nothing retries.
     """
     entity.vat_id = vat_id
     entity.vat_country_code = vat_id[:2].upper()
@@ -297,17 +300,10 @@ def set_vat_id(
             raise HttpError(400, str(_("The VAT ID is not valid according to VIES.")))
     except VIESUnavailableError:
         logger.warning("vies_unavailable", **{f"{entity_type}_id": entity_id})
-        if on_vies_unavailable:
-            on_vies_unavailable()
-        raise HttpError(
-            503,
-            str(
-                _(
-                    "VIES validation service is temporarily unavailable."
-                    " The VAT ID has been saved. Please try again later."
-                )
-            ),
-        )
+        if not on_vies_unavailable:
+            raise VATIdSavedUnvalidatedError
+        on_vies_unavailable()
+        raise VATIdSavedPendingError
 
     entity.refresh_from_db()
 

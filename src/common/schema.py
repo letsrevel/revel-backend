@@ -10,6 +10,7 @@ from pydantic import AwareDatetime, EmailStr, StringConstraints, field_validator
 from common.constants import is_valid_country_code
 from common.country import normalize_country_code
 
+from .exceptions import VIESUnavailableCode
 from .models import SiteSettings, Tag
 from .signing import get_file_url
 
@@ -193,6 +194,17 @@ class ResponseOk(Schema):
 
 class ResponseMessage(Schema):
     message: str
+
+
+class VIESUnavailableErrorSchema(Schema):
+    """503 body while VIES is down.
+
+    ``code`` distinguishes "saved, revalidation queued", "saved, unvalidated, client must retry" and
+    "refused, nothing saved" (see :class:`common.exceptions.VIESUnavailableCode`).
+    """
+
+    detail: str
+    code: VIESUnavailableCode
 
 
 class ErrorDetail(Schema):

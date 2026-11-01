@@ -13,6 +13,11 @@ every app's ``exception_handlers.py`` stays a thin declarative table:
   ``{"detail": ...}`` (for exceptions raised bare, where ``str(exc)`` is empty).
 - :func:`register_handlers` — install a ``{exc_type: handler}`` mapping on the API.
 
+``common`` also owns one handler of its own, :func:`handle_vies_unavailable`, for the
+coded VAT-ID 503s raised by the shared VIES service; it needs a ``code`` in the body, so it
+can't use the generic builders, and :func:`register` installs it from ``CommonConfig.ready``
+like any other app.
+
 Ninja Extra dispatches exceptions by MRO — most specific registered handler
 wins — so app-specific handlers take precedence over the generic
 ``ValidationError → 400`` global defined in :mod:`api.api`.
@@ -27,6 +32,8 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import HttpRequest, HttpResponse
 from django.utils.functional import Promise
 from ninja.responses import Response
+
+from common.exceptions import VIESUnavailableResponseError
 
 ExceptionHandler = t.Callable[[HttpRequest, Exception | t.Type[Exception]], HttpResponse]
 
@@ -98,3 +105,27 @@ def register_handlers(
     """
     for exc_type, handler in handlers.items():
         api.add_exception_handler(exc_type, handler)
+
+
+def handle_vies_unavailable(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Render a VIES outage as ``{"detail": <message>, "code": <code>}`` with status 503."""
+    from common.schema import VIESUnavailableErrorSchema  # noqa: PLC0415  # schema imports models
+
+    error = t.cast(VIESUnavailableResponseError, exc)
+    return Response(
+        status=503,
+        data=VIESUnavailableErrorSchema(detail=str(error.message), code=error.code).model_dump(mode="json"),
+    )
+
+
+# Single source of truth for the exception → status mapping.
+HANDLERS: dict[type[Exception], ExceptionHandler] = {
+    VIESUnavailableResponseError: handle_vies_unavailable,
+}
+
+
+def register() -> None:
+    """Install common exception handlers on the global Ninja API (from ``CommonConfig.ready``)."""
+    from api.api import api  # noqa: PLC0415
+
+    register_handlers(api, HANDLERS)

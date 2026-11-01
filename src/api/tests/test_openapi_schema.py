@@ -274,6 +274,19 @@ def test_wallet_endpoints_declare_both_503_shapes() -> None:
         assert declared[(path, "get")] == {"WalletPassErrorSchema", "ErrorDetail"}, path
 
 
+def test_vat_id_endpoints_declare_the_coded_503() -> None:
+    """Both VIES-outage 503s carry a ``code`` ("saved, pending" vs "refused, nothing saved")."""
+    declared = {
+        (path, method): names
+        for (path, method, _status), names in _declared_error_schemas(lambda s: s == "503").items()
+    }
+    for path, method in (
+        ("/api/organization-admin/{slug}/vat-id", "put"),
+        ("/api/me/billing/vat-id", "put"),
+    ):
+        assert declared[(path, method)] == {"VIESUnavailableErrorSchema"}, path
+
+
 def _operations() -> dict[tuple[str, str], dict[str, t.Any]]:
     """Map each ``(path, method)`` to its raw OpenAPI operation object."""
     api._schema_cache = {}

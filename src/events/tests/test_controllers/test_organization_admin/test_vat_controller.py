@@ -492,6 +492,7 @@ class TestSetVatId:
         response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
         assert response.status_code == 503
+        assert response.json()["code"] == "vies_unavailable_saved_pending"
         # Verify the VAT ID was saved despite VIES being unavailable
         organization.refresh_from_db()
         assert organization.vat_id == "DE123456789"
