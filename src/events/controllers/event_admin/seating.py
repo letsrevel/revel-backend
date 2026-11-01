@@ -4,6 +4,7 @@ from django.shortcuts import get_object_or_404
 from ninja_extra import api_controller, route
 
 from common.authentication import ScopedJWTAuth
+from common.schema import ErrorDetail
 from common.throttling import WriteThrottle
 from events import models, schema
 from events.controllers.permissions import EventPermission
@@ -47,7 +48,7 @@ class EventAdminSeatingController(EventAdminBaseController):
     @route.post(
         "/seating/sell",
         url_name="event_seating_sell",
-        response=schema.AdminTicketSchema,
+        response={200: schema.AdminTicketSchema, 400: ErrorDetail},
     )
     def box_office_sell(self, event_id: UUID, payload: schema.BoxOfficeSellRequest) -> models.Ticket:
         """Door sale / comp: issue an ACTIVE ticket directly on a seat.
