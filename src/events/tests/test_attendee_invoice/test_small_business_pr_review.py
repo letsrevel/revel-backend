@@ -291,6 +291,7 @@ class TestVatIdEndpointsGuard:
         with patch("common.service.vies_service.validate_vat_id", side_effect=VIESUnavailableError("down")):
             response = self._put_vat_id(owner_client, org, "DE123456780")
         assert response.status_code == 503, response.content
+        assert response.json()["code"] == "vies_unavailable_not_saved"
         org.refresh_from_db()
         assert (org.vat_id, org.vat_id_validated) == ("DE811234567", False)
 

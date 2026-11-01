@@ -28,6 +28,8 @@ from django.http import HttpRequest, HttpResponse
 from django.utils.functional import Promise
 from ninja.responses import Response
 
+from common.exceptions import VIESUnavailableResponseError
+
 ExceptionHandler = t.Callable[[HttpRequest, Exception | t.Type[Exception]], HttpResponse]
 
 
@@ -98,3 +100,27 @@ def register_handlers(
     """
     for exc_type, handler in handlers.items():
         api.add_exception_handler(exc_type, handler)
+
+
+def handle_vies_unavailable(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Render a VIES outage as ``{"detail": <message>, "code": <code>}`` with status 503."""
+    from common.schema import VIESUnavailableErrorSchema  # noqa: PLC0415  # schema imports models
+
+    error = t.cast(VIESUnavailableResponseError, exc)
+    return Response(
+        status=503,
+        data=VIESUnavailableErrorSchema(detail=str(error.message), code=error.code).model_dump(mode="json"),
+    )
+
+
+# Single source of truth for the exception → status mapping.
+HANDLERS: dict[type[Exception], ExceptionHandler] = {
+    VIESUnavailableResponseError: handle_vies_unavailable,
+}
+
+
+def register() -> None:
+    """Install common exception handlers on the global Ninja API (from ``CommonConfig.ready``)."""
+    from api.api import api  # noqa: PLC0415
+
+    register_handlers(api, HANDLERS)

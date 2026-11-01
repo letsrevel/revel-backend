@@ -20,7 +20,9 @@ class CommonConfig(AppConfig):
 
         # Importing the module runs its @register() decorators.
         import common.checks  # noqa: F401
+        from common.exception_handlers import register as register_exception_handlers
 
+        register_exception_handlers()
         _install_fallback_token_backend()
 
 

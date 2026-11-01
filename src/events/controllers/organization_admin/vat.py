@@ -13,7 +13,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from common.authentication import I18nJWTAuth
-from common.schema import ErrorDetail
+from common.schema import ErrorDetail, VIESUnavailableErrorSchema
 from common.signing import get_file_url
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
@@ -72,7 +72,7 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
     @route.put(
         "/vat-id",
         url_name="set_vat_id",
-        response=schema.OrganizationBillingInfoSchema,
+        response={200: schema.OrganizationBillingInfoSchema, 503: VIESUnavailableErrorSchema},
         throttle=WriteThrottle(),
     )
     def set_vat_id(self, slug: str, payload: schema.VATIdUpdateSchema) -> models.Organization:

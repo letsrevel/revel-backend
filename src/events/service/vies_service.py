@@ -14,9 +14,9 @@ import typing as t
 from decimal import Decimal
 
 from django.db import transaction
-from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
+from common.exceptions import VATIdNotSavedError
 from common.service import vies_service as common_vies
 from common.service.vies_service import VIESValidationResult, validate_and_update_vat_entity
 from common.service.vies_service import clear_vat_fields as _clear_vat_fields
@@ -111,7 +111,7 @@ def _assert_vat_id_set_allowed(org: "Organization", vat_id: str) -> VIESValidati
 
     Raises:
         HttpError 422: The change is refused.
-        HttpError 503: VIES is unavailable and the outcome decides.
+        VATIdNotSavedError: VIES is unavailable and the outcome decides.
     """
     refusal = small_business_scheme_service.vat_id_change_refusal(org, vat_id, validated=False)
     if not refusal:
@@ -121,9 +121,7 @@ def _assert_vat_id_set_allowed(org: "Organization", vat_id: str) -> VIESValidati
     try:
         result = common_vies.validate_vat_id_cached(vat_id)
     except common_vies.VIESUnavailableError as exc:
-        raise HttpError(
-            503, str(_("VIES validation service is temporarily unavailable. Please try again later."))
-        ) from exc
+        raise VATIdNotSavedError from exc
     if not result.valid:
         raise HttpError(422, refusal)
     return result

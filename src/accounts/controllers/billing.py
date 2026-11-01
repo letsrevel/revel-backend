@@ -13,6 +13,7 @@ from accounts.schema import (
 from accounts.service import billing_profile_service
 from common.authentication import I18nJWTAuth
 from common.controllers.base import UserAwareController
+from common.schema import VIESUnavailableErrorSchema
 from common.throttling import UserDefaultThrottle, WriteThrottle
 
 
@@ -44,7 +45,12 @@ class UserBillingController(UserAwareController):
         billing_profile_service.update_billing_info(profile, payload.model_dump())
         return profile
 
-    @route.put("/vat-id", url_name="set_billing_vat_id", response=UserBillingProfileSchema, throttle=WriteThrottle())
+    @route.put(
+        "/vat-id",
+        url_name="set_billing_vat_id",
+        response={200: UserBillingProfileSchema, 503: VIESUnavailableErrorSchema},
+        throttle=WriteThrottle(),
+    )
     def set_vat_id(self, payload: UserVATIdUpdateSchema) -> UserBillingProfile:
         """Set or update the user's VAT ID with VIES validation."""
         profile = get_object_or_404(UserBillingProfile, user=self.user())

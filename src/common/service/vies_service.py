@@ -21,6 +21,8 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
+from common.exceptions import VATIdSavedPendingError
+
 logger = structlog.get_logger(__name__)
 
 VIES_REST_URL = "https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number"
@@ -280,7 +282,7 @@ def set_vat_id(
 
     Raises:
         HttpError 400: If VIES says the VAT ID is invalid.
-        HttpError 503: If VIES is unavailable.
+        VATIdSavedPendingError: If VIES is unavailable (the VAT ID is saved, unvalidated).
     """
     entity.vat_id = vat_id
     entity.vat_country_code = vat_id[:2].upper()
@@ -299,15 +301,7 @@ def set_vat_id(
         logger.warning("vies_unavailable", **{f"{entity_type}_id": entity_id})
         if on_vies_unavailable:
             on_vies_unavailable()
-        raise HttpError(
-            503,
-            str(
-                _(
-                    "VIES validation service is temporarily unavailable."
-                    " The VAT ID has been saved. Please try again later."
-                )
-            ),
-        )
+        raise VATIdSavedPendingError
 
     entity.refresh_from_db()
 
