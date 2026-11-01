@@ -28,6 +28,22 @@ if t.TYPE_CHECKING:
     from events.service.batch_ticket_service.context import CartGroup
 
 
+def assert_event_sells_tickets(event: Event) -> None:
+    """Assert the event sells tickets at all (RSVP-only events sell nothing).
+
+    Module-level so guest checkout, whose non-online branch defers ``create_batch`` to the
+    emailed confirmation click, can refuse up front too.
+
+    Args:
+        event: The event being purchased for.
+
+    Raises:
+        HttpError: 400 when ``event.requires_ticket`` is false.
+    """
+    if not event.requires_ticket:
+        raise HttpError(400, str(_("This event is RSVP-only and does not sell tickets.")))
+
+
 def assert_sale_window(tier: TicketTier) -> None:
     """Assert the tier's sale window is currently open.
 

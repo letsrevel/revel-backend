@@ -16,7 +16,7 @@ from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.capacity import CapacityMixin
 from events.service.batch_ticket_service.checkout import CheckoutMixin, ResolvedGroup
 from events.service.batch_ticket_service.context import CartGroup, assert_uniform_cart, validate_cart_shape
-from events.service.batch_ticket_service.eligibility import PurchaseEligibilityMixin
+from events.service.batch_ticket_service.eligibility import PurchaseEligibilityMixin, assert_event_sells_tickets
 from events.service.batch_ticket_service.seats import SeatResolutionMixin
 from events.service.discount_code_service import assert_min_purchase_amount
 from events.service.seating.pricing import (
@@ -256,13 +256,14 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         Raises:
             TypeError: If the single-tier form is missing ``items``, or the cart
                 form is given ``items``/``pwyc_amount``.
-            HttpError: If validation fails or ticket creation fails.
+            HttpError: 400 if the event is RSVP-only; or if validation fails or ticket creation fails.
             UserIsIneligibleError: If a tier is gated to membership tiers the buyer
                 does not hold.
             CountryComplianceError: If the cart costs anything and the organizer's
                 country blocks paid ticketing.
         """
         self._resolve_single_group(items, pwyc_amount)
+        assert_event_sells_tickets(self.event)
 
         # Whole-cart shape first: cheapest checks, and the per-tier loops below assume
         # a tier appears once and the cart settles in one currency/method.

@@ -468,13 +468,18 @@ def handle_guest_ticket_checkout(
     from events.service import discount_code_service
     from events.service.batch_ticket_service import BatchTicketService
     from events.service.batch_ticket_service.context import validate_cart_shape
-    from events.service.batch_ticket_service.eligibility import assert_cart_purchasable_by, assert_sale_window
+    from events.service.batch_ticket_service.eligibility import (
+        assert_cart_purchasable_by,
+        assert_event_sells_tickets,
+        assert_sale_window,
+    )
     from events.service.seating.pick import resolve_requested_zone
     from events.tasks import send_guest_ticket_confirmation
 
     # Check if event allows guest access
     if not event.can_attend_without_login:
         raise HttpError(400, str(_("This event requires login to purchase tickets.")))
+    assert_event_sells_tickets(event)
 
     # Enforce the holder-name requirement HERE, before the payment-method branch: the
     # non-online branch defers create_batch to the confirmation click, so a nameless

@@ -112,7 +112,6 @@ class TemplateEditSchema(Schema):
     accept_rsvp_notes: bool | None = None
     can_attend_without_login: bool | None = None
     require_ticket_names: bool | None = None
-    requires_ticket: bool | None = None
     is_open_ended: bool | None = None
     visibility_settings: EventVisibilitySettingsSchema | None = None
     address: StrippedString | None = Field(default=None, max_length=255)

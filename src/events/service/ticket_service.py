@@ -511,17 +511,18 @@ def create_ticket_tier(event: Event, payload: "TicketTierCreateSchema") -> Ticke
         StripeNotConnectedError: When the tier is online-payment but the org has no Stripe Connect.
         BillingInfoRequiredError: When the tier is online-payment with platform fees and the
             org has incomplete billing info.
-        HttpError 404: If any provided membership tier ID is invalid or belongs to another org.
+        HttpError 400: If the event is RSVP-only; 404: If any provided membership tier ID is invalid.
 
     Note:
         ``category_prices`` semantics mirror ``update_ticket_tier``: null/omitted leaves the
         field at its model default (an empty map), an empty object is the same thing, and a
         non-empty object is stored as-is for ``TicketTier.clean()`` to validate.
-
         ``mode="json"`` is used when dumping the payload so nested Pydantic models
         (e.g. ``refund_policy``) and ``Decimal`` are coerced to JSON-serializable primitives;
         the JSONField's default encoder relies on this during ``full_clean()``.
     """
+    if not event.requires_ticket:
+        raise HttpError(400, str(_("This event is RSVP-only and does not sell tickets.")))
     check_online_tier_prerequisites(event.organization, payload.payment_method)
 
     payload_dict = payload.model_dump(exclude_unset=True, mode="json")
