@@ -4,6 +4,7 @@ import typing as t
 
 import pytest
 from django.contrib.admin.sites import site
+from django.test import RequestFactory
 
 from accounts.models import RevelUser
 from events import models
@@ -47,3 +48,39 @@ def test_ticket_tier_inline_can_add_tiers_to_ticketed_event(
     inline = TicketTierInline(models.Event, site)
 
     assert inline.has_add_permission(request, public_event) is True
+
+
+RSVP_ONLY_MESSAGE = "This event is RSVP-only and does not sell tickets."
+
+
+def _tier_formset(superuser: RevelUser, requires_ticket: bool) -> t.Any:
+    """Build the tier formset for an unsaved add-page Event with one new tier row."""
+    request = RequestFactory().get("/")
+    request.user = superuser
+    formset_class = TicketTierInline(models.Event, site).get_formset(request)
+    prefix = formset_class.get_default_prefix()
+    data = {
+        f"{prefix}-TOTAL_FORMS": "1",
+        f"{prefix}-INITIAL_FORMS": "0",
+        f"{prefix}-MIN_NUM_FORMS": "0",
+        f"{prefix}-MAX_NUM_FORMS": "1000",
+        f"{prefix}-0-name": "General",
+    }
+    event = models.Event(requires_ticket=requires_ticket)
+    return formset_class(data=data, instance=event, prefix=prefix)
+
+
+def test_ticket_tier_formset_rejects_new_tier_on_rsvp_only_add(superuser: RevelUser) -> None:
+    formset = _tier_formset(superuser, requires_ticket=False)
+
+    formset.is_valid()
+
+    assert RSVP_ONLY_MESSAGE in [str(e) for e in formset.non_form_errors()]
+
+
+def test_ticket_tier_formset_allows_new_tier_on_ticketed_add(superuser: RevelUser) -> None:
+    formset = _tier_formset(superuser, requires_ticket=True)
+
+    formset.is_valid()
+
+    assert RSVP_ONLY_MESSAGE not in [str(e) for e in formset.non_form_errors()]
