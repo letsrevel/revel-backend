@@ -160,12 +160,16 @@ def seller_identity_missing_fields(org: Organization) -> list[str]:
 
 
 def live_tiers_charging_vat(org: Organization) -> QuerySet[TicketTier]:
-    """Tiers of events that have not ended that still carry a positive VAT rate of their own.
+    """Tiers of ticketed events that have not ended that still carry a positive VAT rate of their own.
+
+    RSVP-only events are excluded: they sell nothing, so their tiers can never charge VAT.
 
     The one source for both the declaration guard and the ``tiers_charging_vat`` billing-info field.
     """
     return (
-        TicketTier.objects.filter(event__organization=org, event__end__gte=timezone.now(), vat_rate__gt=0)
+        TicketTier.objects.filter(
+            event__organization=org, event__requires_ticket=True, event__end__gte=timezone.now(), vat_rate__gt=0
+        )
         .exclude(event__status=Event.EventStatus.CANCELLED)
         .select_related("event")
         .prefetch_related(None)  # the default manager prefetches membership tiers; not needed here

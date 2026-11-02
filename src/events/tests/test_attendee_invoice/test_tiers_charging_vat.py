@@ -49,20 +49,18 @@ def test_lists_a_live_tier_charging_vat(
             "tier_id": str(event_ticket_tier.pk),
             "tier_name": event_ticket_tier.name,
             "vat_rate": "19.00",
-            "event_requires_ticket": True,
         }
     ]
 
 
-def test_tiers_of_rsvp_only_events_are_listed_flagged_and_still_block_a_scheme(
+def test_tiers_of_rsvp_only_events_are_not_listed_and_do_not_block_a_scheme(
     organization: Organization, event: Event, event_ticket_tier: TicketTier, owner_client: Client
 ) -> None:
-    """Tiers of RSVP-only events can still be sold, so they are listed (flagged) and block the declaration."""
+    """RSVP-only events sell nothing (#1295), so a legacy taxed tier on one is neither listed nor a blocker."""
     event_ticket_tier.vat_rate = Decimal("19.00")
     event_ticket_tier.save()
     Event.objects.filter(pk=event.pk).update(requires_ticket=False)
-    listed = _get(owner_client, organization)["tiers_charging_vat"]
-    assert [(r["tier_id"], r["event_requires_ticket"]) for r in listed] == [(str(event_ticket_tier.pk), False)]
+    assert _get(owner_client, organization)["tiers_charging_vat"] == []
 
     Organization.objects.filter(pk=organization.pk).update(
         vat_rate=Decimal("0.00"),
@@ -76,7 +74,7 @@ def test_tiers_of_rsvp_only_events_are_listed_flagged_and_still_block_a_scheme(
         data=orjson.dumps({"small_business_scheme": "de_19"}),
         content_type="application/json",
     )
-    assert response.status_code == 422
+    assert response.status_code == 200, response.content
 
 
 def test_excludes_zero_rated_ended_cancelled_and_foreign_tiers(

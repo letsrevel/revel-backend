@@ -458,8 +458,8 @@ def handle_guest_ticket_checkout(
         Stripe `checkout_url`.
 
     Raises:
-        HttpError: If event doesn't allow guest access, the cart is malformed, tier
-            issues, or eligibility checks fail.
+        HttpError: If event doesn't allow guest access, the event is RSVP-only (400), the
+            cart is malformed, tier issues, or eligibility checks fail.
         GuestAccountExistsError: 400 with ``code`` if the email belongs to a non-guest account.
         GuestCartTooLargeError: 400 with ``code`` if (non-online carts) the confirmation
             token would exceed ``_GUEST_TOKEN_MAX_CHARS``.
@@ -468,10 +468,16 @@ def handle_guest_ticket_checkout(
     from events.service import discount_code_service
     from events.service.batch_ticket_service import BatchTicketService
     from events.service.batch_ticket_service.context import validate_cart_shape
-    from events.service.batch_ticket_service.eligibility import assert_cart_purchasable_by, assert_sale_window
+    from events.service.batch_ticket_service.eligibility import (
+        assert_cart_purchasable_by,
+        assert_event_sells_tickets,
+        assert_sale_window,
+    )
     from events.service.seating.pick import resolve_requested_zone
     from events.tasks import send_guest_ticket_confirmation
 
+    # RSVP-only first: such an event sells nothing to anyone, logged in or not.
+    assert_event_sells_tickets(event)
     # Check if event allows guest access
     if not event.can_attend_without_login:
         raise HttpError(400, str(_("This event requires login to purchase tickets.")))

@@ -6,11 +6,13 @@ import typing as t
 
 from django import forms
 from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.translation import gettext_lazy as _
 from unfold.admin import TabularInline
 from unfold.widgets import CHECKBOX_CLASSES
 
@@ -220,12 +222,30 @@ class VenueSeatInline(TabularInline):  # type: ignore[misc]
     ordering = ["row_order", "adjacency_index", "label"]
 
 
+class TicketTierFormSet(forms.BaseInlineFormSet):  # type: ignore[type-arg]
+    """Rejects new tiers when the parent Event is RSVP-only, incl. on the add page (#1295)."""
+
+    def clean(self) -> None:
+        super().clean()
+        if self.instance.requires_ticket:
+            return
+        if any(form.has_changed() and not form.cleaned_data.get("DELETE") for form in self.extra_forms):
+            raise ValidationError(_("This event is RSVP-only and does not sell tickets."))
+
+
 class TicketTierInline(TabularInline):  # type: ignore[misc]
     model = models.TicketTier
+    formset = TicketTierFormSet
     extra = 1
     # raw_id: plain <select>s here enumerate every venue/sector/membership-tier in the DB
     # and fire one __str__ query per <option>, per row + empty form (#880).
     raw_id_fields = ["venue", "sector", "restricted_to_membership_tiers"]
+
+    def has_add_permission(self, request: HttpRequest, obj: models.Event | None = None) -> bool:
+        """Block adding tiers to RSVP-only events, which sell nothing (#1295)."""
+        if obj is not None and not obj.requires_ticket:
+            return False
+        return t.cast(bool, super().has_add_permission(request, obj))
 
 
 class EventInvitationInline(TabularInline):  # type: ignore[misc]

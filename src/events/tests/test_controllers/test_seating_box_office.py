@@ -194,6 +194,25 @@ def test_sell_killed_seat_returns_400(
     assert resp.status_code == 400
 
 
+def test_sell_rsvp_only_event_returns_400_and_creates_no_user(
+    organization_owner_client: Client, seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier
+) -> None:
+    event, seats = seated_event
+    event.requires_ticket = False
+    event.save(update_fields=["requires_ticket"])
+    email = "rsvp-walkup@example.com"
+    payload = {
+        "seat_id": str(seats[0].id),
+        "tier_id": str(tier.id),
+        "payment_method": "at_the_door",
+        "email": email,
+    }
+    resp = organization_owner_client.post(_sell_url(event), data=orjson.dumps(payload), content_type="application/json")
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "This event is RSVP-only and does not sell tickets."
+    assert not RevelUser.objects.filter(email=email).exists()
+
+
 # ---- reseat ----
 
 

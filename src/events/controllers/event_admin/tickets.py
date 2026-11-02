@@ -26,6 +26,7 @@ from events.service import (
     ticket_service,
     waitlist_service,
 )
+from events.service.batch_ticket_service.eligibility import assert_event_sells_tickets
 from oauth.permissions import RequireScope
 
 from .base import EventAdminBaseController
@@ -148,6 +149,7 @@ class EventAdminTicketsController(EventAdminBaseController):
     def create_ticket_tier(self, event_id: UUID, payload: schema.TicketTierCreateSchema) -> models.TicketTier:
         """Create a new ticket tier for an event."""
         event = self.get_one(event_id)
+        assert_event_sells_tickets(event)  # 400 for RSVP-only events
         return ticket_service.create_ticket_tier(event, payload)
 
     @route.put(

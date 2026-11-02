@@ -21,6 +21,7 @@ from accounts.models import RevelUser
 from events.models import Event, EventSeatOverride, Ticket, TicketSaleSource, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
+from events.service.batch_ticket_service.eligibility import assert_event_sells_tickets
 from events.service.guest import get_or_create_guest_user
 from events.service.seating import holds as holds_service
 from events.service.seating.pricing import TicketPrice, build_batch_pricing, should_stamp_price_paid
@@ -126,9 +127,10 @@ def sell(
         The created ACTIVE ticket.
 
     Raises:
-        HttpError: On capacity (429/400), seat conflicts (400/409), or a door sale
+        HttpError: 400 if the event is RSVP-only; on capacity (429/400), seat conflicts (400/409), or a door sale
             of a seat whose category the tier does not price (400).
     """
+    assert_event_sells_tickets(event)
     service = BatchTicketService(event, tier, recipient)
     # Coarse locks first (tier → event), matching create_batch's order.
     locked_tier = TicketTier.objects.select_for_update().get(pk=tier.pk)

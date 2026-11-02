@@ -45,7 +45,6 @@ PROPAGATABLE_FIELDS = frozenset(
         "max_attendees",
         "max_tickets_per_user",
         "waitlist_open",
-        "requires_ticket",
         "requires_full_profile",
         "potluck_open",
         "accept_rsvp_notes",

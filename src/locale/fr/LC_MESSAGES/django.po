@@ -2589,6 +2589,9 @@ msgstr "Consulte tes e-mails pour confirmer ta réponse à l'invitation"
 msgid "This event requires login to purchase tickets."
 msgstr "Cet événement nécessite de se connecter pour acheter des tickets."
 
+msgid "This event is RSVP-only and does not sell tickets."
+msgstr "Cet événement est sur RSVP uniquement et ne vend pas de billets."
+
 msgid "Please check your email to confirm your ticket purchase"
 msgstr "Consulte tes e-mails pour confirmer ton achat de ticket"
 

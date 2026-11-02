@@ -6,6 +6,7 @@ import typing as t
 from django.contrib import admin
 from django.db.models import Count, IntegerField, OuterRef, Subquery
 from django.db.models.functions import Coalesce
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
@@ -29,6 +30,11 @@ from events.admin.base import (
 @admin.register(models.Event)
 class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin model for Events."""
+
+    def get_readonly_fields(self, request: HttpRequest, obj: models.Event | None = None) -> t.Sequence[str]:
+        """Make ``requires_ticket`` create-only (#1295): flipping it later strands tiers and tickets."""
+        fields = list(super().get_readonly_fields(request, obj))
+        return [*fields, "requires_ticket"] if obj is not None else fields
 
     list_display = [
         "name",
