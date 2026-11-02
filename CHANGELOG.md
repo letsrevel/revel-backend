@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.33.0] - 2026-11-02
+
+### Changed
+- **RSVP-only events sell nothing**: events created with `requires_ticket` false can no longer get ticket tiers or sell tickets through any path
+  - Ticket tier creation, every checkout (single-tier, pay-what-you-can, multi-tier, guest) and box-office door sales and comps return 400 with "This event is RSVP-only and does not sell tickets."
+  - Duplicating an RSVP-only event, or generating an occurrence of an RSVP-only recurring series, no longer copies ticket tiers
+  - In the Django admin, tiers cannot be added to an RSVP-only event, including when creating the event, and `requires_ticket` is read-only once the event exists
+  - Tiers that already exist on RSVP-only events stay in place but can no longer be sold
+- Tiers of RSVP-only events no longer appear in `tiers_charging_vat` and no longer block declaring a small-business VAT scheme, since they can never charge VAT
+- The box-office sell endpoint (`POST /event-admin/{event_id}/seating/sell`) now documents its 400 response in the OpenAPI schema
+
+### Fixed
+- `requires_ticket` can no longer be changed after creation through a recurring series: editing the series template used to accept it and copy it to the generated occurrences
+
+### Removed
+- `event_requires_ticket` on `tiers_charging_vat` items (added in 2.31.0); RSVP-only events no longer appear in that list
+- `requires_ticket` from the series template edit payload; sending it now returns 422
+
 ## [2.32.0] - 2026-11-01
 
 ### Added
