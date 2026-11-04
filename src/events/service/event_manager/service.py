@@ -14,6 +14,7 @@ from events.models import (
     Blacklist,
     EventInvitationRequest,
     EventRSVP,
+    MembershipSubscriptionPlan,
     MembershipTier,
     OrganizationMember,
     OrganizationMembershipRequest,
@@ -218,23 +219,27 @@ class EligibilityService:
         # Latest application per tier, mirroring MembershipEligibilityService.applications_by_tier.
         applications = list(
             OrganizationMembershipRequest.objects.filter(organization=organization, user=self.user)
-            .select_related("tier__membership_questionnaire")
+            .select_related("tier__membership_questionnaire", "plan")
             .order_by("tier_id", "-created_at")
             .distinct("tier_id")
         )
-        candidates: list[MembershipTier | None] = [
-            app.tier for app in applications if app.status == OrganizationMembershipRequest.Status.PENDING
+        # (tier, plan) pairs: a paid application must be judged with its plan, or
+        # TierAvailabilityGate blocks a monetized tier before the waiting gates run.
+        candidates: list[tuple[MembershipTier | None, MembershipSubscriptionPlan | None]] = [
+            (app.tier, app.plan) for app in applications if app.status == OrganizationMembershipRequest.Status.PENDING
         ]
         if not candidates:
             # No application in flight: the user may have submitted a membership
             # questionnaire on its own. Check it against the tier it would apply to.
-            candidates = self._tiers_awaiting_questionnaire_review(applications)
+            candidates = [
+                (tier, self._any_active_plan(tier)) for tier in self._tiers_awaiting_questionnaire_review(applications)
+            ]
 
         steps = {
-            MembershipEligibilityService(user=self.user, organization=organization, tier=tier)
+            MembershipEligibilityService(user=self.user, organization=organization, tier=tier, plan=plan)
             .check_eligibility()
             .next_step
-            for tier in candidates
+            for tier, plan in candidates
         }
         for step in (MembershipNextStep.WAIT_FOR_APPROVAL, MembershipNextStep.WAIT_FOR_QUESTIONNAIRE_EVALUATION):
             if step in steps:
@@ -272,8 +277,8 @@ class EligibilityService:
         recency = {
             app.tier_id: rank for rank, app in enumerate(sorted(applications, key=lambda a: a.created_at, reverse=True))
         }
-        if None in recency:
-            tiers.append(None)  # legacy tier-less application → org default questionnaire
+        if None in recency or not tiers:
+            tiers.append(None)  # tier-less application (or tier-less org) → org default questionnaire
 
         tiers.sort(key=lambda tier: recency.get(tier.pk if tier else None, len(recency)))
         tier_by_questionnaire: dict[uuid.UUID, MembershipTier | None] = {}
@@ -282,6 +287,17 @@ class EligibilityService:
             if oq is not None and oq.requires_evaluation and oq.questionnaire_id in unreviewed_ids:
                 tier_by_questionnaire.setdefault(oq.questionnaire_id, tier)
         return list(tier_by_questionnaire.values())
+
+    @staticmethod
+    def _any_active_plan(tier: MembershipTier | None) -> MembershipSubscriptionPlan | None:
+        """An active plan of a monetized tier, so a standalone submission is judged on the paid path.
+
+        Which plan is irrelevant here: plans only matter to TierAvailabilityGate (before the
+        questionnaire/approval gates) and PaymentReadyGate (after them).
+        """
+        if tier is None:
+            return None
+        return MembershipSubscriptionPlan.objects.filter(tier=tier, is_active=True).first()
 
     def overrides_max_attendees(self) -> bool:
         """Check if invitation overrides max attendees."""

@@ -7,6 +7,7 @@ review) sees a wait state instead of BECOME_MEMBER. The verdict is delegated to
 
 import typing as t
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from django.utils import timezone
@@ -15,6 +16,7 @@ from accounts.models import RevelUser
 from events.models import (
     Event,
     MembershipRequestStatus,
+    MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
     OrganizationMember,
@@ -79,8 +81,23 @@ def _apply(
     *,
     status: str = MembershipRequestStatus.PENDING,
     tier: MembershipTier | None = None,
+    plan: MembershipSubscriptionPlan | None = None,
 ) -> OrganizationMembershipRequest:
-    return OrganizationMembershipRequest.objects.create(user=user, organization=organization, status=status, tier=tier)
+    return OrganizationMembershipRequest.objects.create(
+        user=user, organization=organization, status=status, tier=tier, plan=plan
+    )
+
+
+def _plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
+    """An active plan, which makes the tier monetized (free path blocked)."""
+    return MembershipSubscriptionPlan.objects.create(
+        tier=tier,
+        name="Monthly",
+        price=Decimal("10.00"),
+        currency="EUR",
+        period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+        period_count=1,
+    )
 
 
 def _tier(
@@ -258,6 +275,44 @@ def test_most_recent_application_decides_a_shared_questionnaire(
         _assert_become_member(result)
     else:
         _assert_pending_questionnaire(result)
+
+
+@pytest.mark.parametrize("evaluation", [None, EvalStatus.PENDING_REVIEW])
+def test_pending_paid_application_with_questionnaire_under_review_waits_for_evaluation(
+    public_user: RevelUser, members_only_event: Event, evaluation: str | None
+) -> None:
+    """A paid application is judged with its plan, so the monetized tier doesn't mask the wait state."""
+    org = members_only_event.organization
+    oq = _membership_oq(org)
+    tier = _tier(org, oq=oq)
+    plan = _plan(tier)
+    _submit(public_user, oq, evaluation=evaluation)
+    _apply(public_user, org, tier=tier, plan=plan)
+    _assert_pending_questionnaire(_check(public_user, members_only_event))
+
+
+def test_standalone_submission_on_monetized_tier_waits_for_evaluation(
+    public_user: RevelUser, members_only_event: Event
+) -> None:
+    """No application, tier only reachable via a plan: still questionnaire-pending."""
+    org = members_only_event.organization
+    oq = _membership_oq(org)
+    tier = _tier(org, oq=oq)
+    _plan(tier)
+    _submit(public_user, oq, evaluation=EvalStatus.PENDING_REVIEW)
+    _assert_pending_questionnaire(_check(public_user, members_only_event))
+
+
+def test_standalone_default_submission_on_tierless_org_waits_for_evaluation(
+    public_user: RevelUser, members_only_event: Event
+) -> None:
+    """With no tiers at all, the org default questionnaire is judged tier-less."""
+    org = members_only_event.organization
+    MembershipTier.objects.filter(organization=org).delete()
+    oq = _membership_oq(org)
+    _set_default(org, oq)
+    _submit(public_user, oq, evaluation=EvalStatus.PENDING_REVIEW)
+    _assert_pending_questionnaire(_check(public_user, members_only_event))
 
 
 def test_cancelled_application_with_pending_review_still_waits_for_evaluation(
