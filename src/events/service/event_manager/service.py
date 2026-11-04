@@ -1,6 +1,7 @@
 """EligibilityService for checking user eligibility for events."""
 
 import functools
+import typing as t
 import uuid
 from collections import defaultdict
 
@@ -13,14 +14,20 @@ from events.models import (
     Blacklist,
     EventInvitationRequest,
     EventRSVP,
+    MembershipSubscriptionPlan,
+    MembershipTier,
     OrganizationMember,
+    OrganizationMembershipRequest,
     OrganizationQuestionnaire,
     WhitelistRequest,
 )
-from questionnaires.models import Questionnaire, QuestionnaireSubmission
+from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 from .gates import ELIGIBILITY_GATES, AvailabilityGate, BaseEligibilityGate
 from .types import EventUserEligibility
+
+if t.TYPE_CHECKING:
+    from events.service.membership_manager import MembershipNextStep
 
 
 class EligibilityService:
@@ -143,7 +150,8 @@ class EligibilityService:
     def check_eligibility(self, bypass: bool = False, skip_availability: bool = False) -> EventUserEligibility:
         """Check eligibility using the fully prefetched, in-memory data.
 
-        This method SHOULD make ZERO database queries.
+        Every gate reads prefetched, in-memory data, with one exception: a non-member
+        on a members-only event triggers the lazy ``pending_membership_step`` lookup.
 
         Args:
             bypass: When True, skip all gates and return an allowed result.
@@ -192,6 +200,104 @@ class EligibilityService:
         for evt_sub in event_questionnaire_submissions:
             result[evt_sub.questionnaire_id].append(evt_sub.submission)
         return dict(result)
+
+    @functools.cached_property
+    def pending_membership_step(self) -> "MembershipNextStep | None":
+        """The waiting step of the user's in-flight membership attempt in the event's org, if any.
+
+        Delegates to :class:`MembershipEligibilityService` (the state machine behind the
+        org membership page) so the event surfaces never contradict it. Returns only
+        ``WAIT_FOR_APPROVAL`` or ``WAIT_FOR_QUESTIONNAIRE_EVALUATION``; anything else the
+        user must act on (submit/retake a questionnaire, reapply, ...) yields ``None`` and
+        the event keeps pointing at ``BECOME_MEMBER``.
+
+        Lazily evaluated — only queried when a non-member hits a members-only event.
+        """
+        from events.service.membership_manager import MembershipEligibilityService, MembershipNextStep
+
+        organization = self.event.organization
+        # Latest application per tier, mirroring MembershipEligibilityService.applications_by_tier.
+        applications = list(
+            OrganizationMembershipRequest.objects.filter(organization=organization, user=self.user)
+            .select_related("tier__membership_questionnaire", "plan")
+            .order_by("tier_id", "-created_at")
+            .distinct("tier_id")
+        )
+        # (tier, plan) pairs: a paid application must be judged with its plan, or
+        # TierAvailabilityGate blocks a monetized tier before the waiting gates run.
+        candidates: list[tuple[MembershipTier | None, MembershipSubscriptionPlan | None]] = [
+            (app.tier, app.plan) for app in applications if app.status == OrganizationMembershipRequest.Status.PENDING
+        ]
+        if not candidates:
+            # No application in flight: the user may have submitted a membership
+            # questionnaire on its own. Check it against the tier it would apply to.
+            candidates = [
+                (tier, self._any_active_plan(tier)) for tier in self._tiers_awaiting_questionnaire_review(applications)
+            ]
+
+        steps = {
+            MembershipEligibilityService(user=self.user, organization=organization, tier=tier, plan=plan)
+            .check_eligibility()
+            .next_step
+            for tier, plan in candidates
+        }
+        for step in (MembershipNextStep.WAIT_FOR_APPROVAL, MembershipNextStep.WAIT_FOR_QUESTIONNAIRE_EVALUATION):
+            if step in steps:
+                return step
+        return None
+
+    def _tiers_awaiting_questionnaire_review(
+        self, applications: list[OrganizationMembershipRequest]
+    ) -> list[MembershipTier | None]:
+        """One tier per membership questionnaire the user has an unreviewed latest submission to.
+
+        For each such questionnaire, the tier of the user's most recent application wins
+        (then display order), so their latest decision on it, e.g. a rejection, is what
+        the membership state machine judges. Returns ``[]`` without querying
+        when the user has no unreviewed submission at all (the common case).
+        """
+        from events.service.membership_manager import resolve_membership_questionnaire
+
+        pending = QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW
+        unreviewed_ids = {
+            questionnaire_id
+            for questionnaire_id, submissions in self.submission_map.items()
+            if (evaluation := getattr(submissions[0], "evaluation", None)) is None or evaluation.status == pending
+        }
+        if not unreviewed_ids:
+            return []
+
+        organization = self.event.organization
+        tiers: list[MembershipTier | None] = list(
+            MembershipTier.objects.filter(organization=organization)
+            .select_related("membership_questionnaire")
+            .order_by("display_order")
+        )
+        # Newest application first; tiers never applied to keep display order after them.
+        recency = {
+            app.tier_id: rank for rank, app in enumerate(sorted(applications, key=lambda a: a.created_at, reverse=True))
+        }
+        if None in recency or not tiers:
+            tiers.append(None)  # tier-less application (or tier-less org) → org default questionnaire
+
+        tiers.sort(key=lambda tier: recency.get(tier.pk if tier else None, len(recency)))
+        tier_by_questionnaire: dict[uuid.UUID, MembershipTier | None] = {}
+        for tier in tiers:
+            oq = resolve_membership_questionnaire(organization, tier)
+            if oq is not None and oq.requires_evaluation and oq.questionnaire_id in unreviewed_ids:
+                tier_by_questionnaire.setdefault(oq.questionnaire_id, tier)
+        return list(tier_by_questionnaire.values())
+
+    @staticmethod
+    def _any_active_plan(tier: MembershipTier | None) -> MembershipSubscriptionPlan | None:
+        """An active plan of a monetized tier, so a standalone submission is judged on the paid path.
+
+        Which plan is irrelevant here: plans only matter to TierAvailabilityGate (before the
+        questionnaire/approval gates) and PaymentReadyGate (after them).
+        """
+        if tier is None:
+            return None
+        return MembershipSubscriptionPlan.objects.filter(tier=tier, is_active=True).first()
 
     def overrides_max_attendees(self) -> bool:
         """Check if invitation overrides max attendees."""

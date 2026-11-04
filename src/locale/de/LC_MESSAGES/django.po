@@ -2413,6 +2413,12 @@ msgstr "Nur Mitglieder dürfen teilnehmen."
 msgid "Your membership is not active."
 msgstr "Deine Mitgliedschaft ist nicht aktiv."
 
+msgid "Your membership application is awaiting approval."
+msgstr "Dein Mitgliedschaftsantrag wartet auf Genehmigung."
+
+msgid "Your membership questionnaire is being reviewed."
+msgstr "Dein Mitgliedschaftsfragebogen wird geprüft."
+
 msgid "Requires full profile."
 msgstr "Erfordert ein vollständiges Profil."
 

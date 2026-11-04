@@ -373,7 +373,26 @@ class MembershipGate(BaseEligibilityGate):
                 next_step=None,  # They need to contact the organization to reactivate
             )
 
-        # User has no membership at all
+        # User has no membership at all — but may already be on the way in.
+        from events.service.membership_manager import MembershipNextStep
+
+        pending_step = self.handler.pending_membership_step
+        if pending_step == MembershipNextStep.WAIT_FOR_APPROVAL:
+            return EventUserEligibility(
+                allowed=False,
+                event_id=self.event.id,
+                reason=_(Reasons.MEMBERSHIP_APPLICATION_PENDING),
+                reason_code=Reasons.MEMBERSHIP_APPLICATION_PENDING.code,
+                next_step=NextStep.WAIT_FOR_MEMBERSHIP_APPROVAL,
+            )
+        if pending_step == MembershipNextStep.WAIT_FOR_QUESTIONNAIRE_EVALUATION:
+            return EventUserEligibility(
+                allowed=False,
+                event_id=self.event.id,
+                reason=_(Reasons.MEMBERSHIP_QUESTIONNAIRE_PENDING_REVIEW),
+                reason_code=Reasons.MEMBERSHIP_QUESTIONNAIRE_PENDING_REVIEW.code,
+                next_step=NextStep.WAIT_FOR_MEMBERSHIP_QUESTIONNAIRE_EVALUATION,
+            )
         return EventUserEligibility(
             allowed=False,
             event_id=self.event.id,

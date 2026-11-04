@@ -624,3 +624,18 @@ class TestHandleWhitelistRequestReject:
 
         mock_callback_query.answer.assert_awaited_once()
         assert "something went wrong" in mock_callback_query.answer.call_args.args[0].lower()
+
+
+# ── cb_handle_pending_status ─────────────────────────────────────────
+
+
+class TestHandlePendingStatus:
+    @pytest.mark.asyncio
+    async def test_acknowledges_tap_without_side_effects(self, mock_callback_query: AsyncMock) -> None:
+        """Tapping a status-only button just answers the callback query."""
+        from telegram.routers.events import cb_handle_pending_status
+
+        await cb_handle_pending_status(mock_callback_query)
+
+        mock_callback_query.answer.assert_awaited_once()
+        mock_callback_query.message.answer.assert_not_called()

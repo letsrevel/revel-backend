@@ -2406,6 +2406,12 @@ msgstr "Seul·e·s les membres sont autorisé·e·s."
 msgid "Your membership is not active."
 msgstr "Ton adhésion n'est pas active."
 
+msgid "Your membership application is awaiting approval."
+msgstr "Ta demande d'adhésion est en attente d'approbation."
+
+msgid "Your membership questionnaire is being reviewed."
+msgstr "Ton questionnaire d'adhésion est en cours d'examen."
+
 msgid "Requires full profile."
 msgstr "Profil complet requis."
 
