@@ -374,7 +374,10 @@ class MembershipGate(BaseEligibilityGate):
             )
 
         # User has no membership at all — but may already be on the way in.
-        if self.handler.has_pending_membership_application:
+        from events.service.membership_manager import MembershipNextStep
+
+        pending_step = self.handler.pending_membership_step
+        if pending_step == MembershipNextStep.WAIT_FOR_APPROVAL:
             return EventUserEligibility(
                 allowed=False,
                 event_id=self.event.id,
@@ -382,7 +385,7 @@ class MembershipGate(BaseEligibilityGate):
                 reason_code=Reasons.MEMBERSHIP_APPLICATION_PENDING.code,
                 next_step=NextStep.WAIT_FOR_MEMBERSHIP_APPROVAL,
             )
-        if self._membership_questionnaire_pending_review():
+        if pending_step == MembershipNextStep.WAIT_FOR_QUESTIONNAIRE_EVALUATION:
             return EventUserEligibility(
                 allowed=False,
                 event_id=self.event.id,
@@ -397,23 +400,6 @@ class MembershipGate(BaseEligibilityGate):
             reason_code=Reasons.MEMBERS_ONLY.code,
             next_step=NextStep.BECOME_MEMBER if self.event.organization.accept_membership_requests else None,
         )
-
-    def _membership_questionnaire_pending_review(self) -> bool:
-        """Whether the latest submission to any evaluated membership questionnaire awaits review.
-
-        Rejected, cooling-down and approved-but-not-joined submissions return False:
-        the organization's membership page explains those, so the event keeps
-        pointing at ``BECOME_MEMBER``.
-        """
-        pending = QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW
-        for questionnaire_id in self.handler.evaluated_membership_questionnaire_ids:
-            submissions = self.handler.submission_map.get(questionnaire_id)
-            if not submissions:
-                continue
-            evaluation: QuestionnaireEvaluation | None = getattr(submissions[0], "evaluation", None)
-            if evaluation is None or evaluation.status == pending:
-                return True
-        return False
 
 
 class FullProfileGate(BaseEligibilityGate):

@@ -1,6 +1,7 @@
 """EligibilityService for checking user eligibility for events."""
 
 import functools
+import typing as t
 import uuid
 from collections import defaultdict
 
@@ -13,15 +14,19 @@ from events.models import (
     Blacklist,
     EventInvitationRequest,
     EventRSVP,
+    MembershipTier,
     OrganizationMember,
     OrganizationMembershipRequest,
     OrganizationQuestionnaire,
     WhitelistRequest,
 )
-from questionnaires.models import Questionnaire, QuestionnaireSubmission
+from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 from .gates import ELIGIBILITY_GATES, AvailabilityGate, BaseEligibilityGate
 from .types import EventUserEligibility
+
+if t.TYPE_CHECKING:
+    from events.service.membership_manager import MembershipNextStep
 
 
 class EligibilityService:
@@ -144,7 +149,8 @@ class EligibilityService:
     def check_eligibility(self, bypass: bool = False, skip_availability: bool = False) -> EventUserEligibility:
         """Check eligibility using the fully prefetched, in-memory data.
 
-        This method SHOULD make ZERO database queries.
+        Every gate reads prefetched, in-memory data, with one exception: a non-member
+        on a members-only event triggers the lazy ``pending_membership_step`` lookup.
 
         Args:
             bypass: When True, skip all gates and return an allowed result.
@@ -195,30 +201,81 @@ class EligibilityService:
         return dict(result)
 
     @functools.cached_property
-    def has_pending_membership_application(self) -> bool:
-        """Whether the user has a PENDING membership application to the event's organization (any tier).
+    def pending_membership_step(self) -> "MembershipNextStep | None":
+        """The waiting step of the user's in-flight membership attempt in the event's org, if any.
+
+        Delegates to :class:`MembershipEligibilityService` (the state machine behind the
+        org membership page) so the event surfaces never contradict it. Returns only
+        ``WAIT_FOR_APPROVAL`` or ``WAIT_FOR_QUESTIONNAIRE_EVALUATION``; anything else the
+        user must act on (submit/retake a questionnaire, reapply, ...) yields ``None`` and
+        the event keeps pointing at ``BECOME_MEMBER``.
 
         Lazily evaluated — only queried when a non-member hits a members-only event.
         """
-        return OrganizationMembershipRequest.objects.filter(
-            organization_id=self.event.organization_id,
-            user=self.user,
-            status=OrganizationMembershipRequest.Status.PENDING,
-        ).exists()
+        from events.service.membership_manager import MembershipEligibilityService, MembershipNextStep
 
-    @functools.cached_property
-    def evaluated_membership_questionnaire_ids(self) -> set[uuid.UUID]:
-        """Questionnaire ids of the org's membership questionnaires (default or per-tier) that require evaluation.
-
-        Lazily evaluated — only queried when a non-member hits a members-only event.
-        """
         organization = self.event.organization
-        return set(
-            OrganizationQuestionnaire.objects.filter(
-                Q(pk=organization.default_membership_questionnaire_id) | Q(tiers__organization=organization),
-                requires_evaluation=True,
-            ).values_list("questionnaire_id", flat=True)
+        # Latest application per tier, mirroring MembershipEligibilityService.applications_by_tier.
+        applications = list(
+            OrganizationMembershipRequest.objects.filter(organization=organization, user=self.user)
+            .select_related("tier__membership_questionnaire")
+            .order_by("tier_id", "-created_at")
+            .distinct("tier_id")
         )
+        candidates: list[MembershipTier | None] = [
+            app.tier for app in applications if app.status == OrganizationMembershipRequest.Status.PENDING
+        ]
+        if not candidates:
+            # No application in flight: the user may have submitted a membership
+            # questionnaire on its own. Check it against the tier it would apply to.
+            candidates = self._tiers_awaiting_questionnaire_review({app.tier_id for app in applications})[:1]
+
+        steps = {
+            MembershipEligibilityService(user=self.user, organization=organization, tier=tier)
+            .check_eligibility()
+            .next_step
+            for tier in candidates
+        }
+        for step in (MembershipNextStep.WAIT_FOR_APPROVAL, MembershipNextStep.WAIT_FOR_QUESTIONNAIRE_EVALUATION):
+            if step in steps:
+                return step
+        return None
+
+    def _tiers_awaiting_questionnaire_review(
+        self, applied_tier_ids: set[uuid.UUID | None]
+    ) -> list[MembershipTier | None]:
+        """Tiers whose resolved membership questionnaire has an unreviewed latest submission by the user.
+
+        Tiers the user has applied to come first, so a rejected/cancelled application
+        is what the membership state machine judges. Returns ``[]`` without querying
+        when the user has no unreviewed submission at all (the common case).
+        """
+        from events.service.membership_manager import resolve_membership_questionnaire
+
+        pending = QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW
+        unreviewed_ids = {
+            questionnaire_id
+            for questionnaire_id, submissions in self.submission_map.items()
+            if (evaluation := getattr(submissions[0], "evaluation", None)) is None or evaluation.status == pending
+        }
+        if not unreviewed_ids:
+            return []
+
+        organization = self.event.organization
+        tiers: list[MembershipTier | None] = list(
+            MembershipTier.objects.filter(organization=organization)
+            .select_related("membership_questionnaire")
+            .order_by("display_order")
+        )
+        if None in applied_tier_ids:
+            tiers.append(None)  # legacy tier-less application → org default questionnaire
+
+        def awaits_review(tier: MembershipTier | None) -> bool:
+            oq = resolve_membership_questionnaire(organization, tier)
+            return oq is not None and oq.requires_evaluation and oq.questionnaire_id in unreviewed_ids
+
+        matching = [tier for tier in tiers if awaits_review(tier)]
+        return sorted(matching, key=lambda tier: (tier.pk if tier else None) not in applied_tier_ids)
 
     def overrides_max_attendees(self) -> bool:
         """Check if invitation overrides max attendees."""

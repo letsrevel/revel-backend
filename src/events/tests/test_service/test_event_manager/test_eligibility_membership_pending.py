@@ -1,7 +1,8 @@
 """Tests for MembershipGate's "already on the way in" states on members-only events.
 
-A non-member with a PENDING membership application, or a membership questionnaire
-submission awaiting review, must see a wait state instead of BECOME_MEMBER.
+A non-member whose membership attempt is waiting on staff (approval or questionnaire
+review) sees a wait state instead of BECOME_MEMBER. The verdict is delegated to
+``MembershipEligibilityService`` so the event never contradicts the org membership page.
 """
 
 import typing as t
@@ -27,6 +28,13 @@ from questionnaires.models import Questionnaire, QuestionnaireEvaluation, Questi
 pytestmark = pytest.mark.django_db
 
 EvalStatus = QuestionnaireEvaluation.QuestionnaireEvaluationStatus
+
+
+@pytest.fixture(autouse=True)
+def public_org(organization: Organization) -> None:
+    """Make the org visible: the membership state machine blocks first on ORG_NOT_VISIBLE."""
+    organization.visibility = Organization.Visibility.PUBLIC
+    organization.save(update_fields=["visibility"])
 
 
 def _membership_oq(
@@ -75,6 +83,26 @@ def _apply(
     return OrganizationMembershipRequest.objects.create(user=user, organization=organization, status=status, tier=tier)
 
 
+def _tier(
+    organization: Organization,
+    *,
+    oq: OrganizationQuestionnaire | None = None,
+    requires_approval: bool | None = None,
+    name: str = "Gold",
+) -> MembershipTier:
+    return MembershipTier.objects.create(
+        organization=organization,
+        name=name,
+        membership_questionnaire=oq,
+        requires_membership_approval=requires_approval,
+    )
+
+
+def _require_approval(organization: Organization) -> None:
+    organization.default_requires_membership_approval = True
+    organization.save(update_fields=["default_requires_membership_approval"])
+
+
 def _check(user: RevelUser, event: Event) -> t.Any:
     return EligibilityService(user=user, event=event).check_eligibility()
 
@@ -103,48 +131,106 @@ def _assert_become_member(result: t.Any) -> None:
 # --- Pending application ---
 
 
-def test_pending_tierless_application_waits_for_approval(public_user: RevelUser, members_only_event: Event) -> None:
-    """A tier-less PENDING application yields the application-pending wait state."""
-    _apply(public_user, members_only_event.organization)
-    _assert_pending_application(_check(public_user, members_only_event))
-
-
-def test_pending_tiered_application_waits_for_approval(public_user: RevelUser, members_only_event: Event) -> None:
-    """A PENDING application targeting a tier yields the same wait state."""
-    tier = MembershipTier.objects.create(organization=members_only_event.organization, name="Gold")
-    _apply(public_user, members_only_event.organization, tier=tier)
-    _assert_pending_application(_check(public_user, members_only_event))
-
-
-def test_pending_application_applies_even_when_requests_not_accepted(
+def test_pending_tierless_application_requiring_approval_waits_for_approval(
     public_user: RevelUser, members_only_event: Event
 ) -> None:
-    """Pending state is shown regardless of accept_membership_requests."""
+    """A tier-less PENDING application on an approval-required org is application-pending."""
     org = members_only_event.organization
-    org.accept_membership_requests = False
-    org.save(update_fields=["accept_membership_requests"])
+    _require_approval(org)
     _apply(public_user, org)
     _assert_pending_application(_check(public_user, members_only_event))
 
 
-def test_pending_application_beats_pending_questionnaire(public_user: RevelUser, members_only_event: Event) -> None:
-    """Application-pending takes precedence over questionnaire-pending."""
+def test_pending_application_with_tier_approval_override_waits_for_approval(
+    public_user: RevelUser, members_only_event: Event
+) -> None:
+    """The tier's requires_membership_approval=True applies even when the org default is False."""
+    org = members_only_event.organization
+    tier = _tier(org, requires_approval=True)
+    _apply(public_user, org, tier=tier)
+    _assert_pending_application(_check(public_user, members_only_event))
+
+
+def test_pending_application_with_approved_questionnaire_waits_for_approval(
+    public_user: RevelUser, members_only_event: Event
+) -> None:
+    """Questionnaire approved + approval required -> only staff approval is left."""
+    org = members_only_event.organization
+    _require_approval(org)
+    oq = _membership_oq(org)
+    tier = _tier(org, oq=oq)
+    _submit(public_user, oq, evaluation=EvalStatus.APPROVED)
+    _apply(public_user, org, tier=tier)
+    _assert_pending_application(_check(public_user, members_only_event))
+
+
+@pytest.mark.parametrize("evaluation", [None, EvalStatus.PENDING_REVIEW])
+def test_pending_application_with_questionnaire_under_review_waits_for_evaluation(
+    public_user: RevelUser, members_only_event: Event, evaluation: str | None
+) -> None:
+    """The questionnaire gate runs before manual approval, so review is what the user waits on."""
+    org = members_only_event.organization
+    _require_approval(org)
+    oq = _membership_oq(org)
+    tier = _tier(org, oq=oq)
+    _submit(public_user, oq, evaluation=evaluation)
+    _apply(public_user, org, tier=tier)
+    _assert_pending_questionnaire(_check(public_user, members_only_event))
+
+
+def test_pending_application_with_unsubmitted_questionnaire_falls_through(
+    public_user: RevelUser, members_only_event: Event
+) -> None:
+    """The user still has to submit the questionnaire (SUBMIT_QUESTIONNAIRE) -> BECOME_MEMBER."""
+    org = members_only_event.organization
+    _require_approval(org)
+    tier = _tier(org, oq=_membership_oq(org))
+    _apply(public_user, org, tier=tier)
+    _assert_become_member(_check(public_user, members_only_event))
+
+
+def test_pending_application_with_all_gates_passing_falls_through(
+    public_user: RevelUser, members_only_event: Event
+) -> None:
+    """Nothing is awaiting staff (no approval, no questionnaire) -> BECOME_MEMBER."""
+    org = members_only_event.organization
+    tier = _tier(org, requires_approval=False)
+    _apply(public_user, org, tier=tier)
+    _assert_become_member(_check(public_user, members_only_event))
+
+
+def test_rejected_application_with_pending_review_falls_through(
+    public_user: RevelUser, members_only_event: Event
+) -> None:
+    """A REJECTED latest application (REAPPLY) wins over a still-pending evaluation."""
     org = members_only_event.organization
     oq = _membership_oq(org)
-    _set_default(org, oq)
-    _submit(public_user, oq)
-    _apply(public_user, org)
-    _assert_pending_application(_check(public_user, members_only_event))
+    tier = _tier(org, oq=oq)
+    _submit(public_user, oq, evaluation=EvalStatus.PENDING_REVIEW)
+    _apply(public_user, org, tier=tier, status=MembershipRequestStatus.REJECTED)
+    _assert_become_member(_check(public_user, members_only_event))
+
+
+def test_cancelled_application_with_pending_review_still_waits_for_evaluation(
+    public_user: RevelUser, members_only_event: Event
+) -> None:
+    """ApplicationStatusGate only blocks REJECTED, so CANCELLED + pending review is questionnaire-pending."""
+    org = members_only_event.organization
+    oq = _membership_oq(org)
+    tier = _tier(org, oq=oq)
+    _submit(public_user, oq, evaluation=EvalStatus.PENDING_REVIEW)
+    _apply(public_user, org, tier=tier, status=MembershipRequestStatus.CANCELLED)
+    _assert_pending_questionnaire(_check(public_user, members_only_event))
 
 
 @pytest.mark.parametrize(
     "status",
     [s for s in MembershipRequestStatus.values if s != MembershipRequestStatus.PENDING],
 )
-def test_non_pending_application_falls_through_to_become_member(
+def test_non_pending_application_without_submission_falls_through(
     public_user: RevelUser, members_only_event: Event, status: str
 ) -> None:
-    """Resolved applications (any non-PENDING status) do not block BECOME_MEMBER."""
+    """Resolved applications with nothing under review do not block BECOME_MEMBER."""
     _apply(public_user, members_only_event.organization, status=status)
     _assert_become_member(_check(public_user, members_only_event))
 
@@ -154,6 +240,7 @@ def test_pending_application_to_other_org_is_ignored(
 ) -> None:
     """A PENDING application to a different organization does not affect this event."""
     other = Organization.objects.create(name="Other", slug="other-org", owner=organization_owner_user)
+    _require_approval(other)
     _apply(public_user, other)
     _assert_become_member(_check(public_user, members_only_event))
 
@@ -170,45 +257,49 @@ def test_no_application_and_requests_disabled_has_no_next_step(
     assert result.next_step is None
 
 
-# --- Pending questionnaire ---
+# --- Standalone questionnaire submissions (no application) ---
 
 
 @pytest.mark.parametrize("evaluation", [None, EvalStatus.PENDING_REVIEW])
-def test_default_questionnaire_pending_review_waits_for_evaluation(
+def test_standalone_submission_to_tier_override_waits_for_evaluation(
     public_user: RevelUser, members_only_event: Event, evaluation: str | None
 ) -> None:
-    """READY submission with no evaluation, or a PENDING_REVIEW one, is a wait state."""
-    org = members_only_event.organization
-    oq = _membership_oq(org)
-    _set_default(org, oq)
-    _submit(public_user, oq, evaluation=evaluation)
-    _assert_pending_questionnaire(_check(public_user, members_only_event))
-
-
-@pytest.mark.parametrize("evaluation", [None, EvalStatus.PENDING_REVIEW])
-def test_tier_questionnaire_pending_review_waits_for_evaluation(
-    public_user: RevelUser, members_only_event: Event, evaluation: str | None
-) -> None:
-    """A tier-level membership questionnaire (no org default) counts too."""
+    """A submission with no application, resolved by a tier override, is questionnaire-pending."""
     org = members_only_event.organization
     oq = _membership_oq(org, name="Tier Q")
-    MembershipTier.objects.create(organization=org, name="Student", membership_questionnaire=oq)
+    _tier(org, oq=oq)
     assert org.default_membership_questionnaire_id is None
     _submit(public_user, oq, evaluation=evaluation)
     _assert_pending_questionnaire(_check(public_user, members_only_event))
 
 
-def test_questionnaire_pending_applies_even_when_requests_not_accepted(
-    public_user: RevelUser, members_only_event: Event
+@pytest.mark.parametrize("evaluation", [None, EvalStatus.PENDING_REVIEW])
+def test_standalone_submission_to_inherited_default_waits_for_evaluation(
+    public_user: RevelUser, members_only_event: Event, evaluation: str | None
 ) -> None:
-    """Questionnaire-pending is shown regardless of accept_membership_requests."""
+    """A tier that inherits the org default questionnaire resolves to it."""
     org = members_only_event.organization
-    org.accept_membership_requests = False
-    org.save(update_fields=["accept_membership_requests"])
     oq = _membership_oq(org)
     _set_default(org, oq)
-    _submit(public_user, oq)
+    _tier(org)
+    _submit(public_user, oq, evaluation=evaluation)
     _assert_pending_questionnaire(_check(public_user, members_only_event))
+
+
+def test_default_questionnaire_overridden_by_every_tier_falls_through(
+    public_user: RevelUser, members_only_event: Event
+) -> None:
+    """If every tier overrides the default and no tier-less application exists, the default is unreachable."""
+    org = members_only_event.organization
+    default_oq = _membership_oq(org, name="Default Q")
+    _set_default(org, default_oq)
+    # The org ships with an auto-created default tier; override it too.
+    for i, tier in enumerate(MembershipTier.objects.filter(organization=org)):
+        tier.membership_questionnaire = _membership_oq(org, name=f"Tier Q {i}")
+        tier.save(update_fields=["membership_questionnaire"])
+    _tier(org, oq=_membership_oq(org, name="Gold Q"), name="Gold")
+    _submit(public_user, default_oq)
+    _assert_become_member(_check(public_user, members_only_event))
 
 
 def test_latest_rejected_submission_ignores_older_pending(public_user: RevelUser, members_only_event: Event) -> None:
@@ -216,6 +307,7 @@ def test_latest_rejected_submission_ignores_older_pending(public_user: RevelUser
     org = members_only_event.organization
     oq = _membership_oq(org)
     _set_default(org, oq)
+    _tier(org)
     _submit(public_user, oq, age_minutes=60)
     _submit(public_user, oq, evaluation=EvalStatus.REJECTED, age_minutes=1)
     _assert_become_member(_check(public_user, members_only_event))
@@ -228,6 +320,7 @@ def test_latest_approved_submission_falls_through_to_become_member(
     org = members_only_event.organization
     oq = _membership_oq(org)
     _set_default(org, oq)
+    _tier(org)
     _submit(public_user, oq, evaluation=EvalStatus.APPROVED)
     _assert_become_member(_check(public_user, members_only_event))
 
@@ -239,6 +332,7 @@ def test_questionnaire_without_requires_evaluation_is_ignored(
     org = members_only_event.organization
     oq = _membership_oq(org, requires_evaluation=False)
     _set_default(org, oq)
+    _tier(org)
     _submit(public_user, oq)
     _assert_become_member(_check(public_user, members_only_event))
 
@@ -246,6 +340,7 @@ def test_questionnaire_without_requires_evaluation_is_ignored(
 def test_unrelated_questionnaire_submission_is_ignored(public_user: RevelUser, members_only_event: Event) -> None:
     """A pending submission to a non-membership questionnaire is not a membership wait state."""
     org = members_only_event.organization
+    _tier(org)
     q = Questionnaire.objects.create(name="Admission", status=Questionnaire.QuestionnaireStatus.PUBLISHED)
     oq = OrganizationQuestionnaire.objects.create(
         organization=org,
@@ -261,8 +356,9 @@ def test_questionnaire_not_linked_to_default_or_tier_is_ignored(
     public_user: RevelUser, members_only_event: Event
 ) -> None:
     """A MEMBERSHIP-type questionnaire nothing points at does not count."""
-    oq = _membership_oq(members_only_event.organization, name="Orphan")
-    _submit(public_user, oq)
+    org = members_only_event.organization
+    _tier(org)
+    _submit(public_user, _membership_oq(org, name="Orphan"))
     _assert_become_member(_check(public_user, members_only_event))
 
 
@@ -270,9 +366,11 @@ def test_other_orgs_membership_questionnaire_is_ignored(
     public_user: RevelUser, members_only_event: Event, organization_owner_user: RevelUser
 ) -> None:
     """A pending submission to another organization's membership questionnaire is ignored."""
+    _tier(members_only_event.organization)
     other = Organization.objects.create(name="Other", slug="other-org", owner=organization_owner_user)
     oq = _membership_oq(other, name="Other Q")
     _set_default(other, oq)
+    _tier(other, name="Other tier")
     _submit(public_user, oq)
     _assert_become_member(_check(public_user, members_only_event))
 
@@ -282,12 +380,40 @@ def test_draft_submission_is_not_a_pending_review(public_user: RevelUser, member
     org = members_only_event.organization
     oq = _membership_oq(org)
     _set_default(org, oq)
+    _tier(org)
     QuestionnaireSubmission.objects.create(
         user=public_user,
         questionnaire=oq.questionnaire,
         status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.DRAFT,
     )
     _assert_become_member(_check(public_user, members_only_event))
+
+
+# --- Query budget ---
+
+
+def test_active_member_check_makes_no_queries(
+    member_user: RevelUser, members_only_event: Event, django_assert_num_queries: t.Any
+) -> None:
+    """Active members never touch the lazy membership lookup."""
+    OrganizationMember.objects.create(
+        organization=members_only_event.organization,
+        user=member_user,
+        status=OrganizationMember.MembershipStatus.ACTIVE,
+    )
+    service = EligibilityService(user=member_user, event=members_only_event)
+    with django_assert_num_queries(0):
+        assert service.check_eligibility().allowed is True
+
+
+def test_non_member_without_submissions_costs_one_query(
+    public_user: RevelUser, members_only_event: Event, django_assert_num_queries: t.Any
+) -> None:
+    """With no submissions the tier lookup is skipped: only the application query runs."""
+    _tier(members_only_event.organization)
+    service = EligibilityService(user=public_user, event=members_only_event)
+    with django_assert_num_queries(1):
+        assert service.pending_membership_step is None
 
 
 # --- Existing (inactive) members are unaffected ---
