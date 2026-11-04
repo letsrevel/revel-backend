@@ -237,6 +237,29 @@ def test_rejected_tier_is_judged_for_a_shared_questionnaire(public_user: RevelUs
     _assert_become_member(_check(public_user, members_only_event))
 
 
+@pytest.mark.parametrize("rejected_is_newer", [True, False])
+def test_most_recent_application_decides_a_shared_questionnaire(
+    public_user: RevelUser, members_only_event: Event, rejected_is_newer: bool
+) -> None:
+    """Rejected on X and cancelled on Y (same questionnaire): the newer application decides, not display order."""
+    org = members_only_event.organization
+    oq = _membership_oq(org)
+    tier_cancelled = _tier(org, oq=oq, name="Cancelled")
+    tier_rejected = _tier(org, oq=oq, name="Rejected")
+    _submit(public_user, oq, evaluation=EvalStatus.PENDING_REVIEW)
+    rejected = _apply(public_user, org, tier=tier_rejected, status=MembershipRequestStatus.REJECTED)
+    cancelled = _apply(public_user, org, tier=tier_cancelled, status=MembershipRequestStatus.CANCELLED)
+    older = cancelled if rejected_is_newer else rejected
+    OrganizationMembershipRequest.objects.filter(pk=older.pk).update(created_at=timezone.now() - timedelta(days=1))
+
+    result = _check(public_user, members_only_event)
+
+    if rejected_is_newer:
+        _assert_become_member(result)
+    else:
+        _assert_pending_questionnaire(result)
+
+
 def test_cancelled_application_with_pending_review_still_waits_for_evaluation(
     public_user: RevelUser, members_only_event: Event
 ) -> None:

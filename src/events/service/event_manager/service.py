@@ -228,7 +228,7 @@ class EligibilityService:
         if not candidates:
             # No application in flight: the user may have submitted a membership
             # questionnaire on its own. Check it against the tier it would apply to.
-            candidates = self._tiers_awaiting_questionnaire_review({app.tier_id for app in applications})
+            candidates = self._tiers_awaiting_questionnaire_review(applications)
 
         steps = {
             MembershipEligibilityService(user=self.user, organization=organization, tier=tier)
@@ -242,13 +242,13 @@ class EligibilityService:
         return None
 
     def _tiers_awaiting_questionnaire_review(
-        self, applied_tier_ids: set[uuid.UUID | None]
+        self, applications: list[OrganizationMembershipRequest]
     ) -> list[MembershipTier | None]:
         """One tier per membership questionnaire the user has an unreviewed latest submission to.
 
-        For each such questionnaire, a tier the user has applied to wins over the
-        others, so a rejected application is what the membership state machine judges
-        for that questionnaire. Returns ``[]`` without querying
+        For each such questionnaire, the tier of the user's most recent application wins
+        (then display order), so their latest decision on it, e.g. a rejection, is what
+        the membership state machine judges. Returns ``[]`` without querying
         when the user has no unreviewed submission at all (the common case).
         """
         from events.service.membership_manager import resolve_membership_questionnaire
@@ -268,11 +268,14 @@ class EligibilityService:
             .select_related("membership_questionnaire")
             .order_by("display_order")
         )
-        if None in applied_tier_ids:
+        # Newest application first; tiers never applied to keep display order after them.
+        recency = {
+            app.tier_id: rank for rank, app in enumerate(sorted(applications, key=lambda a: a.created_at, reverse=True))
+        }
+        if None in recency:
             tiers.append(None)  # legacy tier-less application → org default questionnaire
 
-        # Applied-to tiers first (stable sort keeps display order otherwise).
-        tiers.sort(key=lambda tier: (tier.pk if tier else None) not in applied_tier_ids)
+        tiers.sort(key=lambda tier: recency.get(tier.pk if tier else None, len(recency)))
         tier_by_questionnaire: dict[uuid.UUID, MembershipTier | None] = {}
         for tier in tiers:
             oq = resolve_membership_questionnaire(organization, tier)
