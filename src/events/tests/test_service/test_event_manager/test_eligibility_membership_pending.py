@@ -211,6 +211,32 @@ def test_rejected_application_with_pending_review_falls_through(
     _assert_become_member(_check(public_user, members_only_event))
 
 
+def test_rejected_tier_does_not_mask_other_questionnaire_under_review(
+    public_user: RevelUser, members_only_event: Event
+) -> None:
+    """Rejected on tier X (questionnaire A) doesn't hide a pending review of tier Y's questionnaire B."""
+    org = members_only_event.organization
+    oq_a = _membership_oq(org, name="Q A")
+    oq_b = _membership_oq(org, name="Q B")
+    tier_x = _tier(org, oq=oq_a, name="X")
+    _tier(org, oq=oq_b, name="Y")
+    _submit(public_user, oq_a, evaluation=EvalStatus.PENDING_REVIEW)
+    _submit(public_user, oq_b, evaluation=EvalStatus.PENDING_REVIEW)
+    _apply(public_user, org, tier=tier_x, status=MembershipRequestStatus.REJECTED)
+    _assert_pending_questionnaire(_check(public_user, members_only_event))
+
+
+def test_rejected_tier_is_judged_for_a_shared_questionnaire(public_user: RevelUser, members_only_event: Event) -> None:
+    """Tiers X and Y share a questionnaire: the rejected application on X decides it, not Y."""
+    org = members_only_event.organization
+    oq = _membership_oq(org)
+    _tier(org, oq=oq, name="Y")  # earlier display order than X would not matter
+    tier_x = _tier(org, oq=oq, name="X")
+    _submit(public_user, oq, evaluation=EvalStatus.PENDING_REVIEW)
+    _apply(public_user, org, tier=tier_x, status=MembershipRequestStatus.REJECTED)
+    _assert_become_member(_check(public_user, members_only_event))
+
+
 def test_cancelled_application_with_pending_review_still_waits_for_evaluation(
     public_user: RevelUser, members_only_event: Event
 ) -> None:

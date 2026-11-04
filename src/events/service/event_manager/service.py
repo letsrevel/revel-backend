@@ -228,7 +228,7 @@ class EligibilityService:
         if not candidates:
             # No application in flight: the user may have submitted a membership
             # questionnaire on its own. Check it against the tier it would apply to.
-            candidates = self._tiers_awaiting_questionnaire_review({app.tier_id for app in applications})[:1]
+            candidates = self._tiers_awaiting_questionnaire_review({app.tier_id for app in applications})
 
         steps = {
             MembershipEligibilityService(user=self.user, organization=organization, tier=tier)
@@ -244,10 +244,11 @@ class EligibilityService:
     def _tiers_awaiting_questionnaire_review(
         self, applied_tier_ids: set[uuid.UUID | None]
     ) -> list[MembershipTier | None]:
-        """Tiers whose resolved membership questionnaire has an unreviewed latest submission by the user.
+        """One tier per membership questionnaire the user has an unreviewed latest submission to.
 
-        Tiers the user has applied to come first, so a rejected/cancelled application
-        is what the membership state machine judges. Returns ``[]`` without querying
+        For each such questionnaire, a tier the user has applied to wins over the
+        others, so a rejected application is what the membership state machine judges
+        for that questionnaire. Returns ``[]`` without querying
         when the user has no unreviewed submission at all (the common case).
         """
         from events.service.membership_manager import resolve_membership_questionnaire
@@ -270,12 +271,14 @@ class EligibilityService:
         if None in applied_tier_ids:
             tiers.append(None)  # legacy tier-less application → org default questionnaire
 
-        def awaits_review(tier: MembershipTier | None) -> bool:
+        # Applied-to tiers first (stable sort keeps display order otherwise).
+        tiers.sort(key=lambda tier: (tier.pk if tier else None) not in applied_tier_ids)
+        tier_by_questionnaire: dict[uuid.UUID, MembershipTier | None] = {}
+        for tier in tiers:
             oq = resolve_membership_questionnaire(organization, tier)
-            return oq is not None and oq.requires_evaluation and oq.questionnaire_id in unreviewed_ids
-
-        matching = [tier for tier in tiers if awaits_review(tier)]
-        return sorted(matching, key=lambda tier: (tier.pk if tier else None) not in applied_tier_ids)
+            if oq is not None and oq.requires_evaluation and oq.questionnaire_id in unreviewed_ids:
+                tier_by_questionnaire.setdefault(oq.questionnaire_id, tier)
+        return list(tier_by_questionnaire.values())
 
     def overrides_max_attendees(self) -> bool:
         """Check if invitation overrides max attendees."""
