@@ -20,7 +20,7 @@ from events.models import (
 from events.service import event_service, organization_service, whitelist_service
 from events.service.event_manager import EligibilityService, EventManager, NextStep, UserIsIneligibleError
 from events.service.waitlist_service import enqueue_waitlist_processing
-from telegram.keyboards import get_event_eligible_keyboard
+from telegram.keyboards import PENDING_STATUS_CALLBACK, get_event_eligible_keyboard
 from telegram.middleware import AuthorizationMiddleware
 from telegram.models import TelegramUser
 
@@ -141,6 +141,12 @@ async def cb_handle_become_member(callback: CallbackQuery, user: RevelUser, tg_u
     except Exception as e:
         logger.exception("failed_to_create_membership_request", org_id=str(org_id), user_id=str(user.id), error=str(e))
         await callback.message.answer("❌ Sorry, something went wrong. Please try again later.")
+
+
+@router.callback_query(F.data == PENDING_STATUS_CALLBACK)
+async def cb_handle_pending_status(callback: CallbackQuery) -> None:
+    """Acknowledge a tap on a status-only button (nothing to do but wait)."""
+    await callback.answer("Nothing to do yet — the organizers will get back to you.")
 
 
 @router.callback_query(F.data.startswith("join_waitlist:"), flags={"requires_linked_user": True})

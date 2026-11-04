@@ -15,6 +15,8 @@ class ReasonCode(StrEnum):
 
     MEMBERS_ONLY = "members_only"
     MEMBERSHIP_INACTIVE = "membership_inactive"
+    MEMBERSHIP_APPLICATION_PENDING = "membership_application_pending"
+    MEMBERSHIP_QUESTIONNAIRE_PENDING_REVIEW = "membership_questionnaire_pending_review"
     REQUIRES_FULL_PROFILE = "requires_full_profile"
     EVENT_IS_FULL = "event_is_full"
     SPOTS_RESERVED_FOR_WAITLIST = "spots_reserved_for_waitlist"
@@ -50,6 +52,8 @@ class NextStep(StrEnum):
     REQUEST_INVITATION = "request_invitation"
     WAIT_FOR_INVITATION_APPROVAL = "wait_for_invitation_approval"
     BECOME_MEMBER = "become_member"
+    WAIT_FOR_MEMBERSHIP_APPROVAL = "wait_for_membership_approval"
+    WAIT_FOR_MEMBERSHIP_QUESTIONNAIRE_EVALUATION = "wait_for_membership_questionnaire_evaluation"
     COMPLETE_QUESTIONNAIRE = "complete_questionnaire"
     WAIT_FOR_QUESTIONNAIRE_EVALUATION = "wait_for_questionnaire_evaluation"
     WAIT_TO_RETAKE_QUESTIONNAIRE = "wait_to_retake_questionnaire"
@@ -73,6 +77,8 @@ class Reasons(StrEnum):
 
     MEMBERS_ONLY = gettext_noop("Only members are allowed.")
     MEMBERSHIP_INACTIVE = gettext_noop("Your membership is not active.")
+    MEMBERSHIP_APPLICATION_PENDING = gettext_noop("Your membership application is awaiting approval.")
+    MEMBERSHIP_QUESTIONNAIRE_PENDING_REVIEW = gettext_noop("Your membership questionnaire is being reviewed.")
     REQUIRES_FULL_PROFILE = gettext_noop("Requires full profile.")
     EVENT_IS_FULL = gettext_noop("Event is full.")
     SPOTS_RESERVED_FOR_WAITLIST = gettext_noop("Spots are currently reserved for waitlist members.")

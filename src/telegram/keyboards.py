@@ -15,6 +15,14 @@ remove_keyboard = ReplyKeyboardRemove()  # Convenience object
 
 # --- Inline Keyboards ---
 
+# Callback data for status-only buttons; the handler just acknowledges the tap.
+PENDING_STATUS_CALLBACK = "pending_status"
+
+_PENDING_MEMBERSHIP_LABELS: dict[NextStep, str] = {
+    NextStep.WAIT_FOR_MEMBERSHIP_APPROVAL: "⏳ Membership application pending",
+    NextStep.WAIT_FOR_MEMBERSHIP_QUESTIONNAIRE_EVALUATION: "⏳ Membership questionnaire under review",
+}
+
 
 def get_broadcast_confirmation_keyboard() -> InlineKeyboardMarkup:  # NEW
     """Creates an inline keyboard for broadcast confirmation."""
@@ -75,6 +83,12 @@ class EventKeyboardHandler:
             self.builder.button(
                 text="👤 Become Member",
                 callback_data=f"become_member:{self.event.organization_id}",
+            )
+        elif self.eligibility.next_step in _PENDING_MEMBERSHIP_LABELS:
+            # Non-actionable status line: the user is waiting on the organizers.
+            self.builder.button(
+                text=_PENDING_MEMBERSHIP_LABELS[self.eligibility.next_step],
+                callback_data=PENDING_STATUS_CALLBACK,
             )
         elif self.eligibility.next_step == NextStep.JOIN_WAITLIST:
             self.builder.button(

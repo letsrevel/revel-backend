@@ -14,6 +14,7 @@ from events.models import (
     EventInvitationRequest,
     EventRSVP,
     OrganizationMember,
+    OrganizationMembershipRequest,
     OrganizationQuestionnaire,
     WhitelistRequest,
 )
@@ -192,6 +193,32 @@ class EligibilityService:
         for evt_sub in event_questionnaire_submissions:
             result[evt_sub.questionnaire_id].append(evt_sub.submission)
         return dict(result)
+
+    @functools.cached_property
+    def has_pending_membership_application(self) -> bool:
+        """Whether the user has a PENDING membership application to the event's organization (any tier).
+
+        Lazily evaluated — only queried when a non-member hits a members-only event.
+        """
+        return OrganizationMembershipRequest.objects.filter(
+            organization_id=self.event.organization_id,
+            user=self.user,
+            status=OrganizationMembershipRequest.Status.PENDING,
+        ).exists()
+
+    @functools.cached_property
+    def evaluated_membership_questionnaire_ids(self) -> set[uuid.UUID]:
+        """Questionnaire ids of the org's membership questionnaires (default or per-tier) that require evaluation.
+
+        Lazily evaluated — only queried when a non-member hits a members-only event.
+        """
+        organization = self.event.organization
+        return set(
+            OrganizationQuestionnaire.objects.filter(
+                Q(pk=organization.default_membership_questionnaire_id) | Q(tiers__organization=organization),
+                requires_evaluation=True,
+            ).values_list("questionnaire_id", flat=True)
+        )
 
     def overrides_max_attendees(self) -> bool:
         """Check if invitation overrides max attendees."""
