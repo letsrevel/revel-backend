@@ -34,7 +34,6 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
         docs/engineering-notes.md, "Server-Side Cursors & Connection Pooling").
     """
     from events.service import series_pass_service
-    from notifications.signals.series_pass import send_series_pass_extended
 
     series_pass = SeriesPass.objects.select_related("event_series__organization").get(pk=UUID(series_pass_id))
     event_pks = [UUID(e) for e in event_ids]
@@ -51,52 +50,14 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
     skipped: list[tuple[UUID, UUID]] = []
     created_event_ids: set[UUID] = set()
 
-    for holder_id in holder_ids:
-        with transaction.atomic():
-            # of=("self",): lock the pass row only, not the joined user row. The lock
-            # makes the ACTIVE re-check authoritative — without it a concurrent
-            # cancel_held_pass could commit CANCELLED between this check and the
-            # bulk_create below, leaving a cancelled (and refunded) pass holding a
-            # live ACTIVE ticket. Lock order pass -> tiers matches cancel_held_pass.
-            held_pass = HeldSeriesPass.objects.select_for_update(of=("self",)).select_related("user").get(pk=holder_id)
-            if held_pass.status != HeldSeriesPass.HeldSeriesPassStatus.ACTIVE:
-                # Re-check inside the loop: a concurrent cancellation may have
-                # landed between the snapshot above and this holder's turn.
-                continue
-            locked = {
-                tier.pk: tier
-                for tier in TicketTier.objects.select_for_update()
-                .filter(pk__in=[link.tier_id for link in links])
-                .order_by("pk")
-            }
-            grantable: list[SeriesPassTierLink] = []
-            for link in links:
-                tier = locked[link.tier_id]
-                if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
-                    skipped.append((held_pass.id, link.event_id))
-                    continue
-                grantable.append(link)
-            # Free of charge — holders paid for the season, so extended tickets never
-            # inherit the mapped tier's price (keeps revenue/VAT reports honest, #644).
-            created = series_pass_service.materialize_tickets(
-                held_pass, grantable, Ticket.TicketStatus.ACTIVE, price_paid=Decimal("0.00")
-            )
-            if created:
-                created_event_ids.update(c.event_id for c in created)
-                # One ticket per tier by construction (each covered event has its own tier
-                # link) — a single UPDATE increments them all instead of one query per ticket.
-                TicketTier.objects.filter(pk__in=[ticket.tier_id for ticket in created]).update(
-                    quantity_sold=F("quantity_sold") + 1
-                )
-                # functools.partial binds held_pass.id/event_ids eagerly (not a late-binding
-                # closure over the loop variables), matching the engineering-notes guidance
-                # for dispatching per-iteration on_commit callbacks from inside a loop.
-                transaction.on_commit(
-                    functools.partial(send_series_pass_extended, held_pass.id, [c.event_id for c in created])
-                )
-
-    # bulk_create skips post_save; rebuild once per event (not per holder) after all holders.
-    series_pass_service.rebuild_attendee_visibility(created_event_ids)
+    try:
+        for holder_id in holder_ids:
+            created_event_ids.update(ticket.event_id for ticket in _extend_holder(holder_id, links, skipped))
+    finally:
+        # bulk_create skips post_save; rebuild once per event (not per holder). In a finally so
+        # holders that already committed still get their rebuild if a later holder raises: a
+        # re-run skips already-ticketed holders, so it would never re-dispatch for them.
+        series_pass_service.rebuild_attendee_visibility(created_event_ids)
 
     logger.info(
         "series_pass_extension_done",
@@ -104,3 +65,52 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
         holders=len(holder_ids),
         skipped=len(skipped),
     )
+
+
+def _extend_holder(holder_id: UUID, links: list[SeriesPassTierLink], skipped: list[tuple[UUID, UUID]]) -> list[Ticket]:
+    """Materialize one ACTIVE holder's tickets in its own transaction; returns the created tickets."""
+    from events.service import series_pass_service
+    from notifications.signals.series_pass import send_series_pass_extended
+
+    with transaction.atomic():
+        # of=("self",): lock the pass row only, not the joined user row. The lock
+        # makes the ACTIVE re-check authoritative — without it a concurrent
+        # cancel_held_pass could commit CANCELLED between this check and the
+        # bulk_create below, leaving a cancelled (and refunded) pass holding a
+        # live ACTIVE ticket. Lock order pass -> tiers matches cancel_held_pass.
+        held_pass = HeldSeriesPass.objects.select_for_update(of=("self",)).select_related("user").get(pk=holder_id)
+        if held_pass.status != HeldSeriesPass.HeldSeriesPassStatus.ACTIVE:
+            # Re-check per holder: a concurrent cancellation may have
+            # landed between the holder snapshot and this holder's turn.
+            return []
+        locked = {
+            tier.pk: tier
+            for tier in TicketTier.objects.select_for_update()
+            .filter(pk__in=[link.tier_id for link in links])
+            .order_by("pk")
+        }
+        grantable: list[SeriesPassTierLink] = []
+        for link in links:
+            tier = locked[link.tier_id]
+            if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
+                skipped.append((held_pass.id, link.event_id))
+                continue
+            grantable.append(link)
+        # Free of charge — holders paid for the season, so extended tickets never
+        # inherit the mapped tier's price (keeps revenue/VAT reports honest, #644).
+        created = series_pass_service.materialize_tickets(
+            held_pass, grantable, Ticket.TicketStatus.ACTIVE, price_paid=Decimal("0.00")
+        )
+        if created:
+            # One ticket per tier by construction (each covered event has its own tier
+            # link) — a single UPDATE increments them all instead of one query per ticket.
+            TicketTier.objects.filter(pk__in=[ticket.tier_id for ticket in created]).update(
+                quantity_sold=F("quantity_sold") + 1
+            )
+            # functools.partial binds held_pass.id/event_ids eagerly (not a late-binding
+            # closure), matching the engineering-notes guidance for dispatching
+            # per-iteration on_commit callbacks from inside a loop.
+            transaction.on_commit(
+                functools.partial(send_series_pass_extended, held_pass.id, [c.event_id for c in created])
+            )
+    return created
