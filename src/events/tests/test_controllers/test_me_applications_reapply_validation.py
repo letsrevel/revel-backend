@@ -331,3 +331,33 @@ def test_apply_with_valid_own_submission_is_persisted(
     assert response.status_code == 201, response.content
     application = OrganizationMembershipRequest.objects.get(organization=organization, user=nonmember_user, tier=tier)
     assert application.questionnaire_submission_id == submission.id
+
+
+def test_repost_with_different_submission_repoints_pending_row(
+    nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """A PENDING row recorded with an old submission follows a later (validated) retake."""
+    from events.service.membership_manager.service import apply_for_membership
+
+    q = _membership_questionnaire(organization)
+    old = _ready_submission(nonmember_user, q)
+    new = _ready_submission(nonmember_user, q)
+    row = OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=nonmember_user,
+        tier=tier,
+        status=OrganizationMembershipRequest.Status.PENDING,
+        questionnaire_submission=old,
+    )
+
+    application, _ = apply_for_membership(
+        user=nonmember_user,
+        organization=organization,
+        tier=tier,
+        notes=None,
+        questionnaire_submission_id=new.id,
+    )
+
+    assert application.pk == row.pk
+    row.refresh_from_db()
+    assert row.questionnaire_submission_id == new.id

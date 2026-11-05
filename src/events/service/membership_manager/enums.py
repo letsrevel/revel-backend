@@ -62,9 +62,6 @@ class MembershipReasonCode(StrEnum):
 #: when the cause of a past rejection is still one of them.
 TERMINAL_REJECTION_CODES: t.Final[frozenset[MembershipReasonCode]] = frozenset(
     {
-        # No longer emitted by the questionnaire gate (a NULL cooldown now means "retake
-        # now"); kept for API/schema compatibility and defensively treated as terminal.
-        MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_FAILED,
         # A user at the attempts cap can never satisfy the questionnaire gate again,
         # whatever the retake policy says — as terminal as an outright failure.
         MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED,

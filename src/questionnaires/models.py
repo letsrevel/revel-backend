@@ -219,9 +219,8 @@ class Questionnaire(TimeStampedModel):
         null=True,
         blank=True,
         help_text=(
-            "How long to wait to be able to retake. Empty means no cooldown (retake immediately) "
-            "for admission questionnaires, but no retake at all (terminal failure) for membership "
-            "questionnaires."
+            "How long to wait to be able to retake. Empty means no cooldown (retake immediately). "
+            "Use max_attempts to cap the number of retakes."
         ),
     )
     max_attempts = models.IntegerField(default=0, help_text="Max number of attempts to answer. 0 means unlimited.")
