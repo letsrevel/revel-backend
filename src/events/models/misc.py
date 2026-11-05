@@ -88,7 +88,7 @@ class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
         # Gather all event IDs the user is directly connected to (live tickets and
         # confirmed RSVPs only — this is a fine-grained check, not listing visibility).
         invited_event_ids = get_invited_event_ids(user)
-        ticketed_event_ids = get_ticketed_event_ids(user, include_cancelled=False)
+        ticketed_event_ids = get_ticketed_event_ids(user, attending_only=True)
         rsvpd_event_ids = get_rsvp_event_ids(user, confirmed_only=True)
 
         related_event_ids = set(invited_event_ids) | set(ticketed_event_ids) | set(rsvpd_event_ids)

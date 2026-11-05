@@ -228,14 +228,16 @@ class TestTicketSignalUnclaimingBehavior:
         item1 = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
         item2 = PotluckItem.objects.create(event=event, name="Salsa", item_type="food", assignee=nonmember_user)
 
-        # Create ticket with CANCELLED status
-        Ticket.objects.create(
+        # Cancel an attending ticket (transition out of attendance)
+        ticket = Ticket.objects.create(
             guest_name="Test Guest",
             event=event,
             user=nonmember_user,
             tier=event_ticket_tier,
-            status=Ticket.TicketStatus.CANCELLED,
+            status=Ticket.TicketStatus.ACTIVE,
         )
+        ticket.status = Ticket.TicketStatus.CANCELLED
+        ticket.save(update_fields=["status"])
 
         # Items should be unclaimed
         item1.refresh_from_db()
@@ -263,23 +265,22 @@ class TestTicketSignalUnclaimingBehavior:
         item.refresh_from_db()
         assert item.assignee == nonmember_user
 
-    def test_ticket_pending_unclaims_items(
+    def test_ticket_active_to_pending_unclaims_items(
         self, event: Event, nonmember_user: RevelUser, event_ticket_tier: TicketTier
     ) -> None:
-        """A PENDING ticket does not confer attendance, so existing claims are released."""
-        # Claim item
-        item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
-
-        # Create pending ticket
-        Ticket.objects.create(
+        """The ACTIVE -> PENDING transition stops counting as attendance, so claims are released."""
+        ticket = Ticket.objects.create(
             guest_name="Test Guest",
             event=event,
             user=nonmember_user,
             tier=event_ticket_tier,
-            status=Ticket.TicketStatus.PENDING,
+            status=Ticket.TicketStatus.ACTIVE,
         )
+        item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
 
-        # Item should be released
+        ticket.status = Ticket.TicketStatus.PENDING
+        ticket.save(update_fields=["status"])
+
         item.refresh_from_db()
         assert item.assignee is None
 

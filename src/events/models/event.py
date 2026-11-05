@@ -135,7 +135,7 @@ class EventQuerySet(models.QuerySet["Event"]):
 
         # Listing visibility is deliberately lenient: any ticket (even cancelled) and any
         # RSVP row count. Fine-grained checks (address, cancellation reason) are stricter.
-        ticketed_event_ids = set(get_ticketed_event_ids(user, include_cancelled=True))
+        ticketed_event_ids = set(get_ticketed_event_ids(user, attending_only=False))
         allowed_non_public_ids = (
             set(get_invited_event_ids(user))
             | set(member_event_ids)

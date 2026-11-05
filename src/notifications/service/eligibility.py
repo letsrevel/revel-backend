@@ -23,6 +23,10 @@ from notifications.enums import NotificationType
 from notifications.models import NotificationPreference
 from notifications.service.preferences import create_default_preferences
 
+# Notification audience, deliberately broader than attendance (``Ticket.ATTENDING_STATUSES``):
+# PENDING buyers must keep receiving event updates and cancellations.
+_AUDIENCE_TICKET_STATUSES = (*Ticket.ATTENDING_STATUSES, Ticket.TicketStatus.PENDING)
+
 
 class BatchParticipationChecker:
     """Batch checker for user participation in an event.
@@ -306,10 +310,10 @@ def has_active_rsvp(user: RevelUser, event: Event) -> bool:
 
 
 def has_active_ticket(user: RevelUser, event: Event) -> bool:
-    """Check if user has an active or pending ticket for an event.
+    """Check if user has an active, checked-in or (offline) pending ticket for an event.
 
-    For online payment tiers: only ACTIVE tickets count.
-    For offline payment tiers: ACTIVE or PENDING tickets count.
+    ACTIVE and CHECKED_IN tickets always count; PENDING counts only for offline
+    payment tiers. Matches ``BatchParticipationChecker.ticket_user_ids``.
 
     Args:
         user: The user to check
@@ -321,7 +325,7 @@ def has_active_ticket(user: RevelUser, event: Event) -> bool:
     tickets = Ticket.objects.filter(user=user, event=event).select_related("tier")
 
     for ticket in tickets:
-        if ticket.status == Ticket.TicketStatus.ACTIVE:
+        if ticket.status in (Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN):
             return True
 
         # For offline payment tiers, pending tickets also count
@@ -509,15 +513,7 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
         participants_q |= Q(
             rsvps__event=event, rsvps__status__in=[EventRSVP.RsvpStatus.YES, EventRSVP.RsvpStatus.MAYBE]
         )
-        # Audience, not attendance: deliberately includes PENDING buyers alongside ACTIVE/CHECKED_IN.
-        participants_q |= Q(
-            tickets__event=event,
-            tickets__status__in=[
-                Ticket.TicketStatus.ACTIVE,
-                Ticket.TicketStatus.CHECKED_IN,
-                Ticket.TicketStatus.PENDING,
-            ],
-        )
+        participants_q |= Q(tickets__event=event, tickets__status__in=_AUDIENCE_TICKET_STATUSES)
         participants_q |= Q(invitations__event=event)
 
     elif event.visibility in (Event.Visibility.PRIVATE, Event.Visibility.UNLISTED):
@@ -527,15 +523,7 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
         participants_q |= Q(
             rsvps__event=event, rsvps__status__in=[EventRSVP.RsvpStatus.YES, EventRSVP.RsvpStatus.MAYBE]
         )
-        # Audience, not attendance: deliberately includes PENDING buyers alongside ACTIVE/CHECKED_IN.
-        participants_q |= Q(
-            tickets__event=event,
-            tickets__status__in=[
-                Ticket.TicketStatus.ACTIVE,
-                Ticket.TicketStatus.CHECKED_IN,
-                Ticket.TicketStatus.PENDING,
-            ],
-        )
+        participants_q |= Q(tickets__event=event, tickets__status__in=_AUDIENCE_TICKET_STATUSES)
         participants_q |= Q(invitations__event=event)
 
     elif event.visibility == Event.Visibility.PUBLIC:
@@ -547,15 +535,7 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
         participants_q |= Q(
             rsvps__event=event, rsvps__status__in=[EventRSVP.RsvpStatus.YES, EventRSVP.RsvpStatus.MAYBE]
         )
-        # Audience, not attendance: deliberately includes PENDING buyers alongside ACTIVE/CHECKED_IN.
-        participants_q |= Q(
-            tickets__event=event,
-            tickets__status__in=[
-                Ticket.TicketStatus.ACTIVE,
-                Ticket.TicketStatus.CHECKED_IN,
-                Ticket.TicketStatus.PENDING,
-            ],
-        )
+        participants_q |= Q(tickets__event=event, tickets__status__in=_AUDIENCE_TICKET_STATUSES)
         participants_q |= Q(invitations__event=event)
 
     # Filter out users who have silenced all notifications early to reduce Python iteration

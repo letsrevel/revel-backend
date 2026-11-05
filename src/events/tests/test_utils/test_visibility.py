@@ -93,15 +93,15 @@ def test_owner_or_staff_q_respects_org_lookup(
     )
 
 
-def test_get_ticketed_event_ids_cancelled_switch(
+def test_get_ticketed_event_ids_attending_only_switch(
     member_user: RevelUser, event: Event, ticket_factory: t.Callable[..., Ticket]
 ) -> None:
     from events.utils.visibility import get_ticketed_event_ids
 
     ticket_factory(user=member_user, status=Ticket.TicketStatus.CANCELLED)
 
-    assert set(get_ticketed_event_ids(member_user, include_cancelled=True)) == {event.id}
-    assert set(get_ticketed_event_ids(member_user, include_cancelled=False)) == set()
+    assert set(get_ticketed_event_ids(member_user, attending_only=False)) == {event.id}
+    assert set(get_ticketed_event_ids(member_user, attending_only=True)) == set()
 
 
 def test_get_rsvp_event_ids_confirmed_switch(member_user: RevelUser, event: Event) -> None:
