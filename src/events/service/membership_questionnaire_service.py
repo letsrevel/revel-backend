@@ -127,14 +127,9 @@ def _validate_resubmission(*, user: RevelUser, org_questionnaire: OrganizationQu
         # submitted_at is guaranteed to be set for READY submissions (see QuestionnaireSubmission.save())
         last_submitted_at=t.cast("datetime", latest.submitted_at),
         attempts=len(submissions),
-        # Membership reads a NULL cooldown as "no retake at all" — matches the gate's
-        # terminal MEMBERSHIP_QUESTIONNAIRE_FAILED verdict.
-        null_cooldown_is_terminal=True,
     )
     if decision.verdict is RetakeVerdict.ATTEMPTS_EXHAUSTED:
         raise HttpError(400, str(_("You have reached the maximum number of attempts.")))
-    if decision.verdict is RetakeVerdict.NO_RETAKE:
-        raise HttpError(400, str(_("This questionnaire cannot be retaken.")))
     if decision.verdict is RetakeVerdict.COOLDOWN:
         raise HttpError(400, str(_("You can retry after %(retry_on)s.") % {"retry_on": decision.retry_on}))
 

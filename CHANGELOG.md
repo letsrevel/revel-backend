@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Membership questionnaire retakes**: an empty "can retake after" now means "no cooldown" for membership questionnaires, the same as for event questionnaires, so `max_attempts` alone limits retakes
+  - Previously a rejected applicant could never retake a membership questionnaire that had no cooldown set, even after the organizers raised `max_attempts`
+  - The `membership_questionnaire_failed` reason code stays in the API schema but is no longer returned
+
 ## [2.34.0] - 2026-11-04
 
 ### Added

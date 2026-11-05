@@ -126,8 +126,6 @@ def _validate_admission_resubmission(
             # submitted_at is guaranteed to be set for READY submissions (see QuestionnaireSubmission.save())
             last_submitted_at=t.cast("datetime", latest.submission.submitted_at),
             attempts=len(existing_submissions),
-            # Admission reads a NULL cooldown as "no cooldown, retake now".
-            null_cooldown_is_terminal=False,
         )
         if decision.verdict is RetakeVerdict.ATTEMPTS_EXHAUSTED:
             raise HttpError(400, str(_("You have reached the maximum number of attempts.")))

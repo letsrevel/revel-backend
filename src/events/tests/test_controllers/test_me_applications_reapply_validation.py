@@ -118,8 +118,10 @@ def test_join_eligibility_after_rejection_returns_reapply(
 def _terminally_rejected_state(
     user: RevelUser, organization: Organization, tier: MembershipTier
 ) -> OrganizationMembershipRequest:
-    """A REJECTED application whose cause — a failed, non-retakeable questionnaire — still stands."""
+    """A REJECTED application whose cause — a failed questionnaire at its attempts cap — still stands."""
     q = _membership_questionnaire(organization)
+    q.max_attempts = 1
+    q.save(update_fields=["max_attempts"])
     submission = QuestionnaireSubmission.objects.create(
         user=user,
         questionnaire=q,
@@ -180,7 +182,7 @@ def test_apply_after_terminal_questionnaire_rejection_is_forbidden(
     assert not any(kw.get("notification_type") == NotificationType.MEMBERSHIP_REQUEST_REJECTED for kw in received)
 
 
-def test_join_eligibility_after_terminal_rejection_reports_the_questionnaire_failure(
+def test_join_eligibility_after_terminal_rejection_reports_attempts_exhausted(
     nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
 ) -> None:
     """The preview must name the real blocker so the FE stops rendering a re-apply CTA."""
@@ -194,7 +196,7 @@ def test_join_eligibility_after_terminal_rejection_reports_the_questionnaire_fai
     body = response.json()
     assert body["allowed"] is False
     assert body["next_step"] is None
-    assert body["reason_code"] == "membership_questionnaire_failed"
+    assert body["reason_code"] == "membership_questionnaire_attempts_exhausted"
 
 
 # ---- B3: questionnaire_submission_id must be validated, not blindly persisted ----

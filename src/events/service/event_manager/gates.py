@@ -500,8 +500,6 @@ class QuestionnaireGate(BaseEligibilityGate):
             questionnaire,
             last_submitted_at=submission.submitted_at,
             attempts=len(submissions),
-            # Admission reads a NULL cooldown as "no cooldown, retake now".
-            null_cooldown_is_terminal=False,
         )
         if decision.verdict is RetakeVerdict.ATTEMPTS_EXHAUSTED:
             failed_questionnaires.append(questionnaire.id)
