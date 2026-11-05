@@ -8,9 +8,11 @@ from django.test import Client
 from django.urls import reverse
 
 from accounts.models import RevelUser
+from events.models import Organization
 from notifications.context_schemas import SystemAnnouncementContext, validate_notification_context
 from notifications.enums import NotificationType
 from notifications.models import Notification
+from notifications.service import system_announcement
 from notifications.service.dispatcher import NotificationData, bulk_create_notifications
 from notifications.service.templates.registry import get_template, is_template_registered
 from notifications.service.templates.system_templates import SystemAnnouncementTemplate
@@ -382,6 +384,36 @@ class TestSendSystemAnnouncementAdminView:
         assert regular_user.id in notified_users
         assert guest_user.id not in notified_users
 
+    @pytest.mark.parametrize("owners_only", [True, False])
+    @patch("notifications.service.system_announcement.dispatch_notifications_batch")
+    def test_post_owners_only(
+        self,
+        mock_dispatch: t.Any,
+        owners_only: bool,
+        admin_client: Client,
+        regular_user: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """owners_only restricts recipients to org owners, once each; unchecked keeps everyone."""
+        Organization.objects.create(name="First Org", slug="first-org", owner=regular_user)
+        Organization.objects.create(name="Second Org", slug="second-org", owner=regular_user)
+        non_owner = django_user_model.objects.create_user(
+            username="nonowner@example.com", email="nonowner@example.com", password="pass"
+        )
+        data = {"title": "Title", "body": "Body"}
+        if owners_only:
+            data["owners_only"] = "on"
+
+        admin_client.post(reverse(SEND_ANNOUNCEMENT_URL), data)
+
+        notified = list(
+            Notification.objects.filter(
+                notification_type=NotificationType.SYSTEM_ANNOUNCEMENT,
+            ).values_list("user_id", flat=True)
+        )
+        assert notified.count(regular_user.id) == 1
+        assert (non_owner.id in notified) is not owners_only
+
     def test_post_with_empty_fields_shows_errors(self, admin_client: Client) -> None:
         """POST with empty required fields should show form errors."""
         url = reverse(SEND_ANNOUNCEMENT_URL)
@@ -438,3 +470,33 @@ class TestSystemAnnouncementGuestPreferences:
         disabled_settings = get_guest_notification_type_settings()
 
         assert NotificationType.SYSTEM_ANNOUNCEMENT not in disabled_settings
+
+
+@pytest.mark.django_db
+class TestGetRecipientsOwnersOnly:
+    """Service-level checks for ``get_recipients(owners_only=True)``."""
+
+    def _owner(self, django_user_model: type[RevelUser], email: str, **extra: t.Any) -> RevelUser:
+        user = django_user_model.objects.create_user(username=email, email=email, password="pass", **extra)
+        Organization.objects.create(name=email, slug=email.split("@")[0], owner=user)
+        return user
+
+    def test_filters_combine_with_active_guest_and_exclude(
+        self, django_user_model: type[RevelUser], regular_user: RevelUser
+    ) -> None:
+        """Inactive and excluded owners never receive it; guest owners only with include_guests."""
+        owner = self._owner(django_user_model, "owner@example.com")
+        Organization.objects.create(name="Second", slug="second", owner=owner)
+        inactive = self._owner(django_user_model, "inactive@example.com", is_active=False)
+        guest = self._owner(django_user_model, "guestowner@example.com", guest=True)
+        sender = self._owner(django_user_model, "sender@example.com")
+
+        default = list(system_announcement.get_recipients(owners_only=True, exclude_user=sender))
+        with_guests = list(
+            system_announcement.get_recipients(owners_only=True, include_guests=True, exclude_user=sender)
+        )
+
+        assert default == [owner]  # once, despite two orgs; no non-owner, inactive, guest or sender
+        assert set(with_guests) == {owner, guest}
+        assert inactive not in with_guests
+        assert regular_user not in with_guests
