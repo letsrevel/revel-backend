@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.34.0] - 2026-11-04
+
+### Added
+- **Pending membership states on members-only events**: when the user has no membership but is already waiting on the organizers, event eligibility shows a waiting state instead of `become_member`.
+  - `wait_for_membership_approval` (reason `membership_application_pending`): a pending membership application is awaiting staff approval
+  - `wait_for_membership_questionnaire_evaluation` (reason `membership_questionnaire_pending_review`): the membership questionnaire for the applied-to (or would-be) tier is awaiting review
+  - Both states follow the organization's membership-eligibility verdict, so the event page always agrees with the membership page. Applications that still need a questionnaire submission, rejected applications, and questionnaires no tier uses still get `become_member`
+  - The Telegram bot shows a non-actionable "pending" status button for both states
+
 ## [2.33.0] - 2026-11-02
 
 ### Changed
