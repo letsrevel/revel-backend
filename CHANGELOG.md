@@ -8,8 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- **Attendance now consistently means an ACTIVE or checked-in ticket**: checked-in attendees stay on the attendee list (including the staff view) and keep attendee-only visibility
-  - PENDING ticket holders no longer appear on attendee lists or see attendee-only info such as the address and cancellation reason until their ticket is active
+- **Attendance now consistently means an ACTIVE or checked-in ticket**: checked-in attendees stay on the attendee list (including the staff view), in the dietary summary and in event-update notifications, and keep attendee-only visibility
+  - PENDING ticket holders (e.g. an unconfirmed bank transfer) no longer appear on attendee lists or see attendee-only info (address, cancellation reason, attendee-only resources and polls) until their ticket is active; they still see their event and receive its updates
+
+## [2.35.0] - 2026-11-05
+
+### Added
+- **arm64 images**: `ghcr.io/letsrevel/revel` is now published as a multi-arch image (`linux/amd64` + `linux/arm64`), built natively on both architectures; `docker pull` picks the host's platform automatically
+- Admin "Send System Announcement" form gains an **Organization owners only** option that sends the announcement only to users who own at least one organization (guest-account owners also need "Include guest users")
 
 ### Fixed
 - **Membership questionnaire retakes**: an empty "can retake after" now means "no cooldown" for membership questionnaires, the same as for event questionnaires, so `max_attempts` alone limits retakes
