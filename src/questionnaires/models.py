@@ -224,7 +224,12 @@ class Questionnaire(TimeStampedModel):
         ),
     )
     max_attempts = models.IntegerField(
-        default=0, help_text="Maximum total number of attempts, including the first submission. 0 means unlimited."
+        default=0,
+        help_text=(
+            "Maximum total number of attempts, including the first submission. 0 means unlimited. "
+            "An approval that has expired (older than the max submission age) can always be "
+            "renewed, even at this limit."
+        ),
     )
 
     objects = QuestionnaireManager()
