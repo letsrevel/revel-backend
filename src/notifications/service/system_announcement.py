@@ -2,7 +2,8 @@
 
 Shared by the admin "Send System Announcement" view and the
 ``send_system_announcement`` management command, so both build the same context,
-target the same recipients and dispatch through the same Celery task.
+select recipients through the same query (:func:`get_recipients`; the owners-only
+filter is offered by the admin form only) and dispatch through the same Celery task.
 """
 
 import functools
@@ -12,11 +13,12 @@ from collections.abc import Iterable
 import structlog
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.utils import translation
 
 from accounts.models import RevelUser
 from common.fields import sanitize_html
+from events.models import Organization
 from notifications.context_schemas import SystemAnnouncementContext
 from notifications.enums import NotificationType
 from notifications.models import Notification
@@ -67,8 +69,8 @@ def get_recipients(
 
     Args:
         include_guests: Also include guest users (ignored when ``emails`` is given).
-        owners_only: Restrict to users who own at least one organization (ignored
-            when ``emails`` is given).
+        owners_only: Restrict to users who own at least one organization. Combines
+            with the guest filter: guest owners need ``include_guests`` too.
         exclude_user: A user to leave out (the admin sender).
         emails: Restrict to these addresses (case-insensitive), for previews. When
             given, the guest filter does not apply: the caller named the users.
@@ -84,9 +86,10 @@ def get_recipients(
         users = users.filter(match_any)
     elif not include_guests:
         users = users.filter(guest=False)
-    if owners_only and emails is None:
-        # distinct(): a user owning several organizations would otherwise repeat.
-        users = users.filter(owned_organizations__isnull=False).distinct()
+    if owners_only:
+        # Exists, not a join + distinct(): no fan-out for multi-org owners, and no
+        # DISTINCT over the wide user row re-run for every batch slice.
+        users = users.filter(Exists(Organization.objects.filter(owner=OuterRef("pk"))))
     if exclude_user is not None:
         users = users.exclude(pk=exclude_user.pk)
     return users.order_by("pk")

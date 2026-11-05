@@ -12,6 +12,7 @@ from events.models import Organization
 from notifications.context_schemas import SystemAnnouncementContext, validate_notification_context
 from notifications.enums import NotificationType
 from notifications.models import Notification
+from notifications.service import system_announcement
 from notifications.service.dispatcher import NotificationData, bulk_create_notifications
 from notifications.service.templates.registry import get_template, is_template_registered
 from notifications.service.templates.system_templates import SystemAnnouncementTemplate
@@ -469,3 +470,33 @@ class TestSystemAnnouncementGuestPreferences:
         disabled_settings = get_guest_notification_type_settings()
 
         assert NotificationType.SYSTEM_ANNOUNCEMENT not in disabled_settings
+
+
+@pytest.mark.django_db
+class TestGetRecipientsOwnersOnly:
+    """Service-level checks for ``get_recipients(owners_only=True)``."""
+
+    def _owner(self, django_user_model: type[RevelUser], email: str, **extra: t.Any) -> RevelUser:
+        user = django_user_model.objects.create_user(username=email, email=email, password="pass", **extra)
+        Organization.objects.create(name=email, slug=email.split("@")[0], owner=user)
+        return user
+
+    def test_filters_combine_with_active_guest_and_exclude(
+        self, django_user_model: type[RevelUser], regular_user: RevelUser
+    ) -> None:
+        """Inactive and excluded owners never receive it; guest owners only with include_guests."""
+        owner = self._owner(django_user_model, "owner@example.com")
+        Organization.objects.create(name="Second", slug="second", owner=owner)
+        inactive = self._owner(django_user_model, "inactive@example.com", is_active=False)
+        guest = self._owner(django_user_model, "guestowner@example.com", guest=True)
+        sender = self._owner(django_user_model, "sender@example.com")
+
+        default = list(system_announcement.get_recipients(owners_only=True, exclude_user=sender))
+        with_guests = list(
+            system_announcement.get_recipients(owners_only=True, include_guests=True, exclude_user=sender)
+        )
+
+        assert default == [owner]  # once, despite two orgs; no non-owner, inactive, guest or sender
+        assert set(with_guests) == {owner, guest}
+        assert inactive not in with_guests
+        assert regular_user not in with_guests

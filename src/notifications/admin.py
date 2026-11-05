@@ -42,7 +42,7 @@ class SystemAnnouncementForm(forms.Form):
     owners_only = forms.BooleanField(
         required=False,
         widget=forms.CheckboxInput(attrs={"class": " ".join(CHECKBOX_CLASSES)}),
-        help_text="Send only to users who own at least one organization.",
+        help_text="Send only to organization owners (guest owners also need 'Include guest users').",
     )
 
 
