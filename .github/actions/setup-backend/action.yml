@@ -35,9 +35,21 @@ runs:
     # skips `apt-get update` (404s on stale indexes), mishandles virtual
     # packages like libblas.so.3, and swallows install failures into a
     # poisoned cache.
+    # Cache the downloaded .debs (not installed state): apt-get update/install
+    # still run normally, so the pitfalls above don't apply — but a trickling
+    # mirror only costs the index fetch instead of ~60 package downloads per job.
+    - name: Restore apt package cache
+      uses: actions/cache@v5
+      with:
+        path: ~/apt-archives
+        # ponytail: static key, saved once. Packages updated after that are
+        # downloaded fresh each run; bump -v1 when that starts to add up.
+        key: apt-${{ runner.os }}-${{ runner.arch }}-gdal-bin-gettext-v1
+
     - name: Install system deps
       shell: bash
       run: |
+        mkdir -p ~/apt-archives/partial
         # The runner image ships Google's Chrome apt source, which we never use
         # and which intermittently serves a "Hash Sum mismatch" that fails
         # `apt-get update` outright. Drop it so a third-party mirror can't
@@ -46,7 +58,10 @@ runs:
         sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30
         sudo apt-get install -y --no-install-recommends \
           -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+          -o Dir::Cache::Archives="$HOME/apt-archives" \
           gdal-bin gettext
+        # apt writes the archives as root; make them readable for actions/cache.
+        sudo chown -R "$(id -u):$(id -g)" ~/apt-archives
 
     - name: Recreate environment file
       shell: bash
