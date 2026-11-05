@@ -679,7 +679,7 @@ class Event(
             return is_org_member
 
         # Check event relationships
-        has_ticket = Ticket.objects.filter(user=user, event=self).exclude(status=Ticket.TicketStatus.CANCELLED).exists()
+        has_ticket = Ticket.objects.attending().filter(user=user, event=self).exists()
         has_rsvp = EventRSVP.objects.filter(user=user, event=self, status=EventRSVP.RsvpStatus.YES).exists()
         has_invitation = EventInvitation.objects.filter(user=user, event=self).exists()
 
@@ -721,7 +721,7 @@ class Event(
         if any(m.id == user.id for m in self.organization.staff_members.all()):
             return True
 
-        has_ticket = Ticket.objects.filter(user=user, event=self).exclude(status=Ticket.TicketStatus.CANCELLED).exists()
+        has_ticket = Ticket.objects.attending().filter(user=user, event=self).exists()
         has_rsvp = EventRSVP.objects.filter(user=user, event=self, status=EventRSVP.RsvpStatus.YES).exists()
         return has_ticket or has_rsvp
 
@@ -741,7 +741,7 @@ class Event(
         is_staff_member = any(m.id == viewer.id for m in self.organization.staff_members.all())
         if viewer.is_superuser or viewer.is_staff or self.organization.owner_id == viewer.id or is_staff_member:
             return RevelUser.objects.filter(
-                Q(tickets__event=self, tickets__status=Ticket.TicketStatus.ACTIVE)
+                Q(tickets__event=self, tickets__status__in=Ticket.ATTENDING_STATUSES)
                 | Q(rsvps__event=self, rsvps__status=EventRSVP.RsvpStatus.YES)
             ).distinct()
         if not self.can_user_see_attendee_list(viewer):

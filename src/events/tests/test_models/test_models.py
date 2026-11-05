@@ -753,10 +753,10 @@ class TestCanUserSeeAddress:
         assert event_with_address.can_user_see_address(nonmember_user) is False
 
     @pytest.mark.django_db
-    def test_pending_ticket_grants_access(
+    def test_pending_ticket_does_not_grant_access(
         self, event_with_address: Event, nonmember_user: RevelUser, ticket_tier: TicketTier
     ) -> None:
-        """Pending tickets grant access to address."""
+        """Pending tickets do not count as attendance, so they do not grant address access."""
         event_with_address.visibility_settings = {"address_visibility": ResourceVisibility.ATTENDEES_ONLY}
         event_with_address.save()
 
@@ -768,7 +768,7 @@ class TestCanUserSeeAddress:
             status=Ticket.TicketStatus.PENDING,
         )
 
-        assert event_with_address.can_user_see_address(nonmember_user) is True
+        assert event_with_address.can_user_see_address(nonmember_user) is False
 
     # --- Superuser/staff tests ---
 

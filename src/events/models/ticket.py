@@ -724,6 +724,16 @@ class TicketQuerySet(models.QuerySet["Ticket"]):
             "held_pass__series_pass",
         ).prefetch_related("tier__restricted_to_membership_tiers")
 
+    def attending(self) -> t.Self:
+        """Tickets that count as attendance.
+
+        This is the single definition of attendance: who is on the attendee list and in
+        ``attendee_count``, and who counts as an attendee for visibility and attendee-only
+        info. ACTIVE and CHECKED_IN count (checking in never drops anyone); PENDING and
+        CANCELLED do not.
+        """
+        return self.filter(status__in=Ticket.ATTENDING_STATUSES)
+
     def with_org_membership(self, organization_id: UUID) -> t.Self:
         """Prefetch user's membership for a specific organization."""
         return self.prefetch_related(
@@ -766,6 +776,10 @@ class TicketManager(models.Manager["Ticket"]):
         """Returns a queryset with all related objects selected."""
         return self.get_queryset().full()
 
+    def attending(self) -> TicketQuerySet:
+        """Returns a queryset of attending tickets (ACTIVE or CHECKED_IN; see ``TicketQuerySet.attending``)."""
+        return self.get_queryset().attending()
+
     def with_org_membership(self, organization_id: UUID) -> TicketQuerySet:
         """Returns a queryset with org membership prefetched."""
         return self.get_queryset().with_org_membership(organization_id)
@@ -779,6 +793,10 @@ class Ticket(PreserveTicketNumberMixin, TimeStampedModel):
         ACTIVE = "active", "Active"
         CHECKED_IN = "checked_in", "Checked In"
         CANCELLED = "cancelled", "Cancelled"
+
+    # Single definition of attendance: ACTIVE or CHECKED_IN. Use ``Ticket.objects.attending()``
+    # where a queryset is available and this tuple in relation lookups (``tickets__status__in``).
+    ATTENDING_STATUSES = (TicketStatus.ACTIVE, TicketStatus.CHECKED_IN)
 
     event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="tickets")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="tickets")

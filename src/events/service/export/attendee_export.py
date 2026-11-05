@@ -44,7 +44,7 @@ def _build_attendee_workbook(export: FileExport) -> bytes:
     tickets = list(
         Ticket.objects.filter(
             event=event,
-            status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN],
+            status__in=Ticket.ATTENDING_STATUSES,
         ).select_related("user", "tier", "seat", "seat__sector", "payment")
     )
 

@@ -47,9 +47,7 @@ class VisibilityContext:
 
         # Prefetch all relationship data in 4 queries (instead of N per pair)
         invited_user_ids = set(EventInvitation.objects.filter(event=event).values_list("user_id", flat=True))
-        ticket_user_ids = set(
-            Ticket.objects.filter(event=event, status=Ticket.TicketStatus.ACTIVE).values_list("user_id", flat=True)
-        )
+        ticket_user_ids = set(Ticket.objects.attending().filter(event=event).values_list("user_id", flat=True))
         rsvp_user_ids = set(
             EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).values_list("user_id", flat=True)
         )
@@ -123,9 +121,9 @@ def trigger_visibility_flags_for_user(user_id: UUID) -> None:
         user_id: The user ID
     """
     event_ids = (
-        Ticket.objects.filter(
+        Ticket.objects.attending()
+        .filter(
             user_id=user_id,
-            status=Ticket.TicketStatus.ACTIVE,
             event__start__gte=timezone.now(),
         )
         .values_list("event_id", flat=True)
@@ -245,7 +243,7 @@ def resolve_visibility(
     # For conditional visibility, check viewer's relationship (individual queries - N+1 if looped)
     is_invited_or_attending = (
         EventInvitation.objects.filter(event=event, user=viewer).exists()
-        or Ticket.objects.filter(event=event, user=viewer, status=Ticket.TicketStatus.ACTIVE).exists()
+        or Ticket.objects.attending().filter(event=event, user=viewer).exists()
         or EventRSVP.objects.filter(event=event, user=viewer, status=EventRSVP.RsvpStatus.YES).exists()
     )
 

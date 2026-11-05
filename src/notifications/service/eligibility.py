@@ -80,13 +80,11 @@ class BatchParticipationChecker:
         )
         self.ticket_user_ids |= pending_offline_ticket_users
 
-        # Address visibility mirrors Event.can_user_see_address, which counts any
-        # non-CANCELLED ticket (incl. CHECKED_IN and PENDING ONLINE). Kept separate
+        # Address visibility mirrors Event.can_user_see_address, which counts only
+        # attending tickets (ACTIVE or CHECKED_IN; PENDING does not). Kept separate
         # from ``ticket_user_ids`` so notification eligibility is unaffected.
-        self.non_cancelled_ticket_user_ids: set[UUID] = set(
-            Ticket.objects.filter(event=self.event)
-            .exclude(status=Ticket.TicketStatus.CANCELLED)
-            .values_list("user_id", flat=True)
+        self.attending_ticket_user_ids: set[UUID] = set(
+            Ticket.objects.attending().filter(event=self.event).values_list("user_id", flat=True)
         )
 
         # Event invitations
@@ -142,20 +140,20 @@ class BatchParticipationChecker:
         """
         return user_id in self.yes_rsvp_user_ids
 
-    def has_non_cancelled_ticket(self, user_id: UUID) -> bool:
-        """Check if user holds any ticket that is not CANCELLED.
+    def has_attending_ticket(self, user_id: UUID) -> bool:
+        """Check if user holds an attending ticket (ACTIVE or CHECKED_IN).
 
-        Broader than ``has_active_ticket``: includes CHECKED_IN and PENDING tickets
-        of any payment method. Used for address visibility parity with
-        ``Event.can_user_see_address``.
+        Broader than ``has_active_ticket``: includes CHECKED_IN tickets and
+        any payment method, but not PENDING. Used for address visibility parity
+        with ``Event.can_user_see_address``.
 
         Args:
             user_id: The user ID to check
 
         Returns:
-            True if user has a non-cancelled ticket
+            True if user has an attending ticket
         """
-        return user_id in self.non_cancelled_ticket_user_ids
+        return user_id in self.attending_ticket_user_ids
 
     def has_active_ticket(self, user_id: UUID) -> bool:
         """Check if user has an active or valid pending ticket.
@@ -220,11 +218,11 @@ class BatchParticipationChecker:
         - PRIVATE: Invited users, holders of a non-cancelled ticket, or confirmed (YES) RSVPs
         - MEMBERS_ONLY: Organization members
         - STAFF_ONLY: Only staff/owners
-        - ATTENDEES_ONLY: Holders of a non-cancelled ticket or confirmed (YES) RSVPs
+        - ATTENDEES_ONLY: Holders of an attending (ACTIVE or CHECKED_IN) ticket or confirmed (YES) RSVPs
           (a MAYBE RSVP does not count)
 
         Staff/owners see every non-public level. Ticket checks use
-        ``has_non_cancelled_ticket`` (not ``has_active_ticket``) to match the model.
+        ``has_attending_ticket`` (not ``has_active_ticket``) to match the model.
 
         Note: This does NOT check is_superuser/is_staff on the User model.
         For notification loops, we assume regular users. If you need to handle
@@ -255,7 +253,7 @@ class BatchParticipationChecker:
             return self.is_org_member(user_id)
 
         # Check event relationships for PRIVATE and ATTENDEES_ONLY
-        has_ticket = self.has_non_cancelled_ticket(user_id)
+        has_ticket = self.has_attending_ticket(user_id)
         has_rsvp = self.has_confirmed_rsvp(user_id)
 
         # ATTENDEES_ONLY: Only ticket holders or RSVPs (confirmed attendance)

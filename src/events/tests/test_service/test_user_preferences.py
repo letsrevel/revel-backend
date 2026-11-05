@@ -602,3 +602,39 @@ class TestVisibilityIgnoresInactiveMemberships:
 
         context = VisibilityContext.for_event(event=event, owner_id=owner_id, staff_ids=set())
         assert context.are_both_org_members(viewer.id, target.id) is False
+
+
+class TestAttendeeScopedVisibilityTicketStatuses:
+    """Only ACTIVE or CHECKED_IN tickets make the viewer an attendee for attendee-scoped preferences (#1278)."""
+
+    @pytest.mark.parametrize(
+        "status,expected",
+        [
+            (models.Ticket.TicketStatus.ACTIVE, True),
+            (models.Ticket.TicketStatus.CHECKED_IN, True),
+            (models.Ticket.TicketStatus.PENDING, False),
+            (models.Ticket.TicketStatus.CANCELLED, False),
+        ],
+    )
+    def test_to_invitees_by_viewer_ticket_status(
+        self,
+        event: models.Event,
+        viewer: RevelUser,
+        target: RevelUser,
+        status: models.Ticket.TicketStatus,
+        expected: bool,
+    ) -> None:
+        """Both resolve_visibility and the VisibilityContext path agree on every ticket status."""
+        target.general_preferences.show_me_on_attendee_list = "to_invitees"
+        target.general_preferences.save()
+        tier = event.ticket_tiers.first()
+        assert tier is not None
+        models.Ticket.objects.create(event=event, user=viewer, tier=tier, guest_name="Viewer", status=status)
+
+        owner_id = event.organization.owner_id
+        assert (
+            resolve_visibility(viewer=viewer, target=target, event=event, owner_id=owner_id, staff_ids=set())
+            is expected
+        )
+        context = VisibilityContext.for_event(event=event, owner_id=owner_id, staff_ids=set())
+        assert resolve_visibility_fast(viewer, target, context) is expected

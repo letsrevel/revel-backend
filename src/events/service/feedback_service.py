@@ -47,7 +47,7 @@ def user_attended_event(user: RevelUser, event: Event) -> bool:
     has_ticket = Ticket.objects.filter(
         event=event,
         user=user,
-        status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN],
+        status__in=Ticket.ATTENDING_STATUSES,
     ).exists()
 
     return has_ticket

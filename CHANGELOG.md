@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Attendance now consistently means an ACTIVE or checked-in ticket**: checked-in attendees stay on the attendee list (including the staff view) and keep attendee-only visibility
+  - PENDING ticket holders no longer appear on attendee lists or see attendee-only info such as the address and cancellation reason until their ticket is active
+
 ### Fixed
 - **Membership questionnaire retakes**: an empty "can retake after" now means "no cooldown" for membership questionnaires, the same as for event questionnaires, so `max_attempts` alone limits retakes
   - Previously a rejected applicant could never retake a membership questionnaire that had no cooldown set, even after the organizers raised `max_attempts`
