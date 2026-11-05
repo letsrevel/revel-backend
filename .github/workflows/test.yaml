@@ -51,6 +51,9 @@ jobs:
 
       - name: Check uv.lock
         run: |
+          # Steps in a container job get a different HOME than checkout's git
+          # config, so the workspace looks like someone else's repo to git.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           if ! git diff --exit-code uv.lock > /dev/null; then
             echo "❌ uv.lock is out of sync with pyproject.toml. Run 'uv sync' and commit the updated lockfile."
             git diff uv.lock
