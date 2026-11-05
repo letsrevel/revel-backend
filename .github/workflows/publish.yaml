@@ -25,6 +25,11 @@ on:
     types: [published]
   workflow_dispatch:
 
+# Serialise publishes so two near-simultaneous releases can't race on `latest`.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -82,6 +87,10 @@ jobs:
   build:
     needs: validate
     runs-on: ${{ matrix.runner }}
+    # A hung leg must not hold `merge` (and the amd64 release) for the 6h default.
+    timeout-minutes: 60
+    # arm64 is best-effort: its failure must not mark the release run as failed.
+    continue-on-error: ${{ matrix.platform == 'linux/arm64' }}
     permissions:
       contents: read
       packages: write
@@ -141,9 +150,12 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
           DIGEST_DIR: ${{ runner.temp }}/digests
+          PAIR: ${{ steps.platform.outputs.pair }}
         run: |
+          # One file per platform, named after it, holding the bare digest, so
+          # `merge` can download every artifact at once and still tell them apart.
           mkdir -p "$DIGEST_DIR"
-          touch "$DIGEST_DIR/${DIGEST#sha256:}"
+          echo "${DIGEST#sha256:}" > "$DIGEST_DIR/$PAIR"
 
       - name: Upload digest
         uses: actions/upload-artifact@v7
@@ -151,40 +163,36 @@ jobs:
           name: digests-${{ steps.platform.outputs.pair }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
-          retention-days: 1
+          # Long enough for "Re-run failed jobs" days later to still find the
+          # digest of the leg that succeeded.
+          retention-days: 7
 
   merge:
     needs: [validate, build]
     if: ${{ !cancelled() && needs.validate.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: write
 
     steps:
-      - name: Download amd64 digest
-        id: dl_amd64
-        continue-on-error: true
+      # No continue-on-error: a genuine download failure must fail loudly rather
+      # than masquerade as a missing (failed) arm64 build.
+      - name: Download digests
         uses: actions/download-artifact@v8
         with:
-          name: digests-linux-amd64
-          path: ${{ runner.temp }}/digests/amd64
-
-      - name: Download arm64 digest
-        id: dl_arm64
-        continue-on-error: true
-        uses: actions/download-artifact@v8
-        with:
-          name: digests-linux-arm64
-          path: ${{ runner.temp }}/digests/arm64
+          pattern: digests-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/digests
 
       - name: Collect digests
         id: digests
         env:
           DIGEST_DIR: ${{ runner.temp }}/digests
         run: |
-          AMD64=$(find "$DIGEST_DIR/amd64" -type f -printf '%f\n' 2>/dev/null | head -n1 || true)
-          ARM64=$(find "$DIGEST_DIR/arm64" -type f -printf '%f\n' 2>/dev/null | head -n1 || true)
+          AMD64=$(cat "$DIGEST_DIR/linux-amd64" 2>/dev/null || true)
+          ARM64=$(cat "$DIGEST_DIR/linux-arm64" 2>/dev/null || true)
 
           if [ -z "$AMD64" ]; then
             echo "::error::amd64 digest is missing; refusing to publish. The amd64 build must succeed."
@@ -193,7 +201,7 @@ jobs:
           echo "amd64=$AMD64" >> "$GITHUB_OUTPUT"
 
           if [ -z "$ARM64" ]; then
-            echo "::warning::arm64 digest is missing; publishing amd64 only."
+            echo "::warning::arm64 digest is missing (arm64 build failed); publishing amd64 only."
             echo "arm64_missing=true" >> "$GITHUB_OUTPUT"
           else
             echo "arm64=$ARM64" >> "$GITHUB_OUTPUT"
@@ -218,7 +226,8 @@ jobs:
           ARM64: ${{ steps.digests.outputs.arm64 }}
         run: |
           IMAGE=ghcr.io/letsrevel/revel
-          args=(-t "$IMAGE:latest" -t "$IMAGE:$VERSION")
+          args=(-t "$IMAGE:latest" -t "$IMAGE:$VERSION"
+                --annotation "index:org.opencontainers.image.source=https://github.com/letsrevel/revel-backend")
           if [ "$EVENT_NAME" != "release" ]; then
             args+=(--dry-run)
           fi
