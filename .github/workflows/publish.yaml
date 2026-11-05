@@ -1,23 +1,58 @@
+# Publishes the multi-arch (linux/amd64 + linux/arm64) backend image to GHCR.
+#
+# Layout: Docker's "distribute build across multiple runners" pattern. Each
+# architecture is built on a native runner (no QEMU emulation) and pushed to
+# GHCR by digest only (untagged). The `merge` job then stitches the per-arch
+# digests into one manifest list and tags it `latest` and `<version>`.
+#
+# arm64 failure is non-blocking: production servers are amd64, so a failed
+# arm64 build must never hold back a release. `merge` runs even if the arm64
+# build failed and publishes amd64 only (with a warning). A missing amd64
+# digest is a hard failure.
+#
+# ponytail: arm64 is best-effort. If arm64 becomes a supported deployment
+# target, make its failure blocking (require both digests in `merge`).
+#
+# Dry run: `workflow_dispatch` exercises the pipeline from any branch without
+# a release. It skips tag/version validation, uses version `dryrun-<sha7>`,
+# builds both arches (untagged by-digest pushes), and runs `imagetools create
+# --dry-run`, so nothing is tagged. Inspect and Discord are skipped.
+
 name: Publish
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
+
+# Per-tag group: only de-duplicates runs of the SAME release. A shared group would
+# not queue — GitHub keeps one PENDING run per group and a newer one cancels it,
+# so a dry run or a third release could silently drop a queued release. Ordering
+# between different releases is handled by the `latest` guard in `merge`.
+concurrency:
+  group: publish-${{ github.event.release.tag_name || format('dryrun-{0}', github.run_id) }}
+  cancel-in-progress: false
 
 jobs:
-  publish:
+  validate:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          # Never leave the GITHUB_TOKEN in .git/config next to the build context.
+          persist-credentials: false
 
       - name: Validate tag format
+        if: github.event_name == 'release'
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
-          TAG_NAME="${{ github.event.release.tag_name }}"
           if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "❌ Error: Release tag '$TAG_NAME' must start with 'v' and follow semantic versioning (e.g., v1.0.0)"
             exit 1
@@ -25,8 +60,10 @@ jobs:
           echo "✅ Tag format is valid: $TAG_NAME"
 
       - name: Validate version consistency
+        if: github.event_name == 'release'
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
-          TAG_NAME="${{ github.event.release.tag_name }}"
           TAG_VERSION="${TAG_NAME#v}"  # Strip 'v' prefix
           PYPROJECT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
 
@@ -38,6 +75,46 @@ jobs:
             exit 1
           fi
           echo "✅ Version consistency validated: $TAG_VERSION"
+
+      - name: Extract version without v prefix
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          if [ "$EVENT_NAME" = "release" ]; then
+            VERSION="${TAG_NAME#v}"
+          else
+            VERSION="dryrun-${GITHUB_SHA::7}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Extracted version: $VERSION"
+
+  build:
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    # A hung leg must not hold `merge` (and the amd64 release) for the 6h default.
+    timeout-minutes: 60
+    # arm64 is best-effort: its failure must not mark the release run as failed.
+    continue-on-error: ${{ matrix.platform == 'linux/arm64' }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          # Never leave the GITHUB_TOKEN in .git/config next to the build context.
+          persist-credentials: false
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -63,39 +140,188 @@ jobs:
           echo "After cleanup:"
           df -h
 
-      - name: Extract version without v prefix
-        id: version
-        run: |
-          TAG_NAME="${{ github.event.release.tag_name }}"
-          VERSION="${TAG_NAME#v}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Extracted version: $VERSION"
+      - name: Compute platform pair
+        id: platform
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: echo "pair=${PLATFORM//\//-}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push image
+      - name: Build and push image by digest
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
-          push: true
-          tags: |
-            ghcr.io/letsrevel/revel:latest
-            ghcr.io/letsrevel/revel:${{ steps.version.outputs.version }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/letsrevel/revel,push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST_DIR: ${{ runner.temp }}/digests
+          PAIR: ${{ steps.platform.outputs.pair }}
+        run: |
+          if [ -z "$DIGEST" ]; then
+            echo "::error::build-push-action returned no digest"
+            exit 1
+          fi
+          # One file per platform, named after it, holding the bare digest, so
+          # `merge` can download every artifact at once and still tell them apart.
+          mkdir -p "$DIGEST_DIR"
+          echo "${DIGEST#sha256:}" > "$DIGEST_DIR/$PAIR"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ steps.platform.outputs.pair }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          # "Re-run all jobs" re-uploads under the same name; without this it 409s.
+          overwrite: true
+          # Long enough for "Re-run failed jobs" days later to still find the
+          # digest of the leg that succeeded.
+          retention-days: 7
+
+  merge:
+    needs: [validate, build]
+    if: ${{ !cancelled() && needs.validate.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # No continue-on-error: a genuine download failure must fail loudly rather
+      # than masquerade as a missing (failed) arm64 build.
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          pattern: digests-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/digests
+
+      - name: Collect digests
+        id: digests
+        env:
+          DIGEST_DIR: ${{ runner.temp }}/digests
+        run: |
+          AMD64=$(cat "$DIGEST_DIR/linux-amd64" 2>/dev/null || true)
+          ARM64=$(cat "$DIGEST_DIR/linux-arm64" 2>/dev/null || true)
+
+          if [ -z "$AMD64" ]; then
+            echo "::error::amd64 digest is missing; refusing to publish. The amd64 build must succeed."
+            exit 1
+          fi
+          echo "amd64=$AMD64" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$ARM64" ]; then
+            echo "::warning::arm64 digest is missing (arm64 build failed); publishing amd64 only."
+            echo "arm64_missing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "arm64=$ARM64" >> "$GITHUB_OUTPUT"
+            echo "arm64_missing=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Only the highest published release may own `latest`: a concurrent publish
+      # or a re-run of an older tag must not roll it back.
+      - name: Decide whether to tag latest
+        id: latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          HIGHEST=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+                      --limit 200 --json tagName --jq '.[].tagName' \
+                    | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
+          if [ "v$VERSION" = "$HIGHEST" ] || [ "$GITHUB_EVENT_NAME" != "release" ]; then
+            echo "tag_latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::v$VERSION is not the highest release ($HIGHEST); leaving latest alone."
+            echo "tag_latest=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create manifest list
+        env:
+          TAG_LATEST: ${{ steps.latest.outputs.tag_latest }}
+          EVENT_NAME: ${{ github.event_name }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          AMD64: ${{ steps.digests.outputs.amd64 }}
+          ARM64: ${{ steps.digests.outputs.arm64 }}
+        run: |
+          IMAGE=ghcr.io/letsrevel/revel
+          args=(-t "$IMAGE:$VERSION"
+                --annotation "index:org.opencontainers.image.source=https://github.com/letsrevel/revel-backend")
+          if [ "$TAG_LATEST" = "true" ]; then
+            args+=(-t "$IMAGE:latest")
+          fi
+          if [ "$EVENT_NAME" != "release" ]; then
+            args+=(--dry-run)
+          fi
+          sources=("$IMAGE@sha256:$AMD64")
+          if [ -n "$ARM64" ]; then
+            sources+=("$IMAGE@sha256:$ARM64")
+          fi
+          docker buildx imagetools create "${args[@]}" "${sources[@]}"
+
+      - name: Inspect image
+        if: github.event_name == 'release'
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: docker buildx imagetools inspect "ghcr.io/letsrevel/revel:$VERSION"
+
+      - name: Summary
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          ARM64_MISSING: ${{ steps.digests.outputs.arm64_missing }}
+        run: |
+          {
+            if [ "$EVENT_NAME" = "release" ]; then
+              echo "### Published \`ghcr.io/letsrevel/revel:$VERSION\`"
+            else
+              echo "### Dry run for \`$VERSION\` (nothing tagged)"
+            fi
+            echo ""
+            echo "- linux/amd64"
+            if [ "$ARM64_MISSING" = "true" ]; then
+              echo "- linux/arm64: **missing** (arm64 build failed)"
+            else
+              echo "- linux/arm64"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify Discord
+        if: github.event_name == 'release'
         continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_BACKEND_WEBHOOK_URL }}
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.validate.outputs.version }}
           RELEASE_URL: ${{ github.event.release.html_url }}
+          ARM64_MISSING: ${{ steps.digests.outputs.arm64_missing }}
         run: |
           if [ -z "$DISCORD_WEBHOOK_URL" ]; then
             echo "DISCORD_BACKEND_WEBHOOK_URL not set, skipping notification"
             exit 0
           fi
+          SUFFIX=""
+          if [ "$ARM64_MISSING" = "true" ]; then
+            SUFFIX=" (amd64 only — arm64 build failed)"
+          fi
           # Build the JSON with jq so the interpolated values are escaped, not
           # spliced into the shell/JSON as GitHub Actions expressions.
-          payload=$(jq -n --arg v "$VERSION" --arg url "$RELEASE_URL" \
-            '{content: "📦 `ghcr.io/letsrevel/revel:\($v)` is published and ready to deploy — \($url)"}')
+          payload=$(jq -n --arg v "$VERSION" --arg url "$RELEASE_URL" --arg s "$SUFFIX" \
+            '{content: "📦 `ghcr.io/letsrevel/revel:\($v)` is published and ready to deploy — \($url)\($s)"}')
           curl -sf --max-time 10 -X POST "$DISCORD_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -d "$payload"
