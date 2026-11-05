@@ -158,6 +158,28 @@ class TestWebhookActivationBackfill:
         new_tier.refresh_from_db()
         assert new_tier.quantity_sold == 1
 
+    def test_backfilled_event_rebuilds_attendee_flags_exactly_once(
+        self,
+        stripe_connected_organization: Organization,
+        event_series: EventSeries,
+        revel_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """bulk_create skips post_save, so the backfill itself must dispatch the rebuild (#1309)."""
+        series_pass = _make_pass(stripe_connected_organization, event_series, TicketTier.PaymentMethod.ONLINE, "wbf")
+        _purchase_online(series_pass, revel_user, "cs_backfill_flags")
+        new_event, _, _ = _make_covered_event(stripe_connected_organization, event_series, series_pass, "wbf-new")
+        with patch("notifications.signals.series_pass.send_series_pass_extended"):
+            materialize_series_pass_holders(str(series_pass.id), [str(new_event.id)])
+
+        event = _completed_checkout_event("cs_backfill_flags")
+        with patch("events.service.series_pass_service.build_attendee_visibility_flags") as task:
+            with django_capture_on_commit_callbacks(execute=True):
+                StripeEventHandler(event).handle_checkout_session_completed(event)
+
+        dispatched = [call.args[0] for call in task.delay.call_args_list]
+        assert dispatched == [str(new_event.id)]
+
     def test_webhook_without_missed_extension_backfills_nothing(
         self,
         stripe_connected_organization: Organization,
@@ -228,6 +250,31 @@ class TestOfflineConfirmBackfill:
 
         dispatched = [call.args[0] for call in task.delay.call_args_list]
         assert sorted(dispatched) == sorted(event_ids)
+
+    def test_offline_confirm_with_backfill_rebuilds_each_event_exactly_once(
+        self,
+        organization: Organization,
+        event_series: EventSeries,
+        revel_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """Pending-ticket events and backfilled events are disjoint: no double dispatch (#1309)."""
+        series_pass = _make_pass(organization, event_series, TicketTier.PaymentMethod.OFFLINE, "obf")
+        result = SeriesPassPurchaseService(series_pass, revel_user).purchase()
+        assert isinstance(result, HeldSeriesPass)
+        new_event, _, _ = _make_covered_event(organization, event_series, series_pass, "obf-new")
+        with patch("notifications.signals.series_pass.send_series_pass_extended"):
+            materialize_series_pass_holders(str(series_pass.id), [str(new_event.id)])
+        pending_event_ids = {str(e) for e in Ticket.objects.filter(held_pass=result).values_list("event_id", flat=True)}
+        expected = pending_event_ids | {str(new_event.id)}
+
+        with patch("events.service.series_pass_service.send_series_pass_purchased"):
+            with patch("events.service.series_pass_service.build_attendee_visibility_flags") as task:
+                with django_capture_on_commit_callbacks(execute=True):
+                    series_pass_service.confirm_held_pass_payment(result)
+
+        dispatched = [call.args[0] for call in task.delay.call_args_list]
+        assert sorted(dispatched) == sorted(expected)
 
 
 class TestBackfillMissingTickets:

@@ -49,6 +49,7 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
         ).values_list("id", flat=True)
     )
     skipped: list[tuple[UUID, UUID]] = []
+    created_event_ids: set[UUID] = set()
 
     for holder_id in holder_ids:
         with transaction.atomic():
@@ -81,6 +82,7 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
                 held_pass, grantable, Ticket.TicketStatus.ACTIVE, price_paid=Decimal("0.00")
             )
             if created:
+                created_event_ids.update(c.event_id for c in created)
                 # One ticket per tier by construction (each covered event has its own tier
                 # link) — a single UPDATE increments them all instead of one query per ticket.
                 TicketTier.objects.filter(pk__in=[ticket.tier_id for ticket in created]).update(
@@ -92,6 +94,9 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
                 transaction.on_commit(
                     functools.partial(send_series_pass_extended, held_pass.id, [c.event_id for c in created])
                 )
+
+    # bulk_create skips post_save; rebuild once per event (not per holder) after all holders.
+    series_pass_service.rebuild_attendee_visibility(created_event_ids)
 
     logger.info(
         "series_pass_extension_done",

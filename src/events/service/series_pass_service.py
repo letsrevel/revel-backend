@@ -355,6 +355,16 @@ def materialize_tickets(
     return created
 
 
+def rebuild_attendee_visibility(event_ids: t.Iterable[UUID | str]) -> None:
+    """Dispatch the attendee count / visibility-flag rebuild once per distinct event, after commit.
+
+    ``bulk_create`` / ``bulk_update`` skip ``post_save``, so series-pass code that grants
+    ACTIVE tickets in bulk must trigger the rebuild itself.
+    """
+    for event_id in sorted({str(e) for e in event_ids}):
+        transaction.on_commit(functools.partial(build_attendee_visibility_flags.delay, event_id))
+
+
 def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
     """Grant tickets for covered future events the pass missed while PENDING.
 
@@ -366,6 +376,9 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
     Free of charge — the buyer's payment already covered the events linked when they
     purchased, so every granted ticket's ``price_paid`` is ``0.00``, never the mapped
     tier's price.
+
+    Dispatches the attendee visibility rebuild (after commit) for the events it grants,
+    since ``bulk_create`` skips ``post_save``.
 
     Must run inside a transaction (locks tier rows). Capacity-checked per tier:
     full tiers are skipped and logged, mirroring the extension task.
@@ -415,6 +428,7 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
         TicketTier.objects.filter(pk__in=[ticket.tier_id for ticket in created]).update(
             quantity_sold=F("quantity_sold") + 1
         )
+        rebuild_attendee_visibility(ticket.event_id for ticket in created)
     return created
 
 
@@ -751,7 +765,7 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
     # backfill locks TicketTier rows, and the canonical lock order is parent row ->
     # TicketTier (pk) -> Ticket -> TicketNumberSequence (docs/engineering-notes.md).
     # It skips events this pass already has (PENDING) tickets for.
-    backfilled = backfill_missing_tickets(held_pass)
+    backfill_missing_tickets(held_pass)
 
     # .update() can't assign a different price_paid per row, so pull the PENDING
     # tickets and set each one's share individually. Ordered by event start (then pk)
@@ -768,10 +782,9 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
         Ticket.objects.bulk_update(pending_tickets, ["status", "price_paid"])
         ticket_number_service.assign_ticket_numbers(pending_tickets)
 
-    # bulk_update / bulk_create skip post_save, so the attendee count and visibility flags are
-    # rebuilt explicitly, once per affected event, after commit.
-    affected_event_ids = {str(ticket.event_id) for ticket in (*pending_tickets, *backfilled)}
-    for event_id in sorted(affected_event_ids):
-        transaction.on_commit(functools.partial(build_attendee_visibility_flags.delay, event_id))
+    # bulk_update skips post_save, so the attendee count and visibility flags are rebuilt
+    # explicitly, once per activated event, after commit. Backfilled events dispatch their own
+    # rebuild; backfill skips events the pass already has tickets for, so the sets are disjoint.
+    rebuild_attendee_visibility(ticket.event_id for ticket in pending_tickets)
     transaction.on_commit(lambda: send_series_pass_purchased(held_pass.id))
     return held_pass

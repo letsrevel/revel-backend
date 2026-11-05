@@ -125,6 +125,23 @@ def cancelled_holder(series_pass: SeriesPass, revel_user_factory: RevelUserFacto
 
 
 class TestMaterializeSeriesPassHolders:
+    def test_rebuilds_attendee_flags_once_per_event_across_holders(
+        self,
+        series_pass: SeriesPass,
+        new_event_ids: list[str],
+        active_holder: HeldSeriesPass,
+        other_active_holder: HeldSeriesPass,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """bulk_create skips post_save: one rebuild per new event, not one per holder (#1309)."""
+        with patch("notifications.signals.series_pass.send_series_pass_extended"):
+            with patch("events.service.series_pass_service.build_attendee_visibility_flags") as task:
+                with django_capture_on_commit_callbacks(execute=True):
+                    materialize_series_pass_holders(str(series_pass.id), new_event_ids)
+
+        dispatched = [call.args[0] for call in task.delay.call_args_list]
+        assert sorted(dispatched) == sorted(new_event_ids)
+
     def test_active_holders_gain_active_tickets_for_new_events(
         self,
         series_pass: SeriesPass,

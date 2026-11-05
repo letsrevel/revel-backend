@@ -196,6 +196,8 @@ class SeriesPassPurchaseService:
         if is_free:
             held_pass.status = HeldSeriesPass.HeldSeriesPassStatus.ACTIVE
             held_pass.save(update_fields=["status"])
+            # bulk_create skips post_save: rebuild attendee flags for the ACTIVE tickets.
+            series_pass_service.rebuild_attendee_visibility(ticket.event_id for ticket in tickets)
             transaction.on_commit(lambda: send_series_pass_purchased(held_pass.id))
             return held_pass
         if method == TicketTier.PaymentMethod.OFFLINE:
