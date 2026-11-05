@@ -378,14 +378,42 @@ def test_submit_second_time_without_evaluation_returns_400(
     assert "already submitted" in response.json()["detail"]
 
 
-def test_submit_after_rejection_without_retake_returns_400(
+@patch(EVAL_TASK)
+def test_submit_after_rejection_without_cooldown_is_accepted(
+    mock_evaluate: MagicMock,
     nonmember_client: Client,
     nonmember_user: RevelUser,
     organization: Organization,
     membership_questionnaire: Questionnaire,
 ) -> None:
-    """``can_retake_after=None`` matches the gate's terminal failure verdict."""
+    """NULL ``can_retake_after`` means "no cooldown": ``max_attempts`` alone caps retakes (frontend#1159)."""
     assert membership_questionnaire.can_retake_after is None
+    membership_questionnaire.max_attempts = 2
+    membership_questionnaire.save(update_fields=["max_attempts"])
+    submission = _ready_submission(nonmember_user, membership_questionnaire)
+    QuestionnaireEvaluation.objects.create(
+        submission=submission,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED,
+    )
+
+    response = nonmember_client.post(
+        _submit_url(organization, membership_questionnaire.pk),
+        data=_payload(membership_questionnaire),
+        content_type="application/json",
+    )
+    assert response.status_code == 200, response.content
+    assert QuestionnaireSubmission.objects.filter(user=nonmember_user).count() == 2
+
+
+def test_submit_after_rejection_without_cooldown_at_attempts_cap_returns_400(
+    nonmember_client: Client,
+    nonmember_user: RevelUser,
+    organization: Organization,
+    membership_questionnaire: Questionnaire,
+) -> None:
+    """With no cooldown, reaching ``max_attempts`` still blocks the retake."""
+    membership_questionnaire.max_attempts = 1
+    membership_questionnaire.save(update_fields=["max_attempts"])
     submission = _ready_submission(nonmember_user, membership_questionnaire)
     QuestionnaireEvaluation.objects.create(
         submission=submission,
@@ -398,7 +426,7 @@ def test_submit_after_rejection_without_retake_returns_400(
         content_type="application/json",
     )
     assert response.status_code == 400
-    assert "cannot be retaken" in response.json()["detail"]
+    assert "maximum number of attempts" in response.json()["detail"]
 
 
 def test_submit_after_rejection_during_cooldown_returns_400(

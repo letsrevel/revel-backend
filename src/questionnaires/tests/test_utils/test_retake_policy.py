@@ -2,7 +2,6 @@
 
 import datetime
 
-import pytest
 from django.utils import timezone
 
 from questionnaires.models import Questionnaire
@@ -52,35 +51,31 @@ def test_approval_is_stale_at_the_exact_expiry_instant() -> None:
     assert approval_is_stale(HOUR, now - HOUR, now=now) is False
 
 
-# --- evaluate_retake_policy: attempts cap (checked first, both flag values) ---
+# --- evaluate_retake_policy: attempts cap (checked first, whatever the cooldown) ---
 
 
-@pytest.mark.parametrize("terminal", [True, False])
-def test_attempts_cap_outranks_the_cooldown(terminal: bool) -> None:
+def test_attempts_cap_outranks_the_cooldown() -> None:
     """The attempts cap is evaluated before the cooldown, for both NULL semantics."""
     now = timezone.now()
     decision = evaluate_retake_policy(
         _questionnaire(max_attempts=2, can_retake_after=HOUR),
         last_submitted_at=now - datetime.timedelta(days=1),
         attempts=2,
-        null_cooldown_is_terminal=terminal,
         now=now,
     )
     assert decision == RetakeDecision(RetakeVerdict.ATTEMPTS_EXHAUSTED)
 
 
-@pytest.mark.parametrize("terminal", [True, False])
-def test_zero_max_attempts_means_unlimited(terminal: bool) -> None:
+def test_zero_max_attempts_means_unlimited() -> None:
     """``max_attempts=0`` never exhausts, however many submissions exist."""
     now = timezone.now()
     decision = evaluate_retake_policy(
         _questionnaire(max_attempts=0, can_retake_after=None),
         last_submitted_at=now,
         attempts=99,
-        null_cooldown_is_terminal=terminal,
         now=now,
     )
-    assert decision.verdict is (RetakeVerdict.NO_RETAKE if terminal else RetakeVerdict.RETAKE_NOW)
+    assert decision.verdict is RetakeVerdict.RETAKE_NOW
 
 
 def test_attempts_below_the_cap_falls_through_to_the_cooldown() -> None:
@@ -90,7 +85,6 @@ def test_attempts_below_the_cap_falls_through_to_the_cooldown() -> None:
         _questionnaire(max_attempts=3, can_retake_after=HOUR),
         last_submitted_at=now - datetime.timedelta(hours=2),
         attempts=1,
-        null_cooldown_is_terminal=False,
         now=now,
     )
     assert decision == RetakeDecision(RetakeVerdict.RETAKE_NOW)
@@ -99,33 +93,30 @@ def test_attempts_below_the_cap_falls_through_to_the_cooldown() -> None:
 # --- evaluate_retake_policy: NULL cooldown semantics ---
 
 
-def test_null_cooldown_is_immediate_retake_for_admission() -> None:
-    """Admission questionnaires read NULL ``can_retake_after`` as "no cooldown"."""
+def test_null_cooldown_is_immediate_retake() -> None:
+    """A NULL ``can_retake_after`` means "no cooldown" for every questionnaire type."""
     decision = evaluate_retake_policy(
         _questionnaire(can_retake_after=None),
         last_submitted_at=timezone.now(),
         attempts=1,
-        null_cooldown_is_terminal=False,
     )
     assert decision == RetakeDecision(RetakeVerdict.RETAKE_NOW)
 
 
-def test_null_cooldown_is_terminal_for_membership() -> None:
-    """Membership questionnaires read NULL ``can_retake_after`` as "no retake"."""
+def test_null_cooldown_is_still_capped_by_max_attempts() -> None:
+    """With no cooldown, ``max_attempts`` alone caps retakes."""
     decision = evaluate_retake_policy(
-        _questionnaire(can_retake_after=None),
+        _questionnaire(max_attempts=2, can_retake_after=None),
         last_submitted_at=timezone.now(),
-        attempts=1,
-        null_cooldown_is_terminal=True,
+        attempts=2,
     )
-    assert decision == RetakeDecision(RetakeVerdict.NO_RETAKE)
+    assert decision == RetakeDecision(RetakeVerdict.ATTEMPTS_EXHAUSTED)
 
 
 # --- evaluate_retake_policy: cooldown window ---
 
 
-@pytest.mark.parametrize("terminal", [True, False])
-def test_cooldown_still_running(terminal: bool) -> None:
+def test_cooldown_still_running() -> None:
     """Inside the cooldown window the decision carries the retry instant."""
     now = timezone.now()
     submitted_at = now - datetime.timedelta(minutes=30)
@@ -133,21 +124,18 @@ def test_cooldown_still_running(terminal: bool) -> None:
         _questionnaire(can_retake_after=HOUR),
         last_submitted_at=submitted_at,
         attempts=1,
-        null_cooldown_is_terminal=terminal,
         now=now,
     )
     assert decision == RetakeDecision(RetakeVerdict.COOLDOWN, retry_on=submitted_at + HOUR)
 
 
-@pytest.mark.parametrize("terminal", [True, False])
-def test_cooldown_elapsed(terminal: bool) -> None:
+def test_cooldown_elapsed() -> None:
     """Past the cooldown window the user may retake."""
     now = timezone.now()
     decision = evaluate_retake_policy(
         _questionnaire(can_retake_after=HOUR),
         last_submitted_at=now - datetime.timedelta(hours=2),
         attempts=1,
-        null_cooldown_is_terminal=terminal,
         now=now,
     )
     assert decision == RetakeDecision(RetakeVerdict.RETAKE_NOW)
@@ -165,7 +153,6 @@ def test_cooldown_boundary_allows_the_retake() -> None:
         _questionnaire(can_retake_after=HOUR),
         last_submitted_at=now - HOUR,
         attempts=1,
-        null_cooldown_is_terminal=False,
         now=now,
     )
     assert decision == RetakeDecision(RetakeVerdict.RETAKE_NOW)
@@ -178,7 +165,6 @@ def test_zero_cooldown_allows_immediate_retake() -> None:
         _questionnaire(can_retake_after=datetime.timedelta(0)),
         last_submitted_at=now,
         attempts=1,
-        null_cooldown_is_terminal=True,
         now=now,
     )
     assert decision == RetakeDecision(RetakeVerdict.RETAKE_NOW)

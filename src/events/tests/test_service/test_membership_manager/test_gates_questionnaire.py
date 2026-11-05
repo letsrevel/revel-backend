@@ -121,27 +121,6 @@ def test_rejected_with_retake_cooldown_returns_retry_on(
     assert result.retry_on is not None
 
 
-def test_rejected_without_retake_returns_failed_terminal(
-    user: RevelUser, organization: Organization, tier: MembershipTier, org_questionnaire: OrganizationQuestionnaire
-) -> None:
-    _attach_to_org(organization, org_questionnaire)
-    # can_retake_after is None → no retake
-    submission = QuestionnaireSubmission.objects.create(
-        user=user,
-        questionnaire=org_questionnaire.questionnaire,
-        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
-        submitted_at=timezone.now(),
-    )
-    QuestionnaireEvaluation.objects.create(
-        submission=submission, status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED
-    )
-    service = MembershipEligibilityService(user=user, organization=organization, tier=tier)
-    result = service.check_eligibility()
-    assert result.allowed is False
-    assert result.reason == str(Reasons.MEMBERSHIP_QUESTIONNAIRE_FAILED)
-    assert result.next_step is None
-
-
 def _rejected_submission(
     user: RevelUser, questionnaire: Questionnaire, submitted_at: datetime | None = None
 ) -> QuestionnaireSubmission:
@@ -156,6 +135,40 @@ def _rejected_submission(
         submission=submission, status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED
     )
     return submission
+
+
+def test_rejected_without_cooldown_offers_retake_now(
+    user: RevelUser, organization: Organization, tier: MembershipTier, org_questionnaire: OrganizationQuestionnaire
+) -> None:
+    """NULL ``can_retake_after`` means "no cooldown", same as admission (frontend#1159)."""
+    _attach_to_org(organization, org_questionnaire)
+    q = org_questionnaire.questionnaire
+    assert q.can_retake_after is None
+    q.max_attempts = 2
+    q.save(update_fields=["max_attempts"])
+    _rejected_submission(user, q)
+
+    result = MembershipEligibilityService(user=user, organization=organization, tier=tier).check_eligibility()
+
+    assert result.allowed is False
+    assert result.reason_code == MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_MISSING
+    assert result.next_step == MembershipNextStep.SUBMIT_QUESTIONNAIRE
+
+
+def test_rejected_without_cooldown_at_attempts_cap_is_exhausted(
+    user: RevelUser, organization: Organization, tier: MembershipTier, org_questionnaire: OrganizationQuestionnaire
+) -> None:
+    """With no cooldown, ``max_attempts`` alone caps retakes."""
+    _attach_to_org(organization, org_questionnaire)
+    q = org_questionnaire.questionnaire
+    q.max_attempts = 1
+    q.save(update_fields=["max_attempts"])
+    _rejected_submission(user, q)
+
+    result = MembershipEligibilityService(user=user, organization=organization, tier=tier).check_eligibility()
+
+    assert result.reason_code == MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED
+    assert result.next_step is None
 
 
 def test_rejected_at_attempts_cap_returns_attempts_exhausted(
@@ -230,8 +243,9 @@ def test_unlimited_attempts_never_exhausts(
 
     result = MembershipEligibilityService(user=user, organization=organization, tier=tier).check_eligibility()
 
-    # can_retake_after is None → the pre-existing terminal FAILED verdict, unchanged.
-    assert result.reason_code == MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_FAILED
+    # can_retake_after is None → no cooldown, so the user may retake.
+    assert result.reason_code == MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_MISSING
+    assert result.next_step == MembershipNextStep.SUBMIT_QUESTIONNAIRE
 
 
 def test_stale_approval_ignores_the_attempts_cap(

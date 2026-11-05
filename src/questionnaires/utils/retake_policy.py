@@ -9,10 +9,10 @@ hand-written copies of the same rules, which had drifted apart. Both a gate and
 its submit endpoint must agree exactly — a gate promising SUBMIT sends the user
 to a guaranteed 400 otherwise — so the rules live here.
 
-The two paths genuinely disagree on one thing: what a NULL ``can_retake_after``
-means. Admission reads it as "no cooldown, retake immediately"; membership reads
-it as "no retake at all, terminal failure". That is expressed by the explicit
-``null_cooldown_is_terminal`` flag rather than by two divergent copies.
+Both paths read a NULL ``can_retake_after`` the same way: "no cooldown, retake
+immediately". ``max_attempts`` alone then caps retakes. (Membership used to read
+NULL as "never retake", which made ``max_attempts`` useless there; see
+letsrevel/revel-frontend#1159.)
 
 This module is pure: no queries, no ``events`` imports.
 """
@@ -41,9 +41,6 @@ class RetakeVerdict(enum.StrEnum):
 
     ATTEMPTS_EXHAUSTED = "attempts_exhausted"
     """``max_attempts`` reached — terminal, whatever the cooldown says."""
-
-    NO_RETAKE = "no_retake"
-    """No cooldown configured and NULL means "never" for this path — terminal."""
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -81,7 +78,6 @@ def evaluate_retake_policy(
     *,
     last_submitted_at: datetime.datetime,
     attempts: int,
-    null_cooldown_is_terminal: bool,
     now: datetime.datetime | None = None,
 ) -> RetakeDecision:
     """Decide whether a user whose evaluation was REJECTED may submit again.
@@ -94,13 +90,10 @@ def evaluate_retake_policy(
     ``retry_on`` the cooldown has elapsed and the retake is allowed.
 
     Args:
-        questionnaire: Supplies ``max_attempts`` and ``can_retake_after``.
+        questionnaire: Supplies ``max_attempts`` and ``can_retake_after`` (NULL means no cooldown).
         last_submitted_at: ``submitted_at`` of the user's most recent READY
             submission for this questionnaire.
         attempts: How many READY submissions the user has made.
-        null_cooldown_is_terminal: How to read a NULL ``can_retake_after`` —
-            False for admission questionnaires ("no cooldown"), True for
-            membership questionnaires ("no retake").
         now: Reference instant, for tests. Defaults to ``timezone.now()``.
 
     Returns:
@@ -110,7 +103,7 @@ def evaluate_retake_policy(
         return RetakeDecision(RetakeVerdict.ATTEMPTS_EXHAUSTED)
 
     if questionnaire.can_retake_after is None:
-        return RetakeDecision(RetakeVerdict.NO_RETAKE if null_cooldown_is_terminal else RetakeVerdict.RETAKE_NOW)
+        return RetakeDecision(RetakeVerdict.RETAKE_NOW)  # NULL cooldown: no waiting period
 
     retry_on = last_submitted_at + questionnaire.can_retake_after
     if retry_on > (now or timezone.now()):

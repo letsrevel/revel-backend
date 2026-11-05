@@ -2623,8 +2623,6 @@ msgstr "Submissão de questionário inválida."
 msgid "Questionnaire not found for this organization."
 msgstr "Questionário não encontrado para esta organização."
 
-msgid "This questionnaire cannot be retaken."
-msgstr "Este questionário não pode ser repetido."
 
 msgid "This is already the contact email for this organization."
 msgstr "Este já é o e-mail de contacto desta organização."
