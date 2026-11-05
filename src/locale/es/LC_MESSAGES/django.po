@@ -2647,8 +2647,6 @@ msgstr "Envío de cuestionario no válido."
 msgid "Questionnaire not found for this organization."
 msgstr "No se ha encontrado el cuestionario para esta organización."
 
-msgid "This questionnaire cannot be retaken."
-msgstr "Este cuestionario no se puede repetir."
 
 msgid "This is already the contact email for this organization."
 msgstr "Este ya es el correo electrónico de contacto de esta organización."

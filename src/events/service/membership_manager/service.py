@@ -374,8 +374,8 @@ def apply_for_membership(
 
     Idempotent: when a PENDING application already exists for (user, org, tier),
     re-runs the gate stack against the existing row and may advance its status.
-    Attaches a fresh ``questionnaire_submission_id`` to an existing PENDING row
-    on re-POST when one wasn't recorded yet, and repoints ``plan`` when the
+    Repoints an existing PENDING row to the ``questionnaire_submission_id`` given
+    on re-POST when it differs from the recorded one (e.g. after a retake), and repoints ``plan`` when the
     re-POST targets a different plan of the same tier.
 
     The partial unique index ``unique_pending_application_per_user_org_tier``
@@ -422,9 +422,14 @@ def apply_for_membership(
             },
         )
         if not created:
+            # Lock and re-check: a concurrent staff decision (or advance) may have closed
+            # the row since it was fetched, and a terminal row must never be repointed.
+            application = OrganizationMembershipRequest.objects.select_for_update().get(pk=application.pk)
+        if not created and application.status == OrganizationMembershipRequest.Status.PENDING:
             update_fields: list[str] = []
-            # Allow attaching a submission on re-POST when the row didn't have one.
-            if questionnaire_submission_id and not application.questionnaire_submission_id:
+            # A re-POST with a (validated) different submission repoints the row, so a
+            # retake that passes supersedes the stale rejected one.
+            if questionnaire_submission_id and application.questionnaire_submission_id != questionnaire_submission_id:
                 application.questionnaire_submission_id = questionnaire_submission_id
                 update_fields.append("questionnaire_submission")
             # Re-POST with a different plan repoints the pending row; a plan-less

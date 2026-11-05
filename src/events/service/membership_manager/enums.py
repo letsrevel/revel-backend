@@ -42,6 +42,7 @@ class MembershipReasonCode(StrEnum):
     APPLICATION_REJECTED = "application_rejected"
     MEMBERSHIP_QUESTIONNAIRE_MISSING = "membership_questionnaire_missing"
     MEMBERSHIP_QUESTIONNAIRE_PENDING = "membership_questionnaire_pending"
+    # No longer emitted by the questionnaire gate (NULL cooldown = retake now); kept for API compatibility.
     MEMBERSHIP_QUESTIONNAIRE_FAILED = "membership_questionnaire_failed"
     MEMBERSHIP_QUESTIONNAIRE_RETAKE_COOLDOWN = "membership_questionnaire_retake_cooldown"
     MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED = "membership_questionnaire_attempts_exhausted"
@@ -61,7 +62,6 @@ class MembershipReasonCode(StrEnum):
 #: when the cause of a past rejection is still one of them.
 TERMINAL_REJECTION_CODES: t.Final[frozenset[MembershipReasonCode]] = frozenset(
     {
-        MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_FAILED,
         # A user at the attempts cap can never satisfy the questionnaire gate again,
         # whatever the retake policy says — as terminal as an outright failure.
         MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED,

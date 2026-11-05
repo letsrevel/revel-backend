@@ -185,10 +185,10 @@ Evaluation against the user's most recent `READY` submission:
 - **Rejected** → retake policy branches:
     - `can_retake_after` set and cooldown still running → `MEMBERSHIP_QUESTIONNAIRE_RETAKE_COOLDOWN` with `next_step=WAIT_TO_RETAKE_QUESTIONNAIRE` and `retry_on`.
     - Cooldown elapsed → treated as missing (resubmit).
-    - No retake configured (`can_retake_after` is `NULL`) → **terminal failure** `MEMBERSHIP_QUESTIONNAIRE_FAILED`, no `next_step`. Note this is the **opposite** of the admission path, where a `NULL` cooldown means "retake immediately" — see [Questionnaires → Retry mechanics](questionnaires.md#retry-mechanics).
-    - Attempts cap reached → **terminal failure** `MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED`, no `next_step`: whatever the retake policy says, the user can never satisfy the gate again.
+    - No cooldown (`can_retake_after` is `NULL` or zero) → treated as missing (resubmit immediately), exactly like the admission path — see [Questionnaires → Retry mechanics](questionnaires.md#retry-mechanics). Only `max_attempts` caps retakes.
+    - Attempts cap reached → **terminal failure** `MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED`, no `next_step`: whatever the cooldown says, the user can never satisfy the gate again.
 
-Those last two — `MEMBERSHIP_QUESTIONNAIRE_FAILED` and `MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED` — are the two reason codes in `TERMINAL_REJECTION_CODES` (see [State machine](#application-state-machine)).
+`MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED` is the terminal reason code in `TERMINAL_REJECTION_CODES` (see [State machine](#application-state-machine)). `MEMBERSHIP_QUESTIONNAIRE_FAILED` remains in the enum and the allowlist for API compatibility but the gate no longer emits it.
 
 **Source:** `events/service/membership_manager/gates.py`: `MembershipQuestionnaireGate`; the retake/staleness rules themselves in `questionnaires/utils/retake_policy.py` (shared with the submit endpoint).
 
@@ -310,7 +310,7 @@ As in the event pipeline, reasons are emitted in two forms: `reason` (translated
 | `application_rejected` | "Your application was rejected." |
 | `membership_questionnaire_missing` | "Membership questionnaire has not been filled." |
 | `membership_questionnaire_pending` | "Waiting for questionnaire evaluation." |
-| `membership_questionnaire_failed` | "Membership questionnaire evaluation was insufficient." |
+| `membership_questionnaire_failed` | "Membership questionnaire evaluation was insufficient." (no longer emitted; kept for API compatibility) |
 | `membership_questionnaire_retake_cooldown` | "Membership questionnaire evaluation was insufficient. You can try again later." |
 | `membership_questionnaire_attempts_exhausted` | "You have reached the maximum number of attempts." |
 | `requires_approval` | "Your application is awaiting staff approval." |
@@ -369,6 +369,7 @@ stateDiagram-v2
 ```python
 TERMINAL_REJECTION_CODES: t.Final[frozenset[ReasonCode]] = frozenset(
     {
+        # No longer emitted by the questionnaire gate (NULL cooldown = retake now); kept for API compatibility.
         ReasonCode.MEMBERSHIP_QUESTIONNAIRE_FAILED,
         # A user at the attempts cap can never satisfy the questionnaire gate again,
         # whatever the retake policy says — as terminal as an outright failure.

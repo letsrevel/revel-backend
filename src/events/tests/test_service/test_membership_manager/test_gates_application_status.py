@@ -100,14 +100,10 @@ def _rejected_submission(user: RevelUser, questionnaire: Questionnaire, *, days_
     )
 
 
-def test_rejected_by_terminal_questionnaire_failure_blocks_without_next_step(
+def test_rejected_without_cooldown_still_offers_reapply(
     user: RevelUser, organization: Organization, tier: MembershipTier
 ) -> None:
-    """REAPPLY here would be a lie: the fresh row is auto-rejected (and re-notified) on first read.
-
-    The questionnaire has no retake policy, so the very verdict that rejected the
-    row still stands — surface it, with next_step=None so the controller 403s.
-    """
+    """A NULL cooldown means "retake now", so the rejection cause is recoverable (frontend#1159)."""
     q = _membership_questionnaire(organization)
     _rejected_submission(user, q)
     app = OrganizationMembershipRequest.objects.create(
@@ -119,11 +115,8 @@ def test_rejected_by_terminal_questionnaire_failure_blocks_without_next_step(
 
     result = MembershipEligibilityService(user=user, organization=organization, tier=tier).check_eligibility()
 
-    assert result.allowed is False
-    assert result.reason_code == MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_FAILED
-    assert result.next_step is None
-    assert result.questionnaire_id == q.pk
-    # Still points at the row the user would otherwise be told to supersede.
+    assert result.reason_code == MembershipReasonCode.APPLICATION_REJECTED
+    assert result.next_step == MembershipNextStep.REAPPLY
     assert result.application_id == app.pk
 
 

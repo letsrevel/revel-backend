@@ -309,17 +309,17 @@ def test_pending_with_exhausted_questionnaire_attempts_rejects(
     assert eligibility.reason_code == MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED
 
 
-def test_pending_with_terminal_questionnaire_failure_rejects_and_notifies(
+def test_pending_with_exhausted_questionnaire_attempts_rejects_and_notifies(
     user: RevelUser,
     organization: Organization,
     tier: MembershipTier,
     django_capture_on_commit_callbacks: t.Any,
 ) -> None:
-    """MEMBERSHIP_QUESTIONNAIRE_FAILED (no retake) IS terminal: reject + notify the user."""
+    """A terminal questionnaire verdict (attempts exhausted) rejects the application and notifies the user."""
     from notifications.enums import NotificationType
     from notifications.signals import notification_requested
 
-    q = Questionnaire.objects.create(name="Q", status=Questionnaire.QuestionnaireStatus.PUBLISHED)
+    q = Questionnaire.objects.create(name="Q", status=Questionnaire.QuestionnaireStatus.PUBLISHED, max_attempts=1)
     oq = OrganizationQuestionnaire.objects.create(
         organization=organization,
         questionnaire=q,

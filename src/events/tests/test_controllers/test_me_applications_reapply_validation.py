@@ -5,6 +5,7 @@ Split from test_me_applications.py to respect the 1000-line file limit.
 
 import typing as t
 import uuid
+from unittest.mock import patch
 
 import pytest
 from django.test.client import Client
@@ -118,8 +119,10 @@ def test_join_eligibility_after_rejection_returns_reapply(
 def _terminally_rejected_state(
     user: RevelUser, organization: Organization, tier: MembershipTier
 ) -> OrganizationMembershipRequest:
-    """A REJECTED application whose cause — a failed, non-retakeable questionnaire — still stands."""
+    """A REJECTED application whose cause — a failed questionnaire at its attempts cap — still stands."""
     q = _membership_questionnaire(organization)
+    q.max_attempts = 1
+    q.save(update_fields=["max_attempts"])
     submission = QuestionnaireSubmission.objects.create(
         user=user,
         questionnaire=q,
@@ -180,7 +183,7 @@ def test_apply_after_terminal_questionnaire_rejection_is_forbidden(
     assert not any(kw.get("notification_type") == NotificationType.MEMBERSHIP_REQUEST_REJECTED for kw in received)
 
 
-def test_join_eligibility_after_terminal_rejection_reports_the_questionnaire_failure(
+def test_join_eligibility_after_terminal_rejection_reports_attempts_exhausted(
     nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
 ) -> None:
     """The preview must name the real blocker so the FE stops rendering a re-apply CTA."""
@@ -194,7 +197,7 @@ def test_join_eligibility_after_terminal_rejection_reports_the_questionnaire_fai
     body = response.json()
     assert body["allowed"] is False
     assert body["next_step"] is None
-    assert body["reason_code"] == "membership_questionnaire_failed"
+    assert body["reason_code"] == "membership_questionnaire_attempts_exhausted"
 
 
 # ---- B3: questionnaire_submission_id must be validated, not blindly persisted ----
@@ -329,3 +332,71 @@ def test_apply_with_valid_own_submission_is_persisted(
     assert response.status_code == 201, response.content
     application = OrganizationMembershipRequest.objects.get(organization=organization, user=nonmember_user, tier=tier)
     assert application.questionnaire_submission_id == submission.id
+
+
+def test_repost_with_different_submission_repoints_pending_row(
+    nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """A PENDING row recorded with an old submission follows a later (validated) retake."""
+    from events.service.membership_manager.service import apply_for_membership
+
+    q = _membership_questionnaire(organization)
+    old = _ready_submission(nonmember_user, q)
+    new = _ready_submission(nonmember_user, q)
+    row = OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=nonmember_user,
+        tier=tier,
+        status=OrganizationMembershipRequest.Status.PENDING,
+        questionnaire_submission=old,
+    )
+
+    application, _ = apply_for_membership(
+        user=nonmember_user,
+        organization=organization,
+        tier=tier,
+        notes=None,
+        questionnaire_submission_id=new.id,
+    )
+
+    assert application.pk == row.pk
+    row.refresh_from_db()
+    assert row.questionnaire_submission_id == new.id
+
+
+def test_repost_does_not_repoint_row_closed_concurrently(
+    nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """A row that turned terminal after it was fetched keeps its submission (row lock + re-check)."""
+    from events.service.membership_manager.service import apply_for_membership
+
+    q = _membership_questionnaire(organization)
+    old = _ready_submission(nonmember_user, q)
+    new = _ready_submission(nonmember_user, q)
+    row = OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=nonmember_user,
+        tier=tier,
+        status=OrganizationMembershipRequest.Status.PENDING,
+        questionnaire_submission=old,
+    )
+    stale = OrganizationMembershipRequest.objects.get(pk=row.pk)  # fetched while still PENDING
+    OrganizationMembershipRequest.objects.filter(pk=row.pk).update(
+        status=OrganizationMembershipRequest.Status.REJECTED
+    )  # ...then closed by a concurrent staff decision
+
+    with patch(
+        "events.service.membership_manager.service.get_or_create_with_race_protection",
+        return_value=(stale, False),
+    ):
+        apply_for_membership(
+            user=nonmember_user,
+            organization=organization,
+            tier=tier,
+            notes=None,
+            questionnaire_submission_id=new.id,
+        )
+
+    row.refresh_from_db()
+    assert row.status == OrganizationMembershipRequest.Status.REJECTED
+    assert row.questionnaire_submission_id == old.id

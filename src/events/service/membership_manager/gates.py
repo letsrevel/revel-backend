@@ -359,8 +359,6 @@ class MembershipQuestionnaireGate(BaseMembershipEligibilityGate):
             # submitted_at is guaranteed to be set for READY submissions (see QuestionnaireSubmission.save())
             last_submitted_at=t.cast("datetime.datetime", submission.submitted_at),
             attempts=self.handler.questionnaire_attempt_count,
-            # Membership reads a NULL cooldown as "no retake at all".
-            null_cooldown_is_terminal=True,
         )
         if decision.verdict is RetakeVerdict.ATTEMPTS_EXHAUSTED:
             return self._block(
@@ -374,14 +372,8 @@ class MembershipQuestionnaireGate(BaseMembershipEligibilityGate):
                 questionnaire_id=questionnaire.pk,
                 retry_on=decision.retry_on,
             )
-        if decision.verdict is RetakeVerdict.RETAKE_NOW:
-            return self._block_submit(questionnaire.pk)
-
-        # No retake → terminal failure.
-        return self._block(
-            Reasons.MEMBERSHIP_QUESTIONNAIRE_FAILED,
-            questionnaire_id=questionnaire.pk,
-        )
+        # RETAKE_NOW: no cooldown, or it has elapsed, and attempts remain.
+        return self._block_submit(questionnaire.pk)
 
     def _block_submit(self, questionnaire_id: uuid.UUID) -> MembershipEligibility:
         """Build the SUBMIT_QUESTIONNAIRE blocking verdict."""
