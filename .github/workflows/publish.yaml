@@ -25,9 +25,12 @@ on:
     types: [published]
   workflow_dispatch:
 
-# Serialise publishes so two near-simultaneous releases can't race on `latest`.
+# Per-tag group: only de-duplicates runs of the SAME release. A shared group would
+# not queue — GitHub keeps one PENDING run per group and a newer one cancels it,
+# so a dry run or a third release could silently drop a queued release. Ordering
+# between different releases is handled by the `latest` guard in `merge`.
 concurrency:
-  group: publish
+  group: publish-${{ github.event.release.tag_name || format('dryrun-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
@@ -152,6 +155,10 @@ jobs:
           DIGEST_DIR: ${{ runner.temp }}/digests
           PAIR: ${{ steps.platform.outputs.pair }}
         run: |
+          if [ -z "$DIGEST" ]; then
+            echo "::error::build-push-action returned no digest"
+            exit 1
+          fi
           # One file per platform, named after it, holding the bare digest, so
           # `merge` can download every artifact at once and still tell them apart.
           mkdir -p "$DIGEST_DIR"
@@ -163,6 +170,8 @@ jobs:
           name: digests-${{ steps.platform.outputs.pair }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
+          # "Re-run all jobs" re-uploads under the same name; without this it 409s.
+          overwrite: true
           # Long enough for "Re-run failed jobs" days later to still find the
           # digest of the leg that succeeded.
           retention-days: 7
@@ -218,16 +227,38 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # Only the highest published release may own `latest`: a concurrent publish
+      # or a re-run of an older tag must not roll it back.
+      - name: Decide whether to tag latest
+        id: latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          HIGHEST=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+                      --limit 200 --json tagName --jq '.[].tagName' \
+                    | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
+          if [ "v$VERSION" = "$HIGHEST" ] || [ "$GITHUB_EVENT_NAME" != "release" ]; then
+            echo "tag_latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::v$VERSION is not the highest release ($HIGHEST); leaving latest alone."
+            echo "tag_latest=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create manifest list
         env:
+          TAG_LATEST: ${{ steps.latest.outputs.tag_latest }}
           EVENT_NAME: ${{ github.event_name }}
           VERSION: ${{ needs.validate.outputs.version }}
           AMD64: ${{ steps.digests.outputs.amd64 }}
           ARM64: ${{ steps.digests.outputs.arm64 }}
         run: |
           IMAGE=ghcr.io/letsrevel/revel
-          args=(-t "$IMAGE:latest" -t "$IMAGE:$VERSION"
+          args=(-t "$IMAGE:$VERSION"
                 --annotation "index:org.opencontainers.image.source=https://github.com/letsrevel/revel-backend")
+          if [ "$TAG_LATEST" = "true" ]; then
+            args+=(-t "$IMAGE:latest")
+          fi
           if [ "$EVENT_NAME" != "release" ]; then
             args+=(--dry-run)
           fi
