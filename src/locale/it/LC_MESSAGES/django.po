@@ -4220,6 +4220,9 @@ msgstr "URL"
 msgid "Include guest users"
 msgstr "Includi utenti ospiti"
 
+msgid "Organization owners only"
+msgstr "Solo proprietari di organizzazioni"
+
 msgid "Warning"
 msgstr "Avviso"
 

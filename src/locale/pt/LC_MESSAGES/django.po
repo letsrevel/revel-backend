@@ -4172,6 +4172,9 @@ msgstr "URL"
 msgid "Include guest users"
 msgstr "Incluir utilizadores convidados"
 
+msgid "Organization owners only"
+msgstr "Apenas proprietários de organizações"
+
 msgid "Warning"
 msgstr "Aviso"
 
