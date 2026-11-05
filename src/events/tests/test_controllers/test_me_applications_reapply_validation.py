@@ -5,6 +5,7 @@ Split from test_me_applications.py to respect the 1000-line file limit.
 
 import typing as t
 import uuid
+from unittest.mock import patch
 
 import pytest
 from django.test.client import Client
@@ -361,3 +362,41 @@ def test_repost_with_different_submission_repoints_pending_row(
     assert application.pk == row.pk
     row.refresh_from_db()
     assert row.questionnaire_submission_id == new.id
+
+
+def test_repost_does_not_repoint_row_closed_concurrently(
+    nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
+) -> None:
+    """A row that turned terminal after it was fetched keeps its submission (row lock + re-check)."""
+    from events.service.membership_manager.service import apply_for_membership
+
+    q = _membership_questionnaire(organization)
+    old = _ready_submission(nonmember_user, q)
+    new = _ready_submission(nonmember_user, q)
+    row = OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=nonmember_user,
+        tier=tier,
+        status=OrganizationMembershipRequest.Status.PENDING,
+        questionnaire_submission=old,
+    )
+    stale = OrganizationMembershipRequest.objects.get(pk=row.pk)  # fetched while still PENDING
+    OrganizationMembershipRequest.objects.filter(pk=row.pk).update(
+        status=OrganizationMembershipRequest.Status.REJECTED
+    )  # ...then closed by a concurrent staff decision
+
+    with patch(
+        "events.service.membership_manager.service.get_or_create_with_race_protection",
+        return_value=(stale, False),
+    ):
+        apply_for_membership(
+            user=nonmember_user,
+            organization=organization,
+            tier=tier,
+            notes=None,
+            questionnaire_submission_id=new.id,
+        )
+
+    row.refresh_from_db()
+    assert row.status == OrganizationMembershipRequest.Status.REJECTED
+    assert row.questionnaire_submission_id == old.id

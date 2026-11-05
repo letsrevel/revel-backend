@@ -422,6 +422,10 @@ def apply_for_membership(
             },
         )
         if not created:
+            # Lock and re-check: a concurrent staff decision (or advance) may have closed
+            # the row since it was fetched, and a terminal row must never be repointed.
+            application = OrganizationMembershipRequest.objects.select_for_update().get(pk=application.pk)
+        if not created and application.status == OrganizationMembershipRequest.Status.PENDING:
             update_fields: list[str] = []
             # A re-POST with a (validated) different submission repoints the row, so a
             # retake that passes supersedes the stale rejected one.
