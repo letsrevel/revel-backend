@@ -44,6 +44,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          # Never leave the GITHUB_TOKEN in .git/config next to the build context.
+          persist-credentials: false
 
       - name: Validate tag format
         if: github.event_name == 'release'
@@ -109,6 +112,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          # Never leave the GITHUB_TOKEN in .git/config next to the build context.
+          persist-credentials: false
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
