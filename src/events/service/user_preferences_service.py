@@ -115,7 +115,10 @@ def set_general_preferences(
 
 
 def trigger_visibility_flags_for_user(user_id: UUID) -> None:
-    """Dispatch build_attendee_visibility_flags for all future events the user is attending.
+    """Dispatch build_attendee_visibility_flags for all not-yet-ended events the user is attending.
+
+    "Not yet ended" (``end >= now``, ``end`` is never null) rather than "not yet started", so
+    in-progress events, where CHECKED_IN tickets live, are included.
 
     Args:
         user_id: The user ID
@@ -124,14 +127,14 @@ def trigger_visibility_flags_for_user(user_id: UUID) -> None:
         Ticket.objects.attending()
         .filter(
             user_id=user_id,
-            event__start__gte=timezone.now(),
+            event__end__gte=timezone.now(),
         )
         .values_list("event_id", flat=True)
         .union(
             EventRSVP.objects.filter(
                 user_id=user_id,
                 status=EventRSVP.RsvpStatus.YES,
-                event__start__gte=timezone.now(),
+                event__end__gte=timezone.now(),
             ).values_list("event_id", flat=True)
         )
     )

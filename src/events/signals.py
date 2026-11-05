@@ -175,7 +175,7 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
 def handle_ticket_visibility_and_potluck(
     sender: type[Ticket], instance: Ticket, created: bool, **kwargs: t.Any
 ) -> None:
-    """Trigger visibility task and unclaim potluck items when ticket status becomes CANCELLED.
+    """Trigger visibility task and unclaim potluck items when a ticket stops counting as attendance.
 
     When a ticket's status changes to CANCELLED, we automatically unclaim all potluck items
     the user had claimed, since they are no longer confirmed to attend.
@@ -188,7 +188,13 @@ def handle_ticket_visibility_and_potluck(
     event_id = str(instance.event_id)
     transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
 
-    if instance.status == Ticket.TicketStatus.CANCELLED:
+    # A ticket that no longer counts as attendance (CANCELLED, or ACTIVE -> PENDING) releases the
+    # holder's claims — but only once they hold no other attending ticket for the event (a user may
+    # hold several, e.g. an ACTIVE one plus a PENDING one bought later).
+    if (
+        instance.status not in Ticket.ATTENDING_STATUSES
+        and not Ticket.objects.attending().filter(event_id=instance.event_id, user_id=instance.user_id).exists()
+    ):
         unclaim_user_potluck_items(instance.event_id, instance.user_id)
 
 

@@ -232,8 +232,9 @@ class PotluckItemPermission(RootPermission):
         if not obj.potluck_open and self.action == "create_potluck_item":
             return False
 
-        # Cancelled tickets don't confer attendance (same rule as Event attendee checks), but
-        # releasing an item the user already holds must keep working after a cancellation.
+        # Only attending tickets (ACTIVE or CHECKED_IN) confer attendance, same as the Event attendee
+        # checks; PENDING and CANCELLED don't. Releasing an item the user already holds must keep
+        # working with any ticket (e.g. after a cancellation).
         tickets = (
             models.Ticket.objects.all() if self.action == "unclaim_potluck_item" else models.Ticket.objects.attending()
         ).filter(event=obj, user=user)

@@ -188,14 +188,14 @@ class TestPublicResourceEndpoints:
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["name"] == "Attendees Only Info"
 
-    def test_attendees_only_resource_with_pending_ticket(
+    def test_attendees_only_resource_with_pending_ticket_is_hidden(
         self,
         nonmember_client: Client,
         nonmember_user: RevelUser,
         private_event: models.Event,
         attendees_only_resource_for_event: models.AdditionalResource,
     ) -> None:
-        """Test that a user with a pending ticket can see attendees-only resources."""
+        """A pending ticket does not count as attendance, so attendees-only resources stay hidden."""
         # Give the user a pending ticket
         tier = private_event.ticket_tiers.first()
         assert tier is not None
@@ -210,8 +210,7 @@ class TestPublicResourceEndpoints:
 
         response = nonmember_client.get(url)
         assert response.status_code == 200
-        assert response.json()["count"] == 1
-        assert response.json()["results"][0]["name"] == "Attendees Only Info"
+        assert response.json()["count"] == 0
 
     def test_attendees_only_resource_with_rsvp_yes(
         self,

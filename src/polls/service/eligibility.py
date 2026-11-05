@@ -78,9 +78,7 @@ def _passes_event_visibility(user: RevelUser, poll: Poll, visibility: str) -> bo
     if poll.event_id is None:
         return False
 
-    has_ticket = (
-        Ticket.objects.filter(user=user, event_id=poll.event_id).exclude(status=Ticket.TicketStatus.CANCELLED).exists()
-    )
+    has_ticket = Ticket.objects.attending().filter(user=user, event_id=poll.event_id).exists()
     has_rsvp = EventRSVP.objects.filter(user=user, event_id=poll.event_id, status=EventRSVP.RsvpStatus.YES).exists()
 
     if visibility == ResourceVisibility.ATTENDEES_ONLY:

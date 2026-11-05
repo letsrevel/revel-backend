@@ -61,12 +61,13 @@ class BatchParticipationChecker:
             if status == EventRSVP.RsvpStatus.YES:
                 self.yes_rsvp_user_ids.add(user_id)
 
-        # Active tickets - need to handle payment method logic
-        # ACTIVE tickets always count, PENDING only for non-ONLINE payment methods
+        # Ticket holders - need to handle payment method logic
+        # ACTIVE and CHECKED_IN tickets always count, PENDING only for non-ONLINE payment methods.
+        # The notification audience is deliberately broader than attendance (it includes PENDING).
         self.ticket_user_ids: set[UUID] = set(
             Ticket.objects.filter(
                 event=self.event,
-                status=Ticket.TicketStatus.ACTIVE,
+                status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN],
             ).values_list("user_id", flat=True)
         )
         # Add users with PENDING tickets for non-ONLINE payment methods
@@ -143,9 +144,10 @@ class BatchParticipationChecker:
     def has_attending_ticket(self, user_id: UUID) -> bool:
         """Check if user holds an attending ticket (ACTIVE or CHECKED_IN).
 
-        Broader than ``has_active_ticket``: includes CHECKED_IN tickets and
-        any payment method, but not PENDING. Used for address visibility parity
-        with ``Event.can_user_see_address``.
+        Differs from ``has_active_ticket`` (the notification audience): this counts
+        CHECKED_IN tickets of any payment method but never PENDING, whereas the
+        audience set counts offline PENDING tickets. Neither set contains the other.
+        Used for address visibility parity with ``Event.can_user_see_address``.
 
         Args:
             user_id: The user ID to check
@@ -215,7 +217,7 @@ class BatchParticipationChecker:
 
         Uses the same visibility rules as Event.can_user_see_address but with O(1) set lookups:
         - PUBLIC / UNLISTED: Everyone can see
-        - PRIVATE: Invited users, holders of a non-cancelled ticket, or confirmed (YES) RSVPs
+        - PRIVATE: Invited users, holders of an attending ticket, or confirmed (YES) RSVPs
         - MEMBERS_ONLY: Organization members
         - STAFF_ONLY: Only staff/owners
         - ATTENDEES_ONLY: Holders of an attending (ACTIVE or CHECKED_IN) ticket or confirmed (YES) RSVPs
@@ -507,8 +509,14 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
         participants_q |= Q(
             rsvps__event=event, rsvps__status__in=[EventRSVP.RsvpStatus.YES, EventRSVP.RsvpStatus.MAYBE]
         )
+        # Audience, not attendance: deliberately includes PENDING buyers alongside ACTIVE/CHECKED_IN.
         participants_q |= Q(
-            tickets__event=event, tickets__status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.PENDING]
+            tickets__event=event,
+            tickets__status__in=[
+                Ticket.TicketStatus.ACTIVE,
+                Ticket.TicketStatus.CHECKED_IN,
+                Ticket.TicketStatus.PENDING,
+            ],
         )
         participants_q |= Q(invitations__event=event)
 
@@ -519,8 +527,14 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
         participants_q |= Q(
             rsvps__event=event, rsvps__status__in=[EventRSVP.RsvpStatus.YES, EventRSVP.RsvpStatus.MAYBE]
         )
+        # Audience, not attendance: deliberately includes PENDING buyers alongside ACTIVE/CHECKED_IN.
         participants_q |= Q(
-            tickets__event=event, tickets__status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.PENDING]
+            tickets__event=event,
+            tickets__status__in=[
+                Ticket.TicketStatus.ACTIVE,
+                Ticket.TicketStatus.CHECKED_IN,
+                Ticket.TicketStatus.PENDING,
+            ],
         )
         participants_q |= Q(invitations__event=event)
 
@@ -533,8 +547,14 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
         participants_q |= Q(
             rsvps__event=event, rsvps__status__in=[EventRSVP.RsvpStatus.YES, EventRSVP.RsvpStatus.MAYBE]
         )
+        # Audience, not attendance: deliberately includes PENDING buyers alongside ACTIVE/CHECKED_IN.
         participants_q |= Q(
-            tickets__event=event, tickets__status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.PENDING]
+            tickets__event=event,
+            tickets__status__in=[
+                Ticket.TicketStatus.ACTIVE,
+                Ticket.TicketStatus.CHECKED_IN,
+                Ticket.TicketStatus.PENDING,
+            ],
         )
         participants_q |= Q(invitations__event=event)
 

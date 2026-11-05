@@ -458,3 +458,39 @@ def test_with_user_annotations_django_staff_after_vote(
     annotated = Poll.objects.with_user_annotations(staff).get(pk=poll.pk)
     assert eligibility.user_has_voted_from_annotations(staff, annotated) is True
     assert eligibility.can_see_results_from_annotations(staff, annotated, []) is True
+
+
+@pytest.mark.parametrize(
+    "status,expected",
+    [
+        ("active", True),
+        ("checked_in", True),
+        ("pending", False),
+    ],
+)
+def test_attendees_only_poll_requires_attending_ticket(
+    organization: Organization,
+    questionnaire: Questionnaire,
+    event: Event,
+    revel_user_factory: t.Any,
+    status: str,
+    expected: bool,
+) -> None:
+    """ACTIVE and CHECKED_IN holders can open and vote on an ATTENDEES_ONLY poll; PENDING cannot."""
+    from events.models import Ticket, TicketTier
+
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        event=event,
+        vote_visibility=ResourceVisibility.ATTENDEES_ONLY,
+        result_visibility=ResourceVisibility.ATTENDEES_ONLY,
+        status=Poll.PollStatus.OPEN,
+    )
+    user = revel_user_factory()
+    tier = TicketTier.objects.get_or_create(event=event, name="General")[0]
+    Ticket.objects.create(event=event, user=user, tier=tier, guest_name="G", status=status)
+
+    assert eligibility.can_vote(user, poll) is expected
+    assert eligibility.can_see_poll(user, poll) is expected
+    assert Poll.objects.for_user(user).filter(pk=poll.pk).exists() is expected

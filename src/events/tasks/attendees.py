@@ -53,10 +53,7 @@ def build_attendee_visibility_flags(event_id: str) -> None:
         if event is None:
             # Dispatched by a Ticket/RSVP post_delete cascaded from event.delete() (#937)
             return
-        ticket_count = Ticket.objects.filter(
-            event=event,
-            status__in=Ticket.ATTENDING_STATUSES,
-        ).count()
+        ticket_count = Ticket.objects.attending().filter(event=event).count()
         rsvp_count = EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).count()
         event.attendee_count = ticket_count + rsvp_count
         event.save(update_fields=["attendee_count"])

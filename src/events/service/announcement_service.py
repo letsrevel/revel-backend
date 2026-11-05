@@ -334,13 +334,7 @@ def _get_event_recipients(event: Event) -> QuerySet[RevelUser]:
     """
     # Get ticket holder user IDs (ACTIVE and CHECKED_IN tickets)
     # Note: AT_THE_DOOR tickets are now created as ACTIVE, so no special handling needed
-    active_ticket_statuses = [Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN]
-    ticket_user_ids = set(
-        Ticket.objects.filter(
-            event=event,
-            status__in=active_ticket_statuses,
-        ).values_list("user_id", flat=True)
-    )
+    ticket_user_ids = set(Ticket.objects.attending().filter(event=event).values_list("user_id", flat=True))
 
     # Get RSVP user IDs
     rsvp_user_ids = set(

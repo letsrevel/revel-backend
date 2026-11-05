@@ -35,7 +35,7 @@ class PollQuerySet(models.QuerySet["Poll"]):
         * ``_is_org_staff_member`` — an :class:`OrganizationStaff` row links the user.
         * ``_is_org_member`` — an active :class:`OrganizationMember` row exists.
         * ``_user_member_tier_id`` — the user's tier id in the poll's org (or NULL).
-        * ``_has_ticket`` — a non-cancelled :class:`Ticket` for the linked event.
+        * ``_has_ticket`` — an attending (ACTIVE or CHECKED_IN) :class:`Ticket` for the linked event.
         * ``_has_rsvp`` — a YES :class:`EventRSVP` for the linked event.
         * ``_has_invitation`` — an :class:`EventInvitation` for the linked event.
 
@@ -73,9 +73,7 @@ class PollQuerySet(models.QuerySet["Poll"]):
                 .filter(organization=OuterRef("organization"), user=user)
                 .values("tier_id")[:1]
             ),
-            _has_ticket=Exists(
-                Ticket.objects.filter(user=user, event=OuterRef("event")).exclude(status=Ticket.TicketStatus.CANCELLED)
-            ),
+            _has_ticket=Exists(Ticket.objects.attending().filter(user=user, event=OuterRef("event"))),
             _has_rsvp=Exists(
                 EventRSVP.objects.filter(user=user, event=OuterRef("event"), status=EventRSVP.RsvpStatus.YES)
             ),
@@ -124,9 +122,7 @@ class PollQuerySet(models.QuerySet["Poll"]):
         member_q = Exists(
             OrganizationMember.objects.for_visibility().filter(organization=OuterRef("organization"), user=user)
         )
-        ticket_q = Exists(
-            Ticket.objects.filter(user=user, event=OuterRef("event")).exclude(status=Ticket.TicketStatus.CANCELLED)
-        )
+        ticket_q = Exists(Ticket.objects.attending().filter(user=user, event=OuterRef("event")))
         rsvp_q = Exists(EventRSVP.objects.filter(user=user, event=OuterRef("event"), status=EventRSVP.RsvpStatus.YES))
         invite_q = Exists(EventInvitation.objects.filter(user=user, event=OuterRef("event")))
         voted_q = Exists(

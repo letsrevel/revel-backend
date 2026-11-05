@@ -263,10 +263,10 @@ class TestTicketSignalUnclaimingBehavior:
         item.refresh_from_db()
         assert item.assignee == nonmember_user
 
-    def test_ticket_pending_does_not_unclaim_items(
+    def test_ticket_pending_unclaims_items(
         self, event: Event, nonmember_user: RevelUser, event_ticket_tier: TicketTier
     ) -> None:
-        """Test that a PENDING ticket does NOT unclaim potluck items."""
+        """A PENDING ticket does not confer attendance, so existing claims are released."""
         # Claim item
         item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
 
@@ -279,9 +279,9 @@ class TestTicketSignalUnclaimingBehavior:
             status=Ticket.TicketStatus.PENDING,
         )
 
-        # Item should still be claimed
+        # Item should be released
         item.refresh_from_db()
-        assert item.assignee == nonmember_user
+        assert item.assignee is None
 
     def test_ticket_change_active_to_cancelled_unclaims_items(
         self, event: Event, nonmember_user: RevelUser, event_ticket_tier: TicketTier
