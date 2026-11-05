@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.35.0] - 2026-11-05
+
+### Added
+- **arm64 images**: `ghcr.io/letsrevel/revel` is now published as a multi-arch image (`linux/amd64` + `linux/arm64`), built natively on both architectures; `docker pull` picks the host's platform automatically
+- Admin "Send System Announcement" form gains an **Organization owners only** option that sends the announcement only to users who own at least one organization (guest-account owners also need "Include guest users")
+
 ### Fixed
 - **Membership questionnaire retakes**: an empty "can retake after" now means "no cooldown" for membership questionnaires, the same as for event questionnaires, so `max_attempts` alone limits retakes
   - Previously a rejected applicant could never retake a membership questionnaire that had no cooldown set, even after the organizers raised `max_attempts`
