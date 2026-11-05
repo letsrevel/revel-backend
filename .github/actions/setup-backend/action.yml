@@ -31,22 +31,62 @@ runs:
     # libraries suffice: libgdal-dev (+ recommends) pulled ~120 packages, and a
     # trickling Azure mirror stretched that download to 35 min. Retries +
     # timeouts bound the occasional mirror stall; the job-level timeout-minutes
-    # in test.yaml is the backstop. Deliberately NOT cached via cache-apt-pkgs-action: it
-    # skips `apt-get update` (404s on stale indexes), mishandles virtual
-    # packages like libblas.so.3, and swallows install failures into a
-    # poisoned cache.
-    - name: Install system deps
+    # in test.yaml is the backstop. The INSTALLED state is deliberately not
+    # cached via cache-apt-pkgs-action: it skips `apt-get update` (404s on stale
+    # indexes), mishandles virtual packages like libblas.so.3, and swallows
+    # install failures into a poisoned cache. What IS cached below is only the
+    # downloaded .deb archives: update/install still run normally, but a
+    # trickling mirror then costs the index fetch, not ~60 package downloads.
+    - name: Compute apt cache key
+      id: apt-key
       shell: bash
       run: |
+        # Release in the key (a new runner image must not reuse old .debs);
+        # ISO week so the cache refreshes weekly and picks up package updates.
+        echo "prefix=apt-${{ runner.os }}-${{ runner.arch }}-$(lsb_release -rs)-gdal-bin-gettext-" >> "$GITHUB_OUTPUT"
+        echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+    - name: Restore apt package cache
+      id: apt-cache
+      uses: actions/cache/restore@v5
+      with:
+        path: ~/apt-archives
+        key: ${{ steps.apt-key.outputs.prefix }}${{ steps.apt-key.outputs.week }}
+        restore-keys: ${{ steps.apt-key.outputs.prefix }}
+
+    - name: Install system deps
+      id: apt-install
+      shell: bash
+      run: |
+        mkdir -p ~/apt-archives/partial
         # The runner image ships Google's Chrome apt source, which we never use
         # and which intermittently serves a "Hash Sum mismatch" that fails
         # `apt-get update` outright. Drop it so a third-party mirror can't
         # block every job.
         sudo rm -f /etc/apt/sources.list.d/google-chrome*
         sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30
+        # Sandbox user root: _apt can't write into the runner's home, and this
+        # is a throwaway runner, so skip the per-job "unsandboxed" warning.
         sudo apt-get install -y --no-install-recommends \
           -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+          -o Dir::Cache::Archives="$HOME/apt-archives" \
+          -o APT::Keep-Downloaded-Packages=true \
+          -o APT::Sandbox::User=root \
           gdal-bin gettext
+        # apt writes the archives as root; make them readable for actions/cache.
+        sudo chown -R "$(id -u):$(id -g)" ~/apt-archives
+        echo "debs=$(find ~/apt-archives -maxdepth 1 -name '*.deb' | wc -l)" >> "$GITHUB_OUTPUT"
+
+    # Saved right after the install, not in a post step: the post step only
+    # saves when the whole job succeeds, and the slow-mirror days this exists
+    # for are exactly the ones whose jobs time out. Skip on an exact-key hit
+    # (already saved this week) and when apt left no archives behind.
+    - name: Save apt package cache
+      if: steps.apt-cache.outputs.cache-hit != 'true' && steps.apt-install.outputs.debs != '0'
+      uses: actions/cache/save@v5
+      with:
+        path: ~/apt-archives
+        key: ${{ steps.apt-key.outputs.prefix }}${{ steps.apt-key.outputs.week }}
 
     - name: Recreate environment file
       shell: bash
