@@ -207,6 +207,28 @@ class TestOfflineConfirmBackfill:
         new_tier.refresh_from_db()
         assert new_tier.quantity_sold == 1
 
+    def test_offline_confirm_rebuilds_attendee_flags_once_per_event(
+        self,
+        organization: Organization,
+        event_series: EventSeries,
+        revel_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """bulk_update skips post_save, so confirming must dispatch the visibility rebuild itself."""
+        series_pass = _make_pass(organization, event_series, TicketTier.PaymentMethod.OFFLINE, "ob-flags")
+        result = SeriesPassPurchaseService(series_pass, revel_user).purchase()
+        assert isinstance(result, HeldSeriesPass)
+        event_ids = {str(e) for e in Ticket.objects.filter(held_pass=result).values_list("event_id", flat=True)}
+        assert event_ids
+
+        with patch("events.service.series_pass_service.send_series_pass_purchased"):
+            with patch("events.service.series_pass_service.build_attendee_visibility_flags") as task:
+                with django_capture_on_commit_callbacks(execute=True):
+                    series_pass_service.confirm_held_pass_payment(result)
+
+        dispatched = [call.args[0] for call in task.delay.call_args_list]
+        assert sorted(dispatched) == sorted(event_ids)
+
 
 class TestBackfillMissingTickets:
     """Unit tests for the service function itself (runs inside the test's transaction)."""

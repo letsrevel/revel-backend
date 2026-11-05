@@ -71,7 +71,7 @@ class BatchParticipationChecker:
         self.ticket_user_ids: set[UUID] = set(
             Ticket.objects.filter(
                 event=self.event,
-                status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN],
+                status__in=Ticket.ATTENDING_STATUSES,
             ).values_list("user_id", flat=True)
         )
         # Add users with PENDING tickets for non-ONLINE payment methods
@@ -325,7 +325,7 @@ def has_active_ticket(user: RevelUser, event: Event) -> bool:
     tickets = Ticket.objects.filter(user=user, event=event).select_related("tier")
 
     for ticket in tickets:
-        if ticket.status in (Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN):
+        if ticket.status in Ticket.ATTENDING_STATUSES:
             return True
 
         # For offline payment tiers, pending tickets also count

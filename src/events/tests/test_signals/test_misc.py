@@ -394,18 +394,16 @@ class TestMultipleUsersUnclaimingBehavior:
     """Test that unclaiming only affects the specific user."""
 
     def test_one_user_rsvp_change_does_not_affect_other_users_items(
-        self, event: Event, nonmember_user: RevelUser, organization_owner_user: RevelUser
+        self, event: Event, nonmember_user: RevelUser, member_user: RevelUser
     ) -> None:
         """Test that one user's RSVP change doesn't unclaim another user's items."""
         # Both users RSVP YES
         EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES)
-        rsvp2 = EventRSVP.objects.create(event=event, user=organization_owner_user, status=EventRSVP.RsvpStatus.YES)
+        rsvp2 = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
 
         # Both users claim items
         item1 = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
-        item2 = PotluckItem.objects.create(
-            event=event, name="Salsa", item_type="food", assignee=organization_owner_user
-        )
+        item2 = PotluckItem.objects.create(event=event, name="Salsa", item_type="food", assignee=member_user)
 
         # User 2 changes to NO
         rsvp2.status = EventRSVP.RsvpStatus.NO
