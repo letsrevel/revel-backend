@@ -47,9 +47,7 @@ class VisibilityContext:
 
         # Prefetch all relationship data in 4 queries (instead of N per pair)
         invited_user_ids = set(EventInvitation.objects.filter(event=event).values_list("user_id", flat=True))
-        ticket_user_ids = set(
-            Ticket.objects.filter(event=event, status=Ticket.TicketStatus.ACTIVE).values_list("user_id", flat=True)
-        )
+        ticket_user_ids = set(Ticket.objects.attending().filter(event=event).values_list("user_id", flat=True))
         rsvp_user_ids = set(
             EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).values_list("user_id", flat=True)
         )
@@ -117,23 +115,26 @@ def set_general_preferences(
 
 
 def trigger_visibility_flags_for_user(user_id: UUID) -> None:
-    """Dispatch build_attendee_visibility_flags for all future events the user is attending.
+    """Dispatch build_attendee_visibility_flags for all not-yet-ended events the user is attending.
+
+    "Not yet ended" (``end >= now``, ``end`` is never null) rather than "not yet started", so
+    in-progress events, where CHECKED_IN tickets live, are included.
 
     Args:
         user_id: The user ID
     """
     event_ids = (
-        Ticket.objects.filter(
+        Ticket.objects.attending()
+        .filter(
             user_id=user_id,
-            status=Ticket.TicketStatus.ACTIVE,
-            event__start__gte=timezone.now(),
+            event__end__gte=timezone.now(),
         )
         .values_list("event_id", flat=True)
         .union(
             EventRSVP.objects.filter(
                 user_id=user_id,
                 status=EventRSVP.RsvpStatus.YES,
-                event__start__gte=timezone.now(),
+                event__end__gte=timezone.now(),
             ).values_list("event_id", flat=True)
         )
     )
@@ -245,7 +246,7 @@ def resolve_visibility(
     # For conditional visibility, check viewer's relationship (individual queries - N+1 if looped)
     is_invited_or_attending = (
         EventInvitation.objects.filter(event=event, user=viewer).exists()
-        or Ticket.objects.filter(event=event, user=viewer, status=Ticket.TicketStatus.ACTIVE).exists()
+        or Ticket.objects.attending().filter(event=event, user=viewer).exists()
         or EventRSVP.objects.filter(event=event, user=viewer, status=EventRSVP.RsvpStatus.YES).exists()
     )
 

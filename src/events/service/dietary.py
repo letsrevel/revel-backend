@@ -36,7 +36,7 @@ def get_event_dietary_summary(event: Event, user: RevelUser) -> EventDietarySumm
     show_counts = event.can_user_see_attendee_count(user)
     # Get all attendees regardless of viewer - visibility is controlled by is_public flag
     attendees = RevelUser.objects.filter(
-        Q(tickets__event=event, tickets__status=Ticket.TicketStatus.ACTIVE)
+        Q(tickets__event=event, tickets__status__in=Ticket.ATTENDING_STATUSES)
         | Q(rsvps__event=event, rsvps__status=EventRSVP.RsvpStatus.YES)
     ).distinct()
 

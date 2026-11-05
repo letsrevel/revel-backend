@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Attendance now consistently means an ACTIVE or checked-in ticket**: checked-in attendees stay on the attendee list (including the staff view), in the dietary summary and in event-update notifications, and keep attendee-only visibility
+  - PENDING ticket holders (e.g. an unconfirmed bank transfer) no longer appear on attendee lists or see attendee-only info (address, cancellation reason, attendee-only resources and polls) until their ticket is active; they still see their event and receive its updates
+
 ## [2.35.0] - 2026-11-05
 
 ### Added

@@ -184,7 +184,7 @@ class TestAddressVisibilityTicketAndRsvpParity:
 
         self._assert_parity(unlisted_event, ticket_user, True)
 
-    def test_pending_online_ticket_holder_can_see(
+    def test_pending_online_ticket_holder_cannot_see(
         self, unlisted_event: Event, ticket_tier: TicketTier, ticket_user: RevelUser
     ) -> None:
         ticket_tier.payment_method = TicketTier.PaymentMethod.ONLINE
@@ -199,7 +199,7 @@ class TestAddressVisibilityTicketAndRsvpParity:
         unlisted_event.visibility_settings = {"address_visibility": ResourceVisibility.ATTENDEES_ONLY}
         unlisted_event.save()
 
-        self._assert_parity(unlisted_event, ticket_user, True)
+        self._assert_parity(unlisted_event, ticket_user, False)
 
     def test_cancelled_ticket_holder_cannot_see(
         self, unlisted_event: Event, ticket_tier: TicketTier, ticket_user: RevelUser

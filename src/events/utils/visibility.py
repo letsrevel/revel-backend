@@ -90,21 +90,20 @@ def owner_or_staff_q(user: "RevelUser", org_lookup: str = "organization") -> Q:
     return Q(**{f"{org_lookup}__owner": user}) | Q(**{f"{org_lookup}__staff_members": user})
 
 
-def get_ticketed_event_ids(user: "RevelUser", *, include_cancelled: bool) -> "QuerySet[Ticket, UUID]":
-    """Events the user holds a ticket for.
+def get_ticketed_event_ids(user: "RevelUser", *, attending_only: bool) -> "QuerySet[Ticket, UUID]":
+    """Events the user holds a ticket for (any ticket, or only attending ones).
 
-    ``include_cancelled`` is the settled cancelled-ticket rule, made explicit per
-    call site: event *listing* visibility (``EventQuerySet.for_user``) keeps
-    cancelled tickets so a holder can still open the event their ticket referred
-    to, whereas every fine-grained check (address, private resources, polls,
-    cancellation reason) requires a live ticket and passes ``False``.
+    ``attending_only`` makes the rule explicit per call site: event *listing*
+    visibility (``EventQuerySet.for_user``) passes ``False`` to keep every ticket
+    (cancelled and PENDING included) so a holder can still open the event their
+    ticket referred to, whereas attendee-only checks (private resources, ...)
+    pass ``True`` to require attendance (ACTIVE or CHECKED_IN, see
+    ``TicketQuerySet.attending``).
     """
     from events.models import Ticket
 
-    qs = Ticket.objects.filter(user=user)
-    if not include_cancelled:
-        qs = qs.exclude(status=Ticket.TicketStatus.CANCELLED)
-    return qs.values_list("event_id", flat=True)
+    qs = Ticket.objects.attending() if attending_only else Ticket.objects.all()
+    return qs.filter(user=user).values_list("event_id", flat=True)
 
 
 def get_rsvp_event_ids(user: "RevelUser", *, confirmed_only: bool) -> "QuerySet[EventRSVP, UUID]":

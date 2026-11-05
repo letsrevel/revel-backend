@@ -26,6 +26,7 @@ from django.utils import timezone
 
 from events.models import Organization, Ticket, TicketNumberSequence
 
+# Not Ticket.ATTENDING_STATUSES on purpose: issuance numbering must not change if attendance does.
 ISSUED_STATUSES: t.Final = (Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN)
 _SERIES_SLUG_CHARS = 12
 

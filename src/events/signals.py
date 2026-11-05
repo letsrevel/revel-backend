@@ -34,7 +34,7 @@ from events.models.organization import MembershipTier
 from events.service import permission_snapshot, ticket_number_service, turnstile_hostname_service
 from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
 from events.service.follow_service import get_followers_for_new_event_notification
-from events.service.potluck_service import unclaim_user_potluck_items
+from events.service.potluck_service import release_potluck_claims_unless_entitled, unclaim_user_potluck_items
 from events.service.tenant_service import invalidate_tenant_cache, tenant_host_from_origin
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
 from events.tasks import (
@@ -149,36 +149,68 @@ def handle_event_rsvp_save(sender: type[EventRSVP], instance: EventRSVP, created
     """Trigger visibility task and unclaim potluck items after RSVP is changed or created.
 
     When a user's RSVP status changes to anything other than YES (i.e., NO or MAYBE),
-    we automatically unclaim all potluck items they had previously claimed, since they
-    are no longer confirmed to attend.
+    their potluck claims are released unless they are otherwise entitled to hold them
+    (an attending ticket, or organization owner/staff).
     """
     event_id = str(instance.event_id)
     transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
 
     if instance.status in [EventRSVP.RsvpStatus.NO, EventRSVP.RsvpStatus.MAYBE]:
-        unclaim_user_potluck_items(instance.event_id, instance.user_id)
+        release_potluck_claims_unless_entitled(instance.event_id, instance.user_id)
 
 
 @receiver(post_delete, sender=EventRSVP)
 def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwargs: t.Any) -> None:
     """Trigger visibility task and unclaim potluck items after RSVP is deleted.
 
-    When a user deletes their RSVP entirely, we unclaim all potluck items they had claimed.
+    Claims are released unless the user is otherwise entitled to hold them.
     """
     event_id = str(instance.event_id)
     transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
-    # Unclaim items when RSVP is deleted entirely
-    unclaim_user_potluck_items(instance.event_id, instance.user_id)
+    release_potluck_claims_unless_entitled(instance.event_id, instance.user_id)
+
+
+@receiver(pre_save, sender=Ticket)
+def capture_ticket_old_status_for_potluck(sender: type[Ticket], instance: Ticket, **kwargs: t.Any) -> None:
+    """Stamp the committed status on the instance (``None`` for new rows) for the post_save handler.
+
+    Stamped under a dedicated attribute so this module does not depend on the ordering of the
+    notifications app's own Ticket pre_save receivers. A save with ``update_fields`` that
+    excludes ``"status"`` cannot change it, so the SELECT is skipped and the in-memory status is
+    stamped (read as "no transition").
+    """
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "status" not in update_fields:
+        instance._potluck_old_status = instance.status  # type: ignore[attr-defined]
+        return
+    instance._potluck_old_status = (  # type: ignore[attr-defined]
+        Ticket.objects.filter(pk=instance.pk).values_list("status", flat=True).first()
+    )
+
+
+@receiver(post_save, sender=Ticket)
+def reset_event_address_cache(sender: type[Ticket], instance: Ticket, **kwargs: t.Any) -> None:
+    """Drop ``Event.can_user_see_address``'s per-instance cache on an already-loaded event.
+
+    A status change (e.g. PENDING -> ACTIVE) must not leave a stale answer behind in the same
+    process. Uses the cached related object only, so it costs no query.
+    """
+    cached_event = instance._state.fields_cache.get("event")
+    if cached_event is not None:
+        cached_event.__dict__.pop("_address_visibility_cache", None)
 
 
 @receiver(post_save, sender=Ticket)
 def handle_ticket_visibility_and_potluck(
     sender: type[Ticket], instance: Ticket, created: bool, **kwargs: t.Any
 ) -> None:
-    """Trigger visibility task and unclaim potluck items when ticket status becomes CANCELLED.
+    """Trigger the visibility task and release potluck claims when a ticket stops counting.
 
-    When a ticket's status changes to CANCELLED, we automatically unclaim all potluck items
-    the user had claimed, since they are no longer confirmed to attend.
+    Claims are released on a *transition* out of attendance: an attending ticket (ACTIVE or
+    CHECKED_IN) becoming PENDING or CANCELLED, or an existing ticket of any status becoming
+    CANCELLED (covers a pre-existing claim by a PENDING holder). Only when the user is no
+    longer entitled to hold claims (another attending ticket, a YES RSVP, or org owner/staff).
+    Creation never releases: owners/staff and YES-RSVPs may claim without a ticket.
 
     Note: This is one of multiple post_save handlers for Ticket model:
     - events.signals.handle_ticket_visibility_and_potluck: Handles visibility flags + potluck (this handler)
@@ -188,8 +220,15 @@ def handle_ticket_visibility_and_potluck(
     event_id = str(instance.event_id)
     transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
 
-    if instance.status == Ticket.TicketStatus.CANCELLED:
-        unclaim_user_potluck_items(instance.event_id, instance.user_id)
+    old_status = getattr(instance, "_potluck_old_status", None)
+    new_status = instance.status
+    if (
+        old_status is not None
+        and old_status != new_status
+        and new_status not in Ticket.ATTENDING_STATUSES
+        and (old_status in Ticket.ATTENDING_STATUSES or new_status == Ticket.TicketStatus.CANCELLED)
+    ):
+        release_potluck_claims_unless_entitled(instance.event_id, instance.user_id)
 
 
 @receiver(post_save, sender=Ticket)
@@ -207,12 +246,12 @@ def assign_ticket_number_on_issue(sender: type[Ticket], instance: Ticket, **kwar
 def handle_ticket_delete(sender: type[Ticket], instance: Ticket, **kwargs: t.Any) -> None:
     """Trigger visibility task and unclaim potluck items after Ticket is deleted.
 
-    When a user's ticket is deleted entirely, we unclaim all potluck items they had claimed.
+    Claims are released unless the user is still entitled to hold them (e.g. another attending
+    ticket, a YES RSVP, or org owner/staff).
     """
     event_id = str(instance.event_id)
     transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
-    # Unclaim items when ticket is deleted
-    unclaim_user_potluck_items(instance.event_id, instance.user_id)
+    release_potluck_claims_unless_entitled(instance.event_id, instance.user_id)
 
 
 @receiver(post_delete, sender=EventInvitation)

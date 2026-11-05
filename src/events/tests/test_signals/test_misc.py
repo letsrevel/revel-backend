@@ -228,14 +228,16 @@ class TestTicketSignalUnclaimingBehavior:
         item1 = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
         item2 = PotluckItem.objects.create(event=event, name="Salsa", item_type="food", assignee=nonmember_user)
 
-        # Create ticket with CANCELLED status
-        Ticket.objects.create(
+        # Cancel an attending ticket (transition out of attendance)
+        ticket = Ticket.objects.create(
             guest_name="Test Guest",
             event=event,
             user=nonmember_user,
             tier=event_ticket_tier,
-            status=Ticket.TicketStatus.CANCELLED,
+            status=Ticket.TicketStatus.ACTIVE,
         )
+        ticket.status = Ticket.TicketStatus.CANCELLED
+        ticket.save(update_fields=["status"])
 
         # Items should be unclaimed
         item1.refresh_from_db()
@@ -263,25 +265,24 @@ class TestTicketSignalUnclaimingBehavior:
         item.refresh_from_db()
         assert item.assignee == nonmember_user
 
-    def test_ticket_pending_does_not_unclaim_items(
+    def test_ticket_active_to_pending_unclaims_items(
         self, event: Event, nonmember_user: RevelUser, event_ticket_tier: TicketTier
     ) -> None:
-        """Test that a PENDING ticket does NOT unclaim potluck items."""
-        # Claim item
-        item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
-
-        # Create pending ticket
-        Ticket.objects.create(
+        """The ACTIVE -> PENDING transition stops counting as attendance, so claims are released."""
+        ticket = Ticket.objects.create(
             guest_name="Test Guest",
             event=event,
             user=nonmember_user,
             tier=event_ticket_tier,
-            status=Ticket.TicketStatus.PENDING,
+            status=Ticket.TicketStatus.ACTIVE,
         )
+        item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
 
-        # Item should still be claimed
+        ticket.status = Ticket.TicketStatus.PENDING
+        ticket.save(update_fields=["status"])
+
         item.refresh_from_db()
-        assert item.assignee == nonmember_user
+        assert item.assignee is None
 
     def test_ticket_change_active_to_cancelled_unclaims_items(
         self, event: Event, nonmember_user: RevelUser, event_ticket_tier: TicketTier
@@ -393,18 +394,16 @@ class TestMultipleUsersUnclaimingBehavior:
     """Test that unclaiming only affects the specific user."""
 
     def test_one_user_rsvp_change_does_not_affect_other_users_items(
-        self, event: Event, nonmember_user: RevelUser, organization_owner_user: RevelUser
+        self, event: Event, nonmember_user: RevelUser, member_user: RevelUser
     ) -> None:
         """Test that one user's RSVP change doesn't unclaim another user's items."""
         # Both users RSVP YES
         EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES)
-        rsvp2 = EventRSVP.objects.create(event=event, user=organization_owner_user, status=EventRSVP.RsvpStatus.YES)
+        rsvp2 = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
 
         # Both users claim items
         item1 = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
-        item2 = PotluckItem.objects.create(
-            event=event, name="Salsa", item_type="food", assignee=organization_owner_user
-        )
+        item2 = PotluckItem.objects.create(event=event, name="Salsa", item_type="food", assignee=member_user)
 
         # User 2 changes to NO
         rsvp2.status = EventRSVP.RsvpStatus.NO

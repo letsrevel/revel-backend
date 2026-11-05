@@ -4,9 +4,10 @@ import typing as t
 from uuid import UUID
 
 import structlog
+from django.db.models import Q
 
 from accounts.models import RevelUser
-from events.models import Event, PotluckItem
+from events.models import Event, EventRSVP, PotluckItem, Ticket
 
 logger = structlog.get_logger(__name__)
 
@@ -91,3 +92,38 @@ def unclaim_user_potluck_items(event_id: UUID, user_id: UUID) -> int:
         )
 
     return unclaimed_count
+
+
+def user_may_hold_potluck_claims(event_id: UUID, user_id: UUID, *, any_ticket: bool = False) -> bool:
+    """Whether the user is entitled to hold potluck claims for the event.
+
+    The single definition shared by the permission (granting) and the signals (releasing):
+    an attending ticket (ACTIVE or CHECKED_IN), a YES RSVP, or the organization's owner or
+    staff (same semantics as ``Organization.is_owner_or_staff``).
+
+    Args:
+        event_id: The event ID.
+        user_id: The user ID.
+        any_ticket: Accept a ticket of any status (used when releasing an item the user
+            already holds, e.g. after a cancellation).
+    """
+    tickets = Ticket.objects.all() if any_ticket else Ticket.objects.attending()
+    return (
+        tickets.filter(event_id=event_id, user_id=user_id).exists()
+        or EventRSVP.objects.filter(event_id=event_id, user_id=user_id, status=EventRSVP.RsvpStatus.YES).exists()
+        or Event.objects.filter(pk=event_id)
+        .filter(Q(organization__owner_id=user_id) | Q(organization__staff_members=user_id))
+        .exists()
+    )
+
+
+def release_potluck_claims_unless_entitled(event_id: UUID, user_id: UUID) -> None:
+    """Unclaim the user's potluck items unless they may still hold claims.
+
+    Cheap when the user holds no claim: one ``EXISTS`` and nothing else, which keeps
+    cascade deletes and ordinary saves inexpensive.
+    """
+    if not PotluckItem.objects.filter(event_id=event_id, assignee_id=user_id).exists():
+        return
+    if not user_may_hold_potluck_claims(event_id, user_id):
+        unclaim_user_potluck_items(event_id, user_id)

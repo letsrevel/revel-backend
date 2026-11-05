@@ -41,7 +41,7 @@ def get_event_pronoun_distribution(event: Event, viewer: RevelUser) -> EventPron
 
     ticket_filter = Q(
         tickets__event=event,
-        tickets__status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN],
+        tickets__status__in=Ticket.ATTENDING_STATUSES,
     )
 
     rsvp_filter = Q(rsvps__event=event, rsvps__status=EventRSVP.RsvpStatus.YES)

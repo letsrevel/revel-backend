@@ -42,7 +42,7 @@ from events.models.ticket import CancellationSource
 from events.schema.series_pass import SeriesPassCreateSchema
 from events.service import refund_service, ticket_number_service
 from events.service.vat_service import distribute_amount_across_items
-from events.tasks import materialize_series_pass_holders
+from events.tasks import build_attendee_visibility_flags, materialize_series_pass_holders
 from notifications.signals.series_pass import send_series_pass_cancelled, send_series_pass_purchased
 
 logger = structlog.get_logger(__name__)
@@ -751,7 +751,7 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
     # backfill locks TicketTier rows, and the canonical lock order is parent row ->
     # TicketTier (pk) -> Ticket -> TicketNumberSequence (docs/engineering-notes.md).
     # It skips events this pass already has (PENDING) tickets for.
-    backfill_missing_tickets(held_pass)
+    backfilled = backfill_missing_tickets(held_pass)
 
     # .update() can't assign a different price_paid per row, so pull the PENDING
     # tickets and set each one's share individually. Ordered by event start (then pk)
@@ -768,5 +768,10 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
         Ticket.objects.bulk_update(pending_tickets, ["status", "price_paid"])
         ticket_number_service.assign_ticket_numbers(pending_tickets)
 
+    # bulk_update / bulk_create skip post_save, so the attendee count and visibility flags are
+    # rebuilt explicitly, once per affected event, after commit.
+    affected_event_ids = {str(ticket.event_id) for ticket in (*pending_tickets, *backfilled)}
+    for event_id in sorted(affected_event_ids):
+        transaction.on_commit(functools.partial(build_attendee_visibility_flags.delay, event_id))
     transaction.on_commit(lambda: send_series_pass_purchased(held_pass.id))
     return held_pass
