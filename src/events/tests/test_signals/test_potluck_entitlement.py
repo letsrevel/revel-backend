@@ -81,3 +81,19 @@ def test_ticket_save_without_status_skips_transition_logic(event: Event, nonmemb
 
     item.refresh_from_db()
     assert item.assignee == nonmember_user
+
+
+def test_release_paths_skip_entitlement_check_when_user_holds_no_claims(
+    event: Event, nonmember_user: RevelUser
+) -> None:
+    """Without a claim, deleting a ticket / RSVP never queries entitlement."""
+    from unittest.mock import patch
+
+    ticket = _ticket(event, nonmember_user, Ticket.TicketStatus.ACTIVE)
+    rsvp = EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES)
+
+    with patch("events.service.potluck_service.user_may_hold_potluck_claims") as entitled:
+        ticket.delete()
+        rsvp.delete()
+
+    entitled.assert_not_called()

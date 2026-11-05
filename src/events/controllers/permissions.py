@@ -16,6 +16,7 @@ from common.authentication import I18nJWTAuth, OAuthPrincipal
 from common.controllers import UserAwareController
 from events import models, schema
 from events.service import permission_snapshot
+from events.service.potluck_service import user_may_hold_potluck_claims
 
 
 def scope_allows(request: HttpRequest, action: models.PermissionKey) -> None:
@@ -232,19 +233,10 @@ class PotluckItemPermission(RootPermission):
         if not obj.potluck_open and self.action == "create_potluck_item":
             return False
 
-        # Only attending tickets (ACTIVE or CHECKED_IN) confer attendance, same as the Event attendee
-        # checks; PENDING and CANCELLED don't. Releasing an item the user already holds must keep
-        # working with any ticket (e.g. after a cancellation).
-        tickets = (
-            models.Ticket.objects.all() if self.action == "unclaim_potluck_item" else models.Ticket.objects.attending()
-        ).filter(event=obj, user=user)
-        if tickets.exists():
-            return True
-
-        if models.EventRSVP.objects.filter(event=obj, user=user, status=models.EventRSVP.RsvpStatus.YES).exists():
-            return True
-
-        return False
+        # Entitlement (attending ticket or YES RSVP) is shared with the claim-release signals.
+        # Releasing an item the user already holds accepts a ticket of any status (e.g. after a
+        # cancellation).
+        return user_may_hold_potluck_claims(obj.id, user.id, any_ticket=self.action == "unclaim_potluck_item")
 
 
 class CanPurchaseTicket(RootPermission):

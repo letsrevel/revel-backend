@@ -1,12 +1,10 @@
 # src/events/signals.py
 
 import typing as t
-from uuid import UUID
 
 import structlog
 from corsheaders.signals import check_request_enabled
 from django.db import transaction
-from django.db.models import Q
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
 from django.http import HttpRequest
@@ -36,7 +34,7 @@ from events.models.organization import MembershipTier
 from events.service import permission_snapshot, ticket_number_service, turnstile_hostname_service
 from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
 from events.service.follow_service import get_followers_for_new_event_notification
-from events.service.potluck_service import unclaim_user_potluck_items
+from events.service.potluck_service import release_potluck_claims_unless_entitled, unclaim_user_potluck_items
 from events.service.tenant_service import invalidate_tenant_cache, tenant_host_from_origin
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
 from events.tasks import (
@@ -146,23 +144,6 @@ def handle_user_creation(sender: type[RevelUser], instance: RevelUser, created: 
             pending_invitations.delete()
 
 
-def _user_may_hold_potluck_claims(event_id: UUID, user_id: UUID) -> bool:
-    """Whether the user is still entitled to hold potluck claims for the event.
-
-    True for a holder of an attending ticket, a YES RSVP, or the organization's owner or
-    staff (mirrors ``PotluckItemPermission``; queried directly so signals never import
-    controllers). In ``post_delete`` handlers the deleted row is already gone, so this
-    naturally checks what remains.
-    """
-    return (
-        Ticket.objects.attending().filter(event_id=event_id, user_id=user_id).exists()
-        or EventRSVP.objects.filter(event_id=event_id, user_id=user_id, status=EventRSVP.RsvpStatus.YES).exists()
-        or Event.objects.filter(pk=event_id)
-        .filter(Q(organization__owner_id=user_id) | Q(organization__staff_members=user_id))
-        .exists()
-    )
-
-
 @receiver(post_save, sender=EventRSVP)
 def handle_event_rsvp_save(sender: type[EventRSVP], instance: EventRSVP, created: bool, **kwargs: t.Any) -> None:
     """Trigger visibility task and unclaim potluck items after RSVP is changed or created.
@@ -174,10 +155,8 @@ def handle_event_rsvp_save(sender: type[EventRSVP], instance: EventRSVP, created
     event_id = str(instance.event_id)
     transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
 
-    if instance.status in [EventRSVP.RsvpStatus.NO, EventRSVP.RsvpStatus.MAYBE] and not _user_may_hold_potluck_claims(
-        instance.event_id, instance.user_id
-    ):
-        unclaim_user_potluck_items(instance.event_id, instance.user_id)
+    if instance.status in [EventRSVP.RsvpStatus.NO, EventRSVP.RsvpStatus.MAYBE]:
+        release_potluck_claims_unless_entitled(instance.event_id, instance.user_id)
 
 
 @receiver(post_delete, sender=EventRSVP)
@@ -188,8 +167,7 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
     """
     event_id = str(instance.event_id)
     transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
-    if not _user_may_hold_potluck_claims(instance.event_id, instance.user_id):
-        unclaim_user_potluck_items(instance.event_id, instance.user_id)
+    release_potluck_claims_unless_entitled(instance.event_id, instance.user_id)
 
 
 @receiver(pre_save, sender=Ticket)
@@ -249,9 +227,8 @@ def handle_ticket_visibility_and_potluck(
         and old_status != new_status
         and new_status not in Ticket.ATTENDING_STATUSES
         and (old_status in Ticket.ATTENDING_STATUSES or new_status == Ticket.TicketStatus.CANCELLED)
-        and not _user_may_hold_potluck_claims(instance.event_id, instance.user_id)
     ):
-        unclaim_user_potluck_items(instance.event_id, instance.user_id)
+        release_potluck_claims_unless_entitled(instance.event_id, instance.user_id)
 
 
 @receiver(post_save, sender=Ticket)
@@ -274,8 +251,7 @@ def handle_ticket_delete(sender: type[Ticket], instance: Ticket, **kwargs: t.Any
     """
     event_id = str(instance.event_id)
     transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
-    if not _user_may_hold_potluck_claims(instance.event_id, instance.user_id):
-        unclaim_user_potluck_items(instance.event_id, instance.user_id)
+    release_potluck_claims_unless_entitled(instance.event_id, instance.user_id)
 
 
 @receiver(post_delete, sender=EventInvitation)
