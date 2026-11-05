@@ -51,16 +51,25 @@ dependencies, make sure to run `uv sync` and commit the updated lockfile.
 
 ## CI Environment
 
-### Docker Services
+### Container Image
 
-The CI environment uses `docker-compose-ci.yml` with only the services needed for
-testing:
+The lint, test and conformance jobs run inside a pre-built image
+(`ghcr.io/letsrevel/revel-backend-ci`, defined by `ci.Dockerfile`) that carries every
+system package (GDAL, gettext, WeasyPrint libs), so CI never runs `apt-get`. The image
+is tagged by the hash of `ci.Dockerfile` and rebuilt by `.github/workflows/ci-image.yaml`
+only when that file changes. Bump its "Security refresh" date to pick up fresh packages.
+
+### Services
+
+Jobs start these as GitHub Actions `services:` (reached by service name, e.g. `DB_HOST=postgres`):
 
 | Service | Purpose |
 |---|---|
 | **PostgreSQL** (with PostGIS) | Database |
 | **Redis** | Cache and Celery broker |
-| **ClamAV** | File malware scanning |
+
+ClamAV is not started: the autouse `mock_clamav` fixture in `src/conftest.py` mocks it.
+`docker-compose-ci.yml` is no longer used by GitHub Actions.
 
 !!! note "No Observability Stack in CI"
 
