@@ -8,6 +8,7 @@ from django.test import Client
 from django.urls import reverse
 
 from accounts.models import RevelUser
+from events.models import Organization
 from notifications.context_schemas import SystemAnnouncementContext, validate_notification_context
 from notifications.enums import NotificationType
 from notifications.models import Notification
@@ -381,6 +382,36 @@ class TestSendSystemAnnouncementAdminView:
         )
         assert regular_user.id in notified_users
         assert guest_user.id not in notified_users
+
+    @pytest.mark.parametrize("owners_only", [True, False])
+    @patch("notifications.service.system_announcement.dispatch_notifications_batch")
+    def test_post_owners_only(
+        self,
+        mock_dispatch: t.Any,
+        owners_only: bool,
+        admin_client: Client,
+        regular_user: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """owners_only restricts recipients to org owners, once each; unchecked keeps everyone."""
+        Organization.objects.create(name="First Org", slug="first-org", owner=regular_user)
+        Organization.objects.create(name="Second Org", slug="second-org", owner=regular_user)
+        non_owner = django_user_model.objects.create_user(
+            username="nonowner@example.com", email="nonowner@example.com", password="pass"
+        )
+        data = {"title": "Title", "body": "Body"}
+        if owners_only:
+            data["owners_only"] = "on"
+
+        admin_client.post(reverse(SEND_ANNOUNCEMENT_URL), data)
+
+        notified = list(
+            Notification.objects.filter(
+                notification_type=NotificationType.SYSTEM_ANNOUNCEMENT,
+            ).values_list("user_id", flat=True)
+        )
+        assert notified.count(regular_user.id) == 1
+        assert (non_owner.id in notified) is not owners_only
 
     def test_post_with_empty_fields_shows_errors(self, admin_client: Client) -> None:
         """POST with empty required fields should show form errors."""

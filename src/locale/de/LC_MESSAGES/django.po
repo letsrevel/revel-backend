@@ -4283,6 +4283,9 @@ msgstr "URL"
 msgid "Include guest users"
 msgstr "Gast-Anwender:innen einbeziehen"
 
+msgid "Organization owners only"
+msgstr "Nur Organisationsinhaber:innen"
+
 msgid "Warning"
 msgstr "Warnung"
 

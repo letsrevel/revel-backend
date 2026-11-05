@@ -39,6 +39,11 @@ class SystemAnnouncementForm(forms.Form):
         widget=forms.CheckboxInput(attrs={"class": " ".join(CHECKBOX_CLASSES)}),
         help_text="Include guest users (default: non-guest active users only).",
     )
+    owners_only = forms.BooleanField(
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": " ".join(CHECKBOX_CLASSES)}),
+        help_text="Send only to users who own at least one organization.",
+    )
 
 
 class NotificationDeliveryInline(TabularInline):  # type: ignore[misc]
@@ -190,6 +195,7 @@ class NotificationAdmin(ModelAdmin):  # type: ignore[misc]
             )
             recipients = system_announcement.get_recipients(
                 include_guests=form.cleaned_data["include_guests"],
+                owners_only=form.cleaned_data["owners_only"],
                 exclude_user=request.user,
             )
             if not recipients.exists():

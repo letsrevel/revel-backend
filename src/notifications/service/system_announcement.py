@@ -59,6 +59,7 @@ def build_context(title: str, body: str, url: str = "") -> SystemAnnouncementCon
 def get_recipients(
     *,
     include_guests: bool = False,
+    owners_only: bool = False,
     exclude_user: RevelUser | None = None,
     emails: Iterable[str] | None = None,
 ) -> QuerySet[RevelUser]:
@@ -66,6 +67,8 @@ def get_recipients(
 
     Args:
         include_guests: Also include guest users (ignored when ``emails`` is given).
+        owners_only: Restrict to users who own at least one organization (ignored
+            when ``emails`` is given).
         exclude_user: A user to leave out (the admin sender).
         emails: Restrict to these addresses (case-insensitive), for previews. When
             given, the guest filter does not apply: the caller named the users.
@@ -81,6 +84,9 @@ def get_recipients(
         users = users.filter(match_any)
     elif not include_guests:
         users = users.filter(guest=False)
+    if owners_only and emails is None:
+        # distinct(): a user owning several organizations would otherwise repeat.
+        users = users.filter(owned_organizations__isnull=False).distinct()
     if exclude_user is not None:
         users = users.exclude(pk=exclude_user.pk)
     return users.order_by("pk")

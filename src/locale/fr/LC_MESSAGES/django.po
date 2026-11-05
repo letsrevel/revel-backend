@@ -4267,6 +4267,9 @@ msgstr "URL"
 msgid "Include guest users"
 msgstr "Inclure les personnes invitées"
 
+msgid "Organization owners only"
+msgstr "Propriétaires d'organisation uniquement"
+
 msgid "Warning"
 msgstr "Avertissement"
 
