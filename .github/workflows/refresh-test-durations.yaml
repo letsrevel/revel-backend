@@ -30,6 +30,11 @@ concurrency:
   group: refresh-test-durations
   cancel-in-progress: true
 
+# Container jobs default plain `run:` steps to `sh -e`; keep bash + pipefail.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   ci-image:
     name: CI image

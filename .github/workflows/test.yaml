@@ -21,6 +21,11 @@ concurrency:
   group: test-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Container jobs default plain `run:` steps to `sh -e`; keep bash + pipefail.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # Pre-built container with all system deps (gdal, gettext, WeasyPrint libs...)
   # so no job runs apt-get. Rebuilt only when ci.Dockerfile changes.

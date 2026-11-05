@@ -49,6 +49,15 @@ jobs:
             echo "found=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Fork PRs get a read-only GITHUB_TOKEN and cannot push. A fork that
+      # edits ci.Dockerfile fails here (and, as a required check, blocks merge)
+      # until a maintainer pushes the branch to this repo, publishing the image.
+      - name: Refuse to build from a fork
+        if: steps.exists.outputs.found != 'true' && github.event.pull_request.head.repo.full_name != github.repository && github.event_name == 'pull_request'
+        run: |
+          echo "::error::ci.Dockerfile changed in a fork PR; a maintainer must push this branch to ${{ github.repository }} to publish the CI image."
+          exit 1
+
       - name: Set up Buildx
         if: steps.exists.outputs.found != 'true'
         uses: docker/setup-buildx-action@v3

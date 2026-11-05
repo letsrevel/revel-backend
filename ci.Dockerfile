@@ -9,7 +9,7 @@ FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim
 
 LABEL org.opencontainers.image.source=https://github.com/letsrevel/revel-backend
 
-# git: actions/checkout + the `git diff uv.lock` check.
+# git: actions/checkout + the `git diff uv.lock` check. gh: refresh-test-durations opens its PR.
 # build-essential: zopfli (transitive, mkdocs-minify) has no cp314 wheel, so it builds from sdist.
 # WeasyPrint libs: same list as the prod Dockerfile builder stage.
 # fonts-dejavu-core: slim has no fonts; PDF tests render text.
@@ -21,6 +21,7 @@ RUN apt-get update \
       gettext \
       libmagic1 \
       git \
+      gh \
       build-essential \
       libcairo2 \
       libpango-1.0-0 \
