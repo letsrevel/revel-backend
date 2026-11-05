@@ -98,6 +98,17 @@
                 {% endif %}
             </div>
 
+            {# Owners only #}
+            <div class="group flex items-center gap-2">
+                {{ form.owners_only }}
+                <label for="{{ form.owners_only.id_for_label }}" class="font-medium text-sm text-font-important-light dark:text-font-important-dark">
+                    {% translate "Organization owners only" %}
+                </label>
+                {% if form.owners_only.help_text %}
+                    <p class="text-xs text-base-500 dark:text-base-400 ml-2">{{ form.owners_only.help_text }}</p>
+                {% endif %}
+            </div>
+
             {# Warning #}
             <div class="bg-amber-50 border border-amber-200 rounded-default p-4 dark:bg-amber-900/20 dark:border-amber-800">
                 <p class="text-sm text-amber-800 dark:text-amber-200">
