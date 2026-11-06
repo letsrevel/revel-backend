@@ -26,7 +26,13 @@ from events.models import (
     WhitelistRequest,
 )
 from events.models.skipped_fiscal_document import SkippedFiscalDocumentKind, SkippedFiscalDocumentReason
+from events.utils.membership_access import visible_memberships
 from questionnaires.models import QuestionnaireEvaluation
+
+
+def _visible_member_org_ids(user_id: UUID) -> models.QuerySet[t.Any]:
+    """Org ids where the user holds a visible (ACTIVE/PAUSED) membership."""
+    return visible_memberships().filter(user_id=user_id).values_list("organization_id", flat=True)
 
 
 class CalendarParamsSchema(Schema):
@@ -247,7 +253,7 @@ class DashboardOrganizationsFiltersSchema(Schema):
             staff_orgs = Organization.objects.filter(scope, staff_members__id=user_id).values("id")
             org_id_querysets.append(staff_orgs)
         if self.member:
-            member_orgs = Organization.objects.filter(scope, members__id=user_id).values("id")
+            member_orgs = Organization.objects.filter(scope, id__in=_visible_member_org_ids(user_id)).values("id")
             org_id_querysets.append(member_orgs)
 
         if not org_id_querysets:
@@ -289,7 +295,7 @@ class DashboardEventsFiltersSchema(Schema):
         relationship_filters: list[tuple[bool, Q]] = [
             (self.owner, Q(organization__owner_id=user_id)),
             (self.staff, Q(organization__staff_members__id=user_id)),
-            (self.member, Q(organization__members__id=user_id)),
+            (self.member, Q(organization_id__in=_visible_member_org_ids(user_id))),
             (self.rsvp_yes, Q(rsvps__user_id=user_id, rsvps__status="yes")),
             (self.rsvp_no, Q(rsvps__user_id=user_id, rsvps__status="no")),
             (self.rsvp_maybe, Q(rsvps__user_id=user_id, rsvps__status="maybe")),
@@ -338,7 +344,9 @@ class DashboardEventSeriesFiltersSchema(Schema):
             staff_series = EventSeries.objects.filter(scope, organization__staff_members__id=user_id).values("id")
             series_id_querysets.append(staff_series)
         if self.member:
-            member_series = EventSeries.objects.filter(scope, organization__members__id=user_id).values("id")
+            member_series = EventSeries.objects.filter(
+                scope, organization_id__in=_visible_member_org_ids(user_id)
+            ).values("id")
             series_id_querysets.append(member_series)
 
         if not series_id_querysets:
