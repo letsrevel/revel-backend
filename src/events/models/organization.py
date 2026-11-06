@@ -18,6 +18,7 @@ from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import BillingPostalAddressMixin, StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
 from events.utils.branding import OrganizationBranding
+from events.utils.membership_access import BANNED_STATUS, ELIGIBLE_STATUSES, VISIBLE_STATUSES
 from events.utils.small_business import SmallBusinessScheme
 from events.utils.visibility import get_excluded_org_ids, get_valid_member_org_ids
 
@@ -724,23 +725,16 @@ class OrganizationMemberQuerySet(models.QuerySet["OrganizationMember"]):
     """Custom QuerySet for OrganizationMember with membership status filtering."""
 
     def for_visibility(self) -> t.Self:
-        """Return memberships that grant visibility access.
-
-        Excludes:
-        - CANCELLED: Treated as if the membership doesn't exist
-        - BANNED: No access, not even to public resources
-        """
-        return self.exclude(
-            status__in=[OrganizationMember.MembershipStatus.CANCELLED, OrganizationMember.MembershipStatus.BANNED]
-        )
+        """Memberships that may SEE member content (ACTIVE, PAUSED); see ``events.utils.membership_access``."""
+        return self.filter(status__in=VISIBLE_STATUSES)
 
     def active_only(self) -> t.Self:
         """Return only ACTIVE memberships (for eligibility checks)."""
-        return self.filter(status=OrganizationMember.MembershipStatus.ACTIVE)
+        return self.filter(status__in=ELIGIBLE_STATUSES)
 
     def banned_only(self) -> t.Self:
         """Return only BANNED memberships."""
-        return self.filter(status=OrganizationMember.MembershipStatus.BANNED)
+        return self.filter(status=BANNED_STATUS)
 
 
 class OrganizationMemberManager(models.Manager["OrganizationMember"]):
