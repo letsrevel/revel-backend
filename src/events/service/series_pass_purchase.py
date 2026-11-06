@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import structlog
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import F
+from django.db.models import Case, F, IntegerField, Q, Value, When
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -16,6 +16,7 @@ from accounts.models import RevelUser
 from events.compliance import enforcement as compliance
 from events.exceptions import SeriesPassNotPurchasableError
 from events.models import (
+    Event,
     HeldSeriesPass,
     OrganizationMember,
     SeriesPass,
@@ -26,6 +27,8 @@ from events.models import (
 )
 from events.service import series_pass_service
 from events.service.blacklist_service import check_user_hard_blacklisted
+from events.service.event_manager import EligibilityService, NextStep, Reasons, UserIsIneligibleError
+from events.service.event_manager.gates import QuestionnaireGate
 from notifications.signals.series_pass import send_series_pass_purchased
 
 if t.TYPE_CHECKING:
@@ -57,6 +60,55 @@ class SeriesPassPurchaseService:
             is_member = OrganizationMember.objects.active_only().filter(organization=self.org, user=self.user).exists()
             if not is_member:
                 raise HttpError(403, str(_("This pass is for members only.")))
+
+    def _assert_series_questionnaires(self) -> None:
+        """Enforce the series' admission questionnaires, as a ticket purchase would (#1321).
+
+        The gate runs against the earliest upcoming covered event, scoped to questionnaires
+        linked to the series (event-only questionnaires are not a pass-purchase concern).
+        Owners and staff bypass; with no upcoming covered event the quote reports the pass
+        as not purchasable, so there is nothing to gate.
+
+        Raises:
+            UserIsIneligibleError: If a series questionnaire is missing, pending review or failed.
+        """
+        if self.org.is_owner_or_staff(self.user):
+            return
+        now = timezone.now()
+        accepting = Q(event__status=Event.EventStatus.OPEN) & (
+            Q(event__apply_before__isnull=True) | Q(event__apply_before__gte=now)
+        )
+        # Anchor: earliest event still accepting applications, then any open one, then any upcoming
+        # (so the gate never vanishes). One query.
+        link = (
+            self.series_pass.tier_links.filter(event__start__gte=now)
+            .select_related("event")
+            .annotate(
+                anchor_rank=Case(
+                    When(accepting, then=Value(0)),
+                    When(event__status=Event.EventStatus.OPEN, then=Value(1)),
+                    default=Value(2),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("anchor_rank", "event__start")
+            .first()
+        )
+        if link is None:
+            return
+        service = EligibilityService(self.user, link.event, questionnaire_scope="series")
+        # Event invitations never waive the series questionnaire (the gate ignores them in series scope).
+        if (result := QuestionnaireGate(service).check()) is None:
+            return
+        event = link.event
+        can_submit = event.status == Event.EventStatus.OPEN and now <= event.effective_apply_deadline
+        if result.next_step == NextStep.COMPLETE_QUESTIONNAIRE and not can_submit:
+            # The questionnaire is outstanding but no covered event can take a submission any more.
+            reason = str(_("The series questionnaire can no longer be submitted, so this pass cannot be purchased."))
+            result = result.model_copy(
+                update={"reason": reason, "reason_code": Reasons.APPLICATION_DEADLINE_PASSED.code, "next_step": None}
+            )
+        raise UserIsIneligibleError(str(result.reason), result)
 
     def _has_active_held_pass(self) -> bool:
         return (
@@ -109,12 +161,12 @@ class SeriesPassPurchaseService:
         checkout-session endpoint to obtain the Stripe checkout URL (#632).
         """
         self._assert_purchasable_by_user()
-
         quote = series_pass_service.get_quote(self.series_pass)
         if not quote.purchasable:
             raise SeriesPassNotPurchasableError(quote.reason or str(_("This pass cannot be purchased.")))
         if self._has_active_held_pass():
             raise SeriesPassNotPurchasableError(str(_("You already hold this pass.")))
+        self._assert_series_questionnaires()
 
         # Re-assert the total_quantity cap under a row lock — the quote above checked
         # it unlocked (fast path), so two concurrent buyers could both pass it. Lock

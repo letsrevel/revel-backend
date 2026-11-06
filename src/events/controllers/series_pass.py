@@ -19,6 +19,7 @@ from common.signing import get_file_url
 from common.throttling import WriteThrottle
 from events import models, schema
 from events.service import series_pass_file_service, series_pass_service
+from events.service.event_manager import EventUserEligibility
 from events.service.series_pass_purchase import SeriesPassPurchaseService
 from events.utils import apple_wallet_configured, google_wallet_configured
 from wallet.google import service as google_wallet_service
@@ -130,7 +131,7 @@ class SeriesPassController(UserAwareController):
     @route.post(
         "/{pass_id}/checkout",
         url_name="checkout_series_pass",
-        response={200: schema.SeriesPassCheckoutResponseSchema, 422: ErrorDetail},
+        response={200: schema.SeriesPassCheckoutResponseSchema, 400: EventUserEligibility, 422: ErrorDetail},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
@@ -154,6 +155,7 @@ class SeriesPassController(UserAwareController):
           (the pass is visible, but not purchasable, to non-members).
         - 404: The pass itself isn't visible to the user (e.g. a MEMBERS_ONLY-*visibility*
           pass and the user isn't a member) — raised earlier, by ``_get_visible_pass``.
+        - 400: A series admission questionnaire is missing, pending review or failed (eligibility payload).
         - 409: Not currently purchasable (sold out, outside sales window, already held).
         - 422: A paid pass whose payment channel is blocked where a covered event is held
           (``CountryComplianceError``, e.g. online payment for events in Italy).
