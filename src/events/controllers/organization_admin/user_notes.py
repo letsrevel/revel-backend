@@ -15,7 +15,8 @@ from .base import OrganizationAdminBaseController
 
 @api_controller(
     "/organization-admin/{slug}",
-    # Session-only: no OAuth scope's consent label promises access to private notes about people.
+    # Notes are session-only for reads and writes: no OAuth scope's consent label promises access to
+    # private notes about people, and ``private_note`` is nulled for app tokens on every other route.
     auth=I18nJWTAuth(),
     tags=["Organization Admin"],
     throttle=WriteThrottle(),

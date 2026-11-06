@@ -21,7 +21,6 @@ from events.service.membership_manager.resolvers import (
     resolve_membership_questionnaire,
     resolve_requires_membership_approval,
 )
-from events.service.user_note_service import get_note_body
 from events.utils.subscription_plan_rules import validate_plan_shape
 
 from .mixins import get_image_field_url
@@ -703,15 +702,8 @@ class OrganizationMemberSchema(Schema):
 
     @staticmethod
     def resolve_private_note(obj: OrganizationMember) -> str | None:
-        """Return the org's private note about the member.
-
-        Reads the ``private_note`` annotation when present (set by the members-list
-        queryset — avoids one query per row); falls back to a lookup for the
-        single-object endpoints.
-        """
-        if hasattr(obj, "private_note"):
-            return t.cast(str | None, obj.private_note)
-        return get_note_body(obj.organization_id, obj.user_id)
+        """Read the ``private_note`` attribute the controller set (``None`` if it didn't)."""
+        return t.cast(str | None, getattr(obj, "private_note", None))
 
     @staticmethod
     def resolve_subscription(obj: OrganizationMember) -> MembershipSubscription | None:

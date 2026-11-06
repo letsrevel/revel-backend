@@ -2,7 +2,6 @@
 
 from django.conf import settings
 from django.contrib.gis.db import models
-from django.core.validators import MaxLengthValidator
 
 from common.fields import MarkdownField
 from common.models import TimeStampedModel
@@ -20,7 +19,7 @@ class OrganizationUserNote(TimeStampedModel):
 
     organization = models.ForeignKey("events.Organization", on_delete=models.CASCADE, related_name="user_notes")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="organizer_notes")
-    body = MarkdownField(validators=[MaxLengthValidator(USER_NOTE_MAX_LENGTH)])
+    body = MarkdownField()
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )

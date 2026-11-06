@@ -3,11 +3,22 @@
 from uuid import UUID
 
 from django.db.models import Q
+from django.http import Http404
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from common.sanitizers import sanitize_markdown
 from common.utils import get_or_create_with_race_protection
-from events.models import Organization, OrganizationUserNote
+from events.models import (
+    HeldSeriesPass,
+    Organization,
+    OrganizationMember,
+    OrganizationUserNote,
+    Ticket,
+)
+from events.models.user_note import USER_NOTE_MAX_LENGTH
 
 
 def get_note(organization: Organization, user_id: UUID) -> OrganizationUserNote:
@@ -24,16 +35,41 @@ def get_note_body(organization_id: UUID, user_id: UUID) -> str | None:
     )
 
 
+def _has_relationship(organization: Organization, user_id: UUID) -> bool:
+    """Whether the user is a member, ticket holder or pass holder of the organization."""
+    return (
+        OrganizationMember.objects.filter(organization=organization, user_id=user_id).exists()
+        or Ticket.objects.filter(event__organization=organization, user_id=user_id).exists()
+        or HeldSeriesPass.objects.filter(series_pass__event_series__organization=organization, user_id=user_id).exists()
+    )
+
+
 def upsert_note(organization: Organization, user_id: UUID, body: str, updated_by: RevelUser) -> OrganizationUserNote:
-    """Create or replace the note about ``user_id`` and record who wrote it."""
+    """Create or replace the note about ``user_id`` and record who wrote it.
+
+    The 5000-character cap applies to the input as typed; the stored value is the sanitized
+    markdown (escaping may lengthen it, which is why the model carries no length validator).
+
+    Raises:
+        Http404: The user does not exist or has no relationship with the organization (same
+            answer for both, so the endpoint is no existence oracle).
+        HttpError: 400 when the body is empty after stripping/sanitizing or exceeds the cap.
+    """
+    if len(body.strip()) > USER_NOTE_MAX_LENGTH:
+        raise HttpError(400, str(_("The note is too long.")))
     user = get_object_or_404(RevelUser, pk=user_id)
+    if not _has_relationship(organization, user_id):
+        raise Http404
+    clean = sanitize_markdown(body.strip()).strip()
+    if not clean:
+        raise HttpError(400, str(_("The note is empty.")))
     note, created = get_or_create_with_race_protection(
         OrganizationUserNote,
         Q(organization=organization, user=user),
-        {"organization": organization, "user": user, "body": body, "updated_by": updated_by},
+        {"organization": organization, "user": user, "body": clean, "updated_by": updated_by},
     )
     if not created:
-        note.body = body
+        note.body = clean
         note.updated_by = updated_by
         note.save(update_fields=["body", "updated_by", "updated_at"])
     return note

@@ -423,8 +423,10 @@ from .ticket import (
     VATPreviewResponseSchema,
 )
 
-# Venue schemas
+# User note schemas
 from .user_note import UserNoteSchema, UserNoteUpsertSchema
+
+# Venue schemas
 from .venue import (
     AffectedTierSchema,
     Coordinate2D,
@@ -770,6 +772,8 @@ __all__ = [
     "TierUnsellableZoneSchema",
     "UnsellableZoneTierSchema",
     "UpdateAttendeeInvoiceSchema",
+    "UserNoteSchema",
+    "UserNoteUpsertSchema",
     "UserRSVPSchema",
     "UserTicketSchema",
     "VATIdUpdateSchema",
@@ -803,8 +807,6 @@ __all__ = [
     "WaitlistSettingsSchema",
     "WaitlistSettingsUpdateSchema",
     "WhitelistEntrySchema",
-    "UserNoteSchema",
-    "UserNoteUpsertSchema",
     "WhitelistRequestCreateSchema",
     "WhitelistRequestSchema",
     "ZoneAvailabilitySchema",

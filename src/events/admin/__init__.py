@@ -33,7 +33,6 @@ from events.admin.invoice import (
     PlatformFeeInvoiceAdmin,
 )
 from events.admin.nudge import OrganizationNudgeAdmin
-from events.admin.user_note import OrganizationUserNoteAdmin
 from events.admin.organization import (
     MembershipTierAdmin,
     OrganizationAdmin,
@@ -67,6 +66,7 @@ from events.admin.ticket import (
     TicketAdmin,
     TicketTierAdmin,
 )
+from events.admin.user_note import OrganizationUserNoteAdmin
 from events.admin.venue import (
     VenueAdmin,
     VenueSeatAdmin,

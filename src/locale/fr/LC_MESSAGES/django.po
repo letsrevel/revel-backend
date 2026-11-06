@@ -7226,3 +7226,9 @@ msgid ""
 msgstr ""
 "Le service de validation VIES est temporairement indisponible. Veuillez "
 "réessayer plus tard."
+
+msgid "The note is too long."
+msgstr "La note est trop longue."
+
+msgid "The note is empty."
+msgstr "La note est vide."

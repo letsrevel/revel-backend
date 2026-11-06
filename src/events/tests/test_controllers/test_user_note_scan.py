@@ -181,6 +181,8 @@ PRIVATE_NOTE_STAFF_OPERATIONS = {
     ("get", "/api/organization-admin/{slug}/members"),
     ("put", "/api/organization-admin/{slug}/members/{user_id}"),
     ("post", "/api/organization-admin/{slug}/members/{user_id}"),
+    ("get", "/api/organization-admin/{slug}/users/{user_id}/note"),
+    ("put", "/api/organization-admin/{slug}/users/{user_id}/note"),
 }
 
 
@@ -200,8 +202,10 @@ def test_private_note_schemas_only_reachable_from_staff_operations() -> None:
     spec = api.get_openapi_schema()
     components = spec["components"]["schemas"]
 
+    # ``UserNoteSchema`` is the note itself, so it is a carrier even though it has no ``private_note`` field.
     carriers = {name for name, comp in components.items() if "private_note" in comp.get("properties", {})}
-    assert carriers, "expected schemas carrying private_note"
+    carriers.add("UserNoteSchema")
+    assert len(carriers) > 1, "expected schemas carrying private_note"
 
     # Transitive closure: any component that (indirectly) embeds a carrier is also a carrier.
     changed = True
