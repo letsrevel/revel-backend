@@ -21,6 +21,7 @@ from events.models import (
     OrganizationQuestionnaire,
     WhitelistRequest,
 )
+from events.utils.membership_access import is_eligible_status
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 from .gates import ELIGIBILITY_GATES, AvailabilityGate, BaseEligibilityGate
@@ -97,13 +98,6 @@ class EligibilityService:
                     to_attr="staff_members_prefetched",
                 ),
                 Prefetch(
-                    "organization__members",
-                    queryset=RevelUser.objects.filter(
-                        organization_memberships__status=OrganizationMember.MembershipStatus.ACTIVE
-                    ).only("id"),
-                    to_attr="active_members_prefetched",
-                ),
-                Prefetch(
                     "organization__memberships",
                     queryset=OrganizationMember.objects.only("id", "user_id", "organization_id", "status"),
                     to_attr="all_memberships_prefetched",
@@ -146,12 +140,12 @@ class EligibilityService:
 
         # Create sets of IDs from the prefetched lightweight model instances.
         self.staff_ids = {staff.id for staff in self.event.organization.staff_members_prefetched}  # type: ignore[attr-defined]
-        self.member_ids = {member.id for member in self.event.organization.active_members_prefetched}  # type: ignore[attr-defined]
 
         # Build a map of user_id -> membership status for all memberships
         self.membership_status_map: dict[uuid.UUID, OrganizationMember.MembershipStatus] = {}
         for membership in self.event.organization.all_memberships_prefetched:  # type: ignore[attr-defined]
             self.membership_status_map[membership.user_id] = membership.status
+        self.member_ids = {uid for uid, status in self.membership_status_map.items() if is_eligible_status(status)}
 
         self.invitation = self.event.invitations.first()
         self.invitation_request = self.event.invitation_requests.first()

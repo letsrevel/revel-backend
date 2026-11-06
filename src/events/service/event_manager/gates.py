@@ -18,11 +18,11 @@ from events import models
 from events.models import (
     EventInvitationRequest,
     EventRSVP,
-    OrganizationMember,
     OrganizationQuestionnaire,
     Ticket,
     WhitelistRequest,
 )
+from events.utils.membership_access import is_eligible_status
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 from questionnaires.utils.retake_policy import RetakeVerdict, approval_is_stale, evaluate_retake_policy
 
@@ -96,7 +96,7 @@ class BlacklistGate(BaseEligibilityGate):
             )
 
         # 2. Active members bypass fuzzy matching (trusted users don't need verification)
-        if self.handler.membership_status_map.get(self.user.id) == OrganizationMember.MembershipStatus.ACTIVE:
+        if is_eligible_status(self.handler.membership_status_map.get(self.user.id)):
             return None
 
         # 3. No fuzzy matches - pass through
@@ -364,7 +364,7 @@ class MembershipGate(BaseEligibilityGate):
 
         # Check if user has a membership but it's not active
         membership_status = self.handler.membership_status_map.get(self.user.id)
-        if membership_status is not None and membership_status != OrganizationMember.MembershipStatus.ACTIVE:
+        if membership_status is not None and not is_eligible_status(membership_status):
             return EventUserEligibility(
                 allowed=False,
                 event_id=self.event.id,
