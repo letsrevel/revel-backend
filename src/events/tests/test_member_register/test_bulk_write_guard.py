@@ -6,7 +6,8 @@ This AST walk (no imports, no DB) fails when production code bulk-writes those f
 
 Rules (applied only when the receiver expression contains ``OrganizationMember.objects``):
 
-* ``update(...)`` with a ``status``, ``tier`` or ``tier_id`` keyword;
+* ``update(...)`` with a ``status``, ``tier`` or ``tier_id`` keyword, or a ``**mapping`` that is a
+  dict literal containing one of those keys or any non-literal expression (cannot be proven safe);
 * ``bulk_update(...)`` and ``bulk_create(...)`` regardless of arguments.
 
 May merge with the #1315 membership-access guard (#1325).
@@ -46,6 +47,16 @@ def _contains_member_objects(node: ast.AST) -> bool:
     return False
 
 
+def _unpacked_kwargs_flagged(value: ast.expr) -> bool:
+    """True when ``**value`` may carry a status/tier key: a literal with such a key, or any non-literal."""
+    if not isinstance(value, ast.Dict):
+        return True
+    return any(
+        k is None or (isinstance(k, ast.Constant) and k.value in _UPDATE_KEYWORDS) or not isinstance(k, ast.Constant)
+        for k in value.keys
+    )
+
+
 def find_bulk_member_writes(source: str, path: str) -> list[str]:
     """Return ``path:line`` entries for every bulk OrganizationMember status/tier write in ``source``."""
     hits: list[str] = []
@@ -56,7 +67,10 @@ def find_bulk_member_writes(source: str, path: str) -> list[str]:
         if name in _ALWAYS_FLAGGED:
             flagged = True
         elif name == "update":
-            flagged = any(kw.arg in _UPDATE_KEYWORDS for kw in node.keywords)
+            flagged = any(
+                kw.arg in _UPDATE_KEYWORDS if kw.arg is not None else _unpacked_kwargs_flagged(kw.value)
+                for kw in node.keywords
+            )
         else:
             continue
         if flagged and _contains_member_objects(node.func.value):
@@ -76,6 +90,8 @@ def test_guard_detects_bulk_writes() -> None:
         "user.memberships.update(tier=None)",
         "user.organization_memberships.filter(x=1).update(status=s)",
         "OrganizationMember._default_manager.filter(x=1).update(status=s)",
+        'OrganizationMember.objects.filter(x=1).update(**{"status": s})',
+        "OrganizationMember.objects.filter(x=1).update(**fields)",
     ]
     assert [len(find_bulk_member_writes(s, "x.py")) for s in snippets] == [1] * len(snippets)
 
@@ -84,10 +100,11 @@ def test_guard_ignores_unrelated() -> None:
     """Non-status updates and other models' status writes are not flagged."""
     snippets = [
         "OrganizationMember.objects.filter(x=1).update(updated_at=n)",
+        'OrganizationMember.objects.filter(x=1).update(**{"updated_at": n})',
         "OrganizationMembershipRequest.objects.filter(pk=1).update(status=s)",
         "Ticket.objects.filter(x=1).update(status=s)",
     ]
-    assert [find_bulk_member_writes(s, "x.py") for s in snippets] == [[], [], []]
+    assert [find_bulk_member_writes(s, "x.py") for s in snippets] == [[]] * len(snippets)
 
 
 def test_no_bulk_member_writes_in_src() -> None:
