@@ -162,9 +162,7 @@ def _banned_member(
     created = timezone.now() - timedelta(days=10)
     member = _member(organization, user, Status.BANNED)
     if entry_offset is not None:
-        entry = Blacklist.objects.create(
-            organization=organization, user=user, created_by=organization.owner
-        )
+        entry = Blacklist.objects.create(organization=organization, user=user, created_by=organization.owner)
         Blacklist.objects.filter(pk=entry.pk).update(created_at=created + entry_offset)
     OrganizationMember.objects.filter(pk=member.pk).update(
         created_at=created, updated_at=created + timedelta(days=1), tier=tier
@@ -216,7 +214,9 @@ def test_backfill_keeps_tierless_member_with_application(
     assert MembershipRecord.objects.filter(user=member_user, ended_reason="expelled").count() == 1
 
 
-def test_backfill_pending_application_does_not_save_stranger(organization: Organization, member_user: RevelUser) -> None:
+def test_backfill_pending_application_does_not_save_stranger(
+    organization: Organization, member_user: RevelUser
+) -> None:
     _banned_member(organization, member_user)
     OrganizationMembershipRequest.objects.create(organization=organization, user=member_user, status="pending")
 
