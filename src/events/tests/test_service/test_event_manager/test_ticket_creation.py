@@ -188,15 +188,23 @@ def test_ticket_tier_with_membership_restriction_blocks_member_without_tier(
     assert ticket_tier not in eligible
 
 
-def test_paused_member_sees_members_only_tier_but_cannot_buy_member_tier(
-    member_user: RevelUser, public_event: Event, organization: t.Any
+@pytest.mark.parametrize(
+    "status,sees_visible_tier",
+    [
+        (OrganizationMember.MembershipStatus.PAUSED, True),
+        (OrganizationMember.MembershipStatus.CANCELLED, False),
+        (OrganizationMember.MembershipStatus.BANNED, False),
+    ],
+)
+def test_non_active_member_tier_access(
+    member_user: RevelUser,
+    public_event: Event,
+    organization: t.Any,
+    status: OrganizationMember.MembershipStatus,
+    sees_visible_tier: bool,
 ) -> None:
-    """A PAUSED member may SEE a MEMBERS_ONLY-visible tier but cannot buy a MEMBERS-purchasable one."""
-    OrganizationMember.objects.create(
-        organization=organization,
-        user=member_user,
-        status=OrganizationMember.MembershipStatus.PAUSED,
-    )
+    """PAUSED sees a MEMBERS_ONLY tier; none buy a MEMBERS tier; CANCELLED and BANNED see neither."""
+    OrganizationMember.objects.create(organization=organization, user=member_user, status=status)
     visible_tier = TicketTier.objects.create(
         event=public_event,
         name="Members-visible",
@@ -214,5 +222,5 @@ def test_paused_member_sees_members_only_tier_but_cannot_buy_member_tier(
 
     eligible = get_eligible_tiers(public_event, member_user)
 
-    assert visible_tier in eligible
+    assert (visible_tier in eligible) is sees_visible_tier
     assert member_purchase_tier not in eligible

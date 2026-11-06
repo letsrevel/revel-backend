@@ -171,7 +171,7 @@ def assert_cart_purchasable_by(event: Event, user: "RevelUser", tiers: t.Iterabl
         tiers: Every tier in the cart.
     """
     is_owner_or_staff = event.organization.is_owner_or_staff(user)
-    membership = OrganizationMember.objects.active_only().filter(organization=event.organization, user=user).first()
+    membership = get_eligible_membership(user, event.organization_id)
     invitation = EventInvitation.objects.filter(event=event, user=user).first()
     for tier in tiers:
         assert_purchasable_by(

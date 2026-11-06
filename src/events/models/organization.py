@@ -18,7 +18,7 @@ from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import BillingPostalAddressMixin, StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
 from events.utils.branding import OrganizationBranding
-from events.utils.membership_access import BANNED_STATUS, ELIGIBLE_STATUSES, VISIBLE_STATUSES
+from events.utils.membership_access import BANNED_STATUS, ELIGIBLE_STATUSES, VISIBLE_STATUSES, is_visible_status
 from events.utils.small_business import SmallBusinessScheme
 from events.utils.visibility import get_excluded_org_ids, get_valid_member_org_ids
 
@@ -827,7 +827,7 @@ class OrganizationMember(TimeStampedModel):
         CANCELLED and BANNED members get a 404 from every card download endpoint,
         so availability flags must not advertise a button that would fail.
         """
-        return self.status not in (self.MembershipStatus.CANCELLED, self.MembershipStatus.BANNED)
+        return is_visible_status(self.status)
 
     @property
     def apple_pass_available(self) -> bool:

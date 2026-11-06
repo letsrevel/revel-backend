@@ -69,4 +69,4 @@ def test_eligibility_prefetch_query_count_not_higher(event: Event, revel_user_fa
     viewer = revel_user_factory()
     with CaptureQueriesContext(connection) as ctx:
         EligibilityService(viewer, event)
-    assert len(ctx) == 16
+    assert len(ctx) <= 16

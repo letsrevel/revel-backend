@@ -63,7 +63,7 @@ def not_excluded_q(user: "RevelUser", excluded_org_ids: set["UUID"], org_lookup:
 def get_valid_member_org_ids(user: "RevelUser") -> "QuerySet[OrganizationMember, UUID]":
     """Organizations where the user holds a membership that grants visibility.
 
-    Routes through ``OrganizationMember.objects.for_visibility()`` so CANCELLED and
+    Delegates to ``membership_access.visible_member_org_ids`` so CANCELLED and
     BANNED rows never match. Always filter the *parent* through
     ``organization_id__in=<this>`` rather than ``.filter(memberships__user=user)
     .exclude(memberships__status__in=...)``: an exclude on a multi-valued relation
