@@ -61,6 +61,7 @@ from events.admin.subscription import (
     MembershipSubscriptionAdmin,
     MembershipSubscriptionPlanAdmin,
 )
+from events.admin.membership_record import MembershipRecordAdmin
 from events.admin.ticket import (
     PaymentAdmin,
     TicketAdmin,
@@ -92,6 +93,7 @@ __all__ = [
     "EventSeriesFollowAdmin",
     # Nudges
     "OrganizationNudgeAdmin",
+    "MembershipRecordAdmin",
     "OrganizationUserNoteAdmin",
     # Questionnaire join
     "EventQuestionnaireSubmissionAdmin",

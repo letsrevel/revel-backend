@@ -138,6 +138,11 @@ UNFOLD = {
                         "link": reverse_lazy("admin:events_organizationmember_changelist"),
                     },
                     {
+                        "title": _("Member Register"),
+                        "icon": "fact_check",
+                        "link": reverse_lazy("admin:events_membershiprecord_changelist"),
+                    },
+                    {
                         "title": _("Staff"),
                         "icon": "badge",
                         "link": reverse_lazy("admin:events_organizationstaff_changelist"),

@@ -61,6 +61,7 @@ from .subscription import (
     MembershipSubscriptionPlan,
     SubscriptionPaymentMethod,
 )
+from .membership_record import MembershipRecord, MembershipRecordQuerySet
 from .ticket import (
     DEFAULT_TICKET_TIER_NAME,
     CancellationSource,
@@ -130,6 +131,8 @@ __all__ = [
     # Nudges
     "OrganizationNudge",
     # Private notes
+    "MembershipRecord",
+    "MembershipRecordQuerySet",
     "OrganizationUserNote",
     # Preferences
     "BaseUserPreferences",
