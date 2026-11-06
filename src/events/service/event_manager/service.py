@@ -37,10 +37,23 @@ class EligibilityService:
     Most notably, it performs eligibility checks, raises explicit errors with relevant information.
     """
 
-    def __init__(self, user: RevelUser, event: models.Event) -> None:
+    def __init__(
+        self,
+        user: RevelUser,
+        event: models.Event,
+        *,
+        questionnaire_scope: t.Literal["event", "series"] = "event",
+    ) -> None:
         """Initialize the service, pre-fetching all required data in a highly optimized way.
 
         This ensures all subsequent checks are performed in-memory without further database hits.
+
+        Args:
+            user: The user whose eligibility is checked.
+            event: The event to check against.
+            questionnaire_scope: Which admission questionnaires apply. ``"event"`` (default) uses
+                those linked to the event or its series; ``"series"`` uses only those linked to
+                the event's series (none if the event has no series).
         """
         # First, get the user with all their relevant submissions and evaluations.
         # This is a separate query but is necessary and efficient for the questionnaire check.
@@ -51,9 +64,12 @@ class EligibilityService:
             )
         ).get(pk=user.pk)
 
-        event_link_filter = Q(events=event)
-        if event.event_series:
-            event_link_filter |= Q(event_series=event.event_series)
+        if questionnaire_scope == "series":
+            event_link_filter = Q(event_series=event.event_series) if event.event_series else Q(pk__in=[])
+        else:
+            event_link_filter = Q(events=event)
+            if event.event_series:
+                event_link_filter |= Q(event_series=event.event_series)
 
         questionnaire_filter = event_link_filter & Q(
             questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
