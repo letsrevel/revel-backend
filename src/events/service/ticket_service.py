@@ -38,6 +38,7 @@ from events.service import small_business_scheme_service
 from events.service.attendee_vat_service import get_effective_vat_rate
 from events.service.seating.pricing import price_paid_is_admin_entered, recorded_or_resolved_price
 from events.service.waitlist_service import enqueue_waitlist_processing
+from events.utils.membership_access import is_eligible_status, is_visible_status
 from events.utils.vat_category import ZERO_RATE_RULE_FIELDS, effective_vat_exemption_reason, is_paid_online
 
 if t.TYPE_CHECKING:
@@ -129,14 +130,12 @@ def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
     # Pre-fetch user context (single queries, not in loop)
     is_staff_or_owner = org.is_owner_or_staff(user)
 
-    # Get user's active membership for this organization
-    user_membership = OrganizationMember.objects.filter(
-        organization=org,
-        user=user,
-        status=OrganizationMember.MembershipStatus.ACTIVE,
-    ).first()
-    is_member = user_membership is not None
-    user_membership_tier_ids = {user_membership.tier_id} if user_membership and user_membership.tier_id else set()
+    # One membership query (any status): visible statuses may SEE member tiers, only eligible may BUY
+    membership = OrganizationMember.objects.filter(organization=org, user=user).only("status", "tier_id").first()
+    status = membership.status if membership else None
+    can_see_member_tiers = is_visible_status(status)
+    is_member = is_eligible_status(status)
+    user_membership_tier_ids = {membership.tier_id} if membership and is_member and membership.tier_id else set()
 
     # Check if user is invited to this event and get linked tier IDs
     invitation = EventInvitation.objects.prefetch_related("tiers").filter(event=event, user=user).first()
@@ -148,7 +147,7 @@ def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
     # Prefetch restricted_to_membership_tiers to avoid N+1 queries
     for tier in event.ticket_tiers.prefetch_related("restricted_to_membership_tiers").all():
         # 1. Check visibility
-        if not _check_tier_visibility(tier, is_staff_or_owner, is_member, is_invited, invitation_tier_ids):
+        if not _check_tier_visibility(tier, is_staff_or_owner, can_see_member_tiers, is_invited, invitation_tier_ids):
             continue
 
         # 2. Check sales window / pause
@@ -177,7 +176,7 @@ def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
 def _check_tier_visibility(
     tier: TicketTier,
     is_staff_or_owner: bool,
-    is_member: bool,
+    can_see_member_tiers: bool,
     is_invited: bool,
     invitation_tier_ids: set[UUID],
 ) -> bool:
@@ -186,7 +185,7 @@ def _check_tier_visibility(
     Args:
         tier: The ticket tier to check.
         is_staff_or_owner: Whether user is org staff or owner.
-        is_member: Whether user is an active org member.
+        can_see_member_tiers: Whether user's membership may see member-only content.
         is_invited: Whether user has an invitation to the event.
         invitation_tier_ids: Set of tier IDs linked to user's invitation.
 
@@ -203,7 +202,7 @@ def _check_tier_visibility(
         return True
 
     if visibility == VisibilityMixin.Visibility.MEMBERS_ONLY:
-        return is_member
+        return can_see_member_tiers
 
     if visibility == VisibilityMixin.Visibility.PRIVATE:
         if tier.restrict_visibility_to_linked_invitations:

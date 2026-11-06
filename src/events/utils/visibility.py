@@ -17,6 +17,7 @@ import typing as t
 from django.db.models import Q
 
 from events.utils.blacklist import get_hard_blacklisted_org_ids
+from events.utils.membership_access import banned_org_ids, visible_member_org_ids
 
 if t.TYPE_CHECKING:
     from uuid import UUID
@@ -38,12 +39,7 @@ def get_excluded_org_ids(user: "RevelUser") -> set["UUID"]:
     Materialised as a set because callers feed it to ``~Q(...__in=...)`` /
     ``.exclude(id__in=...)``, where a small literal list beats a correlated subquery.
     """
-    from events.models import OrganizationMember
-
-    banned_org_ids = OrganizationMember.objects.filter(
-        user=user, status=OrganizationMember.MembershipStatus.BANNED
-    ).values_list("organization_id", flat=True)
-    return set(banned_org_ids) | set(get_hard_blacklisted_org_ids(user))
+    return set(banned_org_ids(user)) | set(get_hard_blacklisted_org_ids(user))
 
 
 def not_excluded_q(user: "RevelUser", excluded_org_ids: set["UUID"], org_lookup: str = "organization") -> Q:
@@ -67,15 +63,13 @@ def not_excluded_q(user: "RevelUser", excluded_org_ids: set["UUID"], org_lookup:
 def get_valid_member_org_ids(user: "RevelUser") -> "QuerySet[OrganizationMember, UUID]":
     """Organizations where the user holds a membership that grants visibility.
 
-    Routes through ``OrganizationMember.objects.for_visibility()`` so CANCELLED and
+    Delegates to ``membership_access.visible_member_org_ids`` so CANCELLED and
     BANNED rows never match. Always filter the *parent* through
     ``organization_id__in=<this>`` rather than ``.filter(memberships__user=user)
     .exclude(memberships__status__in=...)``: an exclude on a multi-valued relation
     drops every organization that has *any* cancelled/banned member, not just this one.
     """
-    from events.models import OrganizationMember
-
-    return OrganizationMember.objects.for_visibility().filter(user=user).values_list("organization_id", flat=True)
+    return visible_member_org_ids(user)
 
 
 def owner_or_staff_q(user: "RevelUser", org_lookup: str = "organization") -> Q:

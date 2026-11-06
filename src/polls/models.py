@@ -48,9 +48,10 @@ class PollQuerySet(models.QuerySet["Poll"]):
         from django.db.models import Subquery
 
         from events.models.invitation import EventInvitation
-        from events.models.organization import OrganizationMember, OrganizationStaff
+        from events.models.organization import OrganizationStaff
         from events.models.rsvp import EventRSVP
         from events.models.ticket import Ticket
+        from events.utils.membership_access import visible_memberships
         from questionnaires.models import QuestionnaireSubmission
 
         return self.annotate(
@@ -65,13 +66,9 @@ class PollQuerySet(models.QuerySet["Poll"]):
             _is_org_staff_member=Exists(
                 OrganizationStaff.objects.filter(organization=OuterRef("organization"), user=user)
             ),
-            _is_org_member=Exists(
-                OrganizationMember.objects.for_visibility().filter(organization=OuterRef("organization"), user=user)
-            ),
+            _is_org_member=Exists(visible_memberships().filter(organization=OuterRef("organization"), user=user)),
             _user_member_tier_id=Subquery(
-                OrganizationMember.objects.for_visibility()
-                .filter(organization=OuterRef("organization"), user=user)
-                .values("tier_id")[:1]
+                visible_memberships().filter(organization=OuterRef("organization"), user=user).values("tier_id")[:1]
             ),
             _has_ticket=Exists(Ticket.objects.attending().filter(user=user, event=OuterRef("event"))),
             _has_rsvp=Exists(
@@ -94,9 +91,10 @@ class PollQuerySet(models.QuerySet["Poll"]):
         listings vs. fine-grained access split used elsewhere (e.g., Event).
         """
         from events.models.invitation import EventInvitation
-        from events.models.organization import OrganizationMember, OrganizationStaff
+        from events.models.organization import OrganizationStaff
         from events.models.rsvp import EventRSVP
         from events.models.ticket import Ticket
+        from events.utils.membership_access import visible_memberships
         from questionnaires.models import QuestionnaireSubmission
 
         # Django superusers/staff see everything (regardless of status).
@@ -119,9 +117,7 @@ class PollQuerySet(models.QuerySet["Poll"]):
 
         org_owner_q = Q(organization__owner=user)
         org_staff_q = Exists(OrganizationStaff.objects.filter(organization=OuterRef("organization"), user=user))
-        member_q = Exists(
-            OrganizationMember.objects.for_visibility().filter(organization=OuterRef("organization"), user=user)
-        )
+        member_q = Exists(visible_memberships().filter(organization=OuterRef("organization"), user=user))
         ticket_q = Exists(Ticket.objects.attending().filter(user=user, event=OuterRef("event")))
         rsvp_q = Exists(EventRSVP.objects.filter(user=user, event=OuterRef("event"), status=EventRSVP.RsvpStatus.YES))
         invite_q = Exists(EventInvitation.objects.filter(user=user, event=OuterRef("event")))

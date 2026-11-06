@@ -15,6 +15,7 @@ from accounts.models import RevelUser
 from events.models import Event, EventSeries
 from events.utils import format_event_datetime, get_event_timezone
 from events.utils.frontend_urls import frontend_base_url_for
+from events.utils.membership_access import visible_member_user_ids
 from notifications.enums import NotificationType
 from notifications.service.dispatcher import NotificationData, bulk_create_notifications
 from notifications.service.eligibility import (
@@ -213,7 +214,6 @@ def _collect_series_digest_candidates(
     only for ``PUBLIC``.
     """
     from events.models import Event as EventModel
-    from events.models import OrganizationMember
     from events.service.follow_service import get_followers_for_new_event_notification
 
     broadcasts_to_members = visibility in (
@@ -232,13 +232,7 @@ def _collect_series_digest_candidates(
         recipients_by_id[user.id] = user
 
     if broadcasts_to_members:
-        member_users = RevelUser.objects.filter(
-            organization_memberships__organization=organization,
-            organization_memberships__status__in=(
-                OrganizationMember.MembershipStatus.ACTIVE,
-                OrganizationMember.MembershipStatus.PAUSED,
-            ),
-        )
+        member_users = RevelUser.objects.filter(id__in=visible_member_user_ids(organization.id))
         for user in member_users:
             recipients_by_id[user.id] = user
 

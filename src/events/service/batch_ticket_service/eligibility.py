@@ -22,6 +22,7 @@ from events.service.event_manager import (
     Reasons,
     UserIsIneligibleError,
 )
+from events.utils.membership_access import get_eligible_membership
 
 if t.TYPE_CHECKING:
     from accounts.models import RevelUser
@@ -170,7 +171,7 @@ def assert_cart_purchasable_by(event: Event, user: "RevelUser", tiers: t.Iterabl
         tiers: Every tier in the cart.
     """
     is_owner_or_staff = event.organization.is_owner_or_staff(user)
-    membership = OrganizationMember.objects.active_only().filter(organization=event.organization, user=user).first()
+    membership = get_eligible_membership(user, event.organization_id)
     invitation = EventInvitation.objects.filter(event=event, user=user).first()
     for tier in tiers:
         assert_purchasable_by(
@@ -193,11 +194,7 @@ class PurchaseEligibilityMixin(BatchTicketContext):
 
     @cached_property
     def _buyer_membership(self) -> OrganizationMember | None:
-        return (
-            OrganizationMember.objects.active_only()
-            .filter(organization=self.event.organization, user=self.user)
-            .first()
-        )
+        return get_eligible_membership(self.user, self.event.organization_id)
 
     @cached_property
     def _buyer_invitation(self) -> EventInvitation | None:
