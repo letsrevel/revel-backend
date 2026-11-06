@@ -1,7 +1,7 @@
 import typing as t
 from uuid import UUID
 
-from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, TextField, Value
+from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Path, Query
@@ -45,18 +45,17 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     Handles members, membership tiers, staff, and tags.
     """
 
-    def _can_read_notes(self, organization: models.Organization) -> bool:
-        """Private notes: ``manage_members`` on a session only; OAuth app tokens never read them."""
-        return not controller_uses_app_token(self) and organization.has_org_permission(self.user().id, "manage_members")
-
     def _with_note(
         self, organization: models.Organization, member: models.OrganizationMember
     ) -> models.OrganizationMember:
-        """Set the ``private_note`` attribute ``OrganizationMemberSchema`` reads."""
+        """Set the ``private_note`` attribute ``OrganizationMemberSchema`` reads.
+
+        The route is already gated by ``manage_members``; only OAuth app tokens are excluded.
+        """
         note = (
-            user_note_service.get_note_body(organization.id, member.user_id)
-            if self._can_read_notes(organization)
-            else None
+            None
+            if controller_uses_app_token(self)
+            else user_note_service.get_note_body(organization.id, member.user_id)
         )
         setattr(member, "private_note", note)
         return member
@@ -119,20 +118,9 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
                 )
             )
         )
-        # The list is open to any staff, but private notes need ``manage_members`` and a session
-        # (app tokens never read notes).
-        private_note: Subquery | Value = Value(None, output_field=TextField())
-        if self._can_read_notes(organization):
-            private_note = Subquery(
-                models.OrganizationUserNote.objects.filter(
-                    organization_id=OuterRef("organization_id"), user_id=OuterRef("user_id")
-                ).values("body")[:1]
-            )
         qs = (
             models.OrganizationMember.objects.filter(organization=organization)
             .select_related("user", "tier")
-            # ``OrganizationMemberSchema.private_note`` reads this annotation (no per-row query).
-            .annotate(private_note=private_note)
             .prefetch_related(
                 Prefetch(
                     "user__membership_subscriptions",
@@ -141,6 +129,17 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
                 )
             )
         )
+        # The list is open to any staff, but private notes need ``manage_members`` and a session
+        # (app tokens never read notes). Prefetched rather than annotated: a TEXT subquery in the
+        # SELECT would end up in the DISTINCT below.
+        if not controller_uses_app_token(self) and organization.has_org_permission(self.user().id, "manage_members"):
+            qs = qs.prefetch_related(
+                Prefetch(
+                    "user__organizer_notes",
+                    queryset=models.OrganizationUserNote.objects.filter(organization=organization),
+                    to_attr="_org_private_notes",
+                )
+            )
         return params.filter(qs).distinct()
 
     @route.get(

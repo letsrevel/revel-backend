@@ -511,21 +511,18 @@ class EventAdminTicketsController(EventAdminBaseController):
         # lookup — the bare-UUID ticket path (the common case) stays query-free
         # until its own fetch inside check_in_ticket.
         # Private notes are session-only: app tokens check in but never read the note.
-        hide_note = controller_uses_app_token(self)
+        include_note = not controller_uses_app_token(self)
         if code.startswith(models.OrganizationMember.QR_PREFIX):
-            result = member_scan_service.scan_member_code(event, code, self.user(), price_paid=price_paid)
-            if hide_note:
-                result.private_note = None
+            result = member_scan_service.scan_member_code(
+                event, code, self.user(), price_paid=price_paid, include_note=include_note
+            )
             if result.checked_in is not None:
-                if hide_note:
-                    setattr(result.checked_in, "private_note", None)
                 return result.checked_in
             return schema.MemberScanResponseSchema.from_result(result)
         ticket_id = check_in_service.resolve_check_in_ticket_id(event, code)
-        ticket = check_in_service.check_in_ticket(event, ticket_id, self.user(), price_paid=price_paid)
-        if hide_note:
-            setattr(ticket, "private_note", None)
-        return ticket
+        return check_in_service.check_in_ticket(
+            event, ticket_id, self.user(), price_paid=price_paid, include_note=include_note
+        )
 
     @route.get(
         "/revenue",

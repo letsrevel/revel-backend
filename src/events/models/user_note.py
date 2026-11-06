@@ -30,4 +30,5 @@ class OrganizationUserNote(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"Note on {self.user_id} by {self.organization_id}"
+        # Admin LogEntry.object_repr stores this: it must not identify the subject.
+        return f"Private note {self.pk}"

@@ -14,7 +14,7 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
-from events.models import Event, Organization, OrganizationMember, Ticket, TicketTier
+from events.models import Event, Organization, OrganizationMember, OrganizationUserNote, Ticket, TicketTier
 from events.service.member_scan_service import scan_member_code
 
 pytestmark = pytest.mark.django_db
@@ -83,6 +83,31 @@ def test_single_active_ticket_checks_in(event: Event, member: OrganizationMember
 
     ticket.refresh_from_db()
     assert ticket.status == Ticket.TicketStatus.CHECKED_IN
+
+
+# --- include_note gating lives in the service ---
+
+
+@pytest.mark.parametrize("include_note", [True, False])
+@pytest.mark.parametrize("with_ticket", [True, False])
+def test_include_note_gates_private_note(
+    event: Event, member: OrganizationMember, staff_user: RevelUser, include_note: bool, with_ticket: bool
+) -> None:
+    OrganizationUserNote.objects.create(organization=event.organization, user=member.user, body="secret")
+    if with_ticket:
+        make_ticket(event, member.user)
+
+    result = scan_member_code(event, member.qr_payload, staff_user, include_note=include_note)
+
+    expected = "secret" if include_note else None
+    assert result.private_note == expected
+    if with_ticket:
+        assert getattr(result.checked_in, "private_note", None) == expected
+
+
+def test_notes_off_by_default(event: Event, member: OrganizationMember, staff_user: RevelUser) -> None:
+    OrganizationUserNote.objects.create(organization=event.organization, user=member.user, body="secret")
+    assert scan_member_code(event, member.qr_payload, staff_user).private_note is None
 
 
 # --- 2. Zero tickets ---

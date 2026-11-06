@@ -702,8 +702,11 @@ class OrganizationMemberSchema(Schema):
 
     @staticmethod
     def resolve_private_note(obj: OrganizationMember) -> str | None:
-        """Read the ``private_note`` attribute the controller set (``None`` if it didn't)."""
-        return t.cast(str | None, getattr(obj, "private_note", None))
+        """Read the note the controller attached (``private_note``, or the prefetched list rows)."""
+        if hasattr(obj, "private_note"):
+            return t.cast(str | None, obj.private_note)
+        notes = getattr(obj.user, "_org_private_notes", None)
+        return notes[0].body if notes else None
 
     @staticmethod
     def resolve_subscription(obj: OrganizationMember) -> MembershipSubscription | None:

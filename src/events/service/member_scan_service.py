@@ -31,7 +31,12 @@ class MemberScanResult:
 
 
 def scan_member_code(
-    event: Event, code: str, checked_in_by: RevelUser, price_paid: Decimal | None = None
+    event: Event,
+    code: str,
+    checked_in_by: RevelUser,
+    price_paid: Decimal | None = None,
+    *,
+    include_note: bool = False,
 ) -> MemberScanResult:
     """Resolve a ``member:<uuid>`` scan against an event.
 
@@ -39,6 +44,9 @@ def scan_member_code(
     admission instrument. The single-ticket fast path delegates to
     ``check_in_ticket`` so status errors (already checked in, cancelled,
     window closed) surface exactly as they would for a direct ticket scan.
+
+    ``include_note`` loads the organization's private note about the member (off by default;
+    callers pass ``False`` for OAuth app tokens).
     """
     try:
         member_id = UUID(code[len(OrganizationMember.QR_PREFIX) :])
@@ -55,16 +63,18 @@ def scan_member_code(
         .exclude(status=Ticket.TicketStatus.CANCELLED)
     )
     if len(tickets) == 1:
-        checked_in = check_in_ticket(event, tickets[0].id, checked_in_by, price_paid=price_paid)
+        checked_in = check_in_ticket(
+            event, tickets[0].id, checked_in_by, price_paid=price_paid, include_note=include_note
+        )
         return MemberScanResult(
             member=member,
             tickets=tickets,
             checked_in=checked_in,
-            private_note=getattr(checked_in, "private_note", None),
+            private_note=getattr(checked_in, "private_note", None) if include_note else None,
         )
     return MemberScanResult(
         member=member,
         tickets=tickets,
         checked_in=None,
-        private_note=get_note_body(event.organization_id, member.user_id),
+        private_note=get_note_body(event.organization_id, member.user_id) if include_note else None,
     )

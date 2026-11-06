@@ -110,7 +110,12 @@ def _pending_check_in_allowed(ticket: Ticket) -> bool:
 
 
 def check_in_ticket(
-    event: Event, ticket_id: UUID, checked_in_by: RevelUser, price_paid: Decimal | None = None
+    event: Event,
+    ticket_id: UUID,
+    checked_in_by: RevelUser,
+    price_paid: Decimal | None = None,
+    *,
+    include_note: bool = False,
 ) -> Ticket:
     """Check in an attendee by scanning their ticket.
 
@@ -122,6 +127,9 @@ def check_in_ticket(
             that don't have a price recorded yet. Optional as an override for
             PWYC offline/at-the-door tickets that already have a price.
             Forbidden for non-PWYC or online tickets.
+        include_note: Annotate the ticket with the organization's private note about the
+            attendee (``private_note``). Off by default; callers must pass ``False`` for
+            OAuth app tokens, which never read private notes.
 
     Note:
         price_paid is intentionally not validated against the tier's pwyc_min/pwyc_max
@@ -141,13 +149,14 @@ def check_in_ticket(
         "sector",
     ).prefetch_related("tier__restricted_to_membership_tiers")
     # Read-only for door staff (``CheckInResponseSchema.private_note``); a subquery, so no extra round trip.
-    ticket_qs = ticket_qs.annotate(
-        private_note=Subquery(
-            OrganizationUserNote.objects.filter(
-                organization_id=event.organization_id, user_id=OuterRef("user_id")
-            ).values("body")[:1]
+    if include_note:
+        ticket_qs = ticket_qs.annotate(
+            private_note=Subquery(
+                OrganizationUserNote.objects.filter(
+                    organization_id=event.organization_id, user_id=OuterRef("user_id")
+                ).values("body")[:1]
+            )
         )
-    )
     ticket = get_object_or_404(ticket_qs, pk=ticket_id, event=event)
 
     # Check if ticket status is valid for check-in

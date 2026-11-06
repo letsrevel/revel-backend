@@ -1,6 +1,9 @@
 """Admin for private organizer notes."""
 
+import typing as t
+
 from django.contrib import admin
+from django.http import HttpRequest
 from unfold.admin import ModelAdmin
 
 from events import models
@@ -14,5 +17,10 @@ class OrganizationUserNoteAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ign
     list_display = ["__str__", "organization_link", "user", "updated_by", "updated_at"]
     list_select_related = ["organization", "user", "updated_by"]
     search_fields = ["organization__name", "organization__slug", "user__email", "user__username"]
-    autocomplete_fields = ["organization", "user", "updated_by"]
-    readonly_fields = ["created_at", "updated_at"]
+    autocomplete_fields = ["organization", "user"]
+    readonly_fields = ["created_at", "updated_at", "updated_by"]
+
+    def save_model(self, request: HttpRequest, obj: models.OrganizationUserNote, form: t.Any, change: bool) -> None:
+        """Record the acting admin as the author."""
+        obj.updated_by = request.user  # type: ignore[assignment]
+        super().save_model(request, obj, form, change)

@@ -121,8 +121,14 @@ class TestSanitizationAndLimits:
     def test_over_max_length_rejected(
         self, organization_owner_client: Client, organization: Organization, target: RevelUser
     ) -> None:
-        assert _put(organization_owner_client, organization, target, "a" * 5001).status_code == 422
+        # The cap lives in the service (on unescaped text); the schema only bounds the payload.
+        assert _put(organization_owner_client, organization, target, "a" * 5001).status_code == 400
         assert not OrganizationUserNote.objects.exists()
+
+    def test_payload_bound_rejected_by_schema(
+        self, organization_owner_client: Client, organization: Organization, target: RevelUser
+    ) -> None:
+        assert _put(organization_owner_client, organization, target, "a" * 30001).status_code == 422
 
     def test_empty_body_rejected(
         self, organization_owner_client: Client, organization: Organization, target: RevelUser
@@ -152,6 +158,32 @@ class TestSanitizeBeforeValidate:
         assert _put(organization_owner_client, organization, target, "&" * 5000).status_code == 200
         note.refresh_from_db()
         note.save()  # full_clean on a stored (escaped) body stays valid
+
+    def test_escaped_body_round_trips_unchanged(
+        self, organization_owner_client: Client, organization: Organization, target: RevelUser
+    ) -> None:
+        """GET returns the escaped body; PUTting it back unchanged is 200 and stores the same text."""
+        assert _put(organization_owner_client, organization, target, "&" * 4990 + " <b>x</b>").status_code == 200
+        got = organization_owner_client.get(_note_url(organization, target)).json()["body"]
+        assert len(got) > 5000
+        again = _put(organization_owner_client, organization, target, got)
+        assert again.status_code == 200, again.content
+        assert OrganizationUserNote.objects.get(organization=organization, user=target).body == got
+
+    def test_event_description_round_trip_matches(self, event: Event) -> None:
+        """Reference behaviour (same MarkdownField): re-saving the escaped value is stable."""
+        event.description = "a & b < c"
+        event.save()
+        stored = Event.objects.get(pk=event.pk).description
+        event.description = stored
+        event.save()
+        assert Event.objects.get(pk=event.pk).description == stored
+
+    def test_double_sanitize_not_applied_to_returned_body(
+        self, organization_owner_client: Client, organization: Organization, target: RevelUser
+    ) -> None:
+        response = _put(organization_owner_client, organization, target, "a & b")
+        assert response.json()["body"] == "a &amp; b"
 
 
 class TestRelationshipRestriction:
