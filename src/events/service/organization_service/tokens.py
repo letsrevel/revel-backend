@@ -19,13 +19,14 @@ from events.exceptions import (
     OrganizationTokenStaffGrantForbidden,
 )
 from events.models import (
+    MembershipRecord,
     MembershipTier,
     Organization,
     OrganizationMember,
     OrganizationStaff,
     OrganizationToken,
 )
-from events.service import blacklist_service, permission_snapshot
+from events.service import blacklist_service, member_register_service, permission_snapshot
 
 # Canned messages for the organization-token guard exceptions. Co-located with
 # the service that raises them so the per-app exception handlers (and any caller)
@@ -309,11 +310,12 @@ def claim_invitation(user: RevelUser, token: str) -> Organization | None:
         if organization_token.membership_tier:
             member_defaults["tier"] = organization_token.membership_tier
 
-        _, member_created = get_or_create_with_race_protection(
-            OrganizationMember,
-            Q(organization=organization_token.organization, user=user),
-            member_defaults,
-        )
+        with member_register_service.record_source(MembershipRecord.Source.TOKEN):
+            _, member_created = get_or_create_with_race_protection(
+                OrganizationMember,
+                Q(organization=organization_token.organization, user=user),
+                member_defaults,
+            )
         created = created or member_created
 
     if not created:

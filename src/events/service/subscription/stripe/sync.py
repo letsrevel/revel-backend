@@ -22,12 +22,13 @@ from common.service.vat_utils import b2b_fee_vat_from_gross
 from common.utils import get_or_create_with_race_protection
 from events.models import (
     MembershipPayment,
+    MembershipRecord,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     OrganizationMember,
     OrganizationMembershipRequest,
 )
-from events.service import stripe_incidents
+from events.service import member_register_service, stripe_incidents
 from events.service.blacklist_service import check_user_hard_blacklisted
 from events.service.subscription.stripe.dispatch import (
     _dispatch_invoice_notifications,
@@ -131,7 +132,8 @@ def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivat
             if existing.tier_id != subscription.plan.tier_id:
                 existing.tier_id = subscription.plan.tier_id
                 update_fields.append("tier")
-            existing.save(update_fields=update_fields)
+            with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
+                existing.save(update_fields=update_fields)
         settle_originating_application(subscription)
         return "existing"
 
@@ -148,16 +150,17 @@ def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivat
     # A concurrent webhook may be minting the same row; the loser reads the
     # winner's row back. Either way the row did not exist when we started, so
     # MEMBERSHIP_GRANTED has fired for it — "created" from the notifier's angle.
-    get_or_create_with_race_protection(
-        OrganizationMember,
-        Q(organization=subscription.organization, user=subscription.user),
-        {
-            "organization": subscription.organization,
-            "user": subscription.user,
-            "tier": subscription.plan.tier,
-            "status": OrganizationMember.MembershipStatus.ACTIVE,
-        },
-    )
+    with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
+        get_or_create_with_race_protection(
+            OrganizationMember,
+            Q(organization=subscription.organization, user=subscription.user),
+            {
+                "organization": subscription.organization,
+                "user": subscription.user,
+                "tier": subscription.plan.tier,
+                "status": OrganizationMember.MembershipStatus.ACTIVE,
+            },
+        )
     settle_originating_application(subscription)
     return "created"
 
