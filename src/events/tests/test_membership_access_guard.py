@@ -6,7 +6,10 @@ Membership visibility/access rules live in ``events/utils/membership_access.py``
 Rules (applied to ``filter``/``exclude``/``Q(...)`` calls only; ``create``/``update``/``get_or_create``
 etc. are ignored, as are plain string literals such as GDPR export keys):
 
-* (a) a keyword matching ``(organization_)?memberships__status(__in)?`` or ``(organization__)?members__id``;
+* (a) a keyword whose name contains ``memberships__status``, ``memberships__status__in``,
+  ``organization_memberships__status`` / ``__in`` or ``members__id`` as a whole ``__``-separated
+  suffix (matched with ``re.search`` on ``(^|__)…$``, so ``organization__members__id`` and
+  ``memberships__status__in`` both count);
 * (b) ``filter``/``exclude`` on an expression containing ``OrganizationMember.objects`` with a
   ``status`` / ``status__in`` keyword;
 * (c) a ``MembershipStatus.<X>`` attribute used as an argument (positional or keyword value, also
