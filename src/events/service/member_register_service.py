@@ -8,20 +8,25 @@ The register (``MembershipRecord``) is a legal log of membership periods. Access
 import contextlib
 import contextvars
 import typing as t
+from datetime import datetime
 from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
 
+from accounts.models import RevelUser
 from events.models import MembershipRecord, MembershipTier, OrganizationMember
+from events.models.membership_record import MembershipRecordQuerySet
 from questionnaires.models import QuestionnaireSubmission
 
-_source_var: contextvars.ContextVar[MembershipRecord.Source] = contextvars.ContextVar(
-    "member_register_source", default=MembershipRecord.Source.STAFF
+# ``None`` means no ``record_source`` block is active (records then default to STAFF, or inherit on re-open).
+_source_var: contextvars.ContextVar[MembershipRecord.Source | None] = contextvars.ContextVar(
+    "member_register_source", default=None
 )
 _submission_var: contextvars.ContextVar[QuestionnaireSubmission | None] = contextvars.ContextVar(
     "member_register_submission", default=None
 )
+_FULL_NAME_MAX = 255
 _suppress_var: contextvars.ContextVar[bool] = contextvars.ContextVar("member_register_suppress", default=False)
 
 
@@ -49,10 +54,15 @@ def suppress_mirror() -> t.Iterator[None]:
         _suppress_var.reset(token)
 
 
-def _open_standard_qs(organization_id: UUID, user_id: UUID) -> t.Any:
+def _open_standard_qs(organization_id: UUID, user_id: UUID) -> MembershipRecordQuerySet:
     return MembershipRecord.objects.open().filter(
         organization_id=organization_id, user_id=user_id, kind=MembershipRecord.Kind.STANDARD
     )
+
+
+def _snapshot_full_name(user: RevelUser) -> str:
+    """Legal name first, truncated to the column width (first + last name can exceed 255)."""
+    return (user.get_full_name() or user.get_display_name())[:_FULL_NAME_MAX]
 
 
 def open_standard_record(member: OrganizationMember) -> MembershipRecord:
@@ -60,7 +70,7 @@ def open_standard_record(member: OrganizationMember) -> MembershipRecord:
     with transaction.atomic():
         existing = _open_standard_qs(member.organization_id, member.user_id).select_for_update().first()
         if existing is not None:
-            return t.cast(MembershipRecord, existing)
+            return existing
 
         user = member.user
         submission = _submission_var.get()
@@ -72,13 +82,13 @@ def open_standard_record(member: OrganizationMember) -> MembershipRecord:
         return MembershipRecord.objects.create(
             organization_id=member.organization_id,
             user=user,
-            full_name=user.get_full_name() or user.get_display_name(),
+            full_name=_snapshot_full_name(user),
             email=user.email,
             kind=MembershipRecord.Kind.STANDARD,
             tier_id=member.tier_id,
             tier_name=member.tier.name if member.tier else "",
             valid_from=timezone.now(),
-            source=_source_var.get(),
+            source=_source_var.get() or MembershipRecord.Source.STAFF,
             questionnaire_submission=submission,
             accepted_at=accepted_at,
             questionnaire_name=questionnaire_name,
@@ -86,36 +96,81 @@ def open_standard_record(member: OrganizationMember) -> MembershipRecord:
 
 
 def close_standard_record(
-    organization_id: UUID, user_id: UUID, *, reason: MembershipRecord.EndedReason
+    organization_id: UUID, user_id: UUID, *, reason: MembershipRecord.EndedReason, now: datetime | None = None
 ) -> MembershipRecord | None:
     """Close the open STANDARD record, if any. Returns it, or None when nothing was open."""
     with transaction.atomic():
         record = _open_standard_qs(organization_id, user_id).select_for_update().first()
         if record is None:
             return None
-        record.valid_until = timezone.now()
+        # Never end before the start (clock skew / frozen clocks would violate the range constraint).
+        record.valid_until = max(now or timezone.now(), record.valid_from)
         record.ended_reason = reason
         record.save(update_fields=["valid_until", "ended_reason", "updated_at"])
-        return t.cast(MembershipRecord, record)
+        return record
 
 
-def mirror_member(member: OrganizationMember, *, old_tier_id: UUID | None) -> None:
+def _reopen_from(record: MembershipRecord, *, tier: MembershipTier | None, now: datetime) -> MembershipRecord:
+    """Open the successor of a just-closed ``record`` at ``tier``, carrying its basis and evidence.
+
+    A tier change does not change *why* the person is a member, so source, acceptance evidence and
+    subscription are copied from ``record`` (``created_by`` is not: the successor was not made by that
+    actor). When a ``record_source`` block is explicitly active, source and evidence come from it instead.
+    """
+    explicit_source = _source_var.get()
+    source = record.source
+    submission_id = record.questionnaire_submission_id
+    accepted_at = record.accepted_at
+    questionnaire_name = record.questionnaire_name
+    submission = _submission_var.get()
+    if explicit_source is not None:
+        source = explicit_source
+        submission_id = submission.pk if submission is not None else None
+        accepted_at = (submission.submitted_at or submission.created_at) if submission is not None else None
+        questionnaire_name = submission.questionnaire.name if submission is not None else ""
+    return MembershipRecord.objects.create(
+        organization_id=record.organization_id,
+        user_id=record.user_id,
+        full_name=record.full_name,
+        email=record.email,
+        kind=MembershipRecord.Kind.STANDARD,
+        tier=tier,
+        tier_name=tier.name if tier else "",
+        valid_from=now,
+        source=source,
+        subscription_id=record.subscription_id,
+        questionnaire_submission_id=submission_id,
+        accepted_at=accepted_at,
+        questionnaire_name=questionnaire_name,
+    )
+
+
+def mirror_member(member: OrganizationMember) -> None:
     """Reflect an access-row save into the register.
 
     ACTIVE/PAUSED rows keep exactly one open record (re-opened on tier change); CANCELLED/BANNED
-    rows close it. The open record, not ``old_tier_id``, decides whether the tier changed.
+    rows close it. The open record decides whether the tier changed.
     """
     if _suppress_var.get():
         return
     Status = OrganizationMember.MembershipStatus
+    # Concurrent saves of one member serialize on the member row, and the (org, user) partial unique
+    # index backstops the open record, so the check-then-open below cannot race into two open records.
     with transaction.atomic():
         open_record = _open_standard_qs(member.organization_id, member.user_id).first()
         if member.status in (Status.ACTIVE, Status.PAUSED):
             if open_record is not None and open_record.tier_id != member.tier_id:
-                close_standard_record(
-                    member.organization_id, member.user_id, reason=MembershipRecord.EndedReason.TIER_CHANGED
+                now = max(timezone.now(), open_record.valid_from)
+                closed = close_standard_record(
+                    member.organization_id,
+                    member.user_id,
+                    reason=MembershipRecord.EndedReason.TIER_CHANGED,
+                    now=now,
                 )
-                open_standard_record(member)
+                if closed is not None:
+                    _reopen_from(closed, tier=member.tier, now=now)
+                else:
+                    open_standard_record(member)
             elif open_record is None:
                 open_standard_record(member)
         elif open_record is not None:
@@ -128,10 +183,16 @@ def mirror_member(member: OrganizationMember, *, old_tier_id: UUID | None) -> No
 
 
 def reopen_for_tier_deletion(tier: MembershipTier) -> int:
-    """Close-and-reopen every open STANDARD record at ``tier`` without a tier. Returns the count.
+    """Close-and-reopen every open STANDARD record at ``tier`` without a tier.
 
     Deleting a tier SET_NULLs ``OrganizationMember.tier`` with a bulk UPDATE (no signals), so
     the mirror never sees it. Call inside the same ``transaction.atomic()`` as ``tier.delete()``.
+
+    Args:
+        tier: The tier about to be deleted.
+
+    Returns:
+        The number of records re-opened.
     """
     count = 0
     with transaction.atomic():
@@ -140,22 +201,10 @@ def reopen_for_tier_deletion(tier: MembershipTier) -> int:
         )
         now = timezone.now()
         for record in records:
-            record.valid_until = now
+            end = max(now, record.valid_from)
+            record.valid_until = end
             record.ended_reason = MembershipRecord.EndedReason.TIER_CHANGED
             record.save(update_fields=["valid_until", "ended_reason", "updated_at"])
-            MembershipRecord.objects.create(
-                organization_id=record.organization_id,
-                user_id=record.user_id,
-                full_name=record.full_name,
-                email=record.email,
-                kind=MembershipRecord.Kind.STANDARD,
-                tier=None,
-                tier_name="",
-                valid_from=now,
-                source=record.source,
-                questionnaire_submission_id=record.questionnaire_submission_id,
-                accepted_at=record.accepted_at,
-                questionnaire_name=record.questionnaire_name,
-            )
+            _reopen_from(record, tier=None, now=end)
             count += 1
     return count

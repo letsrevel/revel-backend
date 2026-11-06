@@ -20,6 +20,7 @@ from events.models import (
     EventWaitList,
     GeneralUserPreferences,
     MembershipPayment,
+    MembershipRecord,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     Organization,
@@ -371,17 +372,17 @@ def rebuild_visibility_on_membership_change(
 
 @receiver(pre_save, sender=OrganizationMember)
 def capture_member_old_tier(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
-    """Stash the pre-save tier id and status so post_save can detect changes."""
+    """Stash the pre-save tier id so post_save can detect tier changes."""
     if instance.pk:
-        old = OrganizationMember.objects.filter(pk=instance.pk).values_list("tier_id", "status").first()
-        if old is not None:
-            instance._old_tier_id, instance._old_status = old  # type: ignore[attr-defined]
+        instance._old_tier_id = (  # type: ignore[attr-defined]
+            OrganizationMember.objects.filter(pk=instance.pk).values_list("tier_id", flat=True).first()
+        )
 
 
 @receiver(post_save, sender=OrganizationMember)
 def mirror_member_to_register(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
     """Mirror access-row transitions into the membership register (#1318)."""
-    member_register_service.mirror_member(instance, old_tier_id=getattr(instance, "_old_tier_id", None))
+    member_register_service.mirror_member(instance)
 
 
 @receiver(post_save, sender=OrganizationMember)
@@ -740,7 +741,8 @@ def sync_member_from_subscription(
         return
 
     update_fields.append("updated_at")
-    member.save(update_fields=update_fields)
+    with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
+        member.save(update_fields=update_fields)
 
     logger.info(
         "membership_subscription_synced_member",

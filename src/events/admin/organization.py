@@ -34,8 +34,10 @@ from events.admin.base import (
     frontend_url,
     view_on_revel_link,
 )
+from events.exceptions import MembershipTierInUseError
 from events.service import custom_domain_service, turnstile_hostname_service
 from events.service.organization_service import contact as contact_service
+from events.service.organization_service import membership as membership_service
 from events.service.tenant_service import invalidate_tenant_cache
 
 
@@ -565,6 +567,18 @@ class MembershipTierAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[mi
     @admin.display(description="Members", ordering="_member_count")
     def member_count(self, obj: models.MembershipTier) -> int:
         return t.cast(int, getattr(obj, "_member_count", 0))
+
+    # Deleting a tier SET_NULLs members with a signal-less bulk UPDATE, so the register must be
+    # re-pointed by the service; the stock admin delete would bypass it (#1318).
+    def delete_model(self, request: HttpRequest, obj: models.MembershipTier) -> None:
+        try:
+            membership_service.delete_membership_tier(obj)
+        except MembershipTierInUseError as exc:
+            self.message_user(request, str(exc), messages.ERROR)
+
+    def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.MembershipTier]) -> None:
+        for tier in queryset:
+            self.delete_model(request, tier)
 
 
 @admin.register(models.OrganizationStaff)

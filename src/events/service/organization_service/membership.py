@@ -337,6 +337,7 @@ def add_member(organization: Organization, user: RevelUser, tier: MembershipTier
     return member
 
 
+@transaction.atomic
 def remove_member(organization: Organization, user: RevelUser) -> None:
     """Remove a member from an organization.
 
