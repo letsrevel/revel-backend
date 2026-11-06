@@ -347,6 +347,10 @@ def remove_member(organization: Organization, user: RevelUser) -> None:
     member = get_object_or_404(OrganizationMember, organization=organization, user=user)
     from events.service.subscription import lifecycle as subscription_lifecycle  # lazy: avoid cycle
 
+    # Close first: the subscription cancel below would otherwise close the record as CANCELLED.
+    member_register_service.close_standard_record(
+        organization.pk, user.pk, reason=models.MembershipRecord.EndedReason.REMOVED
+    )
     subscription_lifecycle.cancel_subscriptions_for_membership_loss(user, organization)
     member.delete()
 
@@ -569,7 +573,11 @@ def delete_membership_tier(tier: MembershipTier) -> None:
             references the tier or one of its plans.
     """
     try:
-        tier.delete()
+        with transaction.atomic():
+            # SET_NULL on OrganizationMember.tier is a bulk UPDATE with no signals, so re-point
+            # the register ourselves; a ProtectedError below rolls this back.
+            member_register_service.reopen_for_tier_deletion(tier)
+            tier.delete()
     except ProtectedError as exc:
         if any(isinstance(obj, OrganizationMembershipRequest) for obj in exc.protected_objects):
             raise MembershipTierInUseError(str(TIER_HAS_APPLICATIONS_MESSAGE)) from exc

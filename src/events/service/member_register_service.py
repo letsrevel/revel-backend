@@ -13,7 +13,7 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
-from events.models import MembershipRecord, OrganizationMember
+from events.models import MembershipRecord, MembershipTier, OrganizationMember
 from questionnaires.models import QuestionnaireSubmission
 
 _source_var: contextvars.ContextVar[MembershipRecord.Source] = contextvars.ContextVar(
@@ -125,3 +125,37 @@ def mirror_member(member: OrganizationMember, *, old_tier_id: UUID | None) -> No
                 else MembershipRecord.EndedReason.EXPELLED
             )
             close_standard_record(member.organization_id, member.user_id, reason=reason)
+
+
+def reopen_for_tier_deletion(tier: MembershipTier) -> int:
+    """Close-and-reopen every open STANDARD record at ``tier`` without a tier. Returns the count.
+
+    Deleting a tier SET_NULLs ``OrganizationMember.tier`` with a bulk UPDATE (no signals), so
+    the mirror never sees it. Call inside the same ``transaction.atomic()`` as ``tier.delete()``.
+    """
+    count = 0
+    with transaction.atomic():
+        records = list(
+            MembershipRecord.objects.open().filter(tier=tier, kind=MembershipRecord.Kind.STANDARD).select_for_update()
+        )
+        now = timezone.now()
+        for record in records:
+            record.valid_until = now
+            record.ended_reason = MembershipRecord.EndedReason.TIER_CHANGED
+            record.save(update_fields=["valid_until", "ended_reason", "updated_at"])
+            MembershipRecord.objects.create(
+                organization_id=record.organization_id,
+                user_id=record.user_id,
+                full_name=record.full_name,
+                email=record.email,
+                kind=MembershipRecord.Kind.STANDARD,
+                tier=None,
+                tier_name="",
+                valid_from=now,
+                source=record.source,
+                questionnaire_submission_id=record.questionnaire_submission_id,
+                accepted_at=record.accepted_at,
+                questionnaire_name=record.questionnaire_name,
+            )
+            count += 1
+    return count
