@@ -15,16 +15,37 @@ on:
 permissions:
   id-token: write
   contents: read
+  packages: read  # pull the CI container image
 
 concurrency:
   group: test-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Container jobs default plain `run:` steps to `sh -e`; keep bash + pipefail.
+defaults:
+  run:
+    shell: bash
+
 jobs:
+  # Pre-built container with all system deps (gdal, gettext, WeasyPrint libs...)
+  # so no job runs apt-get. Rebuilt only when ci.Dockerfile changes.
+  ci-image:
+    name: CI image
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/ci-image.yaml
+
   checks:
     name: Lint, type & schema checks
     runs-on: ubuntu-24.04
-    # Normal runs are ~1–8 min. Without a cap a stalled apt mirror holds the
+    needs: ci-image
+    container:
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    # Normal runs are ~1–8 min. Without a cap a stalled step holds the
     # job (and the PR) for GitHub's 6 h default; fail fast and rerun instead.
     timeout-minutes: 15
     steps:
@@ -35,6 +56,9 @@ jobs:
 
       - name: Check uv.lock
         run: |
+          # Steps in a container job get a different HOME than checkout's git
+          # config, so the workspace looks like someone else's repo to git.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           if ! git diff --exit-code uv.lock > /dev/null; then
             echo "❌ uv.lock is out of sync with pyproject.toml. Run 'uv sync' and commit the updated lockfile."
             git diff uv.lock
@@ -78,7 +102,39 @@ jobs:
   test:
     name: Tests (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04
+    needs: ci-image
+    container:
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     timeout-minutes: 20  # normal: 5–8 min; see `checks`
+    env:
+      DB_HOST: postgres
+      REDIS_HOST: redis
+    services:
+      # Mirrors docker-compose-base.yml (values match .env.example). GitHub
+      # services can't take `command:`, so max_connections stays at the default
+      # 100; pytest -n auto on 4 vCPUs holds ~1 connection per worker.
+      postgres:
+        image: postgis/postgis:15-3.3
+        env:
+          POSTGRES_USER: revel
+          POSTGRES_PASSWORD: db-password
+          POSTGRES_DB: revel
+        options: >-
+          --tmpfs /var/lib/postgresql/data
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U revel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
     strategy:
       fail-fast: false
       matrix:
@@ -90,9 +146,6 @@ jobs:
         uses: ./.github/actions/setup-backend
         with:
           compile-translations: "true"
-
-      - name: Spin up docker
-        run: docker compose -f docker-compose-ci.yml up -d
 
       # pytest-split balances shards by runtime using the committed
       # `.test_durations` file; refreshed weekly by refresh-test-durations.yaml
@@ -124,14 +177,42 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-      - name: Teardown docker
-        if: always()
-        run: docker compose -f docker-compose-ci.yml down
-
   einvoice-conformance:
     name: EN 16931 conformance (Factur-X)
     runs-on: ubuntu-24.04
+    needs: ci-image
+    container:
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     timeout-minutes: 15
+    env:
+      DB_HOST: postgres
+      REDIS_HOST: redis
+    services:
+      # Mirrors docker-compose-base.yml (values match .env.example). GitHub
+      # services can't take `command:`, so max_connections stays at the default
+      # 100; pytest -n auto on 4 vCPUs holds ~1 connection per worker.
+      postgres:
+        image: postgis/postgis:15-3.3
+        env:
+          POSTGRES_USER: revel
+          POSTGRES_PASSWORD: db-password
+          POSTGRES_DB: revel
+        options: >-
+          --tmpfs /var/lib/postgresql/data
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U revel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v6
 
@@ -156,17 +237,10 @@ jobs:
       - name: Fetch euinvoice validation artifacts
         run: uv run python -m euinvoice artifacts fetch
 
-      - name: Spin up docker
-        run: docker compose -f docker-compose-ci.yml up -d
-
       - name: Validate generated Factur-X documents against the CEN rules
         env:
           EINVOICE_CONFORMANCE_REQUIRED: "1"  # a missing artifact fails the job instead of skipping
         run: uv run pytest -m einvoice_conformance src/events/tests/test_einvoice/test_conformance.py
-
-      - name: Teardown docker
-        if: always()
-        run: docker compose -f docker-compose-ci.yml down
 
   coverage:
     name: Combined coverage gate

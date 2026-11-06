@@ -1,0 +1,74 @@
+name: CI image
+
+# Reusable: ensures the pre-built CI container image for the current
+# ci.Dockerfile exists in GHCR (building it only if missing) and outputs its
+# reference. Content-addressed by the Dockerfile hash, so it rebuilds only when
+# ci.Dockerfile changes and a PR that edits it tests against its own image.
+# ponytail: no periodic security refresh of the base/apt layers; bump the date
+# comment in ci.Dockerfile to force one.
+
+on:
+  workflow_call:
+    outputs:
+      image:
+        description: Full image reference (registry/name:tag)
+        value: ${{ jobs.ci-image.outputs.image }}
+
+jobs:
+  ci-image:
+    name: CI image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.ref.outputs.image }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Compute image reference
+        id: ref
+        env:
+          HASH: ${{ hashFiles('ci.Dockerfile') }}
+        run: echo "image=ghcr.io/letsrevel/revel-backend-ci:${HASH:0:16}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check whether the image already exists
+        id: exists
+        run: |
+          if docker manifest inspect "${{ steps.ref.outputs.image }}" > /dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Fork PRs get a read-only GITHUB_TOKEN and cannot push. A fork that
+      # edits ci.Dockerfile fails here (and, as a required check, blocks merge)
+      # until a maintainer pushes the branch to this repo, publishing the image.
+      - name: Refuse to build from a fork
+        if: steps.exists.outputs.found != 'true' && github.event.pull_request.head.repo.full_name != github.repository && github.event_name == 'pull_request'
+        run: |
+          echo "::error::ci.Dockerfile changed in a fork PR; a maintainer must push this branch to ${{ github.repository }} to publish the CI image."
+          exit 1
+
+      - name: Set up Buildx
+        if: steps.exists.outputs.found != 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        if: steps.exists.outputs.found != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ci.Dockerfile
+          push: true
+          tags: ${{ steps.ref.outputs.image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -412,3 +412,12 @@ omit = [
     "src/*/management/**",
     "src/*/migrations/**",
 ]
+
+[tool.coverage.paths]
+# Shards run in the CI container (workspace /__w/...), the combining job runs on
+# the host runner; remap so `coverage combine` finds the sources.
+source = [
+    "src/",
+    "/__w/revel-backend/revel-backend/src/",
+    "*/revel-backend/src/",
+]

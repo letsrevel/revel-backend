@@ -22,6 +22,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 # Serialize runs: a manual dispatch overlapping the weekly cron would race on
 # the shared branch push and PR creation. Let the newest run win.
@@ -29,11 +30,55 @@ concurrency:
   group: refresh-test-durations
   cancel-in-progress: true
 
+# Container jobs default plain `run:` steps to `sh -e`; keep bash + pipefail.
+defaults:
+  run:
+    shell: bash
+
 jobs:
+  ci-image:
+    name: CI image
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/ci-image.yaml
+
   refresh:
     name: Regenerate .test_durations
     runs-on: ubuntu-24.04
+    needs: ci-image
+    container:
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     timeout-minutes: 30
+    env:
+      DB_HOST: postgres
+      REDIS_HOST: redis
+    services:
+      # Mirrors docker-compose-base.yml (values match .env.example). GitHub
+      # services can't take `command:`, so max_connections stays at the default
+      # 100; pytest -n auto on 4 vCPUs holds ~1 connection per worker.
+      postgres:
+        image: postgis/postgis:15-3.3
+        env:
+          POSTGRES_USER: revel
+          POSTGRES_PASSWORD: db-password
+          POSTGRES_DB: revel
+        options: >-
+          --tmpfs /var/lib/postgresql/data
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U revel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
     steps:
       - name: Mint GitHub App token
         id: app-token
@@ -55,9 +100,6 @@ jobs:
         with:
           compile-translations: "true"
 
-      - name: Spin up docker
-        run: docker compose -f docker-compose-ci.yml up -d
-
       # No coverage instrumentation: it slows the run and its overhead is
       # roughly uniform, so relative durations (all pytest-split cares about)
       # come out the same. --clean-durations drops entries for deleted tests.
@@ -68,10 +110,6 @@ jobs:
             --store-durations \
             --clean-durations \
             src
-
-      - name: Teardown docker
-        if: always()
-        run: docker compose -f docker-compose-ci.yml down
 
       # Idempotent: force-pushes the same branch each week and only opens a PR
       # if none is already open for it. Skips entirely when the durations file
