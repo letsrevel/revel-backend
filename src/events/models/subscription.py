@@ -21,7 +21,8 @@ from simple_history.models import HistoricalRecords
 from common.fields import MarkdownField
 from common.models import TimeStampedModel
 
-from .organization import MembershipTier, Organization
+from .membership import MembershipTier
+from .organization import Organization
 
 # Single source of truth for the subscription statuses that are terminal
 # (no further transitions possible). Lives at module scope so it can be

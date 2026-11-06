@@ -19,17 +19,19 @@ from .invitation import (
     PendingEventInvitation,
 )
 from .invoice import PlatformFeeCreditNote, PlatformFeeInvoice
-from .nudge import OrganizationNudge
+from .membership import (
+    MembershipRequestStatus,
+    MembershipTier,
+    OrganizationMember,
+    OrganizationMembershipRequest,
+)
 from .misc import AdditionalResource
 from .mixins import ResourceVisibility
+from .nudge import OrganizationNudge
 from .organization import (
     ALLOWED_MEMBERSHIP_REQUEST_METHODS,
-    MembershipTier,
     Organization,
     OrganizationContactMessage,
-    OrganizationMember,
-    MembershipRequestStatus,
-    OrganizationMembershipRequest,
     OrganizationStaff,
     OrganizationToken,
     OrgTractionRow,

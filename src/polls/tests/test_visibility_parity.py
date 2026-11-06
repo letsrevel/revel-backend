@@ -27,11 +27,10 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from events.models.event import Event
 from events.models.invitation import EventInvitation
+from events.models.membership import MembershipTier, OrganizationMember
 from events.models.mixins import ResourceVisibility
 from events.models.organization import (
-    MembershipTier,
     Organization,
-    OrganizationMember,
     OrganizationStaff,
     PermissionMap,
     PermissionsSchema,

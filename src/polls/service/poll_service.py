@@ -16,8 +16,9 @@ from django.utils.translation import gettext_lazy as _
 
 from common.exception_handlers import format_validation_error
 from events.models.event import Event
+from events.models.membership import MembershipTier
 from events.models.mixins import ResourceVisibility
-from events.models.organization import MembershipTier, Organization
+from events.models.organization import Organization
 from polls.exceptions import (
     PollAnonymityImmutableError,
     PollLifecycleError,

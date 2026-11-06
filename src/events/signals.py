@@ -30,7 +30,7 @@ from events.models import (
     Ticket,
     TicketTier,
 )
-from events.models.organization import MembershipTier
+from events.models.membership import MembershipTier
 from events.service import permission_snapshot, ticket_number_service, turnstile_hostname_service
 from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
 from events.service.follow_service import get_followers_for_new_event_notification

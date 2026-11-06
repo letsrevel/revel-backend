@@ -24,7 +24,7 @@ from polls.models import Poll
 from polls.types import UserLike
 
 if t.TYPE_CHECKING:
-    from events.models.organization import MembershipTier
+    from events.models.membership import MembershipTier
 
 
 def is_staff_or_owner(user: UserLike, poll: Poll) -> bool:
