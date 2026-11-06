@@ -22,18 +22,24 @@ def forward(apps: t.Any, schema_editor: t.Any) -> None:
     CANCELLED rows are closed at ``updated_at`` (reason cancelled) and BANNED rows likewise
     (reason expelled). Pairs that already have a record are skipped, so the migration is rerunnable.
 
-    BANNED rows that merely hold a ban on a stranger are skipped: a ``Blacklist`` entry for the
-    same (organization, user) created within a minute of the member row, or before it, means the
-    row was made by the ban (or linked at registration), not by joining.
+    BANNED rows that merely hold a ban on a stranger are skipped. A row counts as a stranger's only
+    when ALL hold: a ``Blacklist`` entry for the same (organization, user) was created within a minute
+    of the member row, or before it; the row has no tier; the user has no approved/completed
+    ``OrganizationMembershipRequest`` in the organization; and no ``MembershipSubscription`` there.
+    Any one of those signals shows a real member, who keeps a closed (expelled) record.
     """
     # ponytail: members written by old code during the deploy window are not covered here; the
     # level-triggered mirror heals them on their next save with source STAFF and valid_from=now.
     # Re-running forward() once after deploy is safe (idempotent) but does not fix healed rows.
-    # ponytail: a stranger who was banned and later unbanned (row now CANCELLED, entry deleted) is
-    # indistinguishable from a former member and still gets a closed record; upgrade path is manual cleanup.
+    # ponytail: the stranger heuristic stays ambiguous for a tier-less member who never applied and
+    # never subscribed but was banned within the window (dropped), and for a stranger banned then
+    # unbanned (row now CANCELLED, entry deleted: still gets a closed record). The error mode is
+    # omitting a closed period, never inventing one; upgrade path is manual correction.
     OrganizationMember = apps.get_model("events", "OrganizationMember")
     MembershipRecord = apps.get_model("events", "MembershipRecord")
     Blacklist = apps.get_model("events", "Blacklist")
+    MembershipRequest = apps.get_model("events", "OrganizationMembershipRequest")
+    MembershipSubscription = apps.get_model("events", "MembershipSubscription")
 
     existing = set(MembershipRecord.objects.filter(user__isnull=False).values_list("organization_id", "user_id"))
     ban_entries: dict[tuple[t.Any, t.Any], list[t.Any]] = {}
@@ -41,6 +47,10 @@ def forward(apps: t.Any, schema_editor: t.Any) -> None:
         "organization_id", "user_id", "created_at"
     ):
         ban_entries.setdefault((org_id, user_id), []).append(created_at)
+    applied = set(
+        MembershipRequest.objects.filter(status__in=("approved", "completed")).values_list("organization_id", "user_id")
+    )
+    subscribed = set(MembershipSubscription.objects.values_list("organization_id", "user_id"))
     closed_reasons = {"cancelled": "cancelled", "banned": "expelled"}
 
     batch: list[t.Any] = []
@@ -48,9 +58,13 @@ def forward(apps: t.Any, schema_editor: t.Any) -> None:
     for member in OrganizationMember.objects.select_related("user", "tier"):
         if (member.organization_id, member.user_id) in existing:
             continue
-        if member.status == "banned" and any(
-            entry_at <= member.created_at + STRANGER_BAN_WINDOW
-            for entry_at in ban_entries.get((member.organization_id, member.user_id), [])
+        pair = (member.organization_id, member.user_id)
+        if (
+            member.status == "banned"
+            and member.tier_id is None
+            and pair not in applied
+            and pair not in subscribed
+            and any(entry_at <= member.created_at + STRANGER_BAN_WINDOW for entry_at in ban_entries.get(pair, []))
         ):
             continue
         user = member.user
