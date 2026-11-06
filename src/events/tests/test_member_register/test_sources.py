@@ -145,12 +145,21 @@ def test_ensure_active_member_reactivates_cancelled_with_subscription_source(
     member = OrganizationMember.objects.create(
         organization=organization, user=nonmember_user, tier=tier, status=OrganizationMember.MembershipStatus.CANCELLED
     )
+    # PENDING is ignored by sync_member_from_subscription, so the member stays CANCELLED on create.
     subscription = MembershipSubscription.objects.create(
         user=nonmember_user,
         plan=_plan(tier, SubscriptionPaymentMethod.ONLINE),
         organization=organization,
-        status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        status=MembershipSubscription.SubscriptionStatus.PENDING,
     )
+    # Flip to ACTIVE without signals so _ensure_active_member still sees the CANCELLED row.
+    MembershipSubscription.objects.filter(pk=subscription.pk).update(
+        status=MembershipSubscription.SubscriptionStatus.ACTIVE
+    )
+    subscription.refresh_from_db()
+    member.refresh_from_db()
+    assert member.status == OrganizationMember.MembershipStatus.CANCELLED
+
     assert _ensure_active_member(subscription) == "existing"
     member.refresh_from_db()
     assert member.status == OrganizationMember.MembershipStatus.ACTIVE
