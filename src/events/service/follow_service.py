@@ -10,8 +10,9 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
-from events.models import EventSeries, Organization, OrganizationMember
+from events.models import EventSeries, Organization
 from events.models.follow import EventSeriesFollow, OrganizationFollow
+from events.utils.membership_access import banned_memberships, visible_memberships
 from notifications.enums import NotificationType
 from notifications.models import NotificationPreference
 from notifications.service import announcement_mute
@@ -418,10 +419,8 @@ def get_followers_for_new_event_notification(
     # 1. ACTIVE/PAUSED/BANNED members (ACTIVE/PAUSED get EVENT_OPEN, BANNED get nothing)
     #    CANCELLED members are NOT excluded — they left voluntarily but may still follow.
     excluded_user_ids: set[UUID] = set(
-        OrganizationMember.objects.filter(
-            organization=organization,
-        )
-        .exclude(status=OrganizationMember.MembershipStatus.CANCELLED)
+        (visible_memberships() | banned_memberships())
+        .filter(organization=organization)
         .values_list("user_id", flat=True)
     )
 

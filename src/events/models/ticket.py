@@ -14,11 +14,12 @@ from django.utils.translation import gettext_lazy as _
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
 from events.utils import apple_wallet_configured, get_event_timezone, google_wallet_configured
+from events.utils.membership_access import visible_memberships
 from events.utils.tier_pricing import validate_category_prices
 from events.utils.visibility import get_invited_event_ids, get_valid_member_org_ids, owner_or_staff_q
 
 from .mixins import VisibilityMixin
-from .organization import MembershipTier, OrganizationMember
+from .organization import MembershipTier
 from .ticket_number import PreserveTicketNumberMixin
 from .ticket_queryset import TicketManager
 from .venue import Venue, VenueSeat, VenueSector
@@ -217,9 +218,7 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         is_public_tier = Q(visibility__in=TicketTier.Visibility.publicly_accessible())
 
         # Member-only tiers: check if user is valid member of this org
-        is_member = (
-            OrganizationMember.objects.for_visibility().filter(user=user, organization=event.organization).exists()
-        )
+        is_member = visible_memberships().filter(user=user, organization=event.organization).exists()
         is_member_tier = Q(visibility=TicketTier.Visibility.MEMBERS_ONLY) if is_member else Q(pk__isnull=True)
 
         # Private tiers: check invitation and tier-link restriction

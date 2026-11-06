@@ -28,7 +28,6 @@ from events.models import (
     EventSeries,
     HeldSeriesPass,
     Organization,
-    OrganizationMember,
     OrganizationQuestionnaire,
     Payment,
     Refund,
@@ -43,6 +42,7 @@ from events.schema.series_pass import SeriesPassCreateSchema
 from events.service import refund_service, ticket_number_service
 from events.service.vat_service import distribute_amount_across_items
 from events.tasks import build_attendee_visibility_flags, materialize_series_pass_holders
+from events.utils.membership_access import visible_memberships
 from notifications.signals.series_pass import send_series_pass_cancelled, send_series_pass_purchased
 
 logger = structlog.get_logger(__name__)
@@ -124,7 +124,7 @@ def pass_visible_to_user(series_pass: SeriesPass, user: RevelUser | AnonymousUse
     if series_pass.visibility in SeriesPass.Visibility.publicly_accessible():
         return True
     if series_pass.visibility == SeriesPass.Visibility.MEMBERS_ONLY and not user.is_anonymous:
-        return OrganizationMember.objects.for_visibility().filter(user=user, organization=org).exists()
+        return visible_memberships().filter(user=user, organization=org).exists()
     return False
 
 
@@ -149,7 +149,7 @@ def visible_passes(
     is_member = (
         not is_privileged
         and not user.is_anonymous
-        and (OrganizationMember.objects.for_visibility().filter(user=user, organization=org).exists())
+        and (visible_memberships().filter(user=user, organization=org).exists())
     )
 
     def _visible(series_pass: SeriesPass) -> bool:

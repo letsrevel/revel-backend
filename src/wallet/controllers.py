@@ -19,6 +19,7 @@ from events.models import OrganizationMember, Ticket
 from events.service import ticket_file_service
 from events.service.ticket_file_service import get_apple_pass_generator
 from events.utils import create_membership_pdf
+from events.utils.membership_access import visible_memberships
 from wallet.google import service as google_wallet_service
 from wallet.schema import GoogleWalletSaveUrlSchema, WalletPassErrorSchema
 
@@ -183,7 +184,7 @@ class MembershipWalletController(UserAwareController):
         return t.cast(
             OrganizationMember,
             self.get_object_or_exception(
-                OrganizationMember.objects.for_visibility().select_related("organization", "tier", "user"),
+                visible_memberships().select_related("organization", "tier", "user"),
                 organization__slug=slug,
                 user=self.user(),
             ),
@@ -275,7 +276,7 @@ class MembershipWalletSignedController(UserAwareController):
             raise HttpError(403, str(_("Invalid link")))
 
         member = self.get_object_or_exception(
-            OrganizationMember.objects.for_visibility().select_related("organization", "tier", "user"),
+            visible_memberships().select_related("organization", "tier", "user"),
             id=member_id,
         )
         if not member.apple_pass_available:

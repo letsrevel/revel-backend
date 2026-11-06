@@ -27,13 +27,13 @@ def _add_membership_wallet_context(base_context: dict[str, t.Any], notification:
     link could not be built. CANCELLED/BANNED members get no links (mirrors
     ``MembershipWalletController.get_member()``).
     """
-    from events.models import OrganizationMember
     from events.utils import apple_wallet_configured, google_wallet_configured
+    from events.utils.membership_access import visible_memberships
 
     member_id = notification.context.get("member_id") or None
     organization_id = notification.context.get("organization_id")
     member = None
-    qs = OrganizationMember.objects.for_visibility().select_related("organization", "tier", "user")
+    qs = visible_memberships().select_related("organization", "tier", "user")
     if member_id:
         member = qs.filter(id=member_id).first()
     elif organization_id:

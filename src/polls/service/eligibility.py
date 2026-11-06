@@ -56,9 +56,9 @@ def _passes_members_only(
 
     Empty tiers queryset means no tier restriction; any active member passes.
     """
-    from events.models.organization import OrganizationMember
+    from events.utils.membership_access import visible_memberships
 
-    member = OrganizationMember.objects.for_visibility().filter(user=user, organization=poll.organization).first()
+    member = visible_memberships().filter(user=user, organization=poll.organization).first()
     if member is None:
         return False
     if membership_tiers is None or not membership_tiers.exists():
