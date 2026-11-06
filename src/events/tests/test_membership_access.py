@@ -64,6 +64,7 @@ def orgs_by_status(user: RevelUser, organization_owner_user: RevelUser) -> dict[
 def test_org_id_builders_by_status(user: RevelUser, orgs_by_status: dict[str, Organization]) -> None:
     ids = {k: o.id for k, o in orgs_by_status.items()}
     assert set(visible_member_org_ids(user)) == {ids["active"], ids["paused"]}
+    assert set(visible_member_org_ids(user.id)) == set(visible_member_org_ids(user))
     assert set(eligible_member_org_ids(user)) == {ids["active"]}
     assert set(banned_org_ids(user)) == {ids["banned"]}
 

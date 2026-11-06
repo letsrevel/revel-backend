@@ -61,8 +61,8 @@ def banned_memberships() -> "OrganizationMemberQuerySet":
     return OrganizationMember.objects.get_queryset().filter(status=BANNED_STATUS)
 
 
-def visible_member_org_ids(user: "RevelUser") -> "QuerySet[OrganizationMember, UUID]":
-    """Organizations where the user may see member content."""
+def visible_member_org_ids(user: "RevelUser | UUID") -> "QuerySet[OrganizationMember, UUID]":
+    """Organizations where the user (instance or raw user id) may see member content."""
     return visible_memberships().filter(user=user).values_list("organization_id", flat=True)
 
 
