@@ -11,6 +11,9 @@ etc. are ignored, as are plain string literals such as GDPR export keys):
   ``status`` / ``status__in`` keyword;
 * (c) a ``MembershipStatus.<X>`` attribute used as an argument (positional or keyword value, also
   nested in lists/tuples) of a ``filter``/``exclude``/``Q`` call.
+
+Scope limit: Python-side comparisons (``status == MembershipStatus.ACTIVE``) are not detected; use the
+``is_*_status`` helpers there.
 """
 
 import ast
@@ -20,24 +23,15 @@ from pathlib import Path
 _SRC = Path(__file__).resolve().parents[2]
 
 _FILTER_CALLS = {"filter", "exclude"}
-_A_KEYWORD = re.compile(r"^((organization_)?memberships__status(__in)?|(organization__)?members__id)$")
+_A_KEYWORD = re.compile(r"(^|__)((organization_)?memberships__status(__in)?|members__id)$")
 _B_KEYWORDS = {"status", "status__in"}
 
 # Paths relative to src/ (prefix match). Each entry carries its reason.
 ALLOWLIST: tuple[str, ...] = (
     "events/utils/membership_access.py",  # the predicates themselves
-    "events/models/organization.py",  # model layer cannot import services/predicates; owns the field
-    "events/utils/visibility.py",  # visibility helpers built on the membership status semantics
-    "events/signals.py",  # signal handlers react to raw status transitions
-    "events/service/subscription/",  # subscription lifecycle drives status transitions (not access reads)
     "events/service/organization_service/membership.py",  # membership CRUD: manages status directly
-    "events/service/membership_manager/",  # membership state machine owns status semantics
     "events/service/permission_snapshot.py",  # snapshot builder needs raw per-status rows
-    "events/controllers/me_subscriptions.py",  # user's own subscription listing, any status
     "events/service/blacklist_service.py",  # blacklist matching works on raw membership rows
-    "events/admin/",  # admin lists and filters raw data
-    "accounts/admin/",  # admin lists and filters raw data
-    "events/management/",  # management commands operate on raw data
 )
 
 
@@ -54,8 +48,10 @@ def _contains_member_objects(node: ast.AST) -> bool:
     return any(
         isinstance(n, ast.Attribute)
         and n.attr == "objects"
-        and isinstance(n.value, ast.Name)
-        and n.value.id == "OrganizationMember"
+        and (
+            (isinstance(n.value, ast.Name) and n.value.id == "OrganizationMember")
+            or (isinstance(n.value, ast.Attribute) and n.value.attr == "OrganizationMember")
+        )
         for n in ast.walk(node)
     )
 
@@ -79,7 +75,7 @@ def find_violations(source: str, path: str) -> list[str]:
         is_filter = name in _FILTER_CALLS
         if not (is_filter or name == "Q"):
             continue
-        flagged = any(kw.arg and _A_KEYWORD.match(kw.arg) for kw in node.keywords)
+        flagged = any(kw.arg and _A_KEYWORD.search(kw.arg) for kw in node.keywords)
         if is_filter and isinstance(node.func, ast.Attribute) and _contains_member_objects(node.func.value):
             flagged = flagged or any(kw.arg in _B_KEYWORDS for kw in node.keywords)
         if not flagged:
@@ -96,8 +92,13 @@ def test_guard_detects_violation() -> None:
         "Event.objects.filter(organization_memberships__status='active')",  # (a)
         "OrganizationMember.objects.filter(user=u, status__in=statuses)",  # (b)
         "Q(user=u) & Q(role=OrganizationMember.MembershipStatus.ACTIVE)",  # (c)
+        "Event.objects.filter(organization__memberships__status__in=s)",  # (a) join from Event
+        "Ticket.objects.filter(user__organization_memberships__status=s)",  # (a) join from Ticket
+        "Event.objects.filter(organization__members__id=1)",  # (a) members__id
+        "models.OrganizationMember.objects.filter(status=s)",  # (b) attribute-qualified model
     ]
-    assert [len(find_violations(s, "x.py")) for s in snippets] == [1, 1, 1]
+    assert [len(find_violations(s, "x.py")) for s in snippets] == [1] * len(snippets)
+    assert find_violations("Organization.objects.filter(staff_members__id=1)", "x.py") == []
 
 
 def test_guard_ignores_gdpr_string_keys() -> None:
