@@ -18,6 +18,7 @@ from events.utils.membership_access import (
     is_eligible_member,
     is_eligible_status,
     is_visible_status,
+    non_cancelled_memberships,
     visible_member_org_ids,
     visible_member_user_ids,
 )
@@ -98,11 +99,28 @@ def test_get_eligible_membership_returns_active_with_tier(
     user: RevelUser, orgs_by_status: dict[str, Organization], django_assert_num_queries: t.Any
 ) -> None:
     active = orgs_by_status["active"]
-    with django_assert_num_queries(1):
+    tier = MembershipTier.objects.get(organization=active, name="General membership")
+    OrganizationMember.objects.filter(organization=active, user=user).update(tier=tier)
+    with django_assert_num_queries(1):  # fetch + tier access: select_related, no extra query
         membership = get_eligible_membership(user, active.id)
         assert membership is not None
-        _ = membership.tier  # select_related: no extra query
+        assert membership.tier is not None
+        assert membership.tier.name == "General membership"
     assert is_eligible_member(user, active.id)
     for status in ("paused", "cancelled", "banned"):
         assert get_eligible_membership(user, orgs_by_status[status].id) is None
         assert not is_eligible_member(user, orgs_by_status[status].id)
+
+
+def test_non_cancelled_memberships_by_status(user: RevelUser, orgs_by_status: dict[str, Organization]) -> None:
+    ids = set(non_cancelled_memberships().filter(user=user).values_list("organization_id", flat=True))
+    assert ids == {orgs_by_status[s].id for s in ("active", "paused", "banned")}
+
+
+def test_user_predicates_accept_user_id(user: RevelUser, orgs_by_status: dict[str, Organization]) -> None:
+    assert set(eligible_member_org_ids(user.id)) == {orgs_by_status["active"].id}
+    assert set(banned_org_ids(user.id)) == {orgs_by_status["banned"].id}
+    assert is_eligible_member(user.id, orgs_by_status["active"].id)
+    assert not is_eligible_member(user.id, orgs_by_status["paused"].id)
+    membership = get_eligible_membership(user.id, orgs_by_status["active"].id)
+    assert membership is not None and membership.user_id == user.id

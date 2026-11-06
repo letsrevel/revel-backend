@@ -27,6 +27,7 @@ _SRC = Path(__file__).resolve().parents[2]
 
 _FILTER_CALLS = {"filter", "exclude"}
 _A_KEYWORD = re.compile(r"(^|__)((organization_)?memberships__status(__in)?|members__id)$")
+_A_M2M_KEYWORD = re.compile(r"(^|__)members(__(id|pk|in))?$")
 _B_KEYWORDS = {"status", "status__in"}
 
 # Paths relative to src/ (prefix match). Each entry carries its reason.
@@ -78,7 +79,7 @@ def find_violations(source: str, path: str) -> list[str]:
         is_filter = name in _FILTER_CALLS
         if not (is_filter or name == "Q"):
             continue
-        flagged = any(kw.arg and _A_KEYWORD.search(kw.arg) for kw in node.keywords)
+        flagged = any(kw.arg and (_A_KEYWORD.search(kw.arg) or _A_M2M_KEYWORD.search(kw.arg)) for kw in node.keywords)
         if is_filter and isinstance(node.func, ast.Attribute) and _contains_member_objects(node.func.value):
             flagged = flagged or any(kw.arg in _B_KEYWORDS for kw in node.keywords)
         if not flagged:
@@ -99,6 +100,10 @@ def test_guard_detects_violation() -> None:
         "Ticket.objects.filter(user__organization_memberships__status=s)",  # (a) join from Ticket
         "Event.objects.filter(organization__members__id=1)",  # (a) members__id
         "models.OrganizationMember.objects.filter(status=s)",  # (b) attribute-qualified model
+        "Organization.objects.filter(members=x)",  # (a) bare M2M
+        "Event.objects.filter(organization__members=x)",  # (a) bare M2M join
+        "Organization.objects.filter(members__in=x)",  # (a) bare M2M __in
+        "Organization.objects.filter(members__pk=x)",  # (a) bare M2M __pk
     ]
     assert [len(find_violations(s, "x.py")) for s in snippets] == [1] * len(snippets)
     assert find_violations("Organization.objects.filter(staff_members__id=1)", "x.py") == []

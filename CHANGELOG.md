@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Series pass purchase enforces admission questionnaires** (#1321): buying a series pass now requires completing the series' admission questionnaires. This affects series where an admission questionnaire was attached after the pass was created (the coverage gate already blocked the rest). Buyers answer once for the whole pass, regardless of `per_event`, and an event invitation does not waive it. Members exempt from a questionnaire stay exempt.
-- **Paused members see members-only tiers consistently**: the eligible-tiers listing now shows members-only ticket tiers to paused members, consistently; they still cannot buy member tiers
+- **Paused members see members-only tiers consistently**: the eligible-tiers listing now shows members-only-visible ticket tiers to paused members, matching checkout. A paused member can buy such a tier only if it is purchasable by non-members (e.g. public); they still cannot buy member-only or membership-tier-restricted tiers
 - **Dashboard "member" filters skip inactive memberships**: the organization, event and series filters no longer list organizations, events or series where the membership is cancelled or banned
 - **Series-pass tickets now update attendee counts right away**: free series-pass purchases, tickets granted when an online pass activates, and tickets added to existing holders when an event joins the series now refresh the event's attendee count, "full" status and attendee visibility immediately, instead of waiting for an unrelated ticket or RSVP change
 

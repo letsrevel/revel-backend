@@ -362,7 +362,7 @@ def _get_all_members_recipients(organization: Organization) -> QuerySet[RevelUse
     Returns:
         QuerySet of active member users.
     """
-    return RevelUser.objects.filter(id__in=eligible_member_user_ids(organization.id)).distinct()
+    return RevelUser.objects.filter(id__in=eligible_member_user_ids(organization.id))
 
 
 def _get_tier_recipients(
@@ -378,7 +378,7 @@ def _get_tier_recipients(
     Returns:
         QuerySet of members in the specified tiers.
     """
-    return RevelUser.objects.filter(id__in=eligible_member_user_ids(organization.id, tier_ids)).distinct()
+    return RevelUser.objects.filter(id__in=eligible_member_user_ids(organization.id, tier_ids))
 
 
 def _get_staff_recipients(organization: Organization) -> QuerySet[RevelUser]:

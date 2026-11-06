@@ -28,6 +28,7 @@ if t.TYPE_CHECKING:
 VISIBLE_STATUSES: frozenset[str] = frozenset({"active", "paused"})
 ELIGIBLE_STATUSES: frozenset[str] = frozenset({"active"})
 BANNED_STATUS: str = "banned"
+CANCELLED_STATUS: str = "cancelled"
 
 
 def is_visible_status(status: str | None) -> bool:
@@ -44,21 +45,28 @@ def visible_memberships() -> "OrganizationMemberQuerySet":
     """Memberships that may see member content (ACTIVE, PAUSED)."""
     from events.models import OrganizationMember
 
-    return OrganizationMember.objects.get_queryset().filter(status__in=VISIBLE_STATUSES)
+    return OrganizationMember.objects.for_visibility()
 
 
 def eligible_memberships() -> "OrganizationMemberQuerySet":
     """Memberships that may act as a member (ACTIVE)."""
     from events.models import OrganizationMember
 
-    return OrganizationMember.objects.get_queryset().filter(status__in=ELIGIBLE_STATUSES)
+    return OrganizationMember.objects.active_only()
 
 
 def banned_memberships() -> "OrganizationMemberQuerySet":
     """BANNED memberships."""
     from events.models import OrganizationMember
 
-    return OrganizationMember.objects.get_queryset().filter(status=BANNED_STATUS)
+    return OrganizationMember.objects.banned_only()
+
+
+def non_cancelled_memberships() -> "OrganizationMemberQuerySet":
+    """Memberships in any status except CANCELLED (ACTIVE, PAUSED, BANNED)."""
+    from events.models import OrganizationMember
+
+    return OrganizationMember.objects.get_queryset().non_cancelled()
 
 
 def visible_member_org_ids(user: "RevelUser | UUID") -> "QuerySet[OrganizationMember, UUID]":
@@ -66,12 +74,12 @@ def visible_member_org_ids(user: "RevelUser | UUID") -> "QuerySet[OrganizationMe
     return visible_memberships().filter(user=user).values_list("organization_id", flat=True)
 
 
-def eligible_member_org_ids(user: "RevelUser") -> "QuerySet[OrganizationMember, UUID]":
+def eligible_member_org_ids(user: "RevelUser | UUID") -> "QuerySet[OrganizationMember, UUID]":
     """Organizations where the user may act as a member."""
     return eligible_memberships().filter(user=user).values_list("organization_id", flat=True)
 
 
-def banned_org_ids(user: "RevelUser") -> "QuerySet[OrganizationMember, UUID]":
+def banned_org_ids(user: "RevelUser | UUID") -> "QuerySet[OrganizationMember, UUID]":
     """Organizations the user is banned from."""
     return banned_memberships().filter(user=user).values_list("organization_id", flat=True)
 
@@ -91,11 +99,11 @@ def eligible_member_user_ids(
     return qs.values_list("user_id", flat=True)
 
 
-def is_eligible_member(user: "RevelUser", organization_id: "UUID") -> bool:
+def is_eligible_member(user: "RevelUser | UUID", organization_id: "UUID") -> bool:
     """Whether the user may act as a member of the organization."""
     return eligible_memberships().filter(user=user, organization_id=organization_id).exists()
 
 
-def get_eligible_membership(user: "RevelUser", organization_id: "UUID") -> "OrganizationMember | None":
+def get_eligible_membership(user: "RevelUser | UUID", organization_id: "UUID") -> "OrganizationMember | None":
     """The user's eligible membership in the organization (with ``tier``), if any."""
     return eligible_memberships().select_related("tier").filter(user=user, organization_id=organization_id).first()

@@ -224,3 +224,21 @@ def test_non_active_member_tier_access(
 
     assert (visible_tier in eligible) is sees_visible_tier
     assert member_purchase_tier not in eligible
+
+
+def test_paused_member_sees_and_buys_members_visible_public_tier(
+    member_user: RevelUser, public_event: Event, organization: t.Any
+) -> None:
+    """PAUSED + MEMBERS_ONLY visibility + PUBLIC purchasable_by is listed (matches CanPurchaseTicket)."""
+    OrganizationMember.objects.create(
+        organization=organization, user=member_user, status=OrganizationMember.MembershipStatus.PAUSED
+    )
+    tier = TicketTier.objects.create(
+        event=public_event,
+        name="Members-visible public",
+        payment_method=TicketTier.PaymentMethod.FREE,
+        visibility=TicketTier.Visibility.MEMBERS_ONLY,
+        purchasable_by=TicketTier.PurchasableBy.PUBLIC,
+    )
+
+    assert tier in get_eligible_tiers(public_event, member_user)

@@ -17,6 +17,7 @@ from pydantic import ValidationError as PydanticValidationError
 from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import BillingPostalAddressMixin, StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
+from events.utils import membership_access
 from events.utils.branding import OrganizationBranding
 from events.utils.membership_access import BANNED_STATUS, ELIGIBLE_STATUSES, VISIBLE_STATUSES, is_visible_status
 from events.utils.small_business import SmallBusinessScheme
@@ -735,6 +736,10 @@ class OrganizationMemberQuerySet(models.QuerySet["OrganizationMember"]):
     def banned_only(self) -> t.Self:
         """Return only BANNED memberships."""
         return self.filter(status=BANNED_STATUS)
+
+    def non_cancelled(self) -> t.Self:
+        """Return memberships in any status except CANCELLED."""
+        return self.exclude(status=membership_access.CANCELLED_STATUS)
 
 
 class OrganizationMemberManager(models.Manager["OrganizationMember"]):
