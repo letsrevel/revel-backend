@@ -99,7 +99,9 @@ class EligibilityService:
                 ),
                 Prefetch(
                     "organization__memberships",
-                    queryset=OrganizationMember.objects.only("id", "user_id", "organization_id", "status"),
+                    queryset=OrganizationMember.objects.filter(user=user).only(
+                        "id", "user_id", "organization_id", "status"
+                    ),
                     to_attr="all_memberships_prefetched",
                 ),
                 Prefetch(
