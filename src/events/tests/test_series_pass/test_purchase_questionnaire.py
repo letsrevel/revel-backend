@@ -232,20 +232,19 @@ def test_per_event_ignored_in_series_scope(
     assert HeldSeriesPass.objects.filter(user=revel_user).exists()
 
 
-def test_per_event_global_submission_passes(
+def test_per_event_global_submission_without_event_link_blocks(
     free_pass: SeriesPass,
     revel_user: RevelUser,
     series_questionnaire: OrganizationQuestionnaire,
     questionnaire: Questionnaire,
+    covered_events: list[Event],
 ) -> None:
-    """A per_event series questionnaire is satisfied by any READY submission, with no event link."""
+    """A per_event series questionnaire needs a submission tied to an event of this series."""
     series_questionnaire.per_event = True
     series_questionnaire.save()
     _submit(revel_user, questionnaire)
 
-    SeriesPassPurchaseService(free_pass, revel_user).purchase()
-
-    assert HeldSeriesPass.objects.filter(user=revel_user).exists()
+    _assert_blocked(free_pass, revel_user, questionnaire, covered_events[0])
 
 
 def test_expired_approval_blocks(
@@ -346,6 +345,109 @@ def test_anchor_skips_event_past_apply_before(
     Event.objects.filter(pk=covered_events[0].pk).update(apply_before=timezone.now() - timedelta(hours=1))
 
     _assert_blocked(free_pass, revel_user, questionnaire, covered_events[1])
+
+
+def _assert_dead_end(series_pass: SeriesPass, user: RevelUser) -> None:
+    with pytest.raises(UserIsIneligibleError) as exc:
+        SeriesPassPurchaseService(series_pass, user).purchase()
+    elig = exc.value.eligibility
+    assert elig.next_step is None
+    assert "can no longer be submitted" in str(elig.reason)
+    assert not HeldSeriesPass.objects.filter(user=user).exists()
+
+
+def test_all_covered_events_past_apply_before_is_dead_end(
+    free_pass: SeriesPass,
+    revel_user: RevelUser,
+    series_questionnaire: OrganizationQuestionnaire,
+    covered_events: list[Event],
+) -> None:
+    """No covered event accepts submissions any more: blocked without a complete_questionnaire next step."""
+    Event.objects.filter(pk__in=[e.pk for e in covered_events]).update(apply_before=timezone.now() - timedelta(hours=1))
+
+    _assert_dead_end(free_pass, revel_user)
+
+
+def test_only_cancelled_upcoming_event_is_dead_end(
+    free_pass: SeriesPass,
+    revel_user: RevelUser,
+    series_questionnaire: OrganizationQuestionnaire,
+    covered_events: list[Event],
+) -> None:
+    """Only cancelled covered events remain: the questionnaire cannot be submitted."""
+    Event.objects.filter(pk__in=[e.pk for e in covered_events]).update(status=Event.EventStatus.CANCELLED)
+
+    _assert_dead_end(free_pass, revel_user)
+
+
+def test_apply_before_boundary_still_accepts(
+    free_pass: SeriesPass,
+    revel_user: RevelUser,
+    series_questionnaire: OrganizationQuestionnaire,
+    questionnaire: Questionnaire,
+    covered_events: list[Event],
+) -> None:
+    """An event whose deadline is exactly now+epsilon is still a valid anchor (open while now <= deadline)."""
+    Event.objects.filter(pk=covered_events[0].pk).update(apply_before=timezone.now() + timedelta(seconds=30))
+
+    _assert_blocked(free_pass, revel_user, questionnaire, covered_events[0])
+
+
+def _per_event_submission(user: RevelUser, questionnaire: Questionnaire, event: Event, status: str) -> None:
+    submission = _submit(user, questionnaire)
+    QuestionnaireEvaluation.objects.create(submission=submission, status=status)
+    EventQuestionnaireSubmission.objects.create(
+        user=user,
+        event=event,
+        questionnaire=questionnaire,
+        submission=submission,
+        questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+    )
+
+
+@pytest.fixture
+def other_series_event(organization: Organization) -> Event:
+    other_series = EventSeries.objects.create(organization=organization, name="Other", slug="other")
+    return _event(organization, other_series, "elsewhere", 3)
+
+
+def test_per_event_submission_for_other_series_blocks(
+    free_pass: SeriesPass,
+    revel_user: RevelUser,
+    series_questionnaire: OrganizationQuestionnaire,
+    questionnaire: Questionnaire,
+    covered_events: list[Event],
+    other_series_event: Event,
+) -> None:
+    """A per_event submission made for an event of another series does not satisfy this series' pass."""
+    series_questionnaire.per_event = True
+    series_questionnaire.save()
+    _per_event_submission(
+        revel_user, questionnaire, other_series_event, QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED
+    )
+
+    _assert_blocked(free_pass, revel_user, questionnaire, covered_events[0])
+
+
+def test_per_event_rejections_on_other_series_do_not_exhaust_attempts(
+    free_pass: SeriesPass,
+    revel_user: RevelUser,
+    series_questionnaire: OrganizationQuestionnaire,
+    questionnaire: Questionnaire,
+    covered_events: list[Event],
+    other_series_event: Event,
+) -> None:
+    """Rejected attempts at another series' event do not count toward this series' attempt cap."""
+    series_questionnaire.per_event = True
+    series_questionnaire.requires_evaluation = True
+    series_questionnaire.save()
+    questionnaire.max_attempts = 1
+    questionnaire.save()
+    _per_event_submission(
+        revel_user, questionnaire, other_series_event, QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED
+    )
+
+    _assert_blocked(free_pass, revel_user, questionnaire, covered_events[0])
 
 
 def test_existing_holder_gets_already_hold_not_questionnaire(

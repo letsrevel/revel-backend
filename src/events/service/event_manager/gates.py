@@ -460,12 +460,18 @@ class QuestionnaireGate(BaseEligibilityGate):
         ]
 
     def _get_submissions(self, org_questionnaire: OrganizationQuestionnaire) -> list[QuestionnaireSubmission] | None:
-        """Get submissions for a questionnaire, scoped to the current event if per_event is set.
+        """Get submissions for a questionnaire; per_event ones are scoped to the event (or its series).
 
-        per_event is ignored in series scope: one submission covers the whole pass (#1321).
+        In series scope a per_event questionnaire counts only submissions tied to events of
+        this series (#1321); other questionnaires use the global map.
         """
-        if org_questionnaire.per_event and self.handler.questionnaire_scope == "event":
-            subs = self.handler.event_submission_map.get(org_questionnaire.questionnaire_id)
+        if org_questionnaire.per_event:
+            event_map = (
+                self.handler.series_event_submission_map
+                if self.handler.questionnaire_scope == "series"
+                else self.handler.event_submission_map
+            )
+            subs = event_map.get(org_questionnaire.questionnaire_id)
             return subs if subs else None
         return self.handler.submission_map.get(org_questionnaire.questionnaire_id)
 

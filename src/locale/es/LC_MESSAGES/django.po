@@ -2908,6 +2908,9 @@ msgstr "Este pase está agotado."
 msgid "This pass has no upcoming events to purchase."
 msgstr "Este pase no tiene eventos próximos que comprar."
 
+msgid "The series questionnaire can no longer be submitted, so this pass cannot be purchased."
+msgstr "El cuestionario de la serie ya no se puede enviar, por lo que este pase no se puede comprar."
+
 #, python-brace-format
 msgid "Event {name} is sold out."
 msgstr "El evento {name} está agotado."

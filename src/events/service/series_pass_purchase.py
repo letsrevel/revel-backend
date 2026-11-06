@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import structlog
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import F, Q
+from django.db.models import Case, F, IntegerField, Q, Value, When
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -27,7 +27,7 @@ from events.models import (
 )
 from events.service import series_pass_service
 from events.service.blacklist_service import check_user_hard_blacklisted
-from events.service.event_manager import EligibilityService, UserIsIneligibleError
+from events.service.event_manager import EligibilityService, NextStep, Reasons, UserIsIneligibleError
 from events.service.event_manager.gates import QuestionnaireGate
 from notifications.signals.series_pass import send_series_pass_purchased
 
@@ -75,22 +75,40 @@ class SeriesPassPurchaseService:
         if self.org.is_owner_or_staff(self.user):
             return
         now = timezone.now()
-        upcoming = self.series_pass.tier_links.filter(event__start__gte=now).select_related("event")
-        open_links = upcoming.filter(event__status=Event.EventStatus.OPEN)
-        # Prefer an event still accepting applications, then any open one, so the gate never vanishes.
+        accepting = Q(event__status=Event.EventStatus.OPEN) & (
+            Q(event__apply_before__isnull=True) | Q(event__apply_before__gte=now)
+        )
+        # Anchor: earliest event still accepting applications, then any open one, then any upcoming
+        # (so the gate never vanishes). One query.
         link = (
-            open_links.filter(Q(event__apply_before__isnull=True) | Q(event__apply_before__gt=now))
-            .order_by("event__start")
+            self.series_pass.tier_links.filter(event__start__gte=now)
+            .select_related("event")
+            .annotate(
+                anchor_rank=Case(
+                    When(accepting, then=Value(0)),
+                    When(event__status=Event.EventStatus.OPEN, then=Value(1)),
+                    default=Value(2),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("anchor_rank", "event__start")
             .first()
-            or open_links.order_by("event__start").first()
-            or upcoming.order_by("event__start").first()
         )
         if link is None:
             return
         service = EligibilityService(self.user, link.event, questionnaire_scope="series")
         # Event invitations never waive the series questionnaire (the gate ignores them in series scope).
-        if (result := QuestionnaireGate(service).check()) is not None:
-            raise UserIsIneligibleError(str(result.reason), result)
+        if (result := QuestionnaireGate(service).check()) is None:
+            return
+        event = link.event
+        can_submit = event.status == Event.EventStatus.OPEN and now <= event.effective_apply_deadline
+        if result.next_step == NextStep.COMPLETE_QUESTIONNAIRE and not can_submit:
+            # The questionnaire is outstanding but no covered event can take a submission any more.
+            reason = str(_("The series questionnaire can no longer be submitted, so this pass cannot be purchased."))
+            result = result.model_copy(
+                update={"reason": reason, "reason_code": Reasons.APPLICATION_DEADLINE_PASSED.code, "next_step": None}
+            )
+        raise UserIsIneligibleError(str(result.reason), result)
 
     def _has_active_held_pass(self) -> bool:
         return (
