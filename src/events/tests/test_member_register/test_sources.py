@@ -12,10 +12,12 @@ from events.models import (
     MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
+    OrganizationMember,
     OrganizationMembershipRequest,
     OrganizationToken,
     SubscriptionPaymentMethod,
 )
+from events.service import member_register_service
 from events.service.membership_manager.service import _complete_free_application
 from events.service.organization_service import membership as membership_service
 from events.service.organization_service.tokens import claim_invitation
@@ -113,4 +115,63 @@ def test_online_first_payment_source_subscription(
         status=MembershipSubscription.SubscriptionStatus.ACTIVE,
     )
     assert _ensure_active_member(subscription) == "created"
+    assert _open_record(organization, nonmember_user).source == Source.SUBSCRIPTION
+
+
+def test_free_application_passes_evidence_through(
+    organization: Organization, nonmember_user: RevelUser, tier: MembershipTier
+) -> None:
+    questionnaire = Questionnaire.objects.create(name="Free Q", status=Questionnaire.QuestionnaireStatus.PUBLISHED)
+    submission = QuestionnaireSubmission.objects.create(
+        user=nonmember_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        submitted_at=timezone.now(),
+    )
+    application = OrganizationMembershipRequest.objects.create(
+        organization=organization, user=nonmember_user, tier=tier, questionnaire_submission=submission
+    )
+    _complete_free_application(application)
+    rec = _open_record(organization, nonmember_user)
+    assert rec.source == Source.APPLICATION
+    assert rec.questionnaire_submission_id == submission.pk
+    assert rec.questionnaire_name == "Free Q"
+    assert rec.accepted_at == submission.submitted_at
+
+
+def test_ensure_active_member_reactivates_cancelled_with_subscription_source(
+    organization: Organization, nonmember_user: RevelUser, tier: MembershipTier
+) -> None:
+    member = OrganizationMember.objects.create(
+        organization=organization, user=nonmember_user, tier=tier, status=OrganizationMember.MembershipStatus.CANCELLED
+    )
+    subscription = MembershipSubscription.objects.create(
+        user=nonmember_user,
+        plan=_plan(tier, SubscriptionPaymentMethod.ONLINE),
+        organization=organization,
+        status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+    )
+    assert _ensure_active_member(subscription) == "existing"
+    member.refresh_from_db()
+    assert member.status == OrganizationMember.MembershipStatus.ACTIVE
+    assert _open_record(organization, nonmember_user).source == Source.SUBSCRIPTION
+
+
+def test_subscription_save_reactivating_cancelled_member_tags_subscription(
+    organization: Organization, nonmember_user: RevelUser, tier: MembershipTier
+) -> None:
+    subscription = create_subscription(_plan(tier, SubscriptionPaymentMethod.OFFLINE), nonmember_user)
+    MembershipSubscription.objects.filter(pk=subscription.pk).update(
+        status=MembershipSubscription.SubscriptionStatus.CANCELLED
+    )
+    member = OrganizationMember.objects.get(organization=organization, user=nonmember_user)
+    member.status = OrganizationMember.MembershipStatus.CANCELLED
+    with member_register_service.suppress_mirror():
+        member.save()
+    MembershipRecord.objects.filter(user=nonmember_user).delete()
+
+    subscription.refresh_from_db()
+    subscription.status = MembershipSubscription.SubscriptionStatus.ACTIVE
+    subscription.save()
+
     assert _open_record(organization, nonmember_user).source == Source.SUBSCRIPTION

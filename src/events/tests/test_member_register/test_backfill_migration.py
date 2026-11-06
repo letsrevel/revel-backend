@@ -8,7 +8,7 @@ from django.apps import apps
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import MembershipRecord, Organization, OrganizationMember
+from events.models import Blacklist, MembershipRecord, Organization, OrganizationMember
 
 pytestmark = pytest.mark.django_db
 
@@ -73,3 +73,68 @@ def test_backfill_is_rerunnable(organization: Organization, member_user: RevelUs
     backfill.forward(apps, None)
 
     assert MembershipRecord.objects.count() == 1
+
+
+def _backfill_user(django_user_model: type[RevelUser], name: str, **fields: str) -> RevelUser:
+    return django_user_model.objects.create_user(username=name, email=f"{name}@x.com", password="p", **fields)
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        ({"first_name": "Jane", "last_name": "Doe", "preferred_name": "JD"}, "Jane Doe"),
+        ({"preferred_name": "JD"}, "JD"),
+        ({}, "nameuser"),
+        ({"first_name": "A" * 150, "last_name": "B" * 150}, ("A" * 150 + " " + "B" * 150)[:255]),
+    ],
+)
+def test_backfill_name_matches_runtime_snapshot(
+    organization: Organization, django_user_model: type[RevelUser], fields: dict[str, str], expected: str
+) -> None:
+    user = _backfill_user(django_user_model, "nameuser", **fields)
+    _member(organization, user, Status.ACTIVE)
+    MembershipRecord.objects.all().delete()
+
+    backfill.forward(apps, None)
+
+    assert MembershipRecord.objects.get(user=user).full_name == expected
+
+
+def test_backfill_closed_row_with_updated_before_created(organization: Organization, member_user: RevelUser) -> None:
+    """valid_until never precedes valid_from (the CheckConstraint would abort the deploy)."""
+    member = _member(organization, member_user, Status.CANCELLED)
+    now = timezone.now()
+    OrganizationMember.objects.filter(pk=member.pk).update(created_at=now, updated_at=now - timedelta(days=1))
+    MembershipRecord.objects.all().delete()
+
+    backfill.forward(apps, None)
+
+    rec = MembershipRecord.objects.get(user=member_user)
+    assert rec.valid_until == now == rec.valid_from
+
+
+def test_backfill_skips_stranger_ban(organization: Organization, member_user: RevelUser) -> None:
+    """A BANNED row created by the ban itself was never a member."""
+    owner = organization.owner
+    Blacklist.objects.create(organization=organization, user=member_user, created_by=owner)  # also creates the row
+    assert OrganizationMember.objects.get(user=member_user).status == Status.BANNED
+    MembershipRecord.objects.all().delete()
+
+    backfill.forward(apps, None)
+
+    assert not MembershipRecord.objects.exists()
+
+
+def test_backfill_keeps_real_member_banned_later(organization: Organization, member_user: RevelUser) -> None:
+    member = _member(organization, member_user, Status.BANNED)
+    now = timezone.now()
+    OrganizationMember.objects.filter(pk=member.pk).update(created_at=now - timedelta(days=10))
+    entry = Blacklist.objects.create(organization=organization, user=member_user, created_by=organization.owner)
+    Blacklist.objects.filter(pk=entry.pk).update(created_at=now - timedelta(days=9))
+    MembershipRecord.objects.all().delete()
+
+    backfill.forward(apps, None)
+
+    rec = MembershipRecord.objects.get(user=member_user)
+    assert rec.ended_reason == MembershipRecord.EndedReason.EXPELLED
+    assert rec.valid_until is not None

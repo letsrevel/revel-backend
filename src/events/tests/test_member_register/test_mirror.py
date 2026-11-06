@@ -1,10 +1,14 @@
 """Tests for the OrganizationMember -> MembershipRecord mirror (#1318)."""
 
+from datetime import timedelta
+
 import pytest
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import MembershipRecord, MembershipTier, Organization, OrganizationMember
 from events.service import member_register_service
+from questionnaires.models import Questionnaire, QuestionnaireSubmission
 
 pytestmark = pytest.mark.django_db
 
@@ -185,3 +189,72 @@ def test_full_name_falls_back_to_display_name(
     _join(organization, member_user, tier)
     (rec,) = _records(organization, member_user)
     assert rec.full_name == member_user.get_display_name()
+
+
+def test_overlong_name_is_truncated_not_rejected(
+    organization: Organization, member_user: RevelUser, tier: MembershipTier
+) -> None:
+    member_user.first_name, member_user.last_name = "A" * 150, "B" * 150
+    member_user.save()
+    _join(organization, member_user, tier)
+    (rec,) = _records(organization, member_user)
+    assert len(rec.full_name) == 255
+    assert rec.full_name.startswith("A" * 150)
+
+
+def _application_member(
+    organization: Organization, member_user: RevelUser, tier: MembershipTier
+) -> tuple[OrganizationMember, QuestionnaireSubmission]:
+    questionnaire = Questionnaire.objects.create(name="Vetting Q", status=Questionnaire.QuestionnaireStatus.PUBLISHED)
+    submission = QuestionnaireSubmission.objects.create(
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        submitted_at=timezone.now(),
+    )
+    with member_register_service.record_source(
+        MembershipRecord.Source.APPLICATION, questionnaire_submission=submission
+    ):
+        member = _join(organization, member_user, tier)
+    return member, submission
+
+
+def test_tier_change_without_context_keeps_basis_and_evidence(
+    organization: Organization, member_user: RevelUser, tier: MembershipTier, tier2: MembershipTier
+) -> None:
+    member, submission = _application_member(organization, member_user, tier)
+    member.tier = tier2
+    member.save()
+    old, new = _records(organization, member_user)
+    assert new.tier_id == tier2.pk
+    assert new.source == MembershipRecord.Source.APPLICATION
+    assert new.questionnaire_submission_id == submission.pk
+    assert new.accepted_at == old.accepted_at is not None
+    assert new.questionnaire_name == "Vetting Q"
+    assert new.valid_from == old.valid_until
+
+
+def test_tier_change_inside_record_source_uses_context(
+    organization: Organization, member_user: RevelUser, tier: MembershipTier, tier2: MembershipTier
+) -> None:
+    member, _ = _application_member(organization, member_user, tier)
+    member.tier = tier2
+    with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
+        member.save()
+    _, new = _records(organization, member_user)
+    assert new.source == MembershipRecord.Source.SUBSCRIPTION
+    assert new.questionnaire_submission_id is None
+    assert new.accepted_at is None
+    assert new.questionnaire_name == ""
+
+
+def test_close_before_valid_from_clamps_instead_of_violating_constraint(
+    organization: Organization, member_user: RevelUser, tier: MembershipTier
+) -> None:
+    """A clock behind the record's start (skew, frozen clocks) must not break the member save."""
+    m = _join(organization, member_user, tier)
+    MembershipRecord.objects.filter(user=member_user).update(valid_from=timezone.now() + timedelta(days=1))
+    m.status = Status.CANCELLED
+    m.save()
+    (rec,) = _records(organization, member_user)
+    assert rec.valid_until == rec.valid_from

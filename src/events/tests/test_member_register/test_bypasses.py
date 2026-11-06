@@ -2,9 +2,11 @@
 
 import typing as t
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
+from django.contrib import admin
+from django.test import RequestFactory
 
 from accounts.models import RevelUser
 from accounts.tasks import delete_user_account
@@ -141,8 +143,7 @@ def test_account_deletion_keeps_record_open(
     _offline_subscription(tier, member_user)
     record = MembershipRecord.objects.get(organization=organization)
 
-    with patch("accounts.tasks.gdpr.cleanup_referral_data", MagicMock()):
-        delete_user_account(str(member_user.id))
+    delete_user_account(str(member_user.id))
 
     record.refresh_from_db()
     assert record.valid_until is None
@@ -158,9 +159,22 @@ def test_account_deletion_without_subscription_keeps_record_open(
     _join(organization, member_user, tier)
     record = MembershipRecord.objects.get(organization=organization)
 
-    with patch("accounts.tasks.gdpr.cleanup_referral_data", MagicMock()):
-        delete_user_account(str(member_user.id))
+    delete_user_account(str(member_user.id))
 
     record.refresh_from_db()
     assert record.valid_until is None
     assert record.user is None
+
+
+def test_admin_tier_delete_routes_through_register(organization: Organization, tier: MembershipTier) -> None:
+    users = [RevelUser.objects.create_user(username="adm1", email="adm1@example.com", password="pass")]
+    _join(organization, users[0], tier)
+    model_admin = admin.site._registry[MembershipTier]
+
+    model_admin.delete_model(RequestFactory().post("/"), tier)
+
+    old, new = MembershipRecord.objects.filter(user=users[0]).order_by("valid_from", "created_at")
+    assert old.ended_reason == Reason.TIER_CHANGED
+    assert new.valid_until is None
+    assert new.tier_id is None
+    assert not MembershipTier.objects.filter(pk=tier.pk).exists()

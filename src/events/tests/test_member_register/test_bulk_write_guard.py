@@ -12,9 +12,9 @@ Rules (applied only when the receiver expression contains ``OrganizationMember.o
 May merge with the #1315 membership-access guard (#1325).
 
 Scope limit: querysets assigned to a variable before ``.update()`` are not detected.
+"""
 # ponytail: the receiver must be written inline (``OrganizationMember.objects...update``). Tracking
 # variable aliases would need data-flow analysis; upgrade path is to forbid the alias pattern instead.
-"""
 
 import ast
 from pathlib import Path
@@ -28,16 +28,22 @@ _ALWAYS_FLAGGED = {"bulk_update", "bulk_create"}
 ALLOWLIST: tuple[str, ...] = ()
 
 
+_RELATED_MANAGERS = {"memberships", "members", "organization_memberships"}
+
+
 def _contains_member_objects(node: ast.AST) -> bool:
-    return any(
-        isinstance(n, ast.Attribute)
-        and n.attr == "objects"
-        and (
+    """True when the receiver chain goes through OrganizationMember's manager or a related manager."""
+    for n in ast.walk(node):
+        if not isinstance(n, ast.Attribute):
+            continue
+        if n.attr in _RELATED_MANAGERS:
+            return True
+        if n.attr in {"objects", "_default_manager"} and (
             (isinstance(n.value, ast.Name) and n.value.id == "OrganizationMember")
             or (isinstance(n.value, ast.Attribute) and n.value.attr == "OrganizationMember")
-        )
-        for n in ast.walk(node)
-    )
+        ):
+            return True
+    return False
 
 
 def find_bulk_member_writes(source: str, path: str) -> list[str]:
@@ -66,6 +72,10 @@ def test_guard_detects_bulk_writes() -> None:
         "OrganizationMember.objects.filter(x=1).update(tier_id=i)",
         'OrganizationMember.objects.bulk_update(rows, ["status"])',
         "OrganizationMember.objects.bulk_create(rows)",
+        "organization.members.filter(x=1).update(status=s)",
+        "user.memberships.update(tier=None)",
+        "user.organization_memberships.filter(x=1).update(status=s)",
+        "OrganizationMember._default_manager.filter(x=1).update(status=s)",
     ]
     assert [len(find_bulk_member_writes(s, "x.py")) for s in snippets] == [1] * len(snippets)
 
@@ -83,13 +93,17 @@ def test_guard_ignores_unrelated() -> None:
 def test_no_bulk_member_writes_in_src() -> None:
     """No production module outside the allowlist bulk-writes OrganizationMember status/tier."""
     violations: list[str] = []
+    scanned = 0
     for file in sorted(_SRC.rglob("*.py")):
-        rel = file.relative_to(_SRC).as_posix()
-        if any(part in {"tests", "migrations"} for part in file.relative_to(_SRC).parts[:-1]):
+        parts = file.relative_to(_SRC).parts
+        rel = "/".join(parts)
+        if {"tests", "migrations"} & set(parts[:-1]) or ("management" in parts and "commands" in parts):
             continue
-        if "/management/commands/" in f"/{rel}" or rel.startswith(ALLOWLIST):
+        if rel.startswith(ALLOWLIST):
             continue
+        scanned += 1
         violations.extend(find_bulk_member_writes(file.read_text(), rel))
+    assert scanned > 100, f"guard scanned only {scanned} files; the walk is probably broken"
     assert not violations, "Bulk OrganizationMember status/tier writes bypass the register mirror:\n" + "\n".join(
         violations
     )
