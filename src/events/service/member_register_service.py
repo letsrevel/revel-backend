@@ -154,32 +154,42 @@ def mirror_member(member: OrganizationMember) -> None:
     if _suppress_var.get():
         return
     Status = OrganizationMember.MembershipStatus
-    # Concurrent saves of one member serialize on the member row, and the (org, user) partial unique
-    # index backstops the open record, so the check-then-open below cannot race into two open records.
+    # The member row is locked and re-read before deciding: in autocommit contexts (Celery) the caller's
+    # save has already committed, so concurrent saves of one member serialize here on the row lock and each
+    # decides from the current DB state, not its possibly stale instance. The (org, user) partial unique
+    # index still backstops the open record.
     with transaction.atomic():
-        open_record = _open_standard_qs(member.organization_id, member.user_id).first()
-        if member.status in (Status.ACTIVE, Status.PAUSED):
-            if open_record is not None and open_record.tier_id != member.tier_id:
+        locked = (
+            OrganizationMember.objects.select_for_update(of=("self",))
+            .select_related("user", "tier")
+            .filter(pk=member.pk)
+            .first()
+        )
+        if locked is None:
+            return
+        open_record = _open_standard_qs(locked.organization_id, locked.user_id).first()
+        if locked.status in (Status.ACTIVE, Status.PAUSED):
+            if open_record is not None and open_record.tier_id != locked.tier_id:
                 now = max(timezone.now(), open_record.valid_from)
                 closed = close_standard_record(
-                    member.organization_id,
-                    member.user_id,
+                    locked.organization_id,
+                    locked.user_id,
                     reason=MembershipRecord.EndedReason.TIER_CHANGED,
                     now=now,
                 )
                 if closed is not None:
-                    _reopen_from(closed, tier=member.tier, now=now)
+                    _reopen_from(closed, tier=locked.tier, now=now)
                 else:
-                    open_standard_record(member)
+                    open_standard_record(locked)
             elif open_record is None:
-                open_standard_record(member)
+                open_standard_record(locked)
         elif open_record is not None:
             reason = (
                 MembershipRecord.EndedReason.CANCELLED
-                if member.status == Status.CANCELLED
+                if locked.status == Status.CANCELLED
                 else MembershipRecord.EndedReason.EXPELLED
             )
-            close_standard_record(member.organization_id, member.user_id, reason=reason)
+            close_standard_record(locked.organization_id, locked.user_id, reason=reason)
 
 
 def reopen_for_tier_deletion(tier: MembershipTier) -> int:

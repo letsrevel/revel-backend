@@ -258,3 +258,16 @@ def test_close_before_valid_from_clamps_instead_of_violating_constraint(
     m.save()
     (rec,) = _records(organization, member_user)
     assert rec.valid_until == rec.valid_from
+
+
+def test_mirror_follows_db_row_not_stale_instance(
+    organization: Organization, member_user: RevelUser, tier: MembershipTier, tier2: MembershipTier
+) -> None:
+    """mirror_member re-reads the locked row, so a stale in-memory instance cannot decide the record."""
+    stale = _join(organization, member_user, tier)
+    OrganizationMember.objects.filter(pk=stale.pk).update(tier=tier2)  # bulk write: no signal, record still Gold
+
+    member_register_service.mirror_member(stale)  # stale.tier is still Gold
+
+    open_record = MembershipRecord.objects.open().get(organization=organization, user=member_user)
+    assert open_record.tier_id == tier2.pk
