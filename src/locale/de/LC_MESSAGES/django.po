@@ -7293,6 +7293,6 @@ msgid "Member Register"
 msgstr "Mitgliederregister"
 
 msgid ""
-"Organizations you are a member of keep their own membership records. T"
+"Organizations you are or were a member of keep their own membership records. T"
 "o have yours removed, contact the organization."
-msgstr "Organisationen, bei denen du Mitglied bist, bewahren ihre eigenen Mitgliedschaftsdatensätze auf. Wenn deine entfernt werden sollen, wende dich an die Organisation."
+msgstr "Organisationen, bei denen du Mitglied bist oder warst, bewahren ihre eigenen Mitgliedschaftsdatensätze auf. Wenn deine entfernt werden sollen, wende dich an die Organisation."
