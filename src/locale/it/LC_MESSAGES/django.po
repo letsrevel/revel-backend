@@ -6383,6 +6383,9 @@ msgstr "Follower"
 msgid "Setup Nudges"
 msgstr "Promemoria di configurazione"
 
+msgid "Private Notes"
+msgstr "Note private"
+
 msgid "Venues & Seating"
 msgstr "Sedi e posti"
 
@@ -7187,3 +7190,9 @@ msgid ""
 msgstr ""
 "Il servizio di validazione VIES è temporaneamente non disponibile. Riprova "
 "più tardi."
+
+msgid "The note is too long."
+msgstr "La nota è troppo lunga."
+
+msgid "The note is empty."
+msgstr "La nota è vuota."

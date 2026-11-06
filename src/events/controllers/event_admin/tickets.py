@@ -14,7 +14,7 @@ from common.authentication import ScopedJWTAuth
 from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
-from events.controllers.permissions import EventPermission
+from events.controllers.permissions import EventPermission, controller_uses_app_token
 from events.schema.financials import EventFinancialsSchema
 from events.service import (
     check_in_service,
@@ -510,13 +510,19 @@ class EventAdminTicketsController(EventAdminBaseController):
         # String-prefix dispatch: no branch pays queries for another namespace's
         # lookup — the bare-UUID ticket path (the common case) stays query-free
         # until its own fetch inside check_in_ticket.
+        # Private notes are session-only: app tokens check in but never read the note.
+        include_note = not controller_uses_app_token(self)
         if code.startswith(models.OrganizationMember.QR_PREFIX):
-            result = member_scan_service.scan_member_code(event, code, self.user(), price_paid=price_paid)
+            result = member_scan_service.scan_member_code(
+                event, code, self.user(), price_paid=price_paid, include_note=include_note
+            )
             if result.checked_in is not None:
                 return result.checked_in
             return schema.MemberScanResponseSchema.from_result(result)
         ticket_id = check_in_service.resolve_check_in_ticket_id(event, code)
-        return check_in_service.check_in_ticket(event, ticket_id, self.user(), price_paid=price_paid)
+        return check_in_service.check_in_ticket(
+            event, ticket_id, self.user(), price_paid=price_paid, include_note=include_note
+        )
 
     @route.get(
         "/revenue",

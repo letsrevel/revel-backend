@@ -16,8 +16,13 @@ from common.models import Tag
 from common.schema import ErrorDetail, TagSchema
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
-from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
-from events.service import organization_service
+from events.controllers.permissions import (
+    IsOrganizationOwner,
+    IsOrganizationStaff,
+    OrganizationPermission,
+    controller_uses_app_token,
+)
+from events.service import organization_service, user_note_service
 from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
@@ -39,6 +44,21 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
 
     Handles members, membership tiers, staff, and tags.
     """
+
+    def _with_note(
+        self, organization: models.Organization, member: models.OrganizationMember
+    ) -> models.OrganizationMember:
+        """Set the ``private_note`` attribute ``OrganizationMemberSchema`` reads.
+
+        The route is already gated by ``manage_members``; only OAuth app tokens are excluded.
+        """
+        note = (
+            None
+            if controller_uses_app_token(self)
+            else user_note_service.get_note_body(organization.id, member.user_id)
+        )
+        setattr(member, "private_note", note)
+        return member
 
     # ---- Members ----
 
@@ -109,6 +129,17 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
                 )
             )
         )
+        # The list is open to any staff, but private notes need ``manage_members`` and a session
+        # (app tokens never read notes). Prefetched rather than annotated: a TEXT subquery in the
+        # SELECT would end up in the DISTINCT below.
+        if not controller_uses_app_token(self) and organization.has_org_permission(self.user().id, "manage_members"):
+            qs = qs.prefetch_related(
+                Prefetch(
+                    "user__organizer_notes",
+                    queryset=models.OrganizationUserNote.objects.filter(organization=organization),
+                    to_attr="_org_private_notes",
+                )
+            )
         return params.filter(qs).distinct()
 
     @route.get(
@@ -136,7 +167,12 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
             pk=UUID(raw),
             organization=organization,
         )
-        return schema.MemberVerificationSchema.from_member(member)
+        note = (
+            None
+            if controller_uses_app_token(self)
+            else user_note_service.get_note_body(organization.id, member.user_id)
+        )
+        return schema.MemberVerificationSchema.from_member(member, private_note=note)
 
     @route.put(
         "/members/{user_id}",
@@ -164,7 +200,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
 
         update_data = payload.model_dump(exclude_unset=True)
         if not update_data:
-            return member
+            return self._with_note(organization, member)
 
         # Resolve tier_id to tier object if provided
         tier = None
@@ -176,9 +212,10 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
             else:
                 tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
 
-        return organization_service.update_member(
+        updated = organization_service.update_member(
             member, status=update_data.get("status"), tier=tier, clear_tier=clear_tier
         )
+        return self._with_note(organization, updated)
 
     @route.delete(
         "/members/{user_id}",
@@ -204,7 +241,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         organization = self.get_one(slug)
         user_to_add = get_object_or_404(RevelUser, id=user_id)
         tier = get_object_or_404(models.MembershipTier, pk=payload.tier_id, organization=organization)
-        return 201, organization_service.add_member(organization, user_to_add, tier)
+        return 201, self._with_note(organization, organization_service.add_member(organization, user_to_add, tier))
 
     # ---- Membership Tiers ----
 

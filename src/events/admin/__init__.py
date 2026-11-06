@@ -66,6 +66,7 @@ from events.admin.ticket import (
     TicketAdmin,
     TicketTierAdmin,
 )
+from events.admin.user_note import OrganizationUserNoteAdmin
 from events.admin.venue import (
     VenueAdmin,
     VenueSeatAdmin,
@@ -91,6 +92,7 @@ __all__ = [
     "EventSeriesFollowAdmin",
     # Nudges
     "OrganizationNudgeAdmin",
+    "OrganizationUserNoteAdmin",
     # Questionnaire join
     "EventQuestionnaireSubmissionAdmin",
     # Event

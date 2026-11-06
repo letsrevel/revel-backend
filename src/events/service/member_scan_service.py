@@ -12,6 +12,7 @@ from django.shortcuts import get_object_or_404
 from accounts.models import RevelUser
 from events.models import Event, OrganizationMember, Ticket
 from events.service.check_in_service import check_in_ticket
+from events.service.user_note_service import get_note_body
 
 
 @dataclass
@@ -26,10 +27,16 @@ class MemberScanResult:
     member: OrganizationMember
     tickets: list[Ticket]
     checked_in: Ticket | None
+    private_note: str | None = None
 
 
 def scan_member_code(
-    event: Event, code: str, checked_in_by: RevelUser, price_paid: Decimal | None = None
+    event: Event,
+    code: str,
+    checked_in_by: RevelUser,
+    price_paid: Decimal | None = None,
+    *,
+    include_note: bool = False,
 ) -> MemberScanResult:
     """Resolve a ``member:<uuid>`` scan against an event.
 
@@ -37,6 +44,9 @@ def scan_member_code(
     admission instrument. The single-ticket fast path delegates to
     ``check_in_ticket`` so status errors (already checked in, cancelled,
     window closed) surface exactly as they would for a direct ticket scan.
+
+    ``include_note`` loads the organization's private note about the member (off by default;
+    callers pass ``False`` for OAuth app tokens).
     """
     try:
         member_id = UUID(code[len(OrganizationMember.QR_PREFIX) :])
@@ -53,6 +63,18 @@ def scan_member_code(
         .exclude(status=Ticket.TicketStatus.CANCELLED)
     )
     if len(tickets) == 1:
-        checked_in = check_in_ticket(event, tickets[0].id, checked_in_by, price_paid=price_paid)
-        return MemberScanResult(member=member, tickets=tickets, checked_in=checked_in)
-    return MemberScanResult(member=member, tickets=tickets, checked_in=None)
+        checked_in = check_in_ticket(
+            event, tickets[0].id, checked_in_by, price_paid=price_paid, include_note=include_note
+        )
+        return MemberScanResult(
+            member=member,
+            tickets=tickets,
+            checked_in=checked_in,
+            private_note=getattr(checked_in, "private_note", None) if include_note else None,
+        )
+    return MemberScanResult(
+        member=member,
+        tickets=tickets,
+        checked_in=None,
+        private_note=get_note_body(event.organization_id, member.user_id) if include_note else None,
+    )

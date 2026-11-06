@@ -423,6 +423,9 @@ from .ticket import (
     VATPreviewResponseSchema,
 )
 
+# User note schemas
+from .user_note import UserNoteSchema, UserNoteUpsertSchema
+
 # Venue schemas
 from .venue import (
     AffectedTierSchema,
@@ -769,6 +772,8 @@ __all__ = [
     "TierUnsellableZoneSchema",
     "UnsellableZoneTierSchema",
     "UpdateAttendeeInvoiceSchema",
+    "UserNoteSchema",
+    "UserNoteUpsertSchema",
     "UserRSVPSchema",
     "UserTicketSchema",
     "VATIdUpdateSchema",

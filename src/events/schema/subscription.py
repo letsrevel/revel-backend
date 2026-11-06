@@ -697,6 +697,16 @@ class OrganizationMemberSchema(Schema):
     status: OrganizationMember.MembershipStatus
     tier: MembershipTierSchema | None = None
     subscription: SubscriptionSchema | None = None
+    # Staff-only: the organizer's private note about this person (never on member-facing schemas).
+    private_note: str | None = None
+
+    @staticmethod
+    def resolve_private_note(obj: OrganizationMember) -> str | None:
+        """Read the note the controller attached (``private_note``, or the prefetched list rows)."""
+        if hasattr(obj, "private_note"):
+            return t.cast(str | None, obj.private_note)
+        notes = getattr(obj.user, "_org_private_notes", None)
+        return notes[0].body if notes else None
 
     @staticmethod
     def resolve_subscription(obj: OrganizationMember) -> MembershipSubscription | None:

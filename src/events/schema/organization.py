@@ -590,11 +590,14 @@ class MemberVerificationSchema(Schema):
     tier: MemberVerificationTierSchema | None = None
     member_since: AwareDatetime
     user: MinimalRevelUserSchema
+    # Staff-only (door staff, read-only): the organizer's private note about this person.
+    private_note: str | None = None
 
     @classmethod
-    def from_member(cls, member: OrganizationMember) -> "MemberVerificationSchema":
+    def from_member(cls, member: OrganizationMember, private_note: str | None = None) -> "MemberVerificationSchema":
         """Build from a member row with ``user`` and ``tier`` select_related."""
         return cls(
+            private_note=private_note,
             member_id=member.id,
             status=t.cast(OrganizationMember.MembershipStatus, member.status),
             tier=MemberVerificationTierSchema(id=member.tier.id, name=member.tier.name) if member.tier else None,

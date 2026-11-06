@@ -187,6 +187,11 @@ UNFOLD = {
                         "icon": "notifications_active",
                         "link": reverse_lazy("admin:events_organizationnudge_changelist"),
                     },
+                    {
+                        "title": _("Private Notes"),
+                        "icon": "sticky_note_2",
+                        "link": reverse_lazy("admin:events_organizationusernote_changelist"),
+                    },
                 ],
             },
             {

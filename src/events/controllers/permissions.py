@@ -51,6 +51,12 @@ def scope_allows(request: HttpRequest, action: models.PermissionKey) -> None:
         raise InsufficientScopeError(sorted(needed)[0] if needed else None)
 
 
+def controller_uses_app_token(controller: ControllerBase) -> bool:
+    """Whether the controller's current request is authenticated by a third-party app token."""
+    request = controller.context.request if controller.context else None
+    return isinstance(getattr(request, "auth", None), OAuthPrincipal)
+
+
 def require_series_pass_link_access(request: HttpRequest, organization: models.Organization) -> None:
     """Gate inline ``series_pass_links`` on the same grants as the dedicated tier-links endpoint.
 
