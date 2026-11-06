@@ -82,6 +82,7 @@ class SeriesPassPurchaseService:
         if link is None:
             return
         service = EligibilityService(self.user, link.event, questionnaire_scope="series")
+        # Deliberate: an anchor-event invitation with waives_questionnaire waives the series questionnaire too.
         if (result := QuestionnaireGate(service).check()) is not None:
             raise UserIsIneligibleError(str(result.reason), result)
 

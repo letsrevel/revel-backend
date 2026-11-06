@@ -14,6 +14,7 @@ from accounts.models import RevelUser
 from events.exceptions import SeriesPassNotPurchasableError
 from events.models import (
     Event,
+    EventInvitation,
     EventQuestionnaireSubmission,
     EventSeries,
     HeldSeriesPass,
@@ -172,6 +173,7 @@ def test_owner_bypasses(
     organization_owner_user: RevelUser,
     series_questionnaire: OrganizationQuestionnaire,
 ) -> None:
+    """Organization owners skip the series questionnaire gate."""
     SeriesPassPurchaseService(free_pass, organization_owner_user).purchase()
 
     assert HeldSeriesPass.objects.filter(user=organization_owner_user).exists()
@@ -183,6 +185,7 @@ def test_staff_bypasses(
     organization_staff_user: RevelUser,
     series_questionnaire: OrganizationQuestionnaire,
 ) -> None:
+    """Organization staff skip the series questionnaire gate."""
     SeriesPassPurchaseService(free_pass, organization_staff_user).purchase()
 
     assert HeldSeriesPass.objects.filter(user=organization_staff_user).exists()
@@ -268,6 +271,38 @@ def test_rejected_submission_blocks(
 
     assert exc.value.eligibility.reason_code == Reasons.QUESTIONNAIRE_FAILED.code
     assert not HeldSeriesPass.objects.filter(user=revel_user).exists()
+
+
+def test_pass_purchase_pending_review_blocks(
+    free_pass: SeriesPass,
+    revel_user: RevelUser,
+    series_questionnaire: OrganizationQuestionnaire,
+    questionnaire: Questionnaire,
+) -> None:
+    """A READY submission still awaiting evaluation blocks with QUESTIONNAIRE_PENDING_REVIEW."""
+    series_questionnaire.requires_evaluation = True
+    series_questionnaire.save()
+    _submit(revel_user, questionnaire)
+
+    with pytest.raises(UserIsIneligibleError) as exc:
+        SeriesPassPurchaseService(free_pass, revel_user).purchase()
+
+    assert exc.value.eligibility.reason_code == Reasons.QUESTIONNAIRE_PENDING_REVIEW.code
+    assert not HeldSeriesPass.objects.filter(user=revel_user).exists()
+
+
+def test_pass_purchase_anchor_invitation_waiver_applies(
+    free_pass: SeriesPass,
+    revel_user: RevelUser,
+    series_questionnaire: OrganizationQuestionnaire,
+    covered_events: list[Event],
+) -> None:
+    """Deliberate: an organizer-granted waiver on the anchor event waives the series questionnaire for the pass."""
+    EventInvitation.objects.create(event=covered_events[0], user=revel_user, waives_questionnaire=True)
+
+    SeriesPassPurchaseService(free_pass, revel_user).purchase()
+
+    assert HeldSeriesPass.objects.filter(user=revel_user).exists()
 
 
 def test_no_upcoming_covered_event_skips_gate(
