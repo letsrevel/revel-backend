@@ -26,6 +26,8 @@ from events.models import (
 )
 from events.service import series_pass_service
 from events.service.blacklist_service import check_user_hard_blacklisted
+from events.service.event_manager import EligibilityService, UserIsIneligibleError
+from events.service.event_manager.gates import QuestionnaireGate
 from notifications.signals.series_pass import send_series_pass_purchased
 
 if t.TYPE_CHECKING:
@@ -57,6 +59,31 @@ class SeriesPassPurchaseService:
             is_member = OrganizationMember.objects.active_only().filter(organization=self.org, user=self.user).exists()
             if not is_member:
                 raise HttpError(403, str(_("This pass is for members only.")))
+
+    def _assert_series_questionnaires(self) -> None:
+        """Enforce the series' admission questionnaires, as a ticket purchase would (#1321).
+
+        The gate runs against the earliest upcoming covered event, scoped to questionnaires
+        linked to the series (event-only questionnaires are not a pass-purchase concern).
+        Owners and staff bypass; with no upcoming covered event the quote reports the pass
+        as not purchasable, so there is nothing to gate.
+
+        Raises:
+            UserIsIneligibleError: If a series questionnaire is missing, pending review or failed.
+        """
+        if self.org.is_owner_or_staff(self.user):
+            return
+        link = (
+            self.series_pass.tier_links.filter(event__start__gte=timezone.now())
+            .select_related("event")
+            .order_by("event__start")
+            .first()
+        )
+        if link is None:
+            return
+        service = EligibilityService(self.user, link.event, questionnaire_scope="series")
+        if (result := QuestionnaireGate(service).check()) is not None:
+            raise UserIsIneligibleError(str(result.reason), result)
 
     def _has_active_held_pass(self) -> bool:
         return (
@@ -109,6 +136,7 @@ class SeriesPassPurchaseService:
         checkout-session endpoint to obtain the Stripe checkout URL (#632).
         """
         self._assert_purchasable_by_user()
+        self._assert_series_questionnaires()
 
         quote = series_pass_service.get_quote(self.series_pass)
         if not quote.purchasable:

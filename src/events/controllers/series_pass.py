@@ -154,6 +154,7 @@ class SeriesPassController(UserAwareController):
           (the pass is visible, but not purchasable, to non-members).
         - 404: The pass itself isn't visible to the user (e.g. a MEMBERS_ONLY-*visibility*
           pass and the user isn't a member) — raised earlier, by ``_get_visible_pass``.
+        - 400: A series admission questionnaire is missing, pending review or failed (eligibility payload).
         - 409: Not currently purchasable (sold out, outside sales window, already held).
         - 422: A paid pass whose payment channel is blocked where a covered event is held
           (``CountryComplianceError``, e.g. online payment for events in Italy).
