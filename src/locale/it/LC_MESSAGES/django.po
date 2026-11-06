@@ -6383,6 +6383,9 @@ msgstr "Follower"
 msgid "Setup Nudges"
 msgstr "Promemoria di configurazione"
 
+msgid "Private Notes"
+msgstr "Note private"
+
 msgid "Venues & Seating"
 msgstr "Sedi e posti"
 

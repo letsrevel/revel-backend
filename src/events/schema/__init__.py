@@ -424,6 +424,7 @@ from .ticket import (
 )
 
 # Venue schemas
+from .user_note import UserNoteSchema, UserNoteUpsertSchema
 from .venue import (
     AffectedTierSchema,
     Coordinate2D,
@@ -802,6 +803,8 @@ __all__ = [
     "WaitlistSettingsSchema",
     "WaitlistSettingsUpdateSchema",
     "WhitelistEntrySchema",
+    "UserNoteSchema",
+    "UserNoteUpsertSchema",
     "WhitelistRequestCreateSchema",
     "WhitelistRequestSchema",
     "ZoneAvailabilitySchema",

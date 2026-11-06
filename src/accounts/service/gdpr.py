@@ -395,6 +395,9 @@ class ExportRule:
 
 
 _EXCLUDED_THIRD_PARTY = "third-party data handled in a staff/admin capacity"
+_EXCLUDED_ORGANIZER_NOTE = (
+    "organizer-authored record; the organization is the controller and answers access requests to it"
+)
 _EXCLUDED_MODERATION = "moderation/fraud-prevention record — excluded pending policy decision (#798)"
 # simple-history mirrors duplicate rows that are already exported in their live
 # form; re-exporting them would repeat the same personal data once per edit.
@@ -503,6 +506,7 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "organizationtoken_tokens": ExportRule(include=False, reason="operational invite tokens (secret ids)"),
     "created_announcements": ExportRule(include=False, reason="organization content authored in staff capacity"),
     "blacklist_entries": ExportRule(include=False, reason=_EXCLUDED_MODERATION),
+    "organizer_notes": ExportRule(include=False, reason=_EXCLUDED_ORGANIZER_NOTE),
     "visible_attendees": ExportRule(include=False, reason="cross-user visibility flags (third-party linkage)"),
     "visible_to": ExportRule(include=False, reason="cross-user visibility flags (third-party linkage)"),
     # --- notifications ---
@@ -533,6 +537,7 @@ EXPORT_RULES: dict[str, ExportRule] = {
     # ``blacklist_entries``, ``whitelist_requests`` — with its own rule above.)
     "accounts.globalban.created_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "events.blacklist.created_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "events.organizationusernote.updated_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "events.whitelistrequest.decided_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "accounts.referralapplication.decided_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     # simple-history: ``history_user`` is the editor, ``user``/``recorded_by``

@@ -69,6 +69,7 @@ from .ticket import (
     TicketTier,
 )
 from .ticket_number import TicketNumberSequence
+from .user_note import OrganizationUserNote
 from .venue import PriceCategory, Venue, VenueSeat, VenueSector
 
 __all__ = [
@@ -126,6 +127,8 @@ __all__ = [
     "OrganizationFollow",
     # Nudges
     "OrganizationNudge",
+    # Private notes
+    "OrganizationUserNote",
     # Preferences
     "BaseUserPreferences",
     "GeneralUserPreferences",

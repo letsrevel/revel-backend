@@ -6443,6 +6443,9 @@ msgstr "Follower:innen"
 msgid "Setup Nudges"
 msgstr "Setup-Erinnerungen"
 
+msgid "Private Notes"
+msgstr "Private Notizen"
+
 msgid "Venues & Seating"
 msgstr "Veranstaltungsorte & Sitzplätze"
 

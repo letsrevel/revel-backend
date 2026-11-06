@@ -6294,6 +6294,9 @@ msgstr "Seguidores"
 msgid "Setup Nudges"
 msgstr "Lembretes de configuração"
 
+msgid "Private Notes"
+msgstr "Notas privadas"
+
 msgid "Venues & Seating"
 msgstr "Locais e lugares"
 

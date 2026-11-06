@@ -6355,6 +6355,9 @@ msgstr "Seguidores"
 msgid "Setup Nudges"
 msgstr "Recordatorios de configuración"
 
+msgid "Private Notes"
+msgstr "Notas privadas"
+
 msgid "Venues & Seating"
 msgstr "Lugares y asientos"
 

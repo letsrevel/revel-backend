@@ -239,6 +239,8 @@ class CheckInResponseSchema(ModelSchema):
     price_paid: Decimal | None = None
     seat: MinimalSeatSchema | None = None
     sector_name: str | None = None
+    # Staff-only (door staff, read-only): set by ``check_in_service.check_in_ticket``.
+    private_note: str | None = None
 
     class Meta:
         model = Ticket
@@ -300,7 +302,7 @@ class MemberScanResponseSchema(Schema):
         else:
             detail = str(_("This member has no ticket for this event."))
         return cls(
-            member=MemberVerificationSchema.from_member(result.member),
+            member=MemberVerificationSchema.from_member(result.member, private_note=result.private_note),
             tickets=[
                 MemberScanTicketSummarySchema(
                     id=tk.id,

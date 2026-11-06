@@ -12,6 +12,7 @@ from django.shortcuts import get_object_or_404
 from accounts.models import RevelUser
 from events.models import Event, OrganizationMember, Ticket
 from events.service.check_in_service import check_in_ticket
+from events.service.user_note_service import get_note_body
 
 
 @dataclass
@@ -26,6 +27,7 @@ class MemberScanResult:
     member: OrganizationMember
     tickets: list[Ticket]
     checked_in: Ticket | None
+    private_note: str | None = None
 
 
 def scan_member_code(
@@ -54,5 +56,15 @@ def scan_member_code(
     )
     if len(tickets) == 1:
         checked_in = check_in_ticket(event, tickets[0].id, checked_in_by, price_paid=price_paid)
-        return MemberScanResult(member=member, tickets=tickets, checked_in=checked_in)
-    return MemberScanResult(member=member, tickets=tickets, checked_in=None)
+        return MemberScanResult(
+            member=member,
+            tickets=tickets,
+            checked_in=checked_in,
+            private_note=getattr(checked_in, "private_note", None),
+        )
+    return MemberScanResult(
+        member=member,
+        tickets=tickets,
+        checked_in=None,
+        private_note=get_note_body(event.organization_id, member.user_id),
+    )

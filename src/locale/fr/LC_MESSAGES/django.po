@@ -6421,6 +6421,9 @@ msgstr "Abonné·e·s"
 msgid "Setup Nudges"
 msgstr "Rappels de configuration"
 
+msgid "Private Notes"
+msgstr "Notes privées"
+
 msgid "Venues & Seating"
 msgstr "Lieux & places"
 

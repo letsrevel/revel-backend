@@ -1,7 +1,7 @@
 import typing as t
 from uuid import UUID
 
-from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
+from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, TextField, Value
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Path, Query
@@ -17,7 +17,7 @@ from common.schema import ErrorDetail, TagSchema
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
-from events.service import organization_service
+from events.service import organization_service, user_note_service
 from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
@@ -98,9 +98,19 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
                 )
             )
         )
+        # The list is open to any staff, but private notes need ``manage_members``.
+        private_note: Subquery | Value = Value(None, output_field=TextField())
+        if organization.has_org_permission(self.user().id, "manage_members"):
+            private_note = Subquery(
+                models.OrganizationUserNote.objects.filter(
+                    organization_id=OuterRef("organization_id"), user_id=OuterRef("user_id")
+                ).values("body")[:1]
+            )
         qs = (
             models.OrganizationMember.objects.filter(organization=organization)
             .select_related("user", "tier")
+            # ``OrganizationMemberSchema.private_note`` reads this annotation (no per-row query).
+            .annotate(private_note=private_note)
             .prefetch_related(
                 Prefetch(
                     "user__membership_subscriptions",
@@ -136,7 +146,9 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
             pk=UUID(raw),
             organization=organization,
         )
-        return schema.MemberVerificationSchema.from_member(member)
+        return schema.MemberVerificationSchema.from_member(
+            member, private_note=user_note_service.get_note_body(organization.id, member.user_id)
+        )
 
     @route.put(
         "/members/{user_id}",
