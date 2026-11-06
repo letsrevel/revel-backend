@@ -195,6 +195,21 @@ class TestFreePathPurchase:
         expected_guest_name = revel_user.get_full_name() or revel_user.username
         assert all(ticket.guest_name == expected_guest_name for ticket in tickets)
 
+    def test_rebuilds_attendee_flags_once_per_covered_event(
+        self,
+        purchasable_free_pass: SeriesPass,
+        revel_user: RevelUser,
+        future_events: list[Event],
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """bulk_create skips post_save, so the free purchase must dispatch the rebuild itself (#1309)."""
+        with patch("events.service.series_pass_service.build_attendee_visibility_flags") as task:
+            with django_capture_on_commit_callbacks(execute=True):
+                SeriesPassPurchaseService(purchasable_free_pass, revel_user).purchase()
+
+        dispatched = [call.args[0] for call in task.delay.call_args_list]
+        assert sorted(dispatched) == sorted(str(e.id) for e in future_events)
+
     def test_increments_tier_and_pass_quantity_sold(
         self, purchasable_free_pass: SeriesPass, revel_user: RevelUser, future_tiers: list[TicketTier]
     ) -> None:
