@@ -243,6 +243,7 @@ def test_backfill_keeps_tierless_member_with_subscription(
         organization=organization,
         status=MembershipSubscription.SubscriptionStatus.CANCELLED,
     )
+    MembershipRecord.objects.all().delete()
 
     backfill.forward(apps, None)
 
