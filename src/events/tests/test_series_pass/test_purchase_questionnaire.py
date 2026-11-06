@@ -208,14 +208,14 @@ def test_event_only_questionnaire_ignored(
     assert HeldSeriesPass.objects.filter(user=revel_user).exists()
 
 
-def test_per_event_submission_for_other_event_blocks(
+def test_per_event_ignored_in_series_scope(
     free_pass: SeriesPass,
     revel_user: RevelUser,
     series_questionnaire: OrganizationQuestionnaire,
     questionnaire: Questionnaire,
     covered_events: list[Event],
 ) -> None:
-    """With per_event, a submission tied to a different covered event does not satisfy the anchor event."""
+    """per_event applies only to single tickets: a submission made for another covered event covers the pass."""
     series_questionnaire.per_event = True
     series_questionnaire.save()
     submission = _submit(revel_user, questionnaire)
@@ -227,7 +227,25 @@ def test_per_event_submission_for_other_event_blocks(
         questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
     )
 
-    _assert_blocked(free_pass, revel_user, questionnaire, covered_events[0])
+    SeriesPassPurchaseService(free_pass, revel_user).purchase()
+
+    assert HeldSeriesPass.objects.filter(user=revel_user).exists()
+
+
+def test_per_event_global_submission_passes(
+    free_pass: SeriesPass,
+    revel_user: RevelUser,
+    series_questionnaire: OrganizationQuestionnaire,
+    questionnaire: Questionnaire,
+) -> None:
+    """A per_event series questionnaire is satisfied by any READY submission, with no event link."""
+    series_questionnaire.per_event = True
+    series_questionnaire.save()
+    _submit(revel_user, questionnaire)
+
+    SeriesPassPurchaseService(free_pass, revel_user).purchase()
+
+    assert HeldSeriesPass.objects.filter(user=revel_user).exists()
 
 
 def test_expired_approval_blocks(
@@ -291,14 +309,77 @@ def test_pass_purchase_pending_review_blocks(
     assert not HeldSeriesPass.objects.filter(user=revel_user).exists()
 
 
-def test_pass_purchase_anchor_invitation_waiver_applies(
+def test_pass_purchase_event_invitation_does_not_waive_series_questionnaire(
     free_pass: SeriesPass,
     revel_user: RevelUser,
     series_questionnaire: OrganizationQuestionnaire,
+    questionnaire: Questionnaire,
     covered_events: list[Event],
 ) -> None:
-    """Deliberate: an organizer-granted waiver on the anchor event waives the series questionnaire for the pass."""
+    """An event invitation waiving the questionnaire does not waive the series questionnaire for the pass."""
     EventInvitation.objects.create(event=covered_events[0], user=revel_user, waives_questionnaire=True)
+
+    _assert_blocked(free_pass, revel_user, questionnaire, covered_events[0])
+
+
+def test_anchor_skips_non_open_event(
+    free_pass: SeriesPass,
+    revel_user: RevelUser,
+    series_questionnaire: OrganizationQuestionnaire,
+    questionnaire: Questionnaire,
+    covered_events: list[Event],
+) -> None:
+    """A cancelled first covered event is not the anchor; the next open one is."""
+    Event.objects.filter(pk=covered_events[0].pk).update(status=Event.EventStatus.CANCELLED)
+
+    _assert_blocked(free_pass, revel_user, questionnaire, covered_events[1])
+
+
+def test_anchor_skips_event_past_apply_before(
+    free_pass: SeriesPass,
+    revel_user: RevelUser,
+    series_questionnaire: OrganizationQuestionnaire,
+    questionnaire: Questionnaire,
+    covered_events: list[Event],
+) -> None:
+    """A first event whose application window has closed is not the anchor."""
+    Event.objects.filter(pk=covered_events[0].pk).update(apply_before=timezone.now() - timedelta(hours=1))
+
+    _assert_blocked(free_pass, revel_user, questionnaire, covered_events[1])
+
+
+def test_existing_holder_gets_already_hold_not_questionnaire(
+    free_pass: SeriesPass,
+    revel_user: RevelUser,
+    series_questionnaire: OrganizationQuestionnaire,
+    questionnaire: Questionnaire,
+) -> None:
+    """Re-buying while holding the pass reports the duplicate, not the questionnaire."""
+    _submit(revel_user, questionnaire)
+    SeriesPassPurchaseService(free_pass, revel_user).purchase()
+    QuestionnaireSubmission.objects.filter(user=revel_user).delete()
+
+    with pytest.raises(SeriesPassNotPurchasableError, match="already hold"):
+        SeriesPassPurchaseService(free_pass, revel_user).purchase()
+
+
+def test_feedback_and_draft_questionnaires_do_not_block(
+    free_pass: SeriesPass,
+    revel_user: RevelUser,
+    organization: Organization,
+    event_series: EventSeries,
+) -> None:
+    """Only published ADMISSION questionnaires gate the pass."""
+    feedback = Questionnaire.objects.create(name="Feedback", status=Questionnaire.QuestionnaireStatus.PUBLISHED)
+    draft = Questionnaire.objects.create(name="Draft", status=Questionnaire.QuestionnaireStatus.DRAFT)
+    OrganizationQuestionnaire.objects.create(
+        organization=organization,
+        questionnaire=feedback,
+        questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
+    ).event_series.add(event_series)
+    OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=draft).event_series.add(
+        event_series
+    )
 
     SeriesPassPurchaseService(free_pass, revel_user).purchase()
 

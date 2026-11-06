@@ -437,8 +437,11 @@ class QuestionnaireGate(BaseEligibilityGate):
 
     def check(self) -> EventUserEligibility | None:
         """Check if the questionnaires are in order."""
-        # Invitation can waive all questionnaire requirements
-        if getattr(self.handler.invitation, "waives_questionnaire", False):
+        # Invitation can waive all questionnaire requirements (an event invitation does not
+        # waive the series questionnaires a series pass purchase is gated on, #1321)
+        if self.handler.questionnaire_scope == "event" and getattr(
+            self.handler.invitation, "waives_questionnaire", False
+        ):
             return None
         if missing := self._check_missing_questionnaires():
             return missing
@@ -457,8 +460,11 @@ class QuestionnaireGate(BaseEligibilityGate):
         ]
 
     def _get_submissions(self, org_questionnaire: OrganizationQuestionnaire) -> list[QuestionnaireSubmission] | None:
-        """Get submissions for a questionnaire, scoped to the current event if per_event is set."""
-        if org_questionnaire.per_event:
+        """Get submissions for a questionnaire, scoped to the current event if per_event is set.
+
+        per_event is ignored in series scope: one submission covers the whole pass (#1321).
+        """
+        if org_questionnaire.per_event and self.handler.questionnaire_scope == "event":
             subs = self.handler.event_submission_map.get(org_questionnaire.questionnaire_id)
             return subs if subs else None
         return self.handler.submission_map.get(org_questionnaire.questionnaire_id)

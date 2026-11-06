@@ -1,5 +1,6 @@
 """Tests for questionnaire gate eligibility checks."""
 
+import typing as t
 from datetime import timedelta
 
 import pytest
@@ -21,6 +22,13 @@ pytestmark = pytest.mark.django_db
 
 
 # --- Test Cases for Questionnaire Gate ---
+
+
+def _relevant(service: EligibilityService) -> list[OrganizationQuestionnaire]:
+    """The org questionnaires the service resolved as relevant (set via prefetch on the org)."""
+    return t.cast(
+        list[OrganizationQuestionnaire], getattr(service.event.organization, "relevant_org_questionnaires", [])
+    )
 
 
 def test_questionnaire_is_missing(
@@ -769,7 +777,7 @@ def test_series_scope_includes_series_questionnaire(
 
     service = EligibilityService(member_user, public_event, questionnaire_scope="series")
 
-    relevant = service.event.organization.relevant_org_questionnaires  # type: ignore[attr-defined]
+    relevant = _relevant(service)
     assert [oq.id for oq in relevant] == [org_questionnaire.id]
 
 
@@ -801,5 +809,5 @@ def test_default_scope_unchanged_includes_both(
 
     service = EligibilityService(member_user, public_event)
 
-    relevant = service.event.organization.relevant_org_questionnaires  # type: ignore[attr-defined]
+    relevant = _relevant(service)
     assert [oq.id for oq in relevant] == [org_questionnaire.id]

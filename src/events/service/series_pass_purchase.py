@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import structlog
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -16,6 +16,7 @@ from accounts.models import RevelUser
 from events.compliance import enforcement as compliance
 from events.exceptions import SeriesPassNotPurchasableError
 from events.models import (
+    Event,
     HeldSeriesPass,
     OrganizationMember,
     SeriesPass,
@@ -73,16 +74,21 @@ class SeriesPassPurchaseService:
         """
         if self.org.is_owner_or_staff(self.user):
             return
+        now = timezone.now()
+        upcoming = self.series_pass.tier_links.filter(event__start__gte=now).select_related("event")
+        open_links = upcoming.filter(event__status=Event.EventStatus.OPEN)
+        # Prefer an event still accepting applications, then any open one, so the gate never vanishes.
         link = (
-            self.series_pass.tier_links.filter(event__start__gte=timezone.now())
-            .select_related("event")
+            open_links.filter(Q(event__apply_before__isnull=True) | Q(event__apply_before__gt=now))
             .order_by("event__start")
             .first()
+            or open_links.order_by("event__start").first()
+            or upcoming.order_by("event__start").first()
         )
         if link is None:
             return
         service = EligibilityService(self.user, link.event, questionnaire_scope="series")
-        # Deliberate: an anchor-event invitation with waives_questionnaire waives the series questionnaire too.
+        # Event invitations never waive the series questionnaire (the gate ignores them in series scope).
         if (result := QuestionnaireGate(service).check()) is not None:
             raise UserIsIneligibleError(str(result.reason), result)
 
@@ -137,13 +143,12 @@ class SeriesPassPurchaseService:
         checkout-session endpoint to obtain the Stripe checkout URL (#632).
         """
         self._assert_purchasable_by_user()
-        self._assert_series_questionnaires()
-
         quote = series_pass_service.get_quote(self.series_pass)
         if not quote.purchasable:
             raise SeriesPassNotPurchasableError(quote.reason or str(_("This pass cannot be purchased.")))
         if self._has_active_held_pass():
             raise SeriesPassNotPurchasableError(str(_("You already hold this pass.")))
+        self._assert_series_questionnaires()
 
         # Re-assert the total_quantity cap under a row lock — the quote above checked
         # it unlocked (fast path), so two concurrent buyers could both pass it. Lock

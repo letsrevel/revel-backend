@@ -64,6 +64,7 @@ class EligibilityService:
             )
         ).get(pk=user.pk)
 
+        self.questionnaire_scope = questionnaire_scope
         if questionnaire_scope == "series":
             event_link_filter = Q(event_series=event.event_series) if event.event_series else Q(pk__in=[])
         else:
