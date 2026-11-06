@@ -31,7 +31,12 @@ from events.models import (
     TicketTier,
 )
 from events.models.membership import MembershipTier
-from events.service import permission_snapshot, ticket_number_service, turnstile_hostname_service
+from events.service import (
+    member_register_service,
+    permission_snapshot,
+    ticket_number_service,
+    turnstile_hostname_service,
+)
 from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
 from events.service.follow_service import get_followers_for_new_event_notification
 from events.service.potluck_service import release_potluck_claims_unless_entitled, unclaim_user_potluck_items
@@ -366,11 +371,17 @@ def rebuild_visibility_on_membership_change(
 
 @receiver(pre_save, sender=OrganizationMember)
 def capture_member_old_tier(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
-    """Stash the pre-save tier id so post_save can detect tier changes."""
+    """Stash the pre-save tier id and status so post_save can detect changes."""
     if instance.pk:
-        instance._old_tier_id = (  # type: ignore[attr-defined]
-            OrganizationMember.objects.filter(pk=instance.pk).values_list("tier_id", flat=True).first()
-        )
+        old = OrganizationMember.objects.filter(pk=instance.pk).values_list("tier_id", "status").first()
+        if old is not None:
+            instance._old_tier_id, instance._old_status = old  # type: ignore[attr-defined]
+
+
+@receiver(post_save, sender=OrganizationMember)
+def mirror_member_to_register(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
+    """Mirror access-row transitions into the membership register (#1318)."""
+    member_register_service.mirror_member(instance, old_tier_id=getattr(instance, "_old_tier_id", None))
 
 
 @receiver(post_save, sender=OrganizationMember)
