@@ -186,3 +186,59 @@ def test_ticket_tier_with_membership_restriction_blocks_member_without_tier(
     eligible = get_eligible_tiers(public_event, member_user)
 
     assert ticket_tier not in eligible
+
+
+@pytest.mark.parametrize(
+    "status,sees_visible_tier",
+    [
+        (OrganizationMember.MembershipStatus.PAUSED, True),
+        (OrganizationMember.MembershipStatus.CANCELLED, False),
+        (OrganizationMember.MembershipStatus.BANNED, False),
+    ],
+)
+def test_non_active_member_tier_access(
+    member_user: RevelUser,
+    public_event: Event,
+    organization: t.Any,
+    status: OrganizationMember.MembershipStatus,
+    sees_visible_tier: bool,
+) -> None:
+    """PAUSED sees a MEMBERS_ONLY tier; none buy a MEMBERS tier; CANCELLED and BANNED see neither."""
+    OrganizationMember.objects.create(organization=organization, user=member_user, status=status)
+    visible_tier = TicketTier.objects.create(
+        event=public_event,
+        name="Members-visible",
+        payment_method=TicketTier.PaymentMethod.FREE,
+        visibility=TicketTier.Visibility.MEMBERS_ONLY,
+        purchasable_by=TicketTier.PurchasableBy.PUBLIC,
+    )
+    member_purchase_tier = TicketTier.objects.create(
+        event=public_event,
+        name="Members-purchase",
+        payment_method=TicketTier.PaymentMethod.FREE,
+        visibility=TicketTier.Visibility.PUBLIC,
+        purchasable_by=TicketTier.PurchasableBy.MEMBERS,
+    )
+
+    eligible = get_eligible_tiers(public_event, member_user)
+
+    assert (visible_tier in eligible) is sees_visible_tier
+    assert member_purchase_tier not in eligible
+
+
+def test_paused_member_sees_and_buys_members_visible_public_tier(
+    member_user: RevelUser, public_event: Event, organization: t.Any
+) -> None:
+    """PAUSED + MEMBERS_ONLY visibility + PUBLIC purchasable_by is listed (matches CanPurchaseTicket)."""
+    OrganizationMember.objects.create(
+        organization=organization, user=member_user, status=OrganizationMember.MembershipStatus.PAUSED
+    )
+    tier = TicketTier.objects.create(
+        event=public_event,
+        name="Members-visible public",
+        payment_method=TicketTier.PaymentMethod.FREE,
+        visibility=TicketTier.Visibility.MEMBERS_ONLY,
+        purchasable_by=TicketTier.PurchasableBy.PUBLIC,
+    )
+
+    assert tier in get_eligible_tiers(public_event, member_user)

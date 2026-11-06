@@ -19,6 +19,7 @@ from events.models import (
     OrganizationMembershipRequest,
     WhitelistRequest,
 )
+from events.utils.membership_access import is_eligible_status
 from questionnaires.models import QuestionnaireEvaluation, QuestionnaireSubmission
 from questionnaires.utils.retake_policy import RetakeVerdict, approval_is_stale, evaluate_retake_policy
 
@@ -58,9 +59,7 @@ class BaseMembershipEligibilityGate(abc.ABC):
 
     def _has_active_membership(self) -> bool:
         """True when the user has any ACTIVE membership in this org (at any tier)."""
-        return any(
-            m.status == OrganizationMember.MembershipStatus.ACTIVE for m in self.handler.user_memberships.values()
-        )
+        return any(is_eligible_status(m.status) for m in self.handler.user_memberships.values())
 
     def _allow(self, **extra: t.Any) -> MembershipEligibility:
         """Build an allowing eligibility with this gate's (org, tier, plan) context preset.
@@ -197,7 +196,7 @@ class AlreadyMemberGate(BaseMembershipEligibilityGate):
         membership = self.handler.user_memberships.get(self.tier.pk)
         if membership is None:
             return None
-        if membership.status == OrganizationMember.MembershipStatus.ACTIVE:
+        if is_eligible_status(membership.status):
             return self._allow(next_step=MembershipNextStep.ALREADY_MEMBER)
         return None
 

@@ -17,7 +17,9 @@ from pydantic import ValidationError as PydanticValidationError
 from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import BillingPostalAddressMixin, StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
+from events.utils import membership_access
 from events.utils.branding import OrganizationBranding
+from events.utils.membership_access import BANNED_STATUS, ELIGIBLE_STATUSES, VISIBLE_STATUSES, is_visible_status
 from events.utils.small_business import SmallBusinessScheme
 from events.utils.visibility import get_excluded_org_ids, get_valid_member_org_ids
 
@@ -724,23 +726,20 @@ class OrganizationMemberQuerySet(models.QuerySet["OrganizationMember"]):
     """Custom QuerySet for OrganizationMember with membership status filtering."""
 
     def for_visibility(self) -> t.Self:
-        """Return memberships that grant visibility access.
-
-        Excludes:
-        - CANCELLED: Treated as if the membership doesn't exist
-        - BANNED: No access, not even to public resources
-        """
-        return self.exclude(
-            status__in=[OrganizationMember.MembershipStatus.CANCELLED, OrganizationMember.MembershipStatus.BANNED]
-        )
+        """Memberships that may SEE member content (ACTIVE, PAUSED); see ``events.utils.membership_access``."""
+        return self.filter(status__in=VISIBLE_STATUSES)
 
     def active_only(self) -> t.Self:
         """Return only ACTIVE memberships (for eligibility checks)."""
-        return self.filter(status=OrganizationMember.MembershipStatus.ACTIVE)
+        return self.filter(status__in=ELIGIBLE_STATUSES)
 
     def banned_only(self) -> t.Self:
         """Return only BANNED memberships."""
-        return self.filter(status=OrganizationMember.MembershipStatus.BANNED)
+        return self.filter(status=BANNED_STATUS)
+
+    def non_cancelled(self) -> t.Self:
+        """Return memberships in any status except CANCELLED."""
+        return self.exclude(status=membership_access.CANCELLED_STATUS)
 
 
 class OrganizationMemberManager(models.Manager["OrganizationMember"]):
@@ -833,7 +832,7 @@ class OrganizationMember(TimeStampedModel):
         CANCELLED and BANNED members get a 404 from every card download endpoint,
         so availability flags must not advertise a button that would fail.
         """
-        return self.status not in (self.MembershipStatus.CANCELLED, self.MembershipStatus.BANNED)
+        return is_visible_status(self.status)
 
     @property
     def apple_pass_available(self) -> bool:

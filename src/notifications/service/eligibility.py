@@ -14,11 +14,11 @@ from events.models import (
     EventInvitation,
     EventRSVP,
     Organization,
-    OrganizationMember,
     ResourceVisibility,
     Ticket,
     TicketTier,
 )
+from events.utils.membership_access import visible_member_user_ids, visible_memberships
 from notifications.enums import NotificationType
 from notifications.models import NotificationPreference
 from notifications.service.preferences import create_default_preferences
@@ -99,11 +99,7 @@ class BatchParticipationChecker:
 
         # Organization members with visibility access (for EVENT_OPEN notifications)
         # Excludes CANCELLED and BANNED members
-        self.member_user_ids: set[UUID] = set(
-            OrganizationMember.objects.for_visibility()
-            .filter(organization=self.organization)
-            .values_list("user_id", flat=True)
-        )
+        self.member_user_ids: set[UUID] = set(visible_member_user_ids(self.organization.id))
 
         # Resolved once here rather than per call: ``Event.visibility_flags`` is
         # deliberately uncached and re-validates the whole JSON blob on every
@@ -362,7 +358,7 @@ def is_org_member(user: RevelUser, organization: Organization) -> bool:
     Returns:
         True if user is a member
     """
-    return OrganizationMember.objects.for_visibility().filter(user=user, organization=organization).exists()
+    return visible_memberships().filter(user=user, organization=organization).exists()
 
 
 def is_org_staff(user: RevelUser, organization: Organization) -> bool:
@@ -492,13 +488,7 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
     participants_q |= staff_and_owners_q
 
     # Reusable Q for org members with visibility access (ACTIVE/PAUSED only)
-    active_members_q = Q(
-        organization_memberships__organization_id=event.organization_id,
-        organization_memberships__status__in=[
-            OrganizationMember.MembershipStatus.ACTIVE,
-            OrganizationMember.MembershipStatus.PAUSED,
-        ],
-    )
+    active_members_q = Q(id__in=visible_member_user_ids(event.organization_id))
 
     # Apply visibility-specific rules
     if event.visibility == Event.Visibility.STAFF_ONLY:

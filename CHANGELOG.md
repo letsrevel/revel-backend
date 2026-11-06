@@ -8,11 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Membership access checks share one set of predicates**: visibility and eligibility rules for membership status now live in one module, and a guard test fails when new code writes an inline membership status filter
+- **Fewer queries in event eligibility checks**: one fewer database query per eligibility check
 - **Attendance now consistently means an ACTIVE or checked-in ticket**: checked-in attendees stay on the attendee list (including the staff view), in the dietary summary and in event-update notifications, and keep attendee-only visibility
   - PENDING ticket holders (e.g. an unconfirmed bank transfer) no longer appear on attendee lists or see attendee-only info (address, cancellation reason, attendee-only resources and polls) until their ticket is active; they still see their event and receive its updates
 
 ### Fixed
 - **Series pass purchase enforces admission questionnaires** (#1321): buying a series pass now requires completing the series' admission questionnaires. This affects series where an admission questionnaire was attached after the pass was created (the coverage gate already blocked the rest). Buyers answer once for the whole pass, regardless of `per_event`, and an event invitation does not waive it. Members exempt from a questionnaire stay exempt.
+- **Paused members see members-only tiers consistently**: the eligible-tiers listing now shows members-only-visible ticket tiers to paused members, matching checkout. A paused member can buy such a tier only if it is purchasable by non-members (e.g. public); they still cannot buy member-only or membership-tier-restricted tiers
+- **Dashboard "member" filters skip inactive memberships**: the organization, event and series filters no longer list organizations, events or series where the membership is cancelled or banned
 - **Series-pass tickets now update attendee counts right away**: free series-pass purchases, tickets granted when an online pass activates, and tickets added to existing holders when an event joins the series now refresh the event's attendee count, "full" status and attendee visibility immediately, instead of waiting for an unrelated ticket or RSVP change
 
 ## [2.35.0] - 2026-11-05

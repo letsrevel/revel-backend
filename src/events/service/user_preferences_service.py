@@ -9,10 +9,11 @@ from django.utils import timezone
 from pydantic import BaseModel
 
 from accounts.models import RevelUser
-from events.models import Event, EventInvitation, EventRSVP, GeneralUserPreferences, OrganizationMember, Ticket
+from events.models import Event, EventInvitation, EventRSVP, GeneralUserPreferences, Ticket
 from events.service import update_db_instance
 from events.service.location_service import invalidate_user_location_cache
 from events.tasks import build_attendee_visibility_flags
+from events.utils.membership_access import visible_member_user_ids, visible_memberships
 
 
 @dataclass
@@ -51,9 +52,7 @@ class VisibilityContext:
         rsvp_user_ids = set(
             EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).values_list("user_id", flat=True)
         )
-        org_member_ids = set(
-            OrganizationMember.objects.for_visibility().filter(organization_id=org_id).values_list("user_id", flat=True)
-        )
+        org_member_ids = set(visible_member_user_ids(org_id))
 
         return cls(
             event=event,
@@ -251,8 +250,8 @@ def resolve_visibility(
     )
 
     is_same_org_member = (
-        OrganizationMember.objects.for_visibility().filter(organization_id=org_id, user=viewer).exists()
-        and OrganizationMember.objects.for_visibility().filter(organization_id=org_id, user=target).exists()
+        visible_memberships().filter(organization_id=org_id, user=viewer).exists()
+        and visible_memberships().filter(organization_id=org_id, user=target).exists()
     )
 
     match visibility:

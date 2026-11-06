@@ -301,3 +301,59 @@ def test_get_user_invitations_exclude_accepted_hides_yes_rsvp(
 
     shown_qs = dashboard_service.get_user_invitations(dash_user, exclude_accepted=False)
     assert invite_evt.id in {inv.event_id for inv in shown_qs}
+
+
+# ---------------------------------------------------------------------------
+# member filter counts only visible memberships (#1315)
+# ---------------------------------------------------------------------------
+
+
+def test_dashboard_member_filter_excludes_cancelled_and_banned(
+    dash_user: RevelUser, django_user_model: t.Type[RevelUser]
+) -> None:
+    """CANCELLED/BANNED memberships do not make an org, its events or series show up under ``member``."""
+    Status = models.OrganizationMember.MembershipStatus
+    orgs = {}
+    for key, status in (
+        ("cancelled", Status.CANCELLED),
+        ("banned", Status.BANNED),
+        ("paused", Status.PAUSED),
+        ("active", Status.ACTIVE),
+    ):
+        org = models.Organization.objects.create(
+            name=f"{key} org", owner=django_user_model.objects.create_user(f"own-{key}"), visibility="public"
+        )
+        models.OrganizationMember.objects.create(organization=org, user=dash_user, status=status)
+        models.Event.objects.create(
+            name=f"{key} event",
+            organization=org,
+            status="open",
+            visibility=models.Event.Visibility.PUBLIC,
+            start=timezone.now(),
+        )
+        models.EventSeries.objects.create(name=f"{key} series", organization=org)
+        orgs[key] = org
+
+    org_qs = dashboard_service.get_user_related_organizations(
+        dash_user, filters.DashboardOrganizationsFiltersSchema(owner=False, staff=False)
+    )
+    assert {o.name for o in org_qs} == {"active org", "paused org"}
+
+    evt_params = filters.DashboardEventsFiltersSchema(
+        owner=False,
+        staff=False,
+        rsvp_yes=False,
+        rsvp_maybe=False,
+        got_ticket=False,
+        got_invitation=False,
+        bookmarked=False,
+    )
+    assert {e.name for e in dashboard_service.get_user_related_events(dash_user, evt_params)} == {
+        "active event",
+        "paused event",
+    }
+
+    series_qs = dashboard_service.get_user_related_event_series(
+        dash_user, filters.DashboardEventSeriesFiltersSchema(owner=False, staff=False)
+    )
+    assert {s.name for s in series_qs} == {"active series", "paused series"}

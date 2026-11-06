@@ -17,6 +17,7 @@ from common.controllers import UserAwareController
 from events import models, schema
 from events.service import permission_snapshot
 from events.service.potluck_service import user_may_hold_potluck_claims
+from events.utils.membership_access import is_eligible_member
 
 
 def scope_allows(request: HttpRequest, action: models.PermissionKey) -> None:
@@ -277,11 +278,7 @@ class CanPurchaseTicket(RootPermission):
             return True
 
         PB = models.TicketTier.PurchasableBy
-        is_member = (
-            models.OrganizationMember.objects.active_only()
-            .filter(organization_id=obj.event.organization_id, user_id=user.id)
-            .exists()
-        )
+        is_member = is_eligible_member(user, obj.event.organization_id)
 
         if obj.purchasable_by in [PB.MEMBERS, PB.INVITED_AND_MEMBERS] and is_member:
             return True

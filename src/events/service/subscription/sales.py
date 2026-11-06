@@ -12,8 +12,9 @@ from django.utils.translation import gettext as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import MembershipSubscriptionPlan, Organization, OrganizationMember
+from events.models import MembershipSubscriptionPlan, Organization
 from events.service.blacklist_service import check_user_hard_blacklisted
+from events.utils.membership_access import banned_memberships
 
 
 def ensure_plan_on_sale(plan: MembershipSubscriptionPlan) -> None:
@@ -58,11 +59,7 @@ def ensure_member_not_excluded(user: RevelUser, organization: Organization, *, m
     other member-facing path may confirm one. Staff callers keep the specific
     reason — the admin console is where the distinction is actionable.
     """
-    banned = OrganizationMember.objects.filter(
-        organization=organization,
-        user=user,
-        status=OrganizationMember.MembershipStatus.BANNED,
-    ).exists()
+    banned = banned_memberships().filter(organization=organization, user=user).exists()
     if banned:
         if member_facing:
             raise HttpError(403, str(_("You can't rejoin this organization.")))

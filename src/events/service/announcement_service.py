@@ -20,11 +20,11 @@ from events.models import (
     EventRSVP,
     MembershipTier,
     Organization,
-    OrganizationMember,
     Ticket,
 )
 from events.schema.announcement import AnnouncementCreateSchema, AnnouncementUpdateSchema
 from events.utils.frontend_urls import frontend_base_url_for
+from events.utils.membership_access import eligible_member_user_ids
 from notifications.enums import NotificationType
 from notifications.service.dispatcher import NotificationData, bulk_create_notifications
 
@@ -362,10 +362,7 @@ def _get_all_members_recipients(organization: Organization) -> QuerySet[RevelUse
     Returns:
         QuerySet of active member users.
     """
-    return RevelUser.objects.filter(
-        organization_memberships__organization=organization,
-        organization_memberships__status=OrganizationMember.MembershipStatus.ACTIVE,
-    ).distinct()
+    return RevelUser.objects.filter(id__in=eligible_member_user_ids(organization.id))
 
 
 def _get_tier_recipients(
@@ -381,11 +378,7 @@ def _get_tier_recipients(
     Returns:
         QuerySet of members in the specified tiers.
     """
-    return RevelUser.objects.filter(
-        organization_memberships__organization=organization,
-        organization_memberships__status=OrganizationMember.MembershipStatus.ACTIVE,
-        organization_memberships__tier_id__in=tier_ids,
-    ).distinct()
+    return RevelUser.objects.filter(id__in=eligible_member_user_ids(organization.id, tier_ids))
 
 
 def _get_staff_recipients(organization: Organization) -> QuerySet[RevelUser]:

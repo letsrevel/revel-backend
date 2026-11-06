@@ -14,6 +14,7 @@ from pydantic import ValidationError as PydanticValidationError
 from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import TagAssignment, TaggableMixin, TimeStampedModel
+from events.utils.membership_access import visible_memberships
 from events.utils.schedule import validate_schedule
 from events.utils.visibility import (
     get_excluded_org_ids,
@@ -34,7 +35,7 @@ from .mixins import (
     SlugFromNameMixin,
     VisibilityMixin,
 )
-from .organization import Organization, OrganizationMember
+from .organization import Organization
 from .ticket import _get_payment_default_expiry  # noqa: F401  # Re-export for migration compatibility
 from .venue import Venue
 
@@ -670,9 +671,7 @@ class Event(
             return True
 
         # Check if user is an organization member
-        is_org_member = (
-            OrganizationMember.objects.for_visibility().filter(user=user, organization=self.organization).exists()
-        )
+        is_org_member = visible_memberships().filter(user=user, organization=self.organization).exists()
 
         # MEMBERS_ONLY: Organization members
         if address_visibility == ResourceVisibility.MEMBERS_ONLY:
