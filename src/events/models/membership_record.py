@@ -94,26 +94,28 @@ class MembershipRecord(TimeStampedModel):
     objects = MembershipRecordQuerySet.as_manager()
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["organization", "user"],
-                condition=models.Q(valid_until__isnull=True, kind="standard", user__isnull=False),
-                name="unique_open_standard_record_per_user",
-            ),
-            models.CheckConstraint(
-                condition=models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=models.F("valid_from")),
-                name="membership_record_valid_range",
-            ),
-            models.UniqueConstraint(
-                fields=["ticket"],
-                condition=models.Q(ticket__isnull=False),
-                name="unique_membership_record_ticket",
-            ),
-        ]
         indexes = [
             models.Index(fields=["organization", "valid_from"]),
             models.Index(fields=["organization", "user"]),
         ]
+
+    # Declared after ``Meta`` because a nested class body cannot see ``Kind`` from the enclosing scope.
+    Meta.constraints = [
+        models.UniqueConstraint(
+            fields=["organization", "user"],
+            condition=models.Q(valid_until__isnull=True, kind=Kind.STANDARD, user__isnull=False),
+            name="unique_open_standard_record_per_user",
+        ),
+        models.CheckConstraint(
+            condition=models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=models.F("valid_from")),
+            name="membership_record_valid_range",
+        ),
+        models.UniqueConstraint(
+            fields=["ticket"],
+            condition=models.Q(ticket__isnull=False),
+            name="unique_membership_record_ticket",
+        ),
+    ]
 
     def __str__(self) -> str:
         return f"{self.full_name} @ {self.organization_id} ({self.valid_from:%Y-%m-%d})"

@@ -25,6 +25,7 @@ from .membership import (
     OrganizationMember,
     OrganizationMembershipRequest,
 )
+from .membership_record import MembershipRecord, MembershipRecordQuerySet
 from .misc import AdditionalResource
 from .mixins import ResourceVisibility
 from .nudge import OrganizationNudge
@@ -61,7 +62,6 @@ from .subscription import (
     MembershipSubscriptionPlan,
     SubscriptionPaymentMethod,
 )
-from .membership_record import MembershipRecord, MembershipRecordQuerySet
 from .ticket import (
     DEFAULT_TICKET_TIER_NAME,
     CancellationSource,
@@ -99,6 +99,8 @@ __all__ = [
     "TicketTier",
     # Organizations
     "ALLOWED_MEMBERSHIP_REQUEST_METHODS",
+    "MembershipRecord",
+    "MembershipRecordQuerySet",
     "MembershipTier",
     "Organization",
     "OrganizationContactMessage",
@@ -131,8 +133,6 @@ __all__ = [
     # Nudges
     "OrganizationNudge",
     # Private notes
-    "MembershipRecord",
-    "MembershipRecordQuerySet",
     "OrganizationUserNote",
     # Preferences
     "BaseUserPreferences",
