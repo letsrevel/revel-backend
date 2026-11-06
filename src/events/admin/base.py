@@ -16,7 +16,25 @@ from django.utils.translation import gettext_lazy as _
 from unfold.admin import TabularInline
 from unfold.widgets import CHECKBOX_CLASSES
 
+from common.models import SiteSettings
 from events import models
+
+
+def frontend_url(path: str) -> str:
+    """Absolute Revel frontend URL for ``path`` (e.g. ``/org/my-slug``)."""
+    return f"{SiteSettings.get_solo().frontend_base_url.rstrip('/')}{path}"
+
+
+def format_city(city: t.Any) -> str:
+    """Format a ``geo.City`` as ``"Name (Country)"``; em dash when there is none."""
+    return f"{city.name} ({city.country})" if city else "—"
+
+
+def view_on_revel_link(url: str | None) -> str:
+    """Render a new-tab link to the Revel frontend, or an em dash when there is no URL."""
+    if not url:
+        return "—"
+    return format_html('<a href="{}" target="_blank" rel="noopener">View ↗</a>', url)
 
 
 # --- Helper Mixins for Reusable Link Fields ---
