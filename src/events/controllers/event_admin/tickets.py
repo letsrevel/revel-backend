@@ -14,7 +14,7 @@ from common.authentication import ScopedJWTAuth
 from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
-from events.controllers.permissions import EventPermission, is_app_token_request
+from events.controllers.permissions import EventPermission, controller_uses_app_token
 from events.schema.financials import EventFinancialsSchema
 from events.service import (
     check_in_service,
@@ -511,7 +511,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         # lookup — the bare-UUID ticket path (the common case) stays query-free
         # until its own fetch inside check_in_ticket.
         # Private notes are session-only: app tokens check in but never read the note.
-        hide_note = is_app_token_request(self.context.request)  # type: ignore[arg-type, union-attr]
+        hide_note = controller_uses_app_token(self)
         if code.startswith(models.OrganizationMember.QR_PREFIX):
             result = member_scan_service.scan_member_code(event, code, self.user(), price_paid=price_paid)
             if hide_note:

@@ -51,8 +51,9 @@ def scope_allows(request: HttpRequest, action: models.PermissionKey) -> None:
         raise InsufficientScopeError(sorted(needed)[0] if needed else None)
 
 
-def is_app_token_request(request: HttpRequest) -> bool:
-    """Whether the request is authenticated by a third-party app token (not a session)."""
+def controller_uses_app_token(controller: ControllerBase) -> bool:
+    """Whether the controller's current request is authenticated by a third-party app token."""
+    request = controller.context.request if controller.context else None
     return isinstance(getattr(request, "auth", None), OAuthPrincipal)
 
 

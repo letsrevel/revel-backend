@@ -102,7 +102,7 @@ def test_member_card_scan_no_ticket(
     assert session.json()["member"]["private_note"] == NOTE
 
 
-@pytest.mark.parametrize("via_member_card", [False, True])
+@pytest.mark.parametrize("via_member_card", [False, True], ids=["ticket_code", "member_card_single_ticket"])
 def test_ticket_scan(
     via_member_card: bool,
     open_event: Event,
@@ -124,8 +124,9 @@ def test_ticket_scan(
     assert app.json()["private_note"] is None
 
 
+@pytest.mark.parametrize("via_member_card", [False, True], ids=["ticket_code", "member_card_single_ticket"])
 def test_ticket_scan_session_gets_note(
-    open_event: Event, noted_member: OrganizationMember, session_client: Client
+    via_member_card: bool, open_event: Event, noted_member: OrganizationMember, session_client: Client
 ) -> None:
     tier = TicketTier.objects.create(
         event=open_event, name="Free", price=Decimal("0"), payment_method=TicketTier.PaymentMethod.FREE
@@ -133,7 +134,8 @@ def test_ticket_scan_session_gets_note(
     ticket = Ticket.objects.create(
         event=open_event, user=noted_member.user, tier=tier, guest_name="G", status=Ticket.TicketStatus.ACTIVE
     )
-    path = f"/api/event-admin/{open_event.id}/tickets/{ticket.id}/check-in"
+    code = noted_member.qr_payload if via_member_card else str(ticket.id)
+    path = f"/api/event-admin/{open_event.id}/tickets/{code}/check-in"
     assert session_client.post(path, content_type="application/json").json()["private_note"] == NOTE
 
 

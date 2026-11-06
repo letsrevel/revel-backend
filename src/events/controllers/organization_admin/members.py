@@ -20,7 +20,7 @@ from events.controllers.permissions import (
     IsOrganizationOwner,
     IsOrganizationStaff,
     OrganizationPermission,
-    is_app_token_request,
+    controller_uses_app_token,
 )
 from events.service import organization_service, user_note_service
 from oauth.permissions import RequireScope
@@ -45,14 +45,9 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     Handles members, membership tiers, staff, and tags.
     """
 
-    def _request(self) -> t.Any:
-        return self.context.request  # type: ignore[union-attr]
-
     def _can_read_notes(self, organization: models.Organization) -> bool:
         """Private notes: ``manage_members`` on a session only; OAuth app tokens never read them."""
-        return not is_app_token_request(self._request()) and organization.has_org_permission(
-            self.user().id, "manage_members"
-        )
+        return not controller_uses_app_token(self) and organization.has_org_permission(self.user().id, "manage_members")
 
     def _with_note(
         self, organization: models.Organization, member: models.OrganizationMember
@@ -175,7 +170,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         )
         note = (
             None
-            if is_app_token_request(self._request())
+            if controller_uses_app_token(self)
             else user_note_service.get_note_body(organization.id, member.user_id)
         )
         return schema.MemberVerificationSchema.from_member(member, private_note=note)
