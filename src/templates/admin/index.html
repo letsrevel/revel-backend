@@ -112,6 +112,44 @@
             </div>
         </div>
 
+        {# Organizer Activity #}
+        <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow p-6 mb-8">
+            <div class="flex items-start justify-between gap-4 mb-4">
+                <div>
+                    <h2 class="text-lg font-semibold mb-1 text-gray-800 dark:text-gray-200">Organizer activity</h2>
+                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                        Week of {{ dashboard.organizer_activity.week_start|date:"M j, Y" }} &ndash; {{ dashboard.organizer_activity.week_end|date:"M j, Y" }}
+                        &middot; {{ dashboard.organizer_activity.total_events }} event{{ dashboard.organizer_activity.total_events|pluralize }} by {{ dashboard.organizer_activity.total_orgs }} org{{ dashboard.organizer_activity.total_orgs|pluralize }}
+                    </p>
+                </div>
+                <div class="flex items-center gap-3 text-sm">
+                    <a href="?week={{ dashboard.organizer_activity.prev_offset }}" class="text-primary-600 dark:text-primary-500 hover:underline" aria-label="Previous week">&larr;</a>
+                    {% if dashboard.organizer_activity.next_offset is not None %}
+                        <a href="?week={{ dashboard.organizer_activity.next_offset }}" class="text-primary-600 dark:text-primary-500 hover:underline" aria-label="Next week">&rarr;</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% if dashboard.organizer_activity.orgs %}
+                <ul class="space-y-3">
+                    {% for org in dashboard.organizer_activity.orgs %}
+                        <li class="border-b border-base-100 dark:border-base-800 pb-3">
+                            <div class="flex items-center justify-between">
+                                <a href="{{ org.change_url }}" class="font-semibold text-primary-600 dark:text-primary-500 hover:underline">{{ org.name }}</a>
+                                <span class="font-semibold text-gray-900 dark:text-gray-100">{{ org.event_count }}</span>
+                            </div>
+                            <ul class="mt-1 ml-4 list-disc text-sm text-gray-600 dark:text-gray-400">
+                                {% for event in org.events %}
+                                    <li><a href="{{ event.change_url }}" class="hover:underline">{{ event.name }}</a></li>
+                                {% endfor %}
+                            </ul>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="text-gray-600 dark:text-gray-400">No manually created events this week.</p>
+            {% endif %}
+        </div>
+
         {# User Growth Chart & Pronoun Distribution #}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow p-6">

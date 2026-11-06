@@ -1,7 +1,7 @@
 """Dashboard callback for Django Unfold admin interface."""
 
 import typing as t
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from dateutil.relativedelta import relativedelta
 from django.contrib.auth.models import AnonymousUser
@@ -96,6 +96,93 @@ class TopOrganizationsPayload(t.TypedDict):
     rows: list[TopOrganizationRow]
 
 
+class OrganizerActivityEvent(t.TypedDict):
+    """A manually created event listed under its organization in the organizer-activity card."""
+
+    name: str
+    change_url: str
+
+
+class OrganizerActivityOrg(t.TypedDict):
+    """An organization and the events it manually created in the selected week."""
+
+    name: str
+    change_url: str
+    event_count: int
+    events: list[OrganizerActivityEvent]
+
+
+class OrganizerActivity(t.TypedDict):
+    """Weekly organizer-activity data (manually created events grouped by organization)."""
+
+    week_start: date
+    week_end: date
+    total_events: int
+    total_orgs: int
+    orgs: list[OrganizerActivityOrg]
+    prev_offset: int
+    next_offset: int | None
+
+
+MIN_WEEK_OFFSET = -260
+
+
+def _parse_week_offset(raw: str | None) -> int:
+    """Parse the ``?week=`` param into an offset in [MIN_WEEK_OFFSET, 0]; anything invalid is 0."""
+    try:
+        offset = int(raw) if raw is not None else 0
+    except ValueError:
+        return 0
+    return max(MIN_WEEK_OFFSET, min(0, offset))
+
+
+def _get_organizer_activity(week_offset: int = 0) -> OrganizerActivity:
+    """Group the manually created events of one local calendar week (Mon-Sun) by organization.
+
+    Args:
+        week_offset: 0 for the current week, -1 for the previous one, and so on.
+
+    Returns:
+        Week bounds, totals, and per-organization rows (most events first, then by name).
+    """
+    monday = timezone.localdate() - timedelta(days=timezone.localdate().weekday()) + timedelta(weeks=week_offset)
+    start = timezone.make_aware(datetime.combine(monday, time.min))
+    end = timezone.make_aware(datetime.combine(monday + timedelta(weeks=1), time.min))
+
+    events = (
+        Event.objects.manually_created()
+        .filter(created_at__gte=start, created_at__lt=end)
+        .select_related("organization")
+        .order_by("created_at")
+    )
+    by_org: dict[t.Any, OrganizerActivityOrg] = {}
+    total_events = 0
+    for event in events:
+        total_events += 1
+        org = by_org.setdefault(
+            event.organization_id,
+            {
+                "name": event.organization.name,
+                "change_url": reverse("admin:events_organization_change", args=[event.organization_id]),
+                "event_count": 0,
+                "events": [],
+            },
+        )
+        org["event_count"] += 1
+        org["events"].append({"name": event.name, "change_url": reverse("admin:events_event_change", args=[event.pk])})
+
+    orgs = sorted(by_org.values(), key=lambda o: (-o["event_count"], o["name"]))
+    return {
+        "week_start": monday,
+        "week_end": monday + timedelta(days=6),
+        "total_events": total_events,
+        "total_orgs": len(orgs),
+        "orgs": orgs,
+        "prev_offset": max(MIN_WEEK_OFFSET, week_offset - 1),
+        "next_offset": week_offset + 1 if week_offset < 0 else None,
+    }
+
+
 def _get_pronoun_distribution() -> PronounDistribution:
     """Calculate pronoun distribution among users.
 
@@ -166,7 +253,7 @@ def _get_event_analytics() -> dict[str, t.Any]:
     Returns:
         Dictionary with event statistics by RSVP/ticket requirement, visibility, and event type
     """
-    total_events = Event.objects.count()
+    total_events = Event.objects.exclude_templates().count()
 
     # Avoid division by zero
     if total_events == 0:
@@ -178,15 +265,16 @@ def _get_event_analytics() -> dict[str, t.Any]:
         }
 
     # RSVP vs Requires Ticket
-    rsvp_count = Event.objects.filter(requires_ticket=False).count()
-    ticket_count = Event.objects.filter(requires_ticket=True).count()
+    events = Event.objects.exclude_templates()
+    rsvp_count = events.filter(requires_ticket=False).count()
+    ticket_count = events.filter(requires_ticket=True).count()
 
     # By Visibility
-    visibility_stats = Event.objects.values("visibility").annotate(count=Count("id"))
+    visibility_stats = events.values("visibility").annotate(count=Count("id"))
     visibility_data = {stat["visibility"]: stat["count"] for stat in visibility_stats}
 
     # By Event Type
-    event_type_stats = Event.objects.values("event_type").annotate(count=Count("id"))
+    event_type_stats = events.values("event_type").annotate(count=Count("id"))
     event_type_data = {stat["event_type"]: stat["count"] for stat in event_type_stats}
 
     return {
@@ -400,17 +488,24 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
     connected_telegram = TelegramUser.objects.filter(user__isnull=False).count()
     total_organizations = Organization.objects.count()
     connected_stripe = Organization.objects.filter(STRIPE_CONNECTED_Q).count()
-    total_events = Event.objects.count()
+    total_events = Event.objects.exclude_templates().count()
     # Exists() rather than a join + .distinct(): a semi-join needs no dedup pass,
     # and an event with several online tiers must still count once.
-    events_with_online_payment = Event.objects.filter(
-        Exists(
-            TicketTier.objects.filter(
-                event=OuterRef("pk"),
-                payment_method=TicketTier.PaymentMethod.ONLINE,
+    events_with_online_payment = (
+        Event.objects.exclude_templates()
+        .filter(
+            Exists(
+                TicketTier.objects.filter(
+                    event=OuterRef("pk"),
+                    payment_method=TicketTier.PaymentMethod.ONLINE,
+                )
             )
         )
-    ).count()
+        .count()
+    )
+
+    # Organizer activity (manually created events in the selected week)
+    organizer_activity = _get_organizer_activity(_parse_week_offset(request.GET.get("week")))
 
     # User growth data
     user_growth = _get_user_growth_data(days=30)
@@ -471,6 +566,7 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
                     "total_events": total_events,
                     "events_with_online_payment": events_with_online_payment,
                 },
+                "organizer_activity": organizer_activity,
                 "user_growth": user_growth,
                 "pronoun_distribution": pronoun_distribution,
                 "event_analytics": event_analytics,

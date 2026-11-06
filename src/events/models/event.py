@@ -51,6 +51,13 @@ class EventQuerySet(models.QuerySet["Event"]):
         """
         return self.filter(is_template=False)
 
+    def manually_created(self) -> t.Self:
+        """Keep only events a human created: no series templates, no generated recurrence occurrences.
+
+        Duplicated events qualify (``occurrence_index`` is excluded from duplication, so it stays NULL).
+        """
+        return self.filter(is_template=False, occurrence_index__isnull=True)
+
     def with_tags(self) -> t.Self:
         """Prefetch tags and related tag objects for max performance."""
         return self.prefetch_related(
@@ -190,6 +197,10 @@ class EventManager(models.Manager["Event"]):
     def exclude_templates(self) -> EventQuerySet:
         """Return a queryset that excludes recurring-series template events."""
         return self.get_queryset().exclude_templates()
+
+    def manually_created(self) -> EventQuerySet:
+        """Return a queryset of manually created events (no templates, no generated occurrences)."""
+        return self.get_queryset().manually_created()
 
     def with_organization(self) -> EventQuerySet:
         """Returns a queryset prefetching an organization and its members."""

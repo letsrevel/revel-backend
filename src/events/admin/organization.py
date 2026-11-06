@@ -2,6 +2,7 @@
 """Admin classes for Organization and related models."""
 
 import typing as t
+from datetime import datetime
 
 from django import forms
 from django.conf import settings
@@ -14,13 +15,14 @@ from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
-from unfold.contrib.filters.admin import AutocompleteSelectFilter, RangeDateFilter
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from accounts.models import RevelUser
 from common.models import STRIPE_CONNECTED_Q
 from events import models
 from events.admin.base import (
     EventSeriesInline,
+    InclusiveRangeDateFilter,
     MembershipTierInline,
     OrganizationLinkMixin,
     OrganizationMemberInline,
@@ -28,6 +30,9 @@ from events.admin.base import (
     OrganizationStaffInline,
     UserLinkMixin,
     VenueInline,
+    format_city,
+    frontend_url,
+    view_on_revel_link,
 )
 from events.service import custom_domain_service, turnstile_hostname_service
 from events.service.organization_service import contact as contact_service
@@ -198,9 +203,12 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     list_display = [
         "name",
         "slug",
+        "city_display",
+        "open_on_revel",
         "owner_link",
         "members_count",
         "events_count",
+        "last_event_created",
         "payments_count",
         "stripe_connected",
         "vat_status",
@@ -214,14 +222,15 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         VatStatusFilter,
         AcquisitionSourceFilter,
         "visibility",
-        ("created_at", RangeDateFilter),
+        ("created_at", InclusiveRangeDateFilter),
     ]
     list_filter_submit = True
-    list_select_related = ["owner"]
+    list_select_related = ["owner", "city"]
+    ordering = ["-created_at"]
     search_fields = ["name", "slug", "owner__username"]
     autocomplete_fields = ["owner", "city", "staff_members", "members"]
     prepopulated_fields = {"slug": ("name",)}
-    readonly_fields = ["attribution", "custom_domain"]
+    readonly_fields = ["id", "view_on_revel", "attribution", "custom_domain"]
     actions = ["bind_platform_stripe_account", "unbind_platform_stripe_account", "clear_stripe_connect_account"]
 
     tabs = [
@@ -236,6 +245,8 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
             "Settings",
             {
                 "fields": [
+                    "id",
+                    "view_on_revel",
                     "name",
                     "slug",
                     "owner",
@@ -415,9 +426,14 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
             .annotate(cnt=Count("id"))
             .values("cnt")
         )
+        manual_events = models.Event.objects.manually_created().filter(organization=OuterRef("pk"))
+        manual_events_subquery = manual_events.values("organization").annotate(cnt=Count("id")).values("cnt")
+        last_created_subquery = manual_events.order_by("-created_at").values("created_at")[:1]
         return qs.annotate(
             _members_count=Subquery(members_subquery),
             _events_count=Subquery(events_subquery),
+            _manual_events_count=Coalesce(Subquery(manual_events_subquery), 0),
+            _last_event_created=Subquery(last_created_subquery),
             # Coalesced so orgs with no sales sort as 0 rather than clumping with NULLs.
             _payments_count=Coalesce(Subquery(payments_subquery), 0),
         )
@@ -431,9 +447,29 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     def members_count(self, obj: models.Organization) -> int:
         return t.cast(int, getattr(obj, "_members_count", 0))
 
-    @admin.display(description="Events", ordering="_events_count")
-    def events_count(self, obj: models.Organization) -> int:
-        return t.cast(int, getattr(obj, "_events_count", 0))
+    @admin.display(description="Events (manual / all)", ordering="_manual_events_count")
+    def events_count(self, obj: models.Organization) -> str:
+        manual = getattr(obj, "_manual_events_count", 0) or 0
+        total = getattr(obj, "_events_count", 0) or 0
+        return f"{manual} / {total}"
+
+    @admin.display(description="Last created", ordering="_last_event_created")
+    def last_event_created(self, obj: models.Organization) -> datetime | str:
+        return getattr(obj, "_last_event_created", None) or "—"
+
+    @admin.display(description="City")
+    def city_display(self, obj: models.Organization) -> str:
+        return format_city(obj.city)
+
+    @admin.display(description="Open")
+    def open_on_revel(self, obj: models.Organization) -> str:
+        return view_on_revel_link(frontend_url(f"/org/{obj.slug}"))
+
+    @admin.display(description="View on Revel")
+    def view_on_revel(self, obj: models.Organization | None) -> str:
+        if obj is None or obj._state.adding:
+            return "—"
+        return view_on_revel_link(frontend_url(f"/org/{obj.slug}"))
 
     @admin.display(description="Payments", ordering="_payments_count")
     def payments_count(self, obj: models.Organization) -> int:
