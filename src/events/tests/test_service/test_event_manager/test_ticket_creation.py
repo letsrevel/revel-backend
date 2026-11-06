@@ -186,3 +186,33 @@ def test_ticket_tier_with_membership_restriction_blocks_member_without_tier(
     eligible = get_eligible_tiers(public_event, member_user)
 
     assert ticket_tier not in eligible
+
+
+def test_paused_member_sees_members_only_tier_but_cannot_buy_member_tier(
+    member_user: RevelUser, public_event: Event, organization: t.Any
+) -> None:
+    """A PAUSED member may SEE a MEMBERS_ONLY-visible tier but cannot buy a MEMBERS-purchasable one."""
+    OrganizationMember.objects.create(
+        organization=organization,
+        user=member_user,
+        status=OrganizationMember.MembershipStatus.PAUSED,
+    )
+    visible_tier = TicketTier.objects.create(
+        event=public_event,
+        name="Members-visible",
+        payment_method=TicketTier.PaymentMethod.FREE,
+        visibility=TicketTier.Visibility.MEMBERS_ONLY,
+        purchasable_by=TicketTier.PurchasableBy.PUBLIC,
+    )
+    member_purchase_tier = TicketTier.objects.create(
+        event=public_event,
+        name="Members-purchase",
+        payment_method=TicketTier.PaymentMethod.FREE,
+        visibility=TicketTier.Visibility.PUBLIC,
+        purchasable_by=TicketTier.PurchasableBy.MEMBERS,
+    )
+
+    eligible = get_eligible_tiers(public_event, member_user)
+
+    assert visible_tier in eligible
+    assert member_purchase_tier not in eligible
