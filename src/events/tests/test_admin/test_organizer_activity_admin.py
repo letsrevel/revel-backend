@@ -1,5 +1,6 @@
 """Tests for the Organization/Event admin additions: city, open link, manual counts, origin filter."""
 
+import datetime as dt
 import typing as t
 
 import pytest
@@ -177,3 +178,18 @@ def test_event_add_page_renders(admin_client: Client, superuser: RevelUser) -> N
     response = admin_client.get(reverse("admin:events_event_add"))
     assert response.status_code == 200
     assert "View ↗" not in response.content.decode()  # no link to an event that doesn't exist yet
+
+
+@NO_MANIFEST_STORAGE
+def test_created_at_range_filter_includes_whole_to_day(admin_client: Client, org: Organization) -> None:
+    """An event created on the afternoon of the "to" date is inside the range (Unfold compares to midnight)."""
+    afternoon = _event(org, "afternoon")
+    next_day = _event(org, "next-day")
+    Event.objects.filter(pk=afternoon.pk).update(created_at=timezone.make_aware(dt.datetime(2026, 3, 10, 15, 30)))
+    Event.objects.filter(pk=next_day.pk).update(created_at=timezone.make_aware(dt.datetime(2026, 3, 11, 0, 30)))
+    url = reverse("admin:events_event_changelist")
+
+    html = admin_client.get(f"{url}?created_at_from=2026-03-10&created_at_to=2026-03-10").content.decode()
+
+    assert f"/events/{afternoon.pk}" in html
+    assert f"/events/{next_day.pk}" not in html

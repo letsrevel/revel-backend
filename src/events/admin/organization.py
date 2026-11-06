@@ -15,13 +15,14 @@ from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
-from unfold.contrib.filters.admin import AutocompleteSelectFilter, RangeDateFilter
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from accounts.models import RevelUser
 from common.models import STRIPE_CONNECTED_Q
 from events import models
 from events.admin.base import (
     EventSeriesInline,
+    InclusiveRangeDateFilter,
     MembershipTierInline,
     OrganizationLinkMixin,
     OrganizationMemberInline,
@@ -221,7 +222,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         VatStatusFilter,
         AcquisitionSourceFilter,
         "visibility",
-        ("created_at", RangeDateFilter),
+        ("created_at", InclusiveRangeDateFilter),
     ]
     list_filter_submit = True
     list_select_related = ["owner", "city"]

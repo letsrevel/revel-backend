@@ -14,6 +14,8 @@ from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import TabularInline
+from unfold.contrib.filters.admin import RangeDateFilter
+from unfold.utils import parse_date_str
 from unfold.widgets import CHECKBOX_CLASSES
 
 from common.models import SiteSettings
@@ -35,6 +37,27 @@ def view_on_revel_link(url: str | None) -> str:
     if not url:
         return "—"
     return format_html('<a href="{}" target="_blank" rel="noopener">View ↗</a>', url)
+
+
+class InclusiveRangeDateFilter(RangeDateFilter):  # type: ignore[misc]
+    """``RangeDateFilter`` for DateTimeFields that includes the whole "to" day.
+
+    Unfold compares ``field__lte=<date>``, which a DateTimeField reads as midnight, dropping
+    everything created later that day. Comparing on ``__date`` (current timezone) fixes both ends.
+    """
+
+    def queryset(self, request: HttpRequest, queryset: QuerySet[t.Any]) -> QuerySet[t.Any] | None:
+        filters: dict[str, t.Any] = {}
+        value_from = self.used_parameters.get(f"{self.parameter_name}_from")
+        if value_from and isinstance(value_from, str):
+            filters[f"{self.parameter_name}__date__gte"] = parse_date_str(value_from)
+        value_to = self.used_parameters.get(f"{self.parameter_name}_to")
+        if value_to and isinstance(value_to, str):
+            filters[f"{self.parameter_name}__date__lte"] = parse_date_str(value_to)
+        try:
+            return queryset.filter(**filters)
+        except ValueError, ValidationError:
+            return None
 
 
 # --- Helper Mixins for Reusable Link Fields ---

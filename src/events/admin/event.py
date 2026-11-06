@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
-from unfold.contrib.filters.admin import AutocompleteSelectFilter, RangeDateFilter
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
 from events.admin.base import (
@@ -19,6 +19,7 @@ from events.admin.base import (
     EventLinkMixin,
     EventRSVPInline,
     EventWaitListInline,
+    InclusiveRangeDateFilter,
     OrganizationLinkMixin,
     TicketInline,
     TicketTierInline,
@@ -82,7 +83,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
         "start",
         "requires_ticket",
         "waitlist_open",
-        ("created_at", RangeDateFilter),
+        ("created_at", InclusiveRangeDateFilter),
         EventOriginFilter,
     ]
     list_filter_submit = True
