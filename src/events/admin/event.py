@@ -174,7 +174,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
 
     @admin.display(description="View on Revel")
     def view_on_revel(self, obj: models.Event | None) -> str:
-        if obj is None or obj.pk is None:
+        if obj is None or obj._state.adding:
             return "—"
         return view_on_revel_link(frontend_url(f"/events/{obj.pk}"))
 

@@ -11,6 +11,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
 from events.admin.base import format_city, frontend_url, view_on_revel_link
+from events.admin.organization import OrganizationAdmin
 from events.models import Event, Organization, Venue
 from geo.models import City
 
@@ -78,9 +79,24 @@ def test_org_changelist_columns(admin_client: Client, org: Organization) -> None
 
 
 @NO_MANIFEST_STORAGE
-def test_org_changelist_sortable_by_manual_count(admin_client: Client, org: Organization) -> None:
-    for o in ("o=5", "o=-5", "o=6"):
-        assert admin_client.get(f"{reverse('admin:events_organization_changelist')}?{o}").status_code == 200
+def test_org_changelist_sortable_by_manual_count(
+    admin_client: Client, org: Organization, revel_user_factory: RevelUserFactory
+) -> None:
+    """Sorting by the Events column orders by the manual count, not the total."""
+    busy = Organization.objects.create(name="Busy", slug="busy", owner=revel_user_factory())
+    _event(busy, "b1")
+    _event(busy, "b2")
+    _event(org, "a1")
+    for i in range(3):  # more events in total, but generated ones
+        _event(org, f"occ{i}", occurrence_index=i)
+    col = OrganizationAdmin.list_display.index("events_count") + 1
+    url = reverse("admin:events_organization_changelist")
+
+    asc = admin_client.get(f"{url}?o={col}").content.decode()
+    desc = admin_client.get(f"{url}?o=-{col}").content.decode()
+
+    assert asc.index("/org/acme") < asc.index("/org/busy")
+    assert desc.index("/org/busy") < desc.index("/org/acme")
 
 
 @NO_MANIFEST_STORAGE
@@ -95,7 +111,9 @@ def test_org_change_page_shows_id_and_link(admin_client: Client, org: Organizati
 
 @NO_MANIFEST_STORAGE
 def test_org_add_page_renders(admin_client: Client) -> None:
-    assert admin_client.get(reverse("admin:events_organization_add")).status_code == 200
+    response = admin_client.get(reverse("admin:events_organization_add"))
+    assert response.status_code == 200
+    assert "View ↗" not in response.content.decode()  # no link to an org that doesn't exist yet
 
 
 @NO_MANIFEST_STORAGE
@@ -156,4 +174,6 @@ def test_event_change_page_shows_id_and_link(admin_client: Client, org: Organiza
 
 @NO_MANIFEST_STORAGE
 def test_event_add_page_renders(admin_client: Client, superuser: RevelUser) -> None:
-    assert admin_client.get(reverse("admin:events_event_add")).status_code == 200
+    response = admin_client.get(reverse("admin:events_event_add"))
+    assert response.status_code == 200
+    assert "View ↗" not in response.content.decode()  # no link to an event that doesn't exist yet
