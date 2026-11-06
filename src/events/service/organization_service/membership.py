@@ -25,6 +25,7 @@ from events.models import (
     PermissionsSchema,
 )
 from events.utils.frontend_urls import frontend_base_url_for
+from events.utils.membership_access import banned_memberships
 
 if t.TYPE_CHECKING:
     from events.schema import MembershipTierCreateSchema, MembershipTierUpdateSchema
@@ -118,11 +119,11 @@ def _assert_free_grant_allowed(membership_request: models.OrganizationMembership
             ``force``); 400 when the user holds a non-terminal subscription, or
             when their membership is PAUSED.
     """
-    is_banned = models.OrganizationMember.objects.filter(
-        organization_id=membership_request.organization_id,
-        user_id=membership_request.user_id,
-        status=OrganizationMember.MembershipStatus.BANNED,
-    ).exists()
+    is_banned = (
+        banned_memberships()
+        .filter(organization_id=membership_request.organization_id, user_id=membership_request.user_id)
+        .exists()
+    )
     if is_banned:
         raise HttpError(
             403,

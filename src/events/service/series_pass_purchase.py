@@ -18,7 +18,6 @@ from events.exceptions import SeriesPassNotPurchasableError
 from events.models import (
     Event,
     HeldSeriesPass,
-    OrganizationMember,
     SeriesPass,
     SeriesPassTierLink,
     Ticket,
@@ -29,6 +28,7 @@ from events.service import series_pass_service
 from events.service.blacklist_service import check_user_hard_blacklisted
 from events.service.event_manager import EligibilityService, NextStep, Reasons, UserIsIneligibleError
 from events.service.event_manager.gates import QuestionnaireGate
+from events.utils.membership_access import is_eligible_member
 from notifications.signals.series_pass import send_series_pass_purchased
 
 if t.TYPE_CHECKING:
@@ -57,8 +57,7 @@ class SeriesPassPurchaseService:
         if self.series_pass.purchasable_by == TicketTier.PurchasableBy.MEMBERS:
             if self.org.is_owner_or_staff(self.user):
                 return
-            is_member = OrganizationMember.objects.active_only().filter(organization=self.org, user=self.user).exists()
-            if not is_member:
+            if not is_eligible_member(self.user, self.org.pk):
                 raise HttpError(403, str(_("This pass is for members only.")))
 
     def _assert_series_questionnaires(self) -> None:

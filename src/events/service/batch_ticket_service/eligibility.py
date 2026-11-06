@@ -22,6 +22,7 @@ from events.service.event_manager import (
     Reasons,
     UserIsIneligibleError,
 )
+from events.utils.membership_access import get_eligible_membership
 
 if t.TYPE_CHECKING:
     from accounts.models import RevelUser
@@ -193,11 +194,7 @@ class PurchaseEligibilityMixin(BatchTicketContext):
 
     @cached_property
     def _buyer_membership(self) -> OrganizationMember | None:
-        return (
-            OrganizationMember.objects.active_only()
-            .filter(organization=self.event.organization, user=self.user)
-            .first()
-        )
+        return get_eligible_membership(self.user, self.event.organization_id)
 
     @cached_property
     def _buyer_invitation(self) -> EventInvitation | None:

@@ -31,6 +31,7 @@ from events.models import (
 from events.service.blacklist_service import check_user_hard_blacklisted
 from events.service.subscription.notifications import _dispatch_renewal_succeeded
 from events.service.subscription.sales import ensure_plan_sales_capacity
+from events.utils.membership_access import banned_memberships
 from events.utils.subscription_periods import calculate_period_end
 
 logger = structlog.get_logger(__name__)
@@ -92,11 +93,7 @@ def create_subscription(
         raise HttpError(400, str(_("This plan is archived and no longer accepts new subscriptions.")))
 
     # Refuse BANNED.
-    banned = OrganizationMember.objects.filter(
-        organization=organization,
-        user=user,
-        status=OrganizationMember.MembershipStatus.BANNED,
-    ).exists()
+    banned = banned_memberships().filter(organization=organization, user=user).exists()
     if banned:
         raise HttpError(403, str(_("This user is banned from the organization.")))
 
