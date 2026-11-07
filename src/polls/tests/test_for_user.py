@@ -6,8 +6,9 @@ import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.utils import timezone
 
+from events.models.membership import OrganizationMember
 from events.models.mixins import ResourceVisibility
-from events.models.organization import Organization, OrganizationMember, OrganizationStaff
+from events.models.organization import Organization, OrganizationStaff
 from polls.models import Poll
 from questionnaires.models import QuestionnaireSubmission
 

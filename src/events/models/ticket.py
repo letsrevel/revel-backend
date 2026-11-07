@@ -18,8 +18,8 @@ from events.utils.membership_access import visible_memberships
 from events.utils.tier_pricing import validate_category_prices
 from events.utils.visibility import get_invited_event_ids, get_valid_member_org_ids, owner_or_staff_q
 
+from .membership import MembershipTier
 from .mixins import VisibilityMixin
-from .organization import MembershipTier
 from .ticket_number import PreserveTicketNumberMixin
 from .ticket_queryset import TicketManager
 from .venue import Venue, VenueSeat, VenueSector

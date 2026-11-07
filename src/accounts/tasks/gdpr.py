@@ -197,7 +197,12 @@ def delete_user_account(user_id: str) -> None:
     user = RevelUser.objects.get(id=user_id)
     # Deliberately no email here: this log outlives the erasure it records.
     logger.info("account_deletion_started", user_id=str(user.id))
-    _cancel_live_subscriptions(user)
+    from events.service.member_register_service import suppress_mirror
+
+    # The cancel flips the member to CANCELLED, which would close the register record;
+    # the legal log must stay open (user nulled by SET_NULL on delete).
+    with suppress_mirror():
+        _cancel_live_subscriptions(user)
     # ``delete()`` nulls the instance pk, so keep it for the history purge.
     pk = user.pk
     try:

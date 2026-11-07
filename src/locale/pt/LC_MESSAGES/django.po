@@ -7106,3 +7106,44 @@ msgstr "A nota é demasiado longa."
 
 msgid "The note is empty."
 msgstr "A nota está vazia."
+
+msgid "Standard"
+msgstr "Padrão"
+
+msgid "Temporary"
+msgstr "Temporário"
+
+msgid "Expelled"
+msgstr "Expulso"
+
+msgid "Revoked"
+msgstr "Revogado"
+
+msgid "Tier changed"
+msgstr "Nível alterado"
+
+msgid "Token"
+msgstr "Token"
+
+msgid "Subscription"
+msgstr "Subscrição"
+
+msgid "Ticket"
+msgstr "Bilhete"
+
+msgid "Manual"
+msgstr "Manual"
+
+msgid "Import"
+msgstr "Importação"
+
+msgid "Backfill"
+msgstr "Carga retroativa"
+
+msgid "Member Register"
+msgstr "Registo de membros"
+
+msgid ""
+"Organizations you are or were a member of keep their own membership records. T"
+"o have yours removed, contact the organization."
+msgstr "As organizações de que és ou foste membro mantêm os seus próprios registos de adesão. Para que o teu seja removido, contacta a organização."

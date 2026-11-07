@@ -4,7 +4,7 @@ from uuid import UUID
 from django.contrib.gis.db import models
 from django.db.models import Prefetch
 
-from .organization import OrganizationMember
+from .membership import OrganizationMember
 
 if t.TYPE_CHECKING:
     from .ticket import Ticket  # noqa: F401  (resolves the "Ticket" string annotations)

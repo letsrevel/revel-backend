@@ -24,10 +24,12 @@ from accounts.models import RevelUser
 from common.utils import get_or_create_with_race_protection, update_or_create_with_race_protection
 from events.models import (
     MembershipPayment,
+    MembershipRecord,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     OrganizationMember,
 )
+from events.service import member_register_service
 from events.service.blacklist_service import check_user_hard_blacklisted
 from events.service.subscription.notifications import _dispatch_renewal_succeeded
 from events.service.subscription.sales import ensure_plan_sales_capacity
@@ -122,14 +124,15 @@ def create_subscription(
     # is materialized here — for FREE that is the *only* place it can happen.
     is_free = plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.FREE
     if plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
-        update_or_create_with_race_protection(
-            OrganizationMember,
-            {"organization": organization, "user": user},
-            {
-                "tier": plan.tier,
-                "status": OrganizationMember.MembershipStatus.ACTIVE,
-            },
-        )
+        with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
+            update_or_create_with_race_protection(
+                OrganizationMember,
+                {"organization": organization, "user": user},
+                {
+                    "tier": plan.tier,
+                    "status": OrganizationMember.MembershipStatus.ACTIVE,
+                },
+            )
 
     # The partial-unique index protects against a race where two requests both
     # pass the duplicate check above; the helper re-fetches the winner whether

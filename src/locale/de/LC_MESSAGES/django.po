@@ -7255,3 +7255,44 @@ msgstr "Die Notiz ist zu lang."
 
 msgid "The note is empty."
 msgstr "Die Notiz ist leer."
+
+msgid "Standard"
+msgstr "Standard"
+
+msgid "Temporary"
+msgstr "Befristet"
+
+msgid "Expelled"
+msgstr "Ausgeschlossen"
+
+msgid "Revoked"
+msgstr "Widerrufen"
+
+msgid "Tier changed"
+msgstr "Stufe geändert"
+
+msgid "Token"
+msgstr "Token"
+
+msgid "Subscription"
+msgstr "Abonnement"
+
+msgid "Ticket"
+msgstr "Ticket"
+
+msgid "Manual"
+msgstr "Manuell"
+
+msgid "Import"
+msgstr "Import"
+
+msgid "Backfill"
+msgstr "Nachtrag"
+
+msgid "Member Register"
+msgstr "Mitgliederregister"
+
+msgid ""
+"Organizations you are or were a member of keep their own membership records. T"
+"o have yours removed, contact the organization."
+msgstr "Organisationen, bei denen du Mitglied bist oder warst, bewahren ihre eigenen Mitgliedschaftsdatensätze auf. Wenn deine entfernt werden sollen, wende dich an die Organisation."

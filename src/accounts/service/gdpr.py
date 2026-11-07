@@ -463,6 +463,8 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "event_series_follows": ExportRule(include=True),
     "organization_follows": ExportRule(include=True),
     "organization_memberships": ExportRule(include=True),
+    # The org-kept register rows about the user (#1318); ``created_by`` is the staff actor.
+    "membership_records": ExportRule(include=True, exclude_fields=("created_by",)),
     "organization_staff_memberships": ExportRule(include=True),
     "eventwaitlist_set": ExportRule(include=True),
     "waitlist_offers": ExportRule(include=True),
@@ -500,6 +502,7 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "checked_in_tickets": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "cancelled_tickets": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "recorded_membership_payments": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "created_membership_records": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "initiated_refunds": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "resolved_fiscal_documents": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "eventtoken_tokens": ExportRule(include=False, reason="operational invite tokens (secret ids)"),

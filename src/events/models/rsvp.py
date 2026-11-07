@@ -7,7 +7,7 @@ from django.db.models import Prefetch
 
 from common.models import TimeStampedModel
 
-from .organization import OrganizationMember
+from .membership import OrganizationMember
 
 
 class EventRSVPQuerySet(models.QuerySet["EventRSVP"]):

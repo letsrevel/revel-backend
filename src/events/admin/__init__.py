@@ -32,6 +32,7 @@ from events.admin.invoice import (
     PlatformFeeCreditNoteAdmin,
     PlatformFeeInvoiceAdmin,
 )
+from events.admin.membership_record import MembershipRecordAdmin
 from events.admin.nudge import OrganizationNudgeAdmin
 from events.admin.organization import (
     MembershipTierAdmin,
@@ -81,6 +82,7 @@ __all__ = [
     "OrganizationAdmin",
     "OrganizationQuestionnaireAdmin",
     "OrganizationContactMessageAdmin",
+    "MembershipRecordAdmin",
     "MembershipTierAdmin",
     "OrganizationStaffAdmin",
     "OrganizationMemberAdmin",

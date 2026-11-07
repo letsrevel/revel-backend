@@ -16,6 +16,7 @@ from accounts.models import RevelUser
 from common.models import SiteSettings
 from common.utils import get_or_create_with_race_protection, update_or_create_with_race_protection
 from events.models import (
+    MembershipRecord,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
@@ -23,6 +24,7 @@ from events.models import (
     OrganizationMember,
     OrganizationMembershipRequest,
 )
+from events.service import member_register_service
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 from questionnaires.models import QuestionnaireSubmission
@@ -555,13 +557,16 @@ def _complete_free_application(application: OrganizationMembershipRequest) -> No
             ),
         )
 
-    update_or_create_with_race_protection(
-        OrganizationMember,
-        {"organization": application.organization, "user": application.user},
-        {
-            "tier": application.tier,
-            "status": OrganizationMember.MembershipStatus.ACTIVE,
-        },
-    )
+    with member_register_service.record_source(
+        MembershipRecord.Source.APPLICATION, questionnaire_submission=application.questionnaire_submission
+    ):
+        update_or_create_with_race_protection(
+            OrganizationMember,
+            {"organization": application.organization, "user": application.user},
+            {
+                "tier": application.tier,
+                "status": OrganizationMember.MembershipStatus.ACTIVE,
+            },
+        )
     application.status = OrganizationMembershipRequest.Status.COMPLETED
     application.save(update_fields=["status", "updated_at"])

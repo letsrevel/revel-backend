@@ -305,13 +305,20 @@ def remove_from_blacklist(entry: Blacklist) -> None:
         )
         return
 
-    updated = OrganizationMember.objects.filter(
-        organization=organization,
-        user=user,
-        status=OrganizationMember.MembershipStatus.BANNED,
-    ).update(status=OrganizationMember.MembershipStatus.CANCELLED)
+    # Per-row save (not a bulk update) so post_save receivers run: permission snapshot
+    # invalidation and the member-register mirror.
+    banned = list(
+        OrganizationMember.objects.filter(
+            organization=organization,
+            user=user,
+            status=OrganizationMember.MembershipStatus.BANNED,
+        )
+    )
+    for banned_member in banned:
+        banned_member.status = OrganizationMember.MembershipStatus.CANCELLED
+        banned_member.save(update_fields=["status", "updated_at"])
 
-    if updated:
+    if banned:
         logger.info(
             "unbanned_user_membership_status_reset_to_cancelled",
             organization_id=str(organization.id),

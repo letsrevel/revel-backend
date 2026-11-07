@@ -21,7 +21,7 @@ if t.TYPE_CHECKING:
 
     from accounts.models import RevelUser
     from events.models import OrganizationMember
-    from events.models.organization import OrganizationMemberQuerySet
+    from events.models.membership import OrganizationMemberQuerySet
 
 # Plain strings (== OrganizationMember.MembershipStatus values) because models cannot be
 # imported here at module level; tests pin them to the enum.

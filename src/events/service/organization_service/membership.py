@@ -34,7 +34,7 @@ if t.TYPE_CHECKING:
 # events/migrations/0001_initial.py (referenced as a field `default=`), so it
 # cannot be renamed without breaking historical migrations.
 from events.models.organization import _get_default_permissions
-from events.service import blacklist_service
+from events.service import blacklist_service, member_register_service
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 
@@ -236,11 +236,15 @@ def approve_membership_request(
             update_fields.append("tier")
         membership_request.save(update_fields=update_fields)
 
-        member, created = update_or_create_with_race_protection(
-            models.OrganizationMember,
-            {"organization": membership_request.organization, "user": membership_request.user},
-            {"tier": effective_tier, "status": OrganizationMember.MembershipStatus.ACTIVE},
-        )
+        with member_register_service.record_source(
+            models.MembershipRecord.Source.APPLICATION,
+            questionnaire_submission=membership_request.questionnaire_submission,
+        ):
+            member, created = update_or_create_with_race_protection(
+                models.OrganizationMember,
+                {"organization": membership_request.organization, "user": membership_request.user},
+                {"tier": effective_tier, "status": OrganizationMember.MembershipStatus.ACTIVE},
+            )
         member.full_clean()
     else:
         # Paid path: mark APPROVED, awaiting the member's /subscribe + payment.
@@ -322,16 +326,18 @@ def add_member(organization: Organization, user: RevelUser, tier: MembershipTier
     # 500 instead of returning the documented domain error. The helper re-fetches
     # the winner whether the race surfaces as IntegrityError (INSERT) or
     # ValidationError (full_clean's validate_constraints).
-    member, created = get_or_create_with_race_protection(
-        OrganizationMember,
-        Q(organization=organization, user=user),
-        {"organization": organization, "user": user, "tier": tier},
-    )
+    with member_register_service.record_source(models.MembershipRecord.Source.STAFF):
+        member, created = get_or_create_with_race_protection(
+            OrganizationMember,
+            Q(organization=organization, user=user),
+            {"organization": organization, "user": user, "tier": tier},
+        )
     if not created:
         raise AlreadyMemberError(str(_("User is already a member of this organization.")))
     return member
 
 
+@transaction.atomic
 def remove_member(organization: Organization, user: RevelUser) -> None:
     """Remove a member from an organization.
 
@@ -342,6 +348,10 @@ def remove_member(organization: Organization, user: RevelUser) -> None:
     member = get_object_or_404(OrganizationMember, organization=organization, user=user)
     from events.service.subscription import lifecycle as subscription_lifecycle  # lazy: avoid cycle
 
+    # Close first: the subscription cancel below would otherwise close the record as CANCELLED.
+    member_register_service.close_standard_record(
+        organization.pk, user.pk, reason=models.MembershipRecord.EndedReason.REMOVED
+    )
     subscription_lifecycle.cancel_subscriptions_for_membership_loss(user, organization)
     member.delete()
 
@@ -564,7 +574,11 @@ def delete_membership_tier(tier: MembershipTier) -> None:
             references the tier or one of its plans.
     """
     try:
-        tier.delete()
+        with transaction.atomic():
+            # SET_NULL on OrganizationMember.tier is a bulk UPDATE with no signals, so re-point
+            # the register ourselves; a ProtectedError below rolls this back.
+            member_register_service.reopen_for_tier_deletion(tier)
+            tier.delete()
     except ProtectedError as exc:
         if any(isinstance(obj, OrganizationMembershipRequest) for obj in exc.protected_objects):
             raise MembershipTierInUseError(str(TIER_HAS_APPLICATIONS_MESSAGE)) from exc

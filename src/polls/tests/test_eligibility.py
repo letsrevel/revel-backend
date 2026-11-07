@@ -8,12 +8,9 @@ from django.utils import timezone
 
 from events.models.event import Event
 from events.models.invitation import EventInvitation
+from events.models.membership import MembershipTier, OrganizationMember
 from events.models.mixins import ResourceVisibility
-from events.models.organization import (
-    MembershipTier,
-    Organization,
-    OrganizationMember,
-)
+from events.models.organization import Organization
 from polls.models import Poll
 from polls.service import eligibility
 from questionnaires.models import Questionnaire

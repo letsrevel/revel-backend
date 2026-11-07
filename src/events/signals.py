@@ -20,6 +20,7 @@ from events.models import (
     EventWaitList,
     GeneralUserPreferences,
     MembershipPayment,
+    MembershipRecord,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     Organization,
@@ -30,8 +31,13 @@ from events.models import (
     Ticket,
     TicketTier,
 )
-from events.models.organization import MembershipTier
-from events.service import permission_snapshot, ticket_number_service, turnstile_hostname_service
+from events.models.membership import MembershipTier
+from events.service import (
+    member_register_service,
+    permission_snapshot,
+    ticket_number_service,
+    turnstile_hostname_service,
+)
 from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
 from events.service.follow_service import get_followers_for_new_event_notification
 from events.service.potluck_service import release_potluck_claims_unless_entitled, unclaim_user_potluck_items
@@ -371,6 +377,12 @@ def capture_member_old_tier(sender: type[OrganizationMember], instance: Organiza
         instance._old_tier_id = (  # type: ignore[attr-defined]
             OrganizationMember.objects.filter(pk=instance.pk).values_list("tier_id", flat=True).first()
         )
+
+
+@receiver(post_save, sender=OrganizationMember)
+def mirror_member_to_register(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
+    """Mirror access-row transitions into the membership register (#1318)."""
+    member_register_service.mirror_member(instance)
 
 
 @receiver(post_save, sender=OrganizationMember)
@@ -729,7 +741,8 @@ def sync_member_from_subscription(
         return
 
     update_fields.append("updated_at")
-    member.save(update_fields=update_fields)
+    with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
+        member.save(update_fields=update_fields)
 
     logger.info(
         "membership_subscription_synced_member",

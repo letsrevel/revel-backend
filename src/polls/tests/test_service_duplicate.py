@@ -5,8 +5,9 @@ import typing as t
 import pytest
 from django.utils import timezone
 
+from events.models.membership import MembershipTier
 from events.models.mixins import ResourceVisibility
-from events.models.organization import MembershipTier, Organization
+from events.models.organization import Organization
 from polls.exceptions import PollResultsMustBeAnonymousError
 from polls.models import Poll
 from polls.schema import PollCreateSchema
