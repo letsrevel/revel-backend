@@ -120,3 +120,24 @@ def test_requires_manage_members_permission(organization: Organization, revel_us
 
 def test_disabled_for_guest_defaults() -> None:
     assert get_guest_notification_type_settings()[NTYPE]["enabled"] is False
+
+
+def test_email_text_body_is_not_html_escaped(regular_user: RevelUser) -> None:
+    """Names with ``&`` or apostrophes read as typed in the plain-text part."""
+    notification = Notification.objects.create(
+        user=regular_user,
+        notification_type=NTYPE,
+        context={
+            "organization_id": "id",
+            "organization_name": "Acme & Co",
+            "record_id": "id",
+            "record_full_name": "Rock & Roll O'Brien",
+            "member_display_name": "Janie",
+            "member_email": "jane@example.com",
+            "frontend_url": FRONTEND_URL,
+        },
+    )
+    body = StaffMemberRecordAutoLinkedTemplate().get_email_text_body(notification)
+    assert body is not None
+    assert "Rock & Roll O'Brien" in body
+    assert "&amp;" not in body

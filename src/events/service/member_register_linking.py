@@ -101,12 +101,16 @@ def _make_access_row_agree(
     return member
 
 
-def link_record(record: MembershipRecord, user: RevelUser, *, token: str | None = None) -> LinkResult:
+def link_record(
+    record: MembershipRecord, user: RevelUser, *, token: str | None = None, require_verified_email: bool = False
+) -> LinkResult:
     """Link an account-less ``record`` to ``user``, applying the collision rules in order.
 
     Locks the claimant, then their access row, then the record (the mirror locks member -> record).
     When ``token`` is given it is re-checked against the locked record, so a link rotated or used
-    between the caller's lookup and this lock reads as ALREADY_LINKED.
+    between the caller's lookup and this lock reads as ALREADY_LINKED. With ``require_verified_email``
+    (automatic links) the locked user must still be a non-guest holding a verified email equal (``iexact``) to
+    the locked record's email, otherwise the call reads as ALREADY_LINKED too (nothing changes).
     """
     with transaction.atomic():
         # NO KEY UPDATE: a plain FOR UPDATE would conflict with the KEY SHARE lock that inserting a record
@@ -124,7 +128,16 @@ def link_record(record: MembershipRecord, user: RevelUser, *, token: str | None 
             .get(pk=record.pk)
         )
 
-        if locked.user_id is not None or (token is not None and locked.invite_token != token):
+        stale_token = token is not None and (
+            locked.invite_token != token or locked.ended_reason == MembershipRecord.EndedReason.REVOKED
+        )
+        email_mismatch = require_verified_email and (
+            user.guest
+            or not user.email_verified
+            or not user.email
+            or user.email.upper() != locked.email.upper()  # iexact is UPPER() on Postgres
+        )
+        if locked.user_id is not None or stale_token or email_mismatch:
             return LinkResult(LinkOutcome.ALREADY_LINKED, locked)
 
         open_standard = locked.valid_until is None and locked.kind == MembershipRecord.Kind.STANDARD
@@ -257,12 +270,12 @@ def auto_link_records_for_user(user_id: UUID) -> list[LinkResult]:
     records = list(
         MembershipRecord.objects.unlinked()
         .select_related("organization")
-        .filter(email__iexact=user.email)
+        .filter(email__iexact=user.email, valid_from__lte=timezone.now())  # never before an entry starts
         .order_by("valid_from", "created_at")
     )
     results: list[LinkResult] = []
     for record in records:
-        result = link_record(record, user)
+        result = link_record(record, user, require_verified_email=True)
         results.append(result)
         logger.info("member_register_auto_link", record_id=str(record.pk), user_id=str(user.pk), outcome=result.outcome)
         if result.outcome == LinkOutcome.LINKED:

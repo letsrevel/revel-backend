@@ -111,9 +111,9 @@ def test_auto_link_skips_not_started_records(
 
     with patch("notifications.signals.notification_requested.send") as send:
         with django_capture_on_commit_callbacks(execute=True):
-            (result,) = auto_link_records_for_user(user.pk)
+            results = auto_link_records_for_user(user.pk)
 
-    assert result.outcome == LinkOutcome.NOT_STARTED
+    assert results == []
     record.refresh_from_db()
     assert record.user is None
     assert STAFF_ALERT not in _types(send)
@@ -437,3 +437,56 @@ def test_create_user_leaves_no_stash(django_user_model: type[RevelUser]) -> None
     """A UUID default pk is set before save, so only ``_state.adding`` identifies a new row."""
     user = django_user_model.objects.create_user(username="c@example.com", email="c@example.com", password="pw")
     assert user._register_link_prev is None  # type: ignore[attr-defined]
+
+
+def test_auto_link_skips_future_closed_record(make_record: RecordFactory, django_user_model: type[RevelUser]) -> None:
+    """A closed or TEMPORARY entry that hasn't started is not auto-linked either."""
+    start = _future()
+    record = make_record(valid_from=start, valid_until=start + timedelta(days=1))
+    user = _verified(django_user_model)
+
+    assert auto_link_records_for_user(user.pk) == []
+    record.refresh_from_db()
+    assert record.user is None
+
+
+def test_auto_link_rechecks_email_under_lock(make_record: RecordFactory, django_user_model: type[RevelUser]) -> None:
+    """If the user's email changed after the records were selected, the automatic link changes nothing."""
+    record = make_record()
+    user = _verified(django_user_model)
+    RevelUser.objects.filter(pk=user.pk).update(email="moved@example.com")
+
+    result = link_record(record, user, require_verified_email=True)
+
+    assert result.outcome == LinkOutcome.ALREADY_LINKED
+    record.refresh_from_db()
+    assert record.user is None
+
+
+def test_auto_link_rechecks_verification_under_lock(
+    make_record: RecordFactory, django_user_model: type[RevelUser]
+) -> None:
+    """An email that lost its verification in the meantime no longer links."""
+    record = make_record()
+    user = _verified(django_user_model)
+    RevelUser.objects.filter(pk=user.pk).update(email_verified=False)
+
+    assert link_record(record, user, require_verified_email=True).outcome == LinkOutcome.ALREADY_LINKED
+    record.refresh_from_db()
+    assert record.user is None
+
+
+def test_revocation_is_rechecked_under_the_lock(make_record: RecordFactory, claimant: RevelUser) -> None:
+    """A record revoked between the token lookup and the lock can't be claimed."""
+    start = timezone.now() - timedelta(days=2)
+    record = make_record(
+        kind=MembershipRecord.Kind.TEMPORARY,
+        valid_from=start,
+        valid_until=start + timedelta(days=1),
+        ended_reason=MembershipRecord.EndedReason.REVOKED,
+        invite_token="tok",
+    )
+
+    assert link_record(record, claimant, token="tok").outcome == LinkOutcome.ALREADY_LINKED
+    record.refresh_from_db()
+    assert record.user is None
