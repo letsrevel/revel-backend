@@ -44,6 +44,7 @@ class MembershipRecordSchema(ModelSchema):
     has_account: bool
     invited_at: AwareDatetime | None = None
     invite_status: MembershipRecordInviteStatus
+    has_duplicate_claim: bool
 
     class Meta:
         model = MembershipRecord
@@ -53,6 +54,11 @@ class MembershipRecordSchema(ModelSchema):
     def resolve_has_account(obj: MembershipRecord) -> bool:
         """Whether the person still has an account."""
         return obj.user_id is not None
+
+    @staticmethod
+    def resolve_has_duplicate_claim(obj: MembershipRecord) -> bool:
+        """Whether a claimant who already holds an open membership tried to link this entry (staff reconcile)."""
+        return obj.duplicate_claimant_id is not None
 
     @staticmethod
     def resolve_invite_status(obj: MembershipRecord) -> MembershipRecordInviteStatus:

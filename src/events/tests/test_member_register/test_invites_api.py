@@ -10,7 +10,9 @@ from unittest.mock import patch
 
 import pytest
 from django.core import mail
+from django.db import connection
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -61,7 +63,7 @@ class TestSendInvite:
         assert "invite_token" not in body
         record.refresh_from_db()
         assert record.invite_token and record.invited_at is not None
-        delay.assert_called_once_with(str(record.pk), record.invite_token)
+        delay.assert_called_once_with(str(record.pk))
 
     def test_resend_rotates_token(
         self,
@@ -125,21 +127,29 @@ class TestSendInvite:
         organization: Organization,
         make_record: RecordFactory,
         claimant: RevelUser,
-        django_assert_max_num_queries: t.Any,
+        django_user_model: type[RevelUser],
     ) -> None:
+        url = reverse("api:list_member_register", kwargs={"slug": organization.slug})
         make_record(email="a@example.com")
+
+        with CaptureQueriesContext(connection) as one:
+            assert len(owner_client.get(url).json()["results"]) == 1
+
         make_record(email="b@example.com", invited_at=timezone.now(), invite_token="t1")
         make_record(email="c@example.com", user=claimant)
-        url = reverse("api:list_member_register", kwargs={"slug": organization.slug})
+        for i in range(7):
+            other = django_user_model.objects.create_user(username=f"u{i}", email=f"u{i}@example.com", password="pw")
+            make_record(email=f"d{i}@example.com", user=other if i % 2 else None, duplicate_claimant=claimant)
 
-        with django_assert_max_num_queries(15):
+        with CaptureQueriesContext(connection) as many:
             results = owner_client.get(url).json()["results"]
 
-        assert {r["email"]: r["invite_status"] for r in results} == {
-            "a@example.com": "not_invited",
-            "b@example.com": "invited",
-            "c@example.com": "linked",
-        }
+        assert len(results) == 10
+        assert len(many) == len(one)
+        by_email = {r["email"]: r["invite_status"] for r in results}
+        assert by_email["a@example.com"] == "not_invited"
+        assert by_email["b@example.com"] == "invited"
+        assert by_email["c@example.com"] == "linked"
 
 
 class TestBulkInvite:
@@ -193,7 +203,7 @@ class TestInviteEmail:
     def test_renders_with_claim_link(self, organization: Organization, make_record: RecordFactory) -> None:
         record = make_record(invite_token="abc123", invited_at=timezone.now())
 
-        send_member_register_invite(str(record.pk), "abc123")
+        send_member_register_invite(str(record.pk))
 
         (message,) = mail.outbox
         assert message.to == ["pat@example.com"]
@@ -211,28 +221,35 @@ class TestInviteEmail:
         record = make_record(invite_token="abc123", invited_at=timezone.now())
 
         with patch("events.tasks.member_register.send_email") as send_email:
-            send_member_register_invite(str(record.pk), "abc123")
+            send_member_register_invite(str(record.pk))
 
         kwargs = send_email.call_args.kwargs
         assert kwargs["from_email"] and "mail.example.test" in kwargs["from_email"]
         assert kwargs["headers"]["Feedback-ID"].endswith(":member_register_invite:revel")
         assert "https://events.example.com/member-invite/abc123" in kwargs["body"]
 
-    def test_skips_when_token_superseded(self, make_record: RecordFactory) -> None:
+    def test_sends_the_current_token(self, make_record: RecordFactory) -> None:
+        """A resend between dispatch and execution makes the latest link win; no token is in the task args."""
         record = make_record(invite_token="new", invited_at=timezone.now())
-        send_member_register_invite(str(record.pk), "old")
+        send_member_register_invite(str(record.pk))
+        (message,) = mail.outbox
+        assert "/member-invite/new" in message.body
+
+    def test_skips_when_no_token(self, make_record: RecordFactory) -> None:
+        record = make_record()
+        send_member_register_invite(str(record.pk))
         assert mail.outbox == []
 
     def test_skips_when_linked(self, make_record: RecordFactory, claimant: RevelUser) -> None:
         record = make_record(invite_token="abc", user=claimant)
-        send_member_register_invite(str(record.pk), "abc")
+        send_member_register_invite(str(record.pk))
         assert mail.outbox == []
 
     def test_skips_when_record_gone(self, make_record: RecordFactory) -> None:
         record = make_record(invite_token="abc")
         pk = str(record.pk)
         record.delete()
-        send_member_register_invite(pk, "abc")
+        send_member_register_invite(pk)
         assert mail.outbox == []
 
 

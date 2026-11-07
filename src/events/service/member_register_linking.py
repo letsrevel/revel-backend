@@ -25,6 +25,7 @@ from common.utils import get_or_create_with_race_protection
 from events.models import MembershipRecord, Organization, OrganizationMember
 from events.service import blacklist_service
 from events.utils.frontend_urls import frontend_base_url_for
+from notifications.context_schemas import StaffMemberRecordAutoLinkedContext
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
@@ -41,6 +42,7 @@ class LinkOutcome(enum.StrEnum):
     ALREADY_LINKED = "already_linked"
     DUPLICATE = "duplicate"
     BANNED = "banned"
+    NOT_STARTED = "not_started"
 
 
 @dataclass(frozen=True)
@@ -99,13 +101,17 @@ def _make_access_row_agree(
     return member
 
 
-def link_record(record: MembershipRecord, user: RevelUser) -> LinkResult:
+def link_record(record: MembershipRecord, user: RevelUser, *, token: str | None = None) -> LinkResult:
     """Link an account-less ``record`` to ``user``, applying the collision rules in order.
 
     Locks the claimant, then their access row, then the record (the mirror locks member -> record).
+    When ``token`` is given it is re-checked against the locked record, so a link rotated or used
+    between the caller's lookup and this lock reads as ALREADY_LINKED.
     """
     with transaction.atomic():
-        user = RevelUser.objects.select_for_update().get(pk=user.pk)
+        # NO KEY UPDATE: a plain FOR UPDATE would conflict with the KEY SHARE lock that inserting a record
+        # or access row referencing this user takes on it (FK check), deadlocking against concurrent inserts.
+        user = RevelUser.objects.select_for_update(no_key=True).get(pk=user.pk)
         member = (
             OrganizationMember.objects.select_for_update(of=("self",))
             .select_related("organization", "tier")
@@ -118,11 +124,13 @@ def link_record(record: MembershipRecord, user: RevelUser) -> LinkResult:
             .get(pk=record.pk)
         )
 
-        if locked.user_id is not None:
+        if locked.user_id is not None or (token is not None and locked.invite_token != token):
             return LinkResult(LinkOutcome.ALREADY_LINKED, locked)
 
         open_standard = locked.valid_until is None and locked.kind == MembershipRecord.Kind.STANDARD
         if open_standard:
+            if locked.valid_from > timezone.now():
+                return LinkResult(LinkOutcome.NOT_STARTED, locked)
             if (member is not None and member.status == Status.BANNED) or blacklist_service.check_user_hard_blacklisted(
                 user, locked.organization
             ):
@@ -152,10 +160,11 @@ def _new_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def _dispatch_invite(record_id: UUID, token: str) -> None:
+def _dispatch_invite(record_id: UUID) -> None:
     from events.tasks.member_register import send_member_register_invite  # lazy: the task imports this module
 
-    transaction.on_commit(lambda: send_member_register_invite.delay(str(record_id), token))
+    # Only the id travels through the broker: the task reads the current token itself.
+    transaction.on_commit(lambda: send_member_register_invite.delay(str(record_id)))
 
 
 def send_invite(record: MembershipRecord) -> MembershipRecord:
@@ -166,10 +175,16 @@ def send_invite(record: MembershipRecord) -> MembershipRecord:
         raise HttpError(400, str(_("This register entry has no email address to invite.")))
     if record.ended_reason == MembershipRecord.EndedReason.REVOKED:
         raise HttpError(400, str(_("A revoked register entry cannot be invited.")))
+    if (
+        record.kind == MembershipRecord.Kind.STANDARD
+        and record.valid_until is None
+        and record.valid_from > timezone.now()
+    ):
+        raise HttpError(400, str(_("This register entry starts in the future; invite the person once it has started.")))
     record.invite_token = _new_token()
     record.invited_at = timezone.now()
     record.save(update_fields=["invite_token", "invited_at", "updated_at"])
-    _dispatch_invite(record.pk, record.invite_token)
+    _dispatch_invite(record.pk)
     return record
 
 
@@ -184,7 +199,12 @@ def send_bulk_invites(organization: Organization) -> int:
             MembershipRecord.objects.open()
             .unlinked()
             .select_for_update(of=("self",))
-            .filter(organization=organization, kind=MembershipRecord.Kind.STANDARD, invited_at__isnull=True)
+            .filter(
+                organization=organization,
+                kind=MembershipRecord.Kind.STANDARD,
+                invited_at__isnull=True,
+                valid_from__lte=now,
+            )
             .exclude(email="")
         )
         for record in records:
@@ -193,14 +213,19 @@ def send_bulk_invites(organization: Organization) -> int:
             record.updated_at = now
         MembershipRecord.objects.bulk_update(records, ["invite_token", "invited_at", "updated_at"])
         for record in records:
-            assert record.invite_token is not None
-            _dispatch_invite(record.pk, record.invite_token)
+            _dispatch_invite(record.pk)
     return len(records)
 
 
 def get_record_for_invite_token(token: str) -> MembershipRecord | None:
-    """The unlinked record holding ``token``, if any."""
-    return MembershipRecord.objects.unlinked().select_related("organization").filter(invite_token=token).first()
+    """The unlinked, non-revoked record holding ``token``, if any."""
+    return (
+        MembershipRecord.objects.unlinked()
+        .select_related("organization")
+        .filter(invite_token=token)
+        .exclude(ended_reason=MembershipRecord.EndedReason.REVOKED)
+        .first()
+    )
 
 
 def claim_invite(token: str, user: RevelUser) -> LinkResult | None:
@@ -214,7 +239,7 @@ def claim_invite(token: str, user: RevelUser) -> LinkResult | None:
     record = get_record_for_invite_token(token)
     if record is None:
         return None
-    result = link_record(record, user)
+    result = link_record(record, user, token=token)
     logger.info(
         "member_register_invite_claimed", record_id=str(record.pk), user_id=str(user.pk), outcome=result.outcome
     )
@@ -247,7 +272,7 @@ def auto_link_records_for_user(user_id: UUID) -> list[LinkResult]:
 
 def _notify_staff_of_auto_link(record: MembershipRecord, user: RevelUser) -> None:
     organization = record.organization
-    context = {
+    context: StaffMemberRecordAutoLinkedContext = {
         "organization_id": str(organization.id),
         "organization_name": organization.name,
         "record_id": str(record.pk),

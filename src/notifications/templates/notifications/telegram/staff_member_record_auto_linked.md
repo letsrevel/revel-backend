@@ -4,6 +4,6 @@
 
 {% trans "Email:" %} {{ context.member_email }}
 
-{% trans "If this is wrong, unlink it from the member register." %}
+{% trans "If this is wrong, review the entry in the member register." %}
 
 [{% trans "Open Member Register" %}]({{ context.frontend_url }})
