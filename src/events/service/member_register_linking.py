@@ -186,7 +186,13 @@ def adopt_unlinked_record(member: OrganizationMember) -> MembershipRecord | None
         .open()
         .select_for_update(of=("self",))
         .select_related("organization")
-        .filter(organization_id=member.organization_id, kind=MembershipRecord.Kind.STANDARD, email__iexact=user.email)
+        .filter(
+            organization_id=member.organization_id,
+            kind=MembershipRecord.Kind.STANDARD,
+            email__iexact=user.email,
+            # A future-dated entry can't back access that starts now (same rule as NOT_STARTED on claims).
+            valid_from__lte=timezone.now(),
+        )
         .order_by("valid_from", "created_at")
         .first()
     )

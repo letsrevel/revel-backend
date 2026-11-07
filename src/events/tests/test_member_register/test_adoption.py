@@ -61,6 +61,26 @@ def _application(organization: Organization, user: RevelUser, tier: MembershipTi
 
 
 class TestAdoptionAtSource:
+    def test_future_dated_record_is_not_adopted(
+        self,
+        organization: Organization,
+        make_record: RecordFactory,
+        link_tier: MembershipTier,
+        django_user_model: type[RevelUser],
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """An entry that starts in the future can't back access starting now: a new record opens instead."""
+        future = make_record(valid_from=timezone.now() + timedelta(days=10))
+        user = _user(django_user_model)
+        application = _application(organization, user, link_tier)
+
+        membership_service.approve_membership_request(application, decided_by=organization_owner_user)
+
+        future.refresh_from_db()
+        assert future.user_id is None
+        opened = _open_records(organization, user)
+        assert len(opened) == 1 and opened[0].pk != future.pk
+
     def test_approval_adopts_verified_email_match(
         self,
         organization: Organization,
