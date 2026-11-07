@@ -28,8 +28,6 @@ from questionnaires.models import Questionnaire, QuestionnaireEvaluation, Questi
 
 pytestmark = pytest.mark.django_db
 
-Fixture = t.Callable[..., t.Any]
-
 
 def _event(organization: Organization, series: EventSeries, slug: str, days: int) -> Event:
     return Event.objects.create(
@@ -228,3 +226,67 @@ def test_rejected_evaluation_issues_no_lazy_queries(
 
     assert result is not None
     assert result.reason_code == Reasons.QUESTIONNAIRE_FAILED.code
+
+
+SCALING_QUERIES = 5
+
+
+def test_query_count_scales_with_neither_events_nor_submissions(
+    series_pass: SeriesPass,
+    organization: Organization,
+    event_series: EventSeries,
+    revel_user: RevelUser,
+    revel_user_factory: t.Any,
+    questionnaire: Questionnaire,
+    django_assert_num_queries: t.Any,
+) -> None:
+    """Three questionnaires (global + per_event), many covered events and submissions: still one query per read.
+
+    Queries: owner/staff, anchor, questionnaires, global submissions, per_event submissions.
+    """
+    questionnaires = [questionnaire]
+    for i in range(2):
+        questionnaires.append(
+            Questionnaire.objects.create(name=f"Extra {i}", status=Questionnaire.QuestionnaireStatus.PUBLISHED)
+        )
+    for index, q in enumerate(questionnaires):
+        oq = OrganizationQuestionnaire.objects.create(
+            organization=organization, questionnaire=q, requires_evaluation=False, per_event=index == 2
+        )
+        oq.event_series.add(event_series)
+
+    def grow(count: int, offset: int) -> None:
+        """Add covered events and READY submissions (user + others) for every questionnaire."""
+        for n in range(count):
+            event = _event(organization, event_series, f"grown{offset + n}", 10 + offset + n)
+            tier = TicketTier.objects.create(
+                event=event, name=f"Tier {event.slug}", price=Decimal("10.00"), currency="EUR",
+                payment_method=TicketTier.PaymentMethod.FREE,
+            )  # fmt: skip
+            SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=tier)
+            other = revel_user_factory(username=f"o{offset + n}@example.com", email=f"o{offset + n}@example.com")
+            for q in questionnaires:
+                _submit(revel_user, q)
+                other_submission = _submit(other, q)
+                EventQuestionnaireSubmission.objects.create(
+                    user=other,
+                    event=event,
+                    questionnaire=q,
+                    submission=other_submission,
+                    questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+                )
+                EventQuestionnaireSubmission.objects.create(
+                    user=revel_user,
+                    event=event,
+                    questionnaire=q,
+                    submission=_submit(revel_user, q),
+                    questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+                )
+
+    grow(3, 0)
+    with django_assert_num_queries(SCALING_QUERIES):
+        assert check_series_questionnaires(series_pass, revel_user) is None
+
+    grow(8, 3)
+    with django_assert_num_queries(SCALING_QUERIES):
+        assert check_series_questionnaires(series_pass, revel_user) is None

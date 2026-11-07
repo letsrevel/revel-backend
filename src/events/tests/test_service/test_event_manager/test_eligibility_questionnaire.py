@@ -747,13 +747,13 @@ def test_apply_deadline_passed_with_per_event_and_global_submission(
 # --- Test Cases for questionnaire relevance ---
 
 
-def test_default_scope_unchanged_includes_both(
+def test_event_and_series_questionnaires_both_relevant(
     member_user: RevelUser,
     public_event: Event,
     organization: Organization,
     org_questionnaire: OrganizationQuestionnaire,
 ) -> None:
-    """The default scope still includes both event-linked and series-linked questionnaires."""
+    """Both event-linked and series-linked questionnaires are relevant to the event."""
     series = EventSeries.objects.create(organization=organization, name="Series", slug="series")
     public_event.event_series = series
     public_event.save()

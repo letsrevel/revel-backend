@@ -121,7 +121,9 @@ class SeriesPassController(UserAwareController):
         quote = series_pass_service.get_quote(series_pass)
         user = self.maybe_user()
         missing, questionnaire_event_id = (
-            missing_series_questionnaires(series_pass, user) if user.is_authenticated else ([], None)
+            missing_series_questionnaires(series_pass, user)
+            if user.is_authenticated and quote.purchasable
+            else ([], None)
         )
         return schema.SeriesPassQuoteSchema(
             price=quote.price,

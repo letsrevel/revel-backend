@@ -5,7 +5,9 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from django.db import connection
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
@@ -25,12 +27,6 @@ from events.models import (
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 pytestmark = pytest.mark.django_db
-
-# Pinned, measured query count of an authenticated quote request: SAVEPOINT + RELEASE (test transaction),
-# user, pass, banned-membership / telegram / blacklist lookups (auth + visibility), series visibility,
-# is_owner_or_staff (staff check, twice: visibility + questionnaire gate), tier links (quote + anchor),
-# series questionnaires, submissions. Nothing scales with org members or events.
-QUOTE_QUERIES = 14
 
 
 def _event(organization: Organization, series: EventSeries, slug: str, days: int) -> Event:
@@ -234,26 +230,61 @@ def test_anchor_skips_non_open_event(
     assert body["questionnaire_event_id"] == str(covered_events[1].id)
 
 
+def test_not_purchasable_quote_is_clear(
+    free_pass: SeriesPass, revel_user: RevelUser, series_questionnaire: OrganizationQuestionnaire
+) -> None:
+    """A pass that cannot be bought lists no questionnaires, even though one is missing."""
+    free_pass.sales_end_at = timezone.now() - timedelta(hours=1)
+    free_pass.save(update_fields=["sales_end_at"])
+
+    body = _quote(free_pass, revel_user)
+
+    assert body["purchasable"] is False
+    _assert_clear(body)
+
+
+# The authenticated quote costs this many queries more than the anonymous one: the user, the
+# banned-membership / telegram / blacklist lookups (auth + visibility), the owner/staff check
+# (visibility + questionnaire gate), the anchor tier-link lookup, the series questionnaires and
+# the user's submissions.
+AUTH_EXTRA_QUERIES = 9
+
+
+def _count_queries(client: Client, url: str) -> int:
+    with CaptureQueriesContext(connection) as ctx:
+        assert client.get(url).status_code == 200
+    return len(ctx)
+
+
 def test_query_count_is_size_independent(
-    django_assert_num_queries: t.Any,
     free_pass: SeriesPass,
     organization: Organization,
     revel_user: RevelUser,
     series_questionnaire: OrganizationQuestionnaire,
-    covered_events: list[Event],
+    questionnaire: Questionnaire,
 ) -> None:
-    """The quote costs a fixed number of queries however many members/events the org has."""
-    _quote(free_pass, revel_user)  # warm caches (content types etc.)
-    client = _client(revel_user)
+    """The quote costs a fixed number of queries however many events, members and submissions exist."""
     url = reverse("api:get_series_pass_quote", kwargs={"pass_id": free_pass.id})
+    client = _client(revel_user)
+    anon_client = Client()
+    client.get(url)  # warm caches (content types etc.)
+    anon_client.get(url)
 
-    with django_assert_num_queries(QUOTE_QUERIES):
-        assert client.get(url).status_code == 200
+    auth_count = _count_queries(client, url)
+    anon_count = _count_queries(anon_client, url)
+    assert auth_count - anon_count == AUTH_EXTRA_QUERIES
 
-    for i in range(20):
+    for i in range(10):
         other = RevelUser.objects.create_user(username=f"bulk{i}@example.com", email=f"bulk{i}@example.com")
         OrganizationMember.objects.create(organization=organization, user=other)
-        _event(organization, free_pass.event_series, f"extra{i}", 10 + i)
+        _submit(other, questionnaire)
+        event = _event(organization, free_pass.event_series, f"extra{i}", 10 + i)
+        tier = TicketTier.objects.create(
+            event=event, name=f"Tier {event.slug}", price=Decimal("10.00"), currency="EUR",
+            payment_method=TicketTier.PaymentMethod.FREE,
+        )  # fmt: skip
+        SeriesPassTierLink.objects.create(series_pass=free_pass, event=event, tier=tier)
 
-    with django_assert_num_queries(QUOTE_QUERIES):
-        assert client.get(url).status_code == 200
+    assert free_pass.tier_links.count() == 12
+    assert _count_queries(client, url) == auth_count
+    assert _count_queries(anon_client, url) == anon_count
