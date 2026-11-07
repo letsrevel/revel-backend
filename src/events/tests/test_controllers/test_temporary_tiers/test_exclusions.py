@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import (
+    Announcement,
     Event,
     MembershipSubscriptionPlan,
     MembershipTier,
@@ -295,30 +296,53 @@ class TestPolls:
 
 
 class TestAnnouncements:
-    def test_temporary_tier_ids_are_dropped_on_create_and_update(
+    def test_temporary_tier_id_is_rejected_on_create_without_writing(
         self,
         organization: Organization,
         organization_owner_user: RevelUser,
         standard_tier: MembershipTier,
         temp_tier: MembershipTier,
     ) -> None:
-        """Like any unknown id, a TEMPORARY tier id is silently dropped from the targets."""
+        """A TEMPORARY tier id is rejected up front; no announcement is created."""
+        bad_id = temp_tier.id
+        with pytest.raises(ValueError, match="cannot be targeted by announcements"):
+            announcement_service.create_announcement(
+                organization,
+                organization_owner_user,
+                AnnouncementCreateSchema(title="Hi", body="Body", target_tier_ids=[standard_tier.id, bad_id]),
+            )
+        assert not Announcement.objects.filter(organization=organization).exists()
+
+    def test_update_rejects_temporary_tier_and_keeps_existing_targets(
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        standard_tier: MembershipTier,
+        temp_tier: MembershipTier,
+    ) -> None:
+        from events.schema import AnnouncementUpdateSchema
+
         announcement = announcement_service.create_announcement(
             organization,
             organization_owner_user,
-            AnnouncementCreateSchema(
-                title="Hi", body="Body", target_tier_ids=[standard_tier.id, temp_tier.id, uuid.uuid4()]
-            ),
+            AnnouncementCreateSchema(title="Hi", body="Body", target_tier_ids=[standard_tier.id]),
         )
-        assert list(announcement.target_tiers.all()) == [standard_tier]
-
-        from events.schema import AnnouncementUpdateSchema
-
-        # Same as an unknown id: nothing resolves, so the announcement is left without any targeting.
-        with pytest.raises(ValueError, match="targeting option"):
+        with pytest.raises(ValueError, match="cannot be targeted by announcements"):
             announcement_service.update_announcement(
                 announcement, AnnouncementUpdateSchema(target_tier_ids=[temp_tier.id])
             )
+        assert list(announcement.target_tiers.all()) == [standard_tier]
+
+    def test_create_api_returns_422_for_temporary_tier(
+        self, organization: Organization, organization_owner_client: Client, temp_tier: MembershipTier
+    ) -> None:
+        url = reverse("api:create_announcement", kwargs={"slug": organization.slug})
+        response = organization_owner_client.post(
+            url,
+            data={"title": "Hi", "body": "Body", "target_tier_ids": [str(temp_tier.id)]},
+            content_type="application/json",
+        )
+        assert response.status_code == 422
 
 
 class TestAdminPickers:

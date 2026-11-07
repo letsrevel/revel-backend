@@ -7355,3 +7355,7 @@ msgstr "Les niveaux temporaires sont des adhésions à la journée accordées pa
 
 msgid "Tiers that grant a membership cannot be listed externally."
 msgstr "Les catégories qui accordent une adhésion ne peuvent pas être listées en externe."
+
+#: events/service/announcement_service.py
+msgid "Temporary membership tiers cannot be targeted by announcements."
+msgstr "Les niveaux d’adhésion temporaires ne peuvent pas être ciblés par des annonces."

@@ -7378,3 +7378,7 @@ msgstr "Temporäre Stufen sind Tagesmitgliedschaften, die durch Tickets vergeben
 
 msgid "Tiers that grant a membership cannot be listed externally."
 msgstr "Stufen, die eine Mitgliedschaft vergeben, können nicht extern gelistet werden."
+
+#: events/service/announcement_service.py
+msgid "Temporary membership tiers cannot be targeted by announcements."
+msgstr "Temporäre Mitgliedschaftsstufen können nicht als Ziel von Ankündigungen gewählt werden."

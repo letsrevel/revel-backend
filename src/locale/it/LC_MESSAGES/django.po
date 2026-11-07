@@ -7319,3 +7319,7 @@ msgstr "I livelli temporanei sono iscrizioni giornaliere concesse dai biglietti;
 
 msgid "Tiers that grant a membership cannot be listed externally."
 msgstr "I livelli che concedono un'iscrizione non possono essere pubblicati esternamente."
+
+#: events/service/announcement_service.py
+msgid "Temporary membership tiers cannot be targeted by announcements."
+msgstr "I livelli di iscrizione temporanei non possono essere destinatari di annunci."
