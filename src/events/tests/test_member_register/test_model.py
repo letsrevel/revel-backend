@@ -1,16 +1,20 @@
 """Tests for the MembershipRecord register model."""
 
 import typing as t
-from datetime import timedelta
+from datetime import UTC, date, timedelta
 
 import pytest
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import MembershipRecord, MembershipRecordEndedReason, MembershipRecordKind, Organization
+from events.utils import get_organization_day_bounds
 
 pytestmark = pytest.mark.django_db
+
+Reason = MembershipRecord.EndedReason
 
 
 def _record(
@@ -84,3 +88,60 @@ def test_active_on_boundaries(organization: Organization) -> None:
     assert closed not in at_t1 and open_ in at_t1
     assert open_ in qs.active_on(t0 + timedelta(days=3650))
     assert set(qs.open()) == {open_}
+
+
+def test_active_during_boundaries(organization: Organization) -> None:
+    """active_during overlaps the half-open window [start, end), skips REVOKED, keeps open-ended."""
+    start = timezone.now()
+    end = start + timedelta(days=1)
+    minute = timedelta(minutes=1)
+    starts_at_end = _record(organization, None, valid_from=end)
+    ends_at_start = _record(
+        organization, None, valid_from=start - timedelta(days=5), valid_until=start, ended_reason=Reason.REMOVED
+    )
+    starts_before_end = _record(organization, None, valid_from=end - minute)
+    ends_after_start = _record(
+        organization,
+        None,
+        valid_from=start - timedelta(days=5),
+        valid_until=start + minute,
+        ended_reason=Reason.REMOVED,
+    )
+    open_ = _record(organization, None, valid_from=start - timedelta(days=5))
+    revoked = _record(
+        organization,
+        None,
+        valid_from=start - timedelta(days=5),
+        valid_until=end + timedelta(days=5),
+        ended_reason=Reason.REVOKED,
+    )
+
+    got = set(MembershipRecord.objects.filter(organization=organization).active_during(start, end))
+
+    assert got == {starts_before_end, ends_after_start, open_}
+    assert not {starts_at_end, ends_at_start, revoked} & got
+
+
+def test_day_bounds_default_timezone(organization: Organization) -> None:
+    """An org without a city uses settings.TIME_ZONE."""
+    start, end = get_organization_day_bounds(organization, date(2026, 6, 15))
+    assert str(start.tzinfo) == settings.TIME_ZONE
+    assert (start.hour, start.minute, start.day) == (0, 0, 15)
+    assert (end.hour, end.minute, end.day) == (0, 0, 16)
+
+
+def test_day_bounds_org_timezone(ny_organization: Organization) -> None:
+    """Bounds are local midnights in the org city's timezone."""
+    start, end = get_organization_day_bounds(ny_organization, date(2026, 6, 15))
+    assert start.utcoffset() == timedelta(hours=-4)
+    assert end.utcoffset() == timedelta(hours=-4)
+    assert (start.hour, end.hour, end.day) == (0, 0, 16)
+    assert end.astimezone(UTC) - start.astimezone(UTC) == timedelta(hours=24)
+
+
+def test_day_bounds_dst_spring_forward(ny_organization: Organization) -> None:
+    """The DST changeover day (2026-03-08 in New York) is 23 hours long."""
+    start, end = get_organization_day_bounds(ny_organization, date(2026, 3, 8))
+    assert start.utcoffset() == timedelta(hours=-5)
+    assert end.utcoffset() == timedelta(hours=-4)
+    assert end.astimezone(UTC) - start.astimezone(UTC) == timedelta(hours=23)
