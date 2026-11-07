@@ -200,6 +200,7 @@ def test_box_office_sale_and_comp_grant(
         currency="EUR",
         payment_method=method,
         grants_membership_tier=day_member_tier,
+        max_tickets_per_user=1,
     )
     ticket = box_office.sell(event, tier, seat_id=seats[0].id, payment_method=method, recipient=holder)
     assert ticket.sale_source == source

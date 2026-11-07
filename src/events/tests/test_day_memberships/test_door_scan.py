@@ -55,7 +55,7 @@ def test_check_in_of_member_reports_standard_block(
     make_ticket: t.Callable[..., Ticket],
     organization_owner_user: RevelUser,
 ) -> None:
-    tier = MembershipTier.objects.filter(organization=organization).first()
+    tier = MembershipTier.objects.standard().filter(organization=organization).first()
     assert tier is not None
     OrganizationMember.objects.create(organization=organization, user=holder, tier=tier)
     ticket = make_ticket(day_tier_factory(grants=False))
@@ -84,7 +84,7 @@ def test_member_card_scan_without_ticket_reports_membership(
     holder: RevelUser,
     organization_owner_user: RevelUser,
 ) -> None:
-    tier = MembershipTier.objects.filter(organization=organization).first()
+    tier = MembershipTier.objects.standard().filter(organization=organization).first()
     assert tier is not None
     member = OrganizationMember.objects.create(organization=organization, user=holder, tier=tier)
     result = member_scan_service.scan_member_code(
@@ -131,7 +131,7 @@ def test_http_member_card_scan_returns_membership_block(
     holder: RevelUser,
     organization_owner_user: RevelUser,
 ) -> None:
-    tier = MembershipTier.objects.filter(organization=organization).first()
+    tier = MembershipTier.objects.standard().filter(organization=organization).first()
     member = OrganizationMember.objects.create(organization=organization, user=holder, tier=tier)
     body = _post_check_in(organization_owner_user, open_door, member.qr_payload)
     assert body["kind"] == "member"

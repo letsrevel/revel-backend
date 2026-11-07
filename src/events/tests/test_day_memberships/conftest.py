@@ -53,6 +53,8 @@ def day_tier_factory(day_event: Event, day_member_tier: MembershipTier) -> t.Cal
         defaults.update(kwargs)
         if grants:
             defaults["grants_membership_tier"] = day_member_tier
+            # Granting tiers are limited to one ticket per person (TicketTier validation, #1320).
+            defaults.setdefault("max_tickets_per_user", 1)
         return TicketTier.objects.create(**defaults)
 
     return _make

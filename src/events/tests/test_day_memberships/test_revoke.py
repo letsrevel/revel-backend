@@ -367,6 +367,7 @@ def test_deleting_an_upcoming_event_revokes_its_records_but_not_past_ones(
         price=Decimal("0.00"),
         payment_method=TicketTier.PaymentMethod.FREE,
         grants_membership_tier=day_tier.grants_membership_tier,
+        max_tickets_per_user=1,
     )
     past_ticket = Ticket.objects.create(
         event=past, tier=past_tier, user=ticket.user, status=Status.ACTIVE, guest_name="Dana Day"

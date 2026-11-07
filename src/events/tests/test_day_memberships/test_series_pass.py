@@ -61,6 +61,7 @@ def _link(
         currency="EUR",
         payment_method=TicketTier.PaymentMethod.ONLINE,
         grants_membership_tier=tier,
+        max_tickets_per_user=1,
     )
     return event, SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=ticket_tier)
 
