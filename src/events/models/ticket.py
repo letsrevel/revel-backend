@@ -393,6 +393,16 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         blank=True,
         help_text="If set with 'Non-members only', only members of these tiers are excluded.",
     )
+    grants_membership_tier = models.ForeignKey(
+        MembershipTier,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="granting_ticket_tiers",
+        # String literal: keep in sync with MembershipTier.Kind.TEMPORARY.
+        limit_choices_to={"kind": "temporary"},
+        help_text="TEMPORARY membership tier whose day membership a valid ticket of this tier grants (#1320).",
+    )
 
     # Venue/seating configuration
     venue = models.ForeignKey(
