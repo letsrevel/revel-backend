@@ -9,6 +9,7 @@ from .blacklist import OrganizationAdminBlacklistController
 from .discount_codes import OrganizationAdminDiscountCodesController
 from .core import OrganizationAdminCoreController
 from .custom_domain import OrganizationAdminCustomDomainController
+from .member_register import OrganizationAdminMemberRegisterController
 from .members import OrganizationAdminMembersController
 from .membership_requests import OrganizationAdminMembershipRequestsController
 from .resources import OrganizationAdminResourcesController
@@ -41,6 +42,7 @@ ORGANIZATION_ADMIN_CONTROLLERS: list[type] = [
     OrganizationAdminTicketsController,
     OrganizationAdminCustomDomainController,
     OrganizationAdminUserNotesController,
+    OrganizationAdminMemberRegisterController,
 ]
 
 __all__ = [
@@ -62,4 +64,5 @@ __all__ = [
     "ORGANIZATION_ADMIN_CONTROLLERS",
     "OrganizationAdminTicketsController",
     "OrganizationAdminUserNotesController",
+    "OrganizationAdminMemberRegisterController",
 ]

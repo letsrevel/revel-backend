@@ -15,12 +15,18 @@ from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import MembershipRecord, MembershipTier, OrganizationMember
+from events.models import (
+    MembershipRecord,
+    MembershipRecordEndedReason,
+    MembershipRecordSource,
+    MembershipTier,
+    OrganizationMember,
+)
 from events.models.membership_record import MembershipRecordQuerySet
 from questionnaires.models import QuestionnaireSubmission
 
 # ``None`` means no ``record_source`` block is active (records then default to STAFF, or inherit on re-open).
-_source_var: contextvars.ContextVar[MembershipRecord.Source | None] = contextvars.ContextVar(
+_source_var: contextvars.ContextVar[MembershipRecordSource | None] = contextvars.ContextVar(
     "member_register_source", default=None
 )
 _submission_var: contextvars.ContextVar[QuestionnaireSubmission | None] = contextvars.ContextVar(
@@ -32,7 +38,7 @@ _suppress_var: contextvars.ContextVar[bool] = contextvars.ContextVar("member_reg
 
 @contextlib.contextmanager
 def record_source(
-    source: MembershipRecord.Source, *, questionnaire_submission: QuestionnaireSubmission | None = None
+    source: MembershipRecordSource, *, questionnaire_submission: QuestionnaireSubmission | None = None
 ) -> t.Iterator[None]:
     """Declare the source (and acceptance evidence) for records opened inside the block."""
     source_token = _source_var.set(source)
@@ -96,7 +102,7 @@ def open_standard_record(member: OrganizationMember) -> MembershipRecord:
 
 
 def close_standard_record(
-    organization_id: UUID, user_id: UUID, *, reason: MembershipRecord.EndedReason, now: datetime | None = None
+    organization_id: UUID, user_id: UUID, *, reason: MembershipRecordEndedReason, now: datetime | None = None
 ) -> MembershipRecord | None:
     """Close the open STANDARD record, if any. Returns it, or None when nothing was open."""
     with transaction.atomic():

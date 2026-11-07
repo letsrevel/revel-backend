@@ -7237,3 +7237,30 @@ msgid ""
 "Organizations you are or were a member of keep their own membership records. T"
 "o have yours removed, contact the organization."
 msgstr "Le organizzazioni di cui fai o hai fatto parte conservano i propri registri di iscrizione. Per far eliminare il tuo, contatta l'organizzazione."
+
+msgid "The end date cannot be before the start date."
+msgstr "La data di fine non può essere precedente alla data di inizio."
+
+msgid "The tier of a linked membership is changed through member management."
+msgstr "Il livello di un'iscrizione collegata si modifica dalla gestione dei membri."
+
+msgid "End a linked membership with the end action instead."
+msgstr "Termina un'iscrizione collegata con l'azione di chiusura."
+
+msgid "A linked membership cannot be reopened from the register."
+msgstr "Un'iscrizione collegata non può essere riaperta dal registro."
+
+msgid "This membership has already ended."
+msgstr "Questa iscrizione è già terminata."
+
+msgid "Reason must be 'cancelled' or 'removed'."
+msgstr "Il motivo deve essere 'cancelled' o 'removed'."
+
+msgid "A linked membership cannot be ended in the future; end it now or change the member's status."
+msgstr "Un'iscrizione collegata non può terminare nel futuro; terminala ora o modifica lo stato del membro."
+
+msgid "Remove the member from the organization before deleting their open register entry."
+msgstr "Rimuovi il membro dall'organizzazione prima di eliminare la sua voce aperta nel registro."
+
+msgid "A linked membership cannot start in the future."
+msgstr "Un'iscrizione collegata non può iniziare nel futuro."
