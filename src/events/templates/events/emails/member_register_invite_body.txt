@@ -1,4 +1,4 @@
-{% load i18n %}{% trans "Link your membership" %}
+{% load i18n %}{% autoescape off %}{% trans "Link your membership" %}
 
 {% blocktranslate %}{{ organization_name }} keeps a register of its members and has you on it as {{ full_name }}.{% endblocktranslate %}
 
@@ -9,3 +9,4 @@
 {% trans "If you don't have an account, you can create one through this link with any email address." %}
 
 {% trans "If you weren't expecting this, you can safely ignore this email." %}
+{% endautoescape %}
