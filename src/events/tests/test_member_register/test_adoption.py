@@ -401,6 +401,57 @@ class TestApproveAndLink:
         assert _open_records(organization, user) == [record]
         assert OrganizationMember.objects.get(organization=organization, user=user).status == "active"
 
+    def test_future_dated_entry_is_refused(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        link_tier: MembershipTier,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        record = make_record(email="different@example.com", valid_from=timezone.now() + timedelta(days=3))
+        user = _user(django_user_model, email_verified=False)
+        application = _application(organization, user, link_tier)
+
+        response = self._approve(owner_client, organization, application, link_record_id=str(record.pk))
+
+        assert response.status_code == 400
+        record.refresh_from_db()
+        assert record.user is None
+        application.refresh_from_db()
+        assert application.status == OrganizationMembershipRequest.Status.PENDING
+
+    def test_equal_tiers_copy_the_applications_evidence(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        link_tier: MembershipTier,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        record = make_record(email="different@example.com")
+        user = _user(django_user_model, email_verified=False)
+        questionnaire = Questionnaire.objects.create(
+            name="Vetting Q", status=Questionnaire.QuestionnaireStatus.PUBLISHED
+        )
+        submission = QuestionnaireSubmission.objects.create(
+            user=user,
+            questionnaire=questionnaire,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            submitted_at=timezone.now(),
+        )
+        application = OrganizationMembershipRequest.objects.create(
+            organization=organization, user=user, tier=link_tier, questionnaire_submission=submission
+        )
+
+        assert self._approve(owner_client, organization, application, link_record_id=str(record.pk)).status_code == 204
+
+        record.refresh_from_db()
+        assert record.user == user and record.valid_until is None
+        assert record.questionnaire_submission_id == submission.pk
+        assert record.questionnaire_name == "Vetting Q"
+        assert record.accepted_at == submission.submitted_at
+
     def test_tier_difference_chains_from_linked_record(
         self,
         owner_client: Client,

@@ -222,6 +222,8 @@ def send_invite(record: MembershipRecord) -> MembershipRecord:
     """Send (or resend) the claim link for one record. A resend invalidates the previous link."""
     if record.user_id is not None:
         raise HttpError(400, str(_("This register entry is already linked to an account.")))
+    if record.merged_into_id is not None:
+        raise HttpError(400, str(_("A merged register entry cannot be invited.")))
     if not record.email:
         raise HttpError(400, str(_("This register entry has no email address to invite.")))
     if record.ended_reason == MembershipRecord.EndedReason.REVOKED:

@@ -168,6 +168,10 @@ def merge_records(survivor: MembershipRecord, absorbed: MembershipRecord) -> Mem
         survivor, absorbed = locked[survivor.pk], locked[absorbed.pk]
         if survivor.merged_into_id is not None or absorbed.merged_into_id is not None:
             raise HttpError(400, str(_("A merged register entry cannot be merged again.")))
+        if absorbed.absorbed_records.exists():
+            raise HttpError(
+                400, str(_("An entry that has absorbed other entries cannot be merged; unlink them first."))
+            )
         if absorbed.user_id is not None:
             raise HttpError(400, str(_("Only an entry without an account can be merged into another entry.")))
 
@@ -212,20 +216,25 @@ def unlink_record(record: MembershipRecord) -> MembershipRecord:
         _lock_members(record.organization_id, [record.user_id])
         locked = _lock_records(record.pk, record.merged_into_id)
         current = locked[record.pk]
+        if current.user_id != record.user_id:
+            raise HttpError(409, str(_("This register entry was just linked to an account; reload it and try again.")))
         if current.merged_into_id is not None:
             survivor = (
                 locked.get(current.merged_into_id) or _lock_records(current.merged_into_id)[current.merged_into_id]
             )
-            others = (
+            others = list(
                 MembershipRecord.objects.filter(merged_into=survivor)
                 .exclude(pk=current.pk)
                 .values_list("valid_from", flat=True)
             )
-            candidates = [d for d in [current.merge_prior_valid_from, *others] if d is not None]
-            # ponytail: exact for a single merge and for LIFO unlinks of several; after a non-LIFO unlink the
-            # restored date can be later than the survivor's true original (upgrade path: a merge log table).
-            if candidates and current.merge_prior_valid_from is not None:
-                survivor.valid_from = min(candidates)
+            # Restore only while the survivor's start is still the one this entry gave it; a start staff moved
+            # since is theirs to keep. ponytail: exact for a single merge and for LIFO unlinks of several; after
+            # a non-LIFO unlink the restored date can be later than the true original (upgrade path: a merge log).
+            if current.merge_prior_valid_from is not None and survivor.valid_from == current.valid_from:
+                restored = min([current.merge_prior_valid_from, *others])
+                if survivor.valid_until is not None:
+                    restored = min(restored, survivor.valid_until)
+                survivor.valid_from = restored
                 survivor.save(update_fields=["valid_from", "updated_at"])
             current.merged_into = None
             current.merge_prior_valid_from = None
@@ -247,7 +256,9 @@ def unlink_record(record: MembershipRecord) -> MembershipRecord:
                 .first()
             )
             if member is not None:
-                member.status = Status.CANCELLED
-                member.save(update_fields=["status", "updated_at"])
+                from events.service import organization_service  # lazy: avoid import cycle
+
+                # Through the service so the member's subscriptions are cancelled too (otherwise billing continues).
+                organization_service.update_member(member, status=Status.CANCELLED)
         logger.info("member_register_unlinked", record_id=str(current.pk))
         return current

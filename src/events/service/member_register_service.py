@@ -237,7 +237,10 @@ def reopen_for_tier_deletion(tier: MembershipTier) -> int:
         # Lock the affected member rows first: same member -> record order as mirror_member.
         list(OrganizationMember.objects.select_for_update(of=("self",)).filter(tier=tier))
         records = list(
-            MembershipRecord.objects.open().filter(tier=tier, kind=MembershipRecord.Kind.STANDARD).select_for_update()
+            MembershipRecord.objects.open()
+            .unmerged()
+            .filter(tier=tier, kind=MembershipRecord.Kind.STANDARD)
+            .select_for_update()
         )
         now = timezone.now()
         for record in records:

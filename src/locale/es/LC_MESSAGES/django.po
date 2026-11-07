@@ -7421,3 +7421,15 @@ msgstr "Esta entrada del registro ya está vinculada o fusionada."
 
 msgid "This register entry is not linked or merged."
 msgstr "Esta entrada del registro no está vinculada ni fusionada."
+
+msgid "Linking a register entry needs a signed-in staff session."
+msgstr "Vincular una entrada del registro requiere una sesión iniciada de un miembro del equipo."
+
+msgid "A merged register entry cannot be invited."
+msgstr "No se puede invitar a una entrada del registro fusionada."
+
+msgid "An entry that has absorbed other entries cannot be merged; unlink them first."
+msgstr "Una entrada que ha absorbido otras entradas no se puede fusionar; deshaz primero esas fusiones."
+
+msgid "This register entry starts in the future."
+msgstr "Esta entrada del registro comienza en el futuro."

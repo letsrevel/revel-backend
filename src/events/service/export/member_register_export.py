@@ -78,7 +78,7 @@ def _build_workbook(export: FileExport) -> bytes:
     wb = Workbook()
     ws = wb.active if wb.active is not None else wb.create_sheet()
     ws.title = "Summary"
-    open_count = sum(1 for r in records if r.valid_until is None)
+    open_count = sum(1 for r in records if r.valid_until is None and r.merged_into_id is None)
     standard = sum(1 for r in records if r.kind == MembershipRecord.Kind.STANDARD)
     for row in [
         ("Organization", sanitize_cell(organization.name)),
@@ -120,6 +120,7 @@ def _write_register_sheet(wb: Workbook, records: list[MembershipRecord]) -> None
             "Questionnaire",
             "Accepted At",
             "Created At",
+            "Merged Into",
         ]
     )
     with translation.override("en"):
@@ -139,6 +140,7 @@ def _write_register_sheet(wb: Workbook, records: list[MembershipRecord]) -> None
                     sanitize_cell(r.questionnaire_name or ""),
                     r.accepted_at.isoformat() if r.accepted_at else "",
                     r.created_at.isoformat(),
+                    str(r.merged_into_id) if r.merged_into_id else "",
                 ]
             )
     style_header_row(ws)

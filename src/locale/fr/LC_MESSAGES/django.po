@@ -7488,3 +7488,15 @@ msgstr "Cette entrée du registre est déjà liée ou fusionnée."
 
 msgid "This register entry is not linked or merged."
 msgstr "Cette entrée du registre n'est ni liée ni fusionnée."
+
+msgid "Linking a register entry needs a signed-in staff session."
+msgstr "Lier une entrée de registre nécessite une session connectée d'un membre de l'équipe."
+
+msgid "A merged register entry cannot be invited."
+msgstr "Une entrée de registre fusionnée ne peut pas être invitée."
+
+msgid "An entry that has absorbed other entries cannot be merged; unlink them first."
+msgstr "Une entrée qui en a absorbé d'autres ne peut pas être fusionnée ; annulez d'abord ces fusions."
+
+msgid "This register entry starts in the future."
+msgstr "Cette entrée de registre commence dans le futur."
