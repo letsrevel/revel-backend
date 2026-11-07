@@ -8,6 +8,7 @@ from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
@@ -30,6 +31,7 @@ from events.admin.base import (
     view_on_revel_link,
 )
 from events.models.event import EventQuerySet
+from events.service import day_membership_service
 
 
 class EventOriginFilter(admin.SimpleListFilter):
@@ -59,6 +61,13 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
         """Make ``requires_ticket`` create-only (#1295): flipping it later strands tiers and tickets."""
         fields = list(super().get_readonly_fields(request, obj))
         return [*fields, "requires_ticket"] if obj is not None else fields
+
+    def save_model(self, request: HttpRequest, obj: models.Event, form: t.Any, change: bool) -> None:
+        """Keep day-membership records on the event window when staff move an upcoming event's dates."""
+        super().save_model(request, obj, form, change)
+        old_end = form.initial.get("end")
+        if change and {"start", "end"} & set(form.changed_data) and old_end and old_end > timezone.now():
+            day_membership_service.resync_event_window(obj)
 
     list_display = [
         "name",

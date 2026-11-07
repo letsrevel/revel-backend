@@ -13,7 +13,7 @@ from uuid import UUID
 import structlog
 from django.contrib.auth.models import AnonymousUser
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F
 from django.db.models.deletion import ProtectedError, RestrictedError
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -28,7 +28,6 @@ from events.models import (
     EventSeries,
     HeldSeriesPass,
     Organization,
-    OrganizationQuestionnaire,
     Payment,
     Refund,
     SeriesPass,
@@ -39,7 +38,7 @@ from events.models import (
 )
 from events.models.ticket import CancellationSource
 from events.schema.series_pass import SeriesPassCreateSchema
-from events.service import refund_service, ticket_number_service
+from events.service import day_membership_service, refund_service, ticket_number_service
 from events.service.vat_service import distribute_amount_across_items
 from events.tasks import build_attendee_visibility_flags, materialize_series_pass_holders
 from events.utils.membership_access import visible_memberships
@@ -174,8 +173,9 @@ def validate_events_coverable(series: EventSeries, events: t.Sequence[Event]) ->
 
     Every event covered by a series pass must be "simple": it must belong to
     the given series (which must itself be non-recurring), be OPEN, require a
-    ticket, be PUBLIC (neither invitation-only nor members-only), and not be
-    gated by an admission questionnaire targeting either the event or the series.
+    ticket, and be PUBLIC (neither invitation-only nor members-only). Admission
+    questionnaires do not block coverage: pass *purchase* requires them instead
+    (``series_pass_questionnaires.check_series_questionnaires``).
 
     Args:
         series: The EventSeries the pass belongs to.
@@ -202,13 +202,6 @@ def validate_events_coverable(series: EventSeries, events: t.Sequence[Event]) ->
                     % event.name
                 )
             )
-    gated = OrganizationQuestionnaire.objects.filter(
-        questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
-    ).filter(Q(event_series=series) | Q(events__in=[event.pk for event in events]))
-    if gated.exists():
-        raise SeriesPassCoverageError(
-            str(_("Events gated by an admission questionnaire cannot be covered by a series pass."))
-        )
 
 
 @transaction.atomic
@@ -351,7 +344,9 @@ def materialize_tickets(
         if link.event_id not in existing_event_ids
     ]
     created = Ticket.objects.bulk_create(tickets)
-    ticket_number_service.assign_ticket_numbers(created)  # bulk_create skips the post_save numbering
+    # Lock order: ... Ticket -> MembershipRecord -> TicketNumberSequence, so grant before numbering.
+    day_membership_service.on_tickets_issued(created)  # bulk_create skips the day-membership grant (ACTIVE only)
+    ticket_number_service.assign_ticket_numbers(created)  # ...and the post_save numbering
     return created
 
 
@@ -422,6 +417,8 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
             )
             continue
         grantable.append(link)
+    # ponytail: a holder never answered a questionnaire attached to an event linked after purchase; tickets are
+    # issued anyway. Upgrade path: gate extension tickets on the questionnaire, or notify holders to answer it.
     created = materialize_tickets(held_pass, grantable, Ticket.TicketStatus.ACTIVE, price_paid=_ZERO)
     if created:
         # One ticket per tier by construction (each covered event has its own tier link).
@@ -772,7 +769,9 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
     # so the distribution — and which ticket absorbs any rounding remainder — is
     # deterministic regardless of query/insertion order.
     pending_tickets: list[Ticket] = list(
-        Ticket.objects.filter(held_pass=held_pass, status=Ticket.TicketStatus.PENDING).order_by("event__start", "pk")
+        Ticket.objects.filter(held_pass=held_pass, status=Ticket.TicketStatus.PENDING)
+        .select_related("user", "event", "tier")
+        .order_by("event__start", "pk")
     )
     if pending_tickets:
         shares = distribute_amount_across_items(held_pass.price_paid, len(pending_tickets))
@@ -780,6 +779,7 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
             ticket.status = Ticket.TicketStatus.ACTIVE
             ticket.price_paid = share
         Ticket.objects.bulk_update(pending_tickets, ["status", "price_paid"])
+        day_membership_service.on_tickets_issued(pending_tickets, old_status=Ticket.TicketStatus.PENDING)
         ticket_number_service.assign_ticket_numbers(pending_tickets)
 
     # bulk_update skips post_save, so the attendee count and visibility flags are rebuilt

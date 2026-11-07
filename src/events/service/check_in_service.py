@@ -21,6 +21,7 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.models import Event, HeldSeriesPass, OrganizationUserNote, Ticket, TicketTier
+from events.service import day_membership_service
 from events.service.seating.pricing import price_paid_is_admin_entered
 
 
@@ -139,6 +140,7 @@ def check_in_ticket(
     # seat/sector feed the seat display. Trims ~4 queries per scan.
     ticket_qs = Ticket.objects.select_related(
         "user",
+        "tier__grants_membership_tier",
         "tier__event__organization__city",
         "tier__event__city",
         "tier__event__venue__city",
@@ -211,4 +213,9 @@ def check_in_ticket(
     ticket.checked_in_by = checked_in_by
     ticket.save(update_fields=update_fields)
 
+    # After the transition, so a PENDING -> CHECKED_IN day-membership grant is already visible. Read by
+    # ``CheckInResponseSchema.membership``.
+    ticket.membership = day_membership_service.membership_summary(  # type: ignore[attr-defined]
+        event.organization_id, ticket.user_id, ticket=ticket
+    )
     return ticket

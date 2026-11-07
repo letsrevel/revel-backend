@@ -224,11 +224,13 @@ path if a capped plan ever sees rush-level traffic.
 One canonical order, everywhere a transaction locks more than one of these:
 
 **parent row (Event / SeriesPass / HeldSeriesPass / Payment) → `TicketTier` (pk order) →
-`Ticket` → `TicketNumberSequence` (org-id order)**
+`Ticket` → `MembershipRecord` (day-membership grants) → `TicketNumberSequence` (org-id order)**
 
 `ticket_number_service.assign_ticket_numbers` locks the issued tickets and then the
 organization's `TicketNumberSequence`, and the sequence lock is held until commit. So
-any path that also locks tiers must lock them **before** it issues (numbers) tickets.
+any path that also locks tiers must lock them **before** it issues (numbers) tickets, and bulk
+issuers call `day_membership_service.on_tickets_issued` **before** `assign_ticket_numbers`
+(the `post_save` receivers run in that order too).
 Checkout already does (`create_batch` locks tiers, then writes tickets). The series-pass
 paths call `backfill_missing_tickets` (which locks tiers) before activating the pass's
 pending tickets, both in `confirm_held_pass_payment` and in the Stripe

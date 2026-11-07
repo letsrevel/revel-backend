@@ -55,13 +55,22 @@ class SeriesPassComplianceSchema(Schema):
     online_payment: PaymentChannelCapability
 
 
+class SeriesPassQuestionnaireEventSchema(Schema):
+    """A missing questionnaire and the event whose questionnaire endpoint accepts its submission."""
+
+    questionnaire_id: UUID
+    event_id: UUID
+
+
 class SeriesPassQuoteSchema(Schema):
     """Current pro-rata price and purchasability for a series pass.
 
-    For an authenticated buyer, `questionnaires_missing` lists the series admission questionnaires
-    they can still answer before `POST /series-passes/{pass_id}/checkout` can succeed, and
-    `questionnaire_event_id` is the event whose questionnaire endpoint to submit them through
-    (`/events/{questionnaire_event_id}/questionnaire/{id}`). A rejected questionnaire whose retake
+    For an authenticated buyer, `questionnaires_missing` lists the admission questionnaires (the series'
+    own and those of the covered events) they can still answer before `POST /series-passes/{pass_id}/checkout`
+    can succeed. They may belong to different events, so submit each through its own event: use
+    `questionnaire_events`, one entry per missing questionnaire (a `per_event` one appears once per covered
+    event), to call `/events/{event_id}/questionnaire/{questionnaire_id}`. `questionnaire_event_id` is the
+    event of the first listed questionnaire. A rejected questionnaire whose retake
     is open is listed. Not listed: pending-review ones, failed ones with no retake available yet
     or out of attempts, and past-deadline ones (checkout reports these as a 400 eligibility
     payload). Both are empty/null for anonymous callers, owners, staff, exempt members, when the
@@ -78,6 +87,7 @@ class SeriesPassQuoteSchema(Schema):
     compliance: SeriesPassComplianceSchema
     questionnaires_missing: list[UUID]
     questionnaire_event_id: UUID | None
+    questionnaire_events: list[SeriesPassQuestionnaireEventSchema]
 
 
 class SeriesPassSeriesInfoSchema(Schema):

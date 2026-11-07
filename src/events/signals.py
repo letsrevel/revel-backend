@@ -33,6 +33,7 @@ from events.models import (
 )
 from events.models.membership import MembershipTier
 from events.service import (
+    day_membership_service,
     member_register_service,
     permission_snapshot,
     ticket_number_service,
@@ -178,7 +179,9 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
 
 @receiver(pre_save, sender=Ticket)
 def capture_ticket_old_status_for_potluck(sender: type[Ticket], instance: Ticket, **kwargs: t.Any) -> None:
-    """Stamp the committed status on the instance (``None`` for new rows) for the post_save handler.
+    """Stamp the committed status on the instance (``None`` for new rows) for the post_save handlers.
+
+    Feeds both the potluck release and the day-membership hook (``on_ticket_status_change``).
 
     Stamped under a dedicated attribute so this module does not depend on the ordering of the
     notifications app's own Ticket pre_save receivers. A save with ``update_fields`` that
@@ -235,6 +238,19 @@ def handle_ticket_visibility_and_potluck(
         and (old_status in Ticket.ATTENDING_STATUSES or new_status == Ticket.TicketStatus.CANCELLED)
     ):
         release_potluck_claims_unless_entitled(instance.event_id, instance.user_id)
+
+
+@receiver(pre_delete, sender=Event)
+def revoke_day_memberships_on_event_delete(sender: type[Event], instance: Event, **kwargs: t.Any) -> None:
+    """Deleting an event that has not started leaves no live future day memberships (records survive, #1320)."""
+    day_membership_service.revoke_for_deleted_event(instance)
+
+
+@receiver(post_save, sender=Ticket)
+def sync_day_membership_on_ticket_save(sender: type[Ticket], instance: Ticket, **kwargs: t.Any) -> None:
+    """Grant / revoke the ticket's day membership (#1320); bulk writers call the service themselves."""
+    if not kwargs.get("raw"):
+        day_membership_service.on_ticket_status_change(instance, getattr(instance, "_potluck_old_status", None))
 
 
 @receiver(post_save, sender=Ticket)
@@ -383,6 +399,17 @@ def capture_member_old_tier(sender: type[OrganizationMember], instance: Organiza
 def mirror_member_to_register(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
     """Mirror access-row transitions into the membership register (#1318)."""
     member_register_service.mirror_member(instance)
+
+
+@receiver(post_save, sender=OrganizationMember)
+def revoke_day_memberships_on_ban(
+    sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any
+) -> None:
+    """A banned person loses their upcoming day memberships (#1320)."""
+    if kwargs.get("raw"):
+        return
+    if instance.status == OrganizationMember.MembershipStatus.BANNED:
+        day_membership_service.revoke_upcoming_for_ban(instance.organization_id, instance.user_id)
 
 
 @receiver(post_save, sender=OrganizationMember)

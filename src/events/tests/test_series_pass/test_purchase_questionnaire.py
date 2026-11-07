@@ -191,23 +191,6 @@ def test_staff_bypasses(
     assert HeldSeriesPass.objects.filter(user=organization_staff_user).exists()
 
 
-def test_event_only_questionnaire_ignored(
-    free_pass: SeriesPass,
-    revel_user: RevelUser,
-    organization: Organization,
-    covered_events: list[Event],
-) -> None:
-    """A questionnaire linked only to a covered event (not the series) is not a pass-purchase gate."""
-    other = Questionnaire.objects.create(name="Event only", status=Questionnaire.QuestionnaireStatus.PUBLISHED)
-    OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=other).events.add(
-        covered_events[0]
-    )
-
-    SeriesPassPurchaseService(free_pass, revel_user).purchase()
-
-    assert HeldSeriesPass.objects.filter(user=revel_user).exists()
-
-
 def test_per_event_ignored_in_series_scope(
     free_pass: SeriesPass,
     revel_user: RevelUser,
