@@ -11,11 +11,11 @@ bulk writers that skip signals (``on_tickets_issued``).
 import typing as t
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Case, Exists, F, IntegerField, OuterRef, Q, When
+from django.db.models import Case, DateTimeField, Exists, ExpressionWrapper, F, IntegerField, OuterRef, Q, Value, When
 from django.utils import timezone
 
 from common.utils import get_or_create_with_race_protection
@@ -54,7 +54,8 @@ def _admission_evidence(user_id: UUID, event: Event, *, via_pass: bool = False) 
 
     Mirrors ``event_manager``: PUBLISHED questionnaire, a ``per_event`` one needs a submission made for THIS
     event, a rejected evaluation never counts, and when the org questionnaire requires evaluation a
-    pending-review one does not count either. For a ticket issued by a series pass (``via_pass``) a
+    pending-review one does not count either, nor does an approval older than
+    ``max_submission_age``. For a ticket issued by a series pass (``via_pass``) a
     series-linked ``per_event`` questionnaire is also satisfied by a submission for ANY event of the series,
     which is what the pass purchase gate accepted.
     """
@@ -84,6 +85,16 @@ def _admission_evidence(user_id: UUID, event: Event, *, via_pass: bool = False) 
         .exclude(
             Q(questionnaire__org_questionnaires__requires_evaluation=True),
             evaluation__status=evaluation_status.PENDING_REVIEW,
+        )
+        .exclude(
+            Q(questionnaire__org_questionnaires__requires_evaluation=True),
+            Q(questionnaire__org_questionnaires__max_submission_age__gt=timedelta(0)),
+            evaluation__status=evaluation_status.APPROVED,
+            evaluation__updated_at__lt=ExpressionWrapper(
+                Value(timezone.now(), output_field=DateTimeField())
+                - F("questionnaire__org_questionnaires__max_submission_age"),
+                output_field=DateTimeField(),
+            ),
         )
         .select_related("questionnaire")
         .order_by(F("submitted_at").desc(nulls_last=True), "-created_at")

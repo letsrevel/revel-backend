@@ -487,3 +487,23 @@ def test_resync_only_moves_ticket_sourced_records(
     manual.refresh_from_db()
     assert manual.valid_from != day_event.start
     assert _only(ticket).valid_from == day_event.start
+
+
+def test_admin_date_edit_resyncs_upcoming_event_records(
+    day_event: Event, day_tier: TicketTier, make_ticket: t.Callable[..., Ticket], rf: t.Any, superuser: RevelUser
+) -> None:
+    from django.contrib.admin.sites import site
+
+    ticket = make_ticket(day_tier)
+    old_end = day_event.end
+    day_event.start += timedelta(days=1)
+    day_event.end += timedelta(days=1)
+    day_event.save(update_fields=["start", "end"])
+    form = MagicMock(initial={"end": old_end}, changed_data=["start", "end"])
+    request = rf.get("/")
+    request.user = superuser
+
+    site._registry[Event].save_model(request, day_event, form, True)
+
+    assert _only(ticket).valid_from == day_event.start
+    assert _only(ticket).valid_until == day_event.end

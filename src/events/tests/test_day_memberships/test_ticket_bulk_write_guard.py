@@ -153,6 +153,19 @@ def test_guard_reports_the_enclosing_function() -> None:
     assert [func for _, _, func in find_bulk_ticket_writes(source, "x.py")] == ["a", "b"]
 
 
+def _functions_calling_day_membership_service(source: str) -> set[str]:
+    """Names of functions whose own body references ``day_membership_service.<attr>``."""
+    return {
+        node.name
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        and any(
+            isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "day_membership_service"
+            for n in ast.walk(node)
+        )
+    }
+
+
 def _production_files() -> t.Iterator[tuple[str, Path]]:
     for file in sorted(_SRC.rglob("*.py")):
         parts = file.relative_to(_SRC).parts
@@ -186,4 +199,6 @@ def test_allowlist_entries_are_live_and_hooked() -> None:
     for (rel, func), reason in ALLOWLIST.items():
         assert (rel, func) in found, f"{rel}:{func} no longer bulk-writes tickets; drop it from ALLOWLIST"
         if "calls " in reason:
-            assert "day_membership_service" in (_SRC / rel).read_text(), f"{rel} no longer calls day_membership_service"
+            assert func in _functions_calling_day_membership_service((_SRC / rel).read_text()), (
+                f"{rel}:{func} no longer calls day_membership_service"
+            )

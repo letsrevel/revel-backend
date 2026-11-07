@@ -370,3 +370,26 @@ def test_two_real_saves_grant_once(day_tier: TicketTier, make_ticket: t.Callable
     ticket.save(update_fields=["status"])
     ticket.save()
     assert len(records_for(ticket)) == 1
+
+
+def test_stale_approval_is_not_evidence_when_evaluation_is_required(
+    organization: Organization,
+    day_event: Event,
+    day_tier: TicketTier,
+    holder: RevelUser,
+    make_ticket: t.Callable[..., Ticket],
+) -> None:
+    """The admission gate asks for a fresh submission once an approval outlives ``max_submission_age``."""
+    submission = _admission_submission(
+        holder,
+        organization,
+        events=[day_event],
+        evaluation=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+        requires_evaluation=True,
+    )
+    OrganizationQuestionnaire.objects.filter(questionnaire=submission.questionnaire).update(
+        max_submission_age=timedelta(days=1)
+    )
+    QuestionnaireEvaluation.objects.filter(submission=submission).update(updated_at=timezone.now() - timedelta(days=2))
+    (record,) = records_for(make_ticket(day_tier))
+    assert record.questionnaire_submission is None

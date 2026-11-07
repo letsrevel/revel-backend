@@ -400,3 +400,18 @@ def test_extension_still_issues_tickets_to_holders_without_the_new_questionnaire
 
     ticket = Ticket.objects.get(held_pass=held, event=new_event)
     assert ticket.status == Ticket.TicketStatus.ACTIVE
+
+
+def test_later_missing_event_past_deadline_downgrades_the_verdict(
+    free_pass: SeriesPass, organization: Organization, revel_user: RevelUser, covered: list[Event]
+) -> None:
+    """A per-event questionnaire on a later covered event that can no longer take submissions blocks the quote."""
+    _oq(organization, "First", events=[covered[1]], per_event=True)
+    _oq(organization, "Later", events=[covered[2]], per_event=True)
+    Event.objects.filter(pk=covered[2].pk).update(apply_before=timezone.now() - timedelta(hours=1))
+
+    verdict = check_series_questionnaires(free_pass, revel_user)
+
+    assert verdict is not None
+    assert verdict.next_step is None
+    assert verdict.reason_code == Reasons.APPLICATION_DEADLINE_PASSED.code

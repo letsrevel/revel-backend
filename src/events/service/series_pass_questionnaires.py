@@ -251,14 +251,14 @@ def _check(
         return None, []
     missing = [(e, v) for e, v in verdicts if v.next_step == NextStep.COMPLETE_QUESTIONNAIRE]
     if missing:
-        target, result = missing[0]
+        result = missing[0][1]
         all_missing = list(dict.fromkeys(q for _, v in missing for q in v.questionnaires_missing or []))
         routes = list(dict.fromkeys((q, e.pk) for e, v in missing for q in v.questionnaires_missing or []))
         result = result.model_copy(update={"questionnaires_missing": all_missing})
     else:
-        target, result = verdicts[0]
+        result = verdicts[0][1]
         routes = []
-    can_submit = target.status == Event.EventStatus.OPEN and now <= target.effective_apply_deadline
+    can_submit = all(e.status == Event.EventStatus.OPEN and now <= e.effective_apply_deadline for e, _ in missing)
     if result.next_step == NextStep.COMPLETE_QUESTIONNAIRE and not can_submit:
         # The questionnaire is outstanding but the event it points at can no longer take a submission.
         reason = str(_("A required questionnaire can no longer be submitted, so this pass cannot be purchased."))
