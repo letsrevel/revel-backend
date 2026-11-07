@@ -2,6 +2,7 @@
 
 import importlib
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 from django.apps import apps
@@ -317,12 +318,22 @@ def test_backfill_pages_members_in_chunks(
     organization: Organization, django_user_model: type[RevelUser], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With a tiny chunk size, every member is still backfilled exactly once."""
-    for i in range(5):
-        user = django_user_model.objects.create_user(username=f"chunk{i}@x.com", email=f"chunk{i}@x.com", password="p")
-        _member(organization, user, Status.ACTIVE)
+    member_pks = {
+        _member(
+            organization,
+            django_user_model.objects.create_user(username=f"chunk{i}@x.com", email=f"chunk{i}@x.com", password="p"),
+            Status.ACTIVE,
+        ).pk
+        for i in range(5)
+    }
     MembershipRecord.objects.all().delete()
     monkeypatch.setattr(backfill, "BATCH_SIZE", 2)
+    spy = patch.object(backfill, "_backfill_chunk", wraps=backfill._backfill_chunk)
 
-    backfill.forward(apps, None)
+    with spy as backfill_chunk:
+        backfill.forward(apps, None)
 
+    chunks = [call.args[0] for call in backfill_chunk.call_args_list]
+    assert [len(chunk) for chunk in chunks] == [2, 2, 1]
+    assert sorted(member.pk for chunk in chunks for member in chunk) == sorted(member_pks)
     assert MembershipRecord.objects.count() == 5
