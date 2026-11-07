@@ -10,7 +10,8 @@ Rules (applied only when the receiver expression contains ``OrganizationMember.o
   dict literal containing one of those keys or any non-literal expression (cannot be proven safe);
 * ``bulk_update(...)`` and ``bulk_create(...)`` regardless of arguments.
 
-May merge with the #1315 membership-access guard (#1325).
+Sibling of the #1315 membership-access guard (``events/tests/test_membership_access_guard.py``); kept
+separate on purpose (different invariant).
 
 Scope limit: querysets assigned to a variable before ``.update()`` are not detected.
 """
