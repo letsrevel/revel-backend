@@ -7341,3 +7341,81 @@ msgstr "Entferne das Mitglied aus der Organisation, bevor du seinen offenen Regi
 
 msgid "A linked membership cannot start in the future."
 msgstr "Eine verknüpfte Mitgliedschaft kann nicht in der Zukunft beginnen."
+
+#, python-format
+msgid "%(member)s was linked to a register entry in %(org)s"
+msgstr "%(member)s wurde in %(org)s mit einem Registereintrag verknüpft"
+
+#, python-format
+msgid "Register entry linked automatically: %(org)s"
+msgstr "Registereintrag automatisch verknüpft: %(org)s"
+
+msgid "Register Entry Linked Automatically"
+msgstr "Registereintrag automatisch verknüpft"
+
+#, python-format
+msgid "%(member)s was linked automatically to the register entry %(record)s in %(org)s because their verified email matched."
+msgstr "%(member)s wurde automatisch mit dem Registereintrag %(record)s in %(org)s verknüpft, weil die verifizierte E-Mail-Adresse übereingestimmt hat."
+
+msgid "Member:"
+msgstr "Mitglied:"
+
+msgid "Register entry:"
+msgstr "Registereintrag:"
+
+msgid "If this is wrong, unlink it from the member register."
+msgstr "Falls das nicht stimmt, löse die Verknüpfung im Mitgliederregister."
+
+msgid "Open Member Register"
+msgstr "Mitgliederregister öffnen"
+
+#, python-format
+msgid "%(organization)s invites you to link your membership"
+msgstr "%(organization)s lädt dich ein, deine Mitgliedschaft zu verknüpfen"
+
+#, python-format
+msgid "%(organization_name)s invites you to link your membership"
+msgstr "%(organization_name)s lädt dich ein, deine Mitgliedschaft zu verknüpfen"
+
+#, python-format
+msgid "%(organization_name)s keeps a register of its members and has you on it as %(full_name)s."
+msgstr "%(organization_name)s führt ein Register seiner Mitglieder und hat dich dort als %(full_name)s eingetragen."
+
+msgid "A revoked register entry cannot be invited."
+msgstr "Ein widerrufener Registereintrag kann nicht eingeladen werden."
+
+msgid "If you don't have an account, you can create one through this link with any email address."
+msgstr "Wenn du kein Konto hast, kannst du über diesen Link eines mit einer beliebigen E-Mail-Adresse erstellen."
+
+msgid "If you weren't expecting this, you can safely ignore this email."
+msgstr "Falls du das nicht erwartet hast, kannst du diese E-Mail einfach ignorieren."
+
+msgid "Invited"
+msgstr "Eingeladen"
+
+msgid "Link my membership"
+msgstr "Meine Mitgliedschaft verknüpfen"
+
+msgid "Link your entry to a Revel account to manage your membership online:"
+msgstr "Verknüpfe deinen Eintrag mit einem Revel-Konto, um deine Mitgliedschaft online zu verwalten:"
+
+msgid "Link your membership"
+msgstr "Verknüpfe deine Mitgliedschaft"
+
+msgid "Linked"
+msgstr "Verknüpft"
+
+msgid "Not invited"
+msgstr "Nicht eingeladen"
+
+msgid "This register entry has no email address to invite."
+msgstr "Dieser Registereintrag hat keine E-Mail-Adresse, an die eine Einladung gehen könnte."
+
+msgid "This register entry is already linked to an account."
+msgstr "Dieser Registereintrag ist bereits mit einem Konto verknüpft."
+
+msgid "You already have a membership in this organization. Its staff have been told about the duplicate entry."
+msgstr "Du bist bereits Mitglied dieser Organisation. Ihr Team wurde über den doppelten Eintrag informiert."
+
+msgid "You can't join this organization."
+msgstr "Du kannst dieser Organisation nicht beitreten."

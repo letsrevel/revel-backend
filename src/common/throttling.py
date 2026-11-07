@@ -138,6 +138,13 @@ class SendAnnouncementThrottle(DisableableThrottleMixin, UserRateThrottle):
     rate = "25/day"
 
 
+class MemberRegisterBulkInviteThrottle(DisableableThrottleMixin, UserRateThrottle):
+    """Bulk member-register invitations (5 requests/day): each call can email the whole register."""
+
+    scope = "member_register_bulk_invite"
+    rate = "5/day"
+
+
 class _IPRateThrottle:
     """Key every caller by client IP, authenticated or not.
 
