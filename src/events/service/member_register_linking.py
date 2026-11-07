@@ -156,6 +156,37 @@ def link_record(record: MembershipRecord, user: RevelUser, *, token: str | None 
         return LinkResult(LinkOutcome.LINKED, locked, member)
 
 
+def adopt_unlinked_record(member: OrganizationMember) -> MembershipRecord | None:
+    """Link the earliest unlinked open STANDARD record that verifiably belongs to the member's account.
+
+    Prevention at the source: called when the register is about to open a *new* STANDARD record for an
+    access row. Only a verified exact email match adopts (never guests, never unverified emails); looser
+    matches are only flagged for staff (see ``member_register_reconciliation``). The access row already
+    exists, so it is left alone: the caller settles tier and evidence. Staff are told, like for B1's auto-link.
+    """
+    user = member.user
+    if user.guest or not user.email_verified or not user.email:
+        return None
+    record = (
+        MembershipRecord.objects.unlinked()
+        .open()
+        .select_for_update(of=("self",))
+        .select_related("organization")
+        .filter(organization_id=member.organization_id, kind=MembershipRecord.Kind.STANDARD, email__iexact=user.email)
+        .order_by("valid_from", "created_at")
+        .first()
+    )
+    if record is None:
+        return None
+    record.user = user
+    record.invite_token = None
+    record.duplicate_claimant = None
+    record.save(update_fields=["user", "invite_token", "duplicate_claimant", "updated_at"])
+    logger.info("member_register_adopted_at_source", record_id=str(record.pk), user_id=str(user.pk))
+    _notify_staff_of_auto_link(record, user)
+    return record
+
+
 def _new_token() -> str:
     return secrets.token_urlsafe(32)
 

@@ -529,6 +529,10 @@ class ApproveMembershipRequestSchema(Schema):
             "Without this, such an approval is refused so a free grant cannot silently overwrite a paid tier."
         ),
     )
+    link_record_id: UUID4 | None = Field(
+        default=None,
+        description="Link this unlinked register entry to the applicant instead of opening a new one.",
+    )
 
 
 class MembershipTierSchema(ModelSchema):

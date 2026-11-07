@@ -7405,3 +7405,45 @@ msgstr "Cette entrée du registre vient d'être liée à un compte ; recharge-la
 
 msgid "You can't join this organization."
 msgstr "Tu ne peux pas rejoindre cette organisation."
+
+msgid "A closed entry can only be attached to an entry linked to an account."
+msgstr "Une entrée clôturée ne peut être rattachée qu'à une entrée liée à un compte."
+
+msgid "A merged register entry cannot be merged again."
+msgstr "Une entrée du registre déjà fusionnée ne peut pas être fusionnée à nouveau."
+
+msgid "A paid application cannot be linked to a register entry yet."
+msgstr "Une candidature payante ne peut pas encore être liée à une entrée du registre."
+
+msgid "A register entry cannot be merged into itself."
+msgstr "Une entrée du registre ne peut pas être fusionnée avec elle-même."
+
+msgid "An open entry can only be merged into another open standard entry."
+msgstr "Une entrée ouverte ne peut être fusionnée qu'avec une autre entrée standard ouverte."
+
+msgid "Claim"
+msgstr "Revendication"
+
+msgid "Name"
+msgstr "Nom"
+
+msgid "Only an entry without an account can be merged into another entry."
+msgstr "Seule une entrée sans compte peut être fusionnée avec une autre entrée."
+
+msgid "Only an open standard register entry can be linked to an application."
+msgstr "Seule une entrée standard ouverte du registre peut être liée à une candidature."
+
+msgid "Register entries must belong to the same organization."
+msgstr "Les entrées du registre doivent appartenir à la même organisation."
+
+msgid "The applicant already has an open register entry."
+msgstr "Le candidat a déjà une entrée ouverte dans le registre."
+
+msgid "This register entry does not belong to the organization."
+msgstr "Cette entrée du registre n'appartient pas à l'organisation."
+
+msgid "This register entry is already linked or merged."
+msgstr "Cette entrée du registre est déjà liée ou fusionnée."
+
+msgid "This register entry is not linked or merged."
+msgstr "Cette entrée du registre n'est ni liée ni fusionnée."

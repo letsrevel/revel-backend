@@ -7279,3 +7279,45 @@ msgstr "Esta entrada do registo acabou de ser associada a uma conta; recarregue-
 
 msgid "You can't join this organization."
 msgstr "Não podes aderir a esta organização."
+
+msgid "A closed entry can only be attached to an entry linked to an account."
+msgstr "Uma entrada encerrada só pode ser anexada a uma entrada associada a uma conta."
+
+msgid "A merged register entry cannot be merged again."
+msgstr "Uma entrada do registo já fundida não pode ser fundida novamente."
+
+msgid "A paid application cannot be linked to a register entry yet."
+msgstr "Uma candidatura paga ainda não pode ser associada a uma entrada do registo."
+
+msgid "A register entry cannot be merged into itself."
+msgstr "Uma entrada do registo não pode ser fundida consigo mesma."
+
+msgid "An open entry can only be merged into another open standard entry."
+msgstr "Uma entrada aberta só pode ser fundida com outra entrada padrão aberta."
+
+msgid "Claim"
+msgstr "Reivindicação"
+
+msgid "Name"
+msgstr "Nome"
+
+msgid "Only an entry without an account can be merged into another entry."
+msgstr "Só uma entrada sem conta pode ser fundida com outra entrada."
+
+msgid "Only an open standard register entry can be linked to an application."
+msgstr "Só uma entrada padrão aberta do registo pode ser associada a uma candidatura."
+
+msgid "Register entries must belong to the same organization."
+msgstr "As entradas do registo têm de pertencer à mesma organização."
+
+msgid "The applicant already has an open register entry."
+msgstr "O candidato já tem uma entrada aberta no registo."
+
+msgid "This register entry does not belong to the organization."
+msgstr "Esta entrada do registo não pertence à organização."
+
+msgid "This register entry is already linked or merged."
+msgstr "Esta entrada do registo já está associada ou fundida."
+
+msgid "This register entry is not linked or merged."
+msgstr "Esta entrada do registo não está associada nem fundida."
