@@ -228,6 +228,14 @@ class TestInviteEmail:
         assert kwargs["headers"]["Feedback-ID"].endswith(":member_register_invite:revel")
         assert "https://events.example.com/member-invite/abc123" in kwargs["body"]
 
+    def test_plain_text_body_is_not_html_escaped(self, make_record: RecordFactory) -> None:
+        """Names with ``&`` or apostrophes read as typed in the text part (escaping stays on in the HTML part)."""
+        record = make_record(full_name="Rock & Roll O'Brien", invite_token="abc123", invited_at=timezone.now())
+        send_member_register_invite(str(record.pk))
+        (message,) = mail.outbox
+        assert "Rock & Roll O'Brien" in message.body
+        assert "&amp;" not in message.body
+
     def test_sends_the_current_token(self, make_record: RecordFactory) -> None:
         """A resend between dispatch and execution makes the latest link win; no token is in the task args."""
         record = make_record(invite_token="new", invited_at=timezone.now())
