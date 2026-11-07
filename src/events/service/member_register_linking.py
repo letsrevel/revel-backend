@@ -128,9 +128,9 @@ def link_record(
             .get(pk=record.pk)
         )
 
-        stale_token = token is not None and (
-            locked.invite_token != token or locked.ended_reason == MembershipRecord.EndedReason.REVOKED
-        )
+        # A revoked entry is dead for every link path (invite claims and automatic links alike).
+        revoked = locked.ended_reason == MembershipRecord.EndedReason.REVOKED
+        stale_token = token is not None and locked.invite_token != token
         # Same ``iexact`` the selection used, evaluated by Postgres (Python's upper() differs for some Unicode).
         email_mismatch = require_verified_email and (
             user.guest
@@ -138,7 +138,7 @@ def link_record(
             or not user.email
             or not MembershipRecord.objects.filter(pk=locked.pk, email__iexact=user.email).exists()
         )
-        if locked.user_id is not None or stale_token or email_mismatch:
+        if locked.user_id is not None or revoked or stale_token or email_mismatch:
             return LinkResult(LinkOutcome.ALREADY_LINKED, locked)
 
         open_standard = locked.valid_until is None and locked.kind == MembershipRecord.Kind.STANDARD
@@ -272,6 +272,7 @@ def auto_link_records_for_user(user_id: UUID) -> list[LinkResult]:
         MembershipRecord.objects.unlinked()
         .select_related("organization")
         .filter(email__iexact=user.email, valid_from__lte=timezone.now())  # never before an entry starts
+        .exclude(ended_reason=MembershipRecord.EndedReason.REVOKED)
         .order_by("valid_from", "created_at")
     )
     results: list[LinkResult] = []

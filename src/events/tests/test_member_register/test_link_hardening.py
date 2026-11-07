@@ -511,3 +511,20 @@ def test_same_email_edit_keeps_the_link(make_record: RecordFactory) -> None:
 
     record.refresh_from_db()
     assert record.invite_token == "keep" and record.invited_at is not None
+
+
+def test_auto_link_skips_revoked_records(make_record: RecordFactory, django_user_model: type[RevelUser]) -> None:
+    """A revoked entry is never linked automatically, nor by a direct automatic-link call."""
+    start = timezone.now() - timedelta(days=3)
+    record = make_record(
+        kind=MembershipRecord.Kind.TEMPORARY,
+        valid_from=start,
+        valid_until=start + timedelta(days=1),
+        ended_reason=MembershipRecord.EndedReason.REVOKED,
+    )
+    user = _verified(django_user_model)
+
+    assert auto_link_records_for_user(user.pk) == []
+    assert link_record(record, user, require_verified_email=True).outcome == LinkOutcome.ALREADY_LINKED
+    record.refresh_from_db()
+    assert record.user is None
