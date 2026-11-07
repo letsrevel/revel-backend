@@ -2909,13 +2909,13 @@ msgid "You cannot purchase from this organization."
 msgstr "Non puoi acquistare da questa organizzazione."
 
 msgid "This pass is for members only."
-msgstr "Questo pass è riservato ai soci."
+msgstr "Questo pass è riservato ai membri."
 
 msgid "This pass is not available to members."
-msgstr "Questo pass non è disponibile per i soci."
+msgstr "Questo pass non è disponibile per i membri."
 
 msgid "A pass for non-members only cannot be visible to members only."
-msgstr "Un pass riservato ai non soci non può essere visibile solo ai soci."
+msgstr "Un pass riservato ai non membri non può essere visibile solo ai membri."
 
 msgid "You already hold this pass."
 msgstr "Possiedi già questo pass."
