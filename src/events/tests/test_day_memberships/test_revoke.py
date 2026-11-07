@@ -507,3 +507,22 @@ def test_admin_date_edit_resyncs_upcoming_event_records(
 
     assert _only(ticket).valid_from == day_event.start
     assert _only(ticket).valid_until == day_event.end
+
+
+def test_grant_uses_the_committed_event_window_not_a_stale_instance(
+    day_event: Event, day_tier: TicketTier, make_ticket: t.Callable[..., Ticket]
+) -> None:
+    """A grant holding an event read before a date edit committed still records the edited window."""
+    stale = Event.objects.get(pk=day_event.pk)
+    Event.objects.filter(pk=day_event.pk).update(
+        start=stale.start + timedelta(days=2), end=stale.end + timedelta(days=2)
+    )
+    ticket = make_ticket(day_tier)
+    MembershipRecord.objects.filter(ticket=ticket).delete()
+    ticket.event = stale
+
+    day_membership_service.on_ticket_status_change(ticket, None)
+
+    record = _only(ticket)
+    assert record.valid_from == stale.start  # refreshed in place under the lock
+    assert record.valid_from == Event.objects.get(pk=day_event.pk).start

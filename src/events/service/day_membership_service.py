@@ -9,7 +9,7 @@ bulk writers that skip signals (``on_tickets_issued``).
 """
 
 import typing as t
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -130,14 +130,27 @@ def _record_kwargs(
     }
 
 
+def _sync_locked_windows(events: Iterable[Event]) -> None:
+    """Re-read each event's dates under a row lock, so a concurrent date edit can't be missed.
+
+    A grant that read the event before the edit committed would otherwise write a record with the old window
+    after ``resync_event_window`` already ran. Locking the event row first matches the edit path's lock order.
+    """
+    by_id = {event.pk: event for event in events}
+    rows = Event.objects.select_for_update().filter(pk__in=by_id).order_by("pk").values_list("pk", "start", "end")
+    for pk, start, end in rows:
+        by_id[pk].start, by_id[pk].end = start, end
+
+
 def _grant(ticket: Ticket, granted_tier: MembershipTier, event: Event) -> None:
     """Create (or reopen) the ticket's day-membership record. Idempotent: one row per ticket.
 
     A banned person is granted nothing and a ban-revoked record is not reopened. The ban is checked inside
     the transaction, right before the write, so a concurrent ban cannot slip between check and write.
     """
-    valid_from, valid_until = _event_window(event)
     with transaction.atomic():
+        _sync_locked_windows([event])
+        valid_from, valid_until = _event_window(event)
         if _is_banned(event.organization_id, ticket.user_id):
             return
         existing = MembershipRecord.objects.select_for_update().filter(ticket=ticket).first()
@@ -235,6 +248,7 @@ def _write_records(
 ) -> None:
     """Create / reopen the records for ``granting`` in one transaction, re-checking bans right before the writes."""
     with transaction.atomic():
+        _sync_locked_windows(events.values())
         existing: dict[UUID, MembershipRecord] = {}
         if lock_existing:
             existing = {
