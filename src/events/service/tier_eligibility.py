@@ -25,6 +25,8 @@ def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
     3. Purchasable_by check: user is allowed to purchase (PUBLIC, MEMBERS for members,
        INVITED for invitees, INVITED_AND_MEMBERS for either)
     4. Membership tier restriction: user has the required membership tier (if restricted)
+    5. Member exclusion: for "non-members only" tiers, user is not an eligible member
+       (of an excluded membership tier, when the tier names any)
 
     Note:
         This function differs from EventManager.check_eligibility() in purpose:
@@ -62,8 +64,10 @@ def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
 
     eligible: list[TicketTier] = []
 
-    # Prefetch restricted_to_membership_tiers to avoid N+1 queries
-    for tier in event.ticket_tiers.prefetch_related("restricted_to_membership_tiers").all():
+    # Prefetch the membership-tier links to avoid N+1 queries
+    for tier in event.ticket_tiers.prefetch_related(
+        "restricted_to_membership_tiers", "excluded_membership_tiers"
+    ).all():
         # 1. Check visibility
         if not _check_tier_visibility(tier, is_staff_or_owner, can_see_member_tiers, is_invited, invitation_tier_ids):
             continue
@@ -86,9 +90,33 @@ def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
             if required_tier_ids and not (user_membership_tier_ids & required_tier_ids):
                 continue
 
+            # 5. Check member exclusion ("non-members only" tiers)
+            if is_member_excluded(tier, membership if is_member else None):
+                continue
+
         eligible.append(tier)
 
     return eligible
+
+
+def is_member_excluded(tier: TicketTier, membership: OrganizationMember | None) -> bool:
+    """Whether a "non-members only" tier shuts this buyer out because of their membership.
+
+    Staff/owner exemption is the caller's, as for :func:`_check_purchasable_by`.
+
+    Args:
+        tier: The tier being purchased from. ``excluded_membership_tiers`` is read through the
+            manager's prefetch.
+        membership: The buyer's ELIGIBLE membership (callers pass None when it is not eligible).
+
+    Returns:
+        True if the tier is non-members-only and the membership is excluded: any eligible member
+        when the tier names no excluded membership tiers, otherwise only members of those tiers.
+    """
+    if tier.purchasable_by != TicketTier.PurchasableBy.NON_MEMBERS or membership is None:
+        return False
+    excluded_ids = {mt.id for mt in tier.excluded_membership_tiers.all()}
+    return not excluded_ids or membership.tier_id in excluded_ids
 
 
 def _check_tier_visibility(
@@ -157,7 +185,8 @@ def anonymous_can_purchase(tier: TicketTier, event: Event, event_token: EventTok
     # get_eligible_tiers step 4). ``.all()`` reads the manager's prefetch.
     if tier.restricted_to_membership_tiers.all():
         return False
-    if tier.purchasable_by == TicketTier.PurchasableBy.PUBLIC:
+    # No account means no membership, so a non-members-only tier is open like a public one.
+    if tier.purchasable_by in (TicketTier.PurchasableBy.PUBLIC, TicketTier.PurchasableBy.NON_MEMBERS):
         return True
     if event_token is None or not event_token.grants_invitation or event_token.event_id != event.id:
         return False
@@ -188,6 +217,10 @@ def _check_purchasable_by(
     purchasable_by = tier.purchasable_by
 
     if purchasable_by == TicketTier.PurchasableBy.PUBLIC:
+        return True
+
+    # Member exclusion is a separate step that needs the membership tier: see is_member_excluded.
+    if purchasable_by == TicketTier.PurchasableBy.NON_MEMBERS:
         return True
 
     if purchasable_by == TicketTier.PurchasableBy.MEMBERS:

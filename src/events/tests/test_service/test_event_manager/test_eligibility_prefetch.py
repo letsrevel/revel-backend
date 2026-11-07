@@ -76,8 +76,11 @@ def test_member_ids_only_handler_user(
 
 
 def test_eligibility_prefetch_query_count_not_higher(event: Event, revel_user_factory: RevelUserFactory) -> None:
-    """Deriving member_ids from the memberships prefetch dropped one query (was 17, now 16)."""
+    """Deriving member_ids from the memberships prefetch dropped one query (was 17, now 16).
+
+    #1316 added the excluded_membership_tiers prefetch (+1), hence the 17 ceiling.
+    """
     viewer = revel_user_factory()
     with CaptureQueriesContext(connection) as ctx:
         EligibilityService(viewer, event)
-    assert len(ctx) <= 16
+    assert len(ctx) <= 17

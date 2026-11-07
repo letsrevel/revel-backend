@@ -160,8 +160,8 @@ class SeriesPassController(UserAwareController):
         webhook).
 
         **Error Cases:**
-        - 403: Blacklisted, or ``purchasable_by`` is members-only and the user isn't a member
-          (the pass is visible, but not purchasable, to non-members).
+        - 403: Blacklisted, or ``purchasable_by`` is members-only and the user isn't a member, or
+          non-members-only and the user is one (the pass is visible, but not purchasable, to them).
         - 404: The pass itself isn't visible to the user (e.g. a MEMBERS_ONLY-*visibility*
           pass and the user isn't a member) — raised earlier, by ``_get_visible_pass``.
         - 400: A series admission questionnaire is missing, pending review or failed (eligibility payload).

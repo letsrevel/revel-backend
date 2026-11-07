@@ -64,7 +64,7 @@ class TicketQuerySet(models.QuerySet["Ticket"]):
             "discount_code",
             "held_pass",
             "held_pass__series_pass",
-        ).prefetch_related("tier__restricted_to_membership_tiers")
+        ).prefetch_related("tier__restricted_to_membership_tiers", "tier__excluded_membership_tiers")
 
     def attending(self) -> t.Self:
         """Tickets that count as attendance.

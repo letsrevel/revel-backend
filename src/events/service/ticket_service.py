@@ -328,6 +328,7 @@ def create_ticket_tier(event: Event, payload: "TicketTierCreateSchema") -> Ticke
 
     payload_dict = payload.model_dump(exclude_unset=True, mode="json")
     restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
+    excluded_membership_tiers_ids = payload_dict.pop("excluded_membership_tiers_ids", None)
     _drop_null_category_prices(payload_dict)
     # Before the write: a handled exception does not roll back under ATOMIC_REQUESTS.
     new_tier = TicketTier(event=event, **payload_dict)
@@ -348,8 +349,12 @@ def create_ticket_tier(event: Event, payload: "TicketTierCreateSchema") -> Ticke
     # Create the ticket tier (save() will call full_clean() automatically)
     tier = TicketTier.objects.create(event=event, **payload_dict)
 
-    if restricted_to_membership_tiers_ids:
-        _set_tier_membership_restrictions(tier, restricted_to_membership_tiers_ids, event.organization)
+    changed = _apply_membership_tier_links(
+        tier, restricted_to_membership_tiers_ids, excluded_membership_tiers_ids, event.organization
+    )
+    if changed:
+        # Validate M2M relationships (TicketTier.clean() checks membership tiers and purchasable_by logic)
+        tier.full_clean()
 
     return TicketTier.objects.with_venue_and_sector().get(pk=tier.pk)
 
@@ -412,10 +417,10 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
         HttpError 404: If any provided membership tier ID is invalid or belongs to another org.
 
     Note:
-        ``restricted_to_membership_tiers_ids`` semantics:
-            - non-empty list -> replace all restrictions
-            - empty list     -> clear all restrictions
-            - omitted (None) -> preserve existing restrictions
+        ``restricted_to_membership_tiers_ids`` and ``excluded_membership_tiers_ids`` semantics:
+            - non-empty list -> replace all links
+            - empty list     -> clear all links
+            - omitted (None) -> preserve existing links
 
         ``category_prices`` follows the same three-way contract:
             - non-empty map  -> replace the whole map
@@ -426,6 +431,7 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
     """
     payload_dict = payload.model_dump(exclude_unset=True, mode="json")
     restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
+    excluded_membership_tiers_ids = payload_dict.pop("excluded_membership_tiers_ids", None)
     _drop_null_category_prices(payload_dict)
 
     # Resuming a paused tier is the other way to put an ONLINE tier on sale (the Eventbrite import
@@ -452,44 +458,66 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
     if payload_dict.keys() & ZERO_RATE_RULE_FIELDS or resuming:
         _assert_zero_rate_has_exemption_reason(tier, tier.event.organization)
 
+    # Membership-tier links go BEFORE the save so its full_clean() sees them: one PATCH may switch
+    # MEMBERS + restricted[X] to NON_MEMBERS + restricted[] + excluded[X]. A ValidationError rolls
+    # the M2M writes back (@transaction.atomic).
+    links_changed = _apply_membership_tier_links(
+        tier, restricted_to_membership_tiers_ids, excluded_membership_tiers_ids, tier.event.organization
+    )
+
     if payload_dict:
         # save() will call full_clean() automatically via TimeStampedModel
         tier.save(update_fields=list(payload_dict.keys()))
-
-    # Handle membership tier restrictions update
-    if restricted_to_membership_tiers_ids is not None:
-        if restricted_to_membership_tiers_ids:
-            _set_tier_membership_restrictions(tier, restricted_to_membership_tiers_ids, tier.event.organization)
-        else:
-            # Empty list means clear all restrictions
-            tier.restricted_to_membership_tiers.clear()
-            # Validate M2M relationships (TicketTier.clean() checks membership tiers and purchasable_by logic)
-            tier.full_clean()
+    elif links_changed:
+        # Validate M2M relationships (TicketTier.clean() checks membership tiers and purchasable_by logic)
+        tier.full_clean()
 
     return TicketTier.objects.with_venue_and_sector().get(pk=tier.pk)
 
 
-def _set_tier_membership_restrictions(
-    tier: TicketTier, restricted_to_membership_tiers_ids: list[UUID], organization: "Organization"
-) -> None:
-    """Validate membership tier IDs against the organization, then set them on the tier.
+def _set_tier_membership_links(manager: t.Any, membership_tier_ids: list[UUID], organization: "Organization") -> None:
+    """Validate membership tier IDs against the organization, then set them on a tier's M2M.
+
+    Does not run ``full_clean()``; the caller validates once after all links are set.
 
     Raises:
         HttpError 404: If any ID is unknown or belongs to a different organization.
     """
-    membership_tiers = MembershipTier.objects.filter(
-        id__in=restricted_to_membership_tiers_ids, organization=organization
-    )
+    membership_tiers = MembershipTier.objects.filter(id__in=membership_tier_ids, organization=organization)
 
-    if membership_tiers.count() != len(restricted_to_membership_tiers_ids):
+    if membership_tiers.count() != len(membership_tier_ids):
         raise HttpError(
             404,
             str(_("One or more membership tier IDs are invalid or don't belong to the event's organization.")),
         )
 
-    tier.restricted_to_membership_tiers.set(membership_tiers)
-    # Validate M2M relationships (TicketTier.clean() checks membership tiers and purchasable_by logic)
-    tier.full_clean()
+    manager.set(membership_tiers)
+
+
+def _apply_membership_tier_links(
+    tier: TicketTier,
+    restricted_ids: list[UUID] | None,
+    excluded_ids: list[UUID] | None,
+    organization: "Organization",
+) -> bool:
+    """Apply restricted/excluded membership-tier links (non-empty replaces, [] clears, None keeps).
+
+    Returns:
+        True if any link was written, i.e. the tier needs re-validating.
+    """
+    changed = False
+    for manager, ids in (
+        (tier.restricted_to_membership_tiers, restricted_ids),
+        (tier.excluded_membership_tiers, excluded_ids),
+    ):
+        if ids is None:
+            continue
+        if ids:
+            _set_tier_membership_links(manager, ids, organization)
+        else:
+            manager.clear()
+        changed = True
+    return changed
 
 
 def check_online_payment_prerequisites(org: "Organization") -> None:

@@ -122,6 +122,7 @@ class TicketTierSchema(ModelSchema):
     currency: str
     total_available: int | None
     restricted_to_membership_tiers: list[MembershipTierSchema] | None = None
+    excluded_membership_tiers: list[MembershipTierSchema] | None = None
     seat_assignment_mode: TicketTier.SeatAssignmentMode
     max_tickets_per_user: int | None = None
     venue: VenueSchema | None = None
@@ -335,6 +336,7 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     )
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None
+    excluded_membership_tiers_ids: list[UUID4] | None = None
     manual_payment_instructions: StrippedString | None = None
 
     # Venue/seating configuration
@@ -410,6 +412,7 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     )
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None
+    excluded_membership_tiers_ids: list[UUID4] | None = None
     manual_payment_instructions: StrippedString | None = None
 
     # Venue/seating configuration
@@ -475,6 +478,7 @@ class TicketTierDetailSchema(ModelSchema):
     total_available: int | None = None
     capped_by_event: bool = False
     restricted_to_membership_tiers: list[MembershipTierSchema] | None = None
+    excluded_membership_tiers: list[MembershipTierSchema] | None = None
     seat_assignment_mode: TicketTier.SeatAssignmentMode
     max_tickets_per_user: int | None = None
     venue: VenueSchema | None = None
@@ -515,6 +519,7 @@ class TicketTierDetailSchema(ModelSchema):
             "quantity_sold",
             "manual_payment_instructions",
             "restricted_to_membership_tiers",
+            "excluded_membership_tiers",
             "seat_assignment_mode",
             "max_tickets_per_user",
             "display_order",

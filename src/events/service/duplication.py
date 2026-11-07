@@ -60,7 +60,7 @@ _SHIFTED_DATE_FIELDS: tuple[str, ...] = (
 # 1. Auto-managed: id, timestamps.
 # 2. Per-occurrence state: quantity_sold (must reset to 0).
 # 3. Overridden / shifted: event (new), sales_start_at / sales_end_at (date-shifted).
-# 4. M2M: restricted_to_membership_tiers (set after create).
+# 4. M2M: restricted_to_membership_tiers, excluded_membership_tiers (set after create).
 #
 # ``venue``/``sector`` used to be cleared here "because the new event may have a
 # different venue" — but the duplicate always inherits the template's venue (``venue``
@@ -213,6 +213,7 @@ def _duplicate_ticket_tiers(
 
         new_tier = TicketTier.objects.create(**copy_kwargs)
         new_tier.restricted_to_membership_tiers.set(tier.restricted_to_membership_tiers.all())
+        new_tier.excluded_membership_tiers.set(tier.excluded_membership_tiers.all())
 
 
 def _duplicate_potluck_items(template_event: Event, new_event: Event) -> None:

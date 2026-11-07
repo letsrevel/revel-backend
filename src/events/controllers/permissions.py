@@ -17,7 +17,8 @@ from common.controllers import UserAwareController
 from events import models, schema
 from events.service import permission_snapshot
 from events.service.potluck_service import user_may_hold_potluck_claims
-from events.utils.membership_access import is_eligible_member
+from events.service.tier_eligibility import is_member_excluded
+from events.utils.membership_access import get_eligible_membership, is_eligible_member
 
 
 def scope_allows(request: HttpRequest, action: models.PermissionKey) -> None:
@@ -278,6 +279,10 @@ class CanPurchaseTicket(RootPermission):
             return True
 
         PB = models.TicketTier.PurchasableBy
+        if obj.purchasable_by == PB.NON_MEMBERS:
+            if not is_member_excluded(obj, get_eligible_membership(user, obj.event.organization_id)):
+                return True
+            raise PermissionDenied(str(_("The ticket can be purchased by {}").format(obj.get_purchasable_by_display())))
         is_member = is_eligible_member(user, obj.event.organization_id)
 
         if obj.purchasable_by in [PB.MEMBERS, PB.INVITED_AND_MEMBERS] and is_member:
