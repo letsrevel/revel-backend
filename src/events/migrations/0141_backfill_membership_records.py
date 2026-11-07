@@ -51,11 +51,31 @@ def forward(apps: t.Any, schema_editor: t.Any) -> None:
         MembershipRequest.objects.filter(status__in=("approved", "completed")).values_list("organization_id", "user_id")
     )
     subscribed = set(MembershipSubscription.objects.values_list("organization_id", "user_id"))
-    closed_reasons = {"cancelled": "cancelled", "banned": "expelled"}
 
+    # Keyset-paged by pk; no .iterator(): server-side cursors break under PgBouncer.
+    last_pk = None
+    while True:
+        members = OrganizationMember.objects.select_related("user", "tier").order_by("pk")
+        if last_pk is not None:
+            members = members.filter(pk__gt=last_pk)
+        chunk = list(members[:BATCH_SIZE])
+        if not chunk:
+            break
+        last_pk = chunk[-1].pk
+        _backfill_chunk(chunk, MembershipRecord, existing, ban_entries, applied, subscribed)
+
+
+def _backfill_chunk(
+    chunk: list[t.Any],
+    MembershipRecord: t.Any,
+    existing: set[tuple[t.Any, t.Any]],
+    ban_entries: dict[tuple[t.Any, t.Any], list[t.Any]],
+    applied: set[tuple[t.Any, t.Any]],
+    subscribed: set[tuple[t.Any, t.Any]],
+) -> None:
+    closed_reasons = {"cancelled": "cancelled", "banned": "expelled"}
     batch: list[t.Any] = []
-    # No .iterator(): server-side cursors break under PgBouncer.
-    for member in OrganizationMember.objects.select_related("user", "tier"):
+    for member in chunk:
         if (member.organization_id, member.user_id) in existing:
             continue
         pair = (member.organization_id, member.user_id)
@@ -85,9 +105,6 @@ def forward(apps: t.Any, schema_editor: t.Any) -> None:
             )
         )
         existing.add((member.organization_id, member.user_id))
-        if len(batch) >= BATCH_SIZE:
-            MembershipRecord.objects.bulk_create(batch, batch_size=BATCH_SIZE)
-            batch = []
     if batch:
         MembershipRecord.objects.bulk_create(batch, batch_size=BATCH_SIZE)
 

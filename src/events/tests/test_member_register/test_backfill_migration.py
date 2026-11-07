@@ -311,3 +311,18 @@ def test_backfill_runs_against_historical_models(organization: Organization, mem
     rec = MembershipRecord.objects.get(user=member_user)
     assert rec.source == MembershipRecord.Source.BACKFILL
     assert rec.valid_until is None
+
+
+def test_backfill_pages_members_in_chunks(
+    organization: Organization, django_user_model: type[RevelUser], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a tiny chunk size, every member is still backfilled exactly once."""
+    for i in range(5):
+        user = django_user_model.objects.create_user(username=f"chunk{i}@x.com", email=f"chunk{i}@x.com", password="p")
+        _member(organization, user, Status.ACTIVE)
+    MembershipRecord.objects.all().delete()
+    monkeypatch.setattr(backfill, "BATCH_SIZE", 2)
+
+    backfill.forward(apps, None)
+
+    assert MembershipRecord.objects.count() == 5
