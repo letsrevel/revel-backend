@@ -82,6 +82,7 @@ def test_tenant_types_are_disjoint_from_org_sender_types_and_staff_facing_types(
         # Org staff/owner alerts: never sent to the attendee, so never on the tenant sender.
         NotificationType.STAFF_SERIES_PASS_PURCHASED,
         NotificationType.STAFF_SERIES_PASS_CANCELLED,
+        NotificationType.STAFF_MEMBER_RECORD_AUTO_LINKED,
         NotificationType.RSVP_CONFIRMATION,
         NotificationType.RSVP_UPDATED,
         NotificationType.RSVP_CANCELLED,
