@@ -8,7 +8,7 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import MembershipRecord, Organization
+from events.models import MembershipRecord, MembershipRecordEndedReason, MembershipRecordKind, Organization
 
 pytestmark = pytest.mark.django_db
 
@@ -17,10 +17,10 @@ def _record(
     organization: Organization,
     user: RevelUser | None,
     *,
-    kind: MembershipRecord.Kind = MembershipRecord.Kind.STANDARD,
+    kind: MembershipRecordKind = MembershipRecord.Kind.STANDARD,
     valid_from: t.Any = None,
     valid_until: t.Any = None,
-    ended_reason: MembershipRecord.EndedReason | None = None,
+    ended_reason: MembershipRecordEndedReason | None = None,
 ) -> MembershipRecord:
     return MembershipRecord.objects.create(
         organization=organization,

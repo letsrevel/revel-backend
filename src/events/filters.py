@@ -18,7 +18,7 @@ from events.models import (
     EventInvitationRequest,
     EventRSVP,
     EventSeries,
-    MembershipRecord,
+    MembershipRecordKind,
     MembershipRequestStatus,
     Organization,
     OrganizationMember,
@@ -371,7 +371,7 @@ class MembershipRequestFilterSchema(FilterSchema):
 class MembershipRecordFilterSchema(FilterSchema):
     """Filters for the membership register."""
 
-    kind: MembershipRecord.Kind | None = Field(None, description="Standard or temporary membership.")
+    kind: MembershipRecordKind | None = Field(None, description="Standard or temporary membership.")
     tier_id: UUID | None = Field(None, description="Only entries of this tier.")
     is_open: bool | None = Field(None, description="True: no end date. False: has an end date.")
     has_account: bool | None = Field(None, description="True: linked to an account. False: account-less.")

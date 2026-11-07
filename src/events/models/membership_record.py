@@ -10,6 +10,33 @@ from django.utils.translation import gettext_lazy as _
 from common.models import TimeStampedModel
 
 
+# Module-level with distinct names (not nested ``Kind``/``Source``/``EndedReason``): django-ninja dedupes
+# OpenAPI components by bare class name, so nested names collide with ``Venue.Kind`` and others (#782).
+# Code keeps the ``MembershipRecord.Kind`` idiom through the class-level aliases.
+class MembershipRecordKind(models.TextChoices):
+    STANDARD = "standard", _("Standard")
+    TEMPORARY = "temporary", _("Temporary")
+
+
+class MembershipRecordEndedReason(models.TextChoices):
+    CANCELLED = "cancelled", _("Cancelled")
+    EXPELLED = "expelled", _("Expelled")
+    REMOVED = "removed", _("Removed")
+    REVOKED = "revoked", _("Revoked")
+    TIER_CHANGED = "tier_changed", _("Tier changed")
+
+
+class MembershipRecordSource(models.TextChoices):
+    APPLICATION = "application", _("Application")
+    STAFF = "staff", _("Staff")
+    TOKEN = "token", _("Token")
+    SUBSCRIPTION = "subscription", _("Subscription")
+    TICKET = "ticket", _("Ticket")
+    MANUAL = "manual", _("Manual")
+    IMPORT = "import", _("Import")
+    BACKFILL = "backfill", _("Backfill")
+
+
 class MembershipRecordQuerySet(models.QuerySet["MembershipRecord"]):
     """Queries over register records."""
 
@@ -33,26 +60,9 @@ class MembershipRecord(TimeStampedModel):
     snapshotted so the record survives deletion of the account, tier or questionnaire submission.
     """
 
-    class Kind(models.TextChoices):
-        STANDARD = "standard", _("Standard")
-        TEMPORARY = "temporary", _("Temporary")
-
-    class EndedReason(models.TextChoices):
-        CANCELLED = "cancelled", _("Cancelled")
-        EXPELLED = "expelled", _("Expelled")
-        REMOVED = "removed", _("Removed")
-        REVOKED = "revoked", _("Revoked")
-        TIER_CHANGED = "tier_changed", _("Tier changed")
-
-    class Source(models.TextChoices):
-        APPLICATION = "application", _("Application")
-        STAFF = "staff", _("Staff")
-        TOKEN = "token", _("Token")
-        SUBSCRIPTION = "subscription", _("Subscription")
-        TICKET = "ticket", _("Ticket")
-        MANUAL = "manual", _("Manual")
-        IMPORT = "import", _("Import")
-        BACKFILL = "backfill", _("Backfill")
+    Kind = MembershipRecordKind
+    EndedReason = MembershipRecordEndedReason
+    Source = MembershipRecordSource
 
     organization = models.ForeignKey("events.Organization", on_delete=models.CASCADE, related_name="membership_records")
     user = models.ForeignKey(

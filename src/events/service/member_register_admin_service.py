@@ -16,7 +16,13 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import MembershipRecord, MembershipTier, Organization, OrganizationMember
+from events.models import (
+    MembershipRecord,
+    MembershipRecordEndedReason,
+    MembershipTier,
+    Organization,
+    OrganizationMember,
+)
 
 END_REASONS = (MembershipRecord.EndedReason.CANCELLED, MembershipRecord.EndedReason.REMOVED)
 
@@ -141,7 +147,7 @@ def update_record(record: MembershipRecord, payload_data: dict[str, t.Any]) -> M
 
 @transaction.atomic
 def end_record(
-    record: MembershipRecord, *, reason: MembershipRecord.EndedReason, valid_until: datetime | None
+    record: MembershipRecord, *, reason: MembershipRecordEndedReason, valid_until: datetime | None
 ) -> MembershipRecord:
     """End a register entry; a linked live one is ended by cancelling the member."""
     if reason not in END_REASONS:

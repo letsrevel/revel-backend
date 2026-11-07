@@ -25,7 +25,13 @@ from .membership import (
     OrganizationMember,
     OrganizationMembershipRequest,
 )
-from .membership_record import MembershipRecord, MembershipRecordQuerySet
+from .membership_record import (
+    MembershipRecord,
+    MembershipRecordEndedReason,
+    MembershipRecordKind,
+    MembershipRecordQuerySet,
+    MembershipRecordSource,
+)
 from .misc import AdditionalResource
 from .mixins import ResourceVisibility
 from .nudge import OrganizationNudge
@@ -123,6 +129,9 @@ __all__ = [
     "MembershipSubscription",
     "MembershipSubscriptionPlan",
     "SubscriptionPaymentMethod",
+    "MembershipRecordEndedReason",
+    "MembershipRecordKind",
+    "MembershipRecordSource",
     # Recurrence
     "RecurrenceRule",
     # Reserved slug tokens

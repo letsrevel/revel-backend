@@ -6,7 +6,7 @@ from uuid import UUID
 from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime, EmailStr, Field, field_validator
 
-from events.models import MembershipRecord
+from events.models import MembershipRecord, MembershipRecordEndedReason, MembershipRecordKind, MembershipRecordSource
 
 _FULL_NAME_MAX = 255
 
@@ -28,9 +28,9 @@ class MembershipRecordSchema(ModelSchema):
     tier_id: UUID | None = None
     event_id: UUID | None = None
     ticket_id: UUID | None = None
-    kind: MembershipRecord.Kind
-    source: MembershipRecord.Source
-    ended_reason: MembershipRecord.EndedReason | None = None
+    kind: MembershipRecordKind
+    source: MembershipRecordSource
+    ended_reason: MembershipRecordEndedReason | None = None
     valid_from: AwareDatetime
     valid_until: AwareDatetime | None = None
     accepted_at: AwareDatetime | None = None
@@ -87,12 +87,12 @@ class MembershipRecordUpdateSchema(Schema):
 class MembershipRecordEndSchema(Schema):
     """End a register entry."""
 
-    reason: MembershipRecord.EndedReason
+    reason: MembershipRecordEndedReason
     valid_until: AwareDatetime | None = None
 
     @field_validator("reason")
     @classmethod
-    def _allowed_reason(cls, value: MembershipRecord.EndedReason) -> MembershipRecord.EndedReason:
+    def _allowed_reason(cls, value: MembershipRecordEndedReason) -> MembershipRecordEndedReason:
         if value not in (MembershipRecord.EndedReason.CANCELLED, MembershipRecord.EndedReason.REMOVED):
             raise ValueError("Reason must be 'cancelled' or 'removed'.")
         return value
