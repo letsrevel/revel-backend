@@ -22,6 +22,7 @@ from events.models import (
     OrganizationMembershipRequest,
     RegisterMatchReason,
 )
+from events.utils.membership_access import visible_memberships
 from events.utils.name_matching import normalize_name_for_matching
 
 logger = structlog.get_logger(__name__)
@@ -249,10 +250,9 @@ def unlink_record(record: MembershipRecord) -> MembershipRecord:
         current.save(update_fields=["user", "updated_at"])
         if was_open_standard:
             member = (
-                OrganizationMember.objects.select_for_update(of=("self",))
-                .filter(
-                    organization_id=current.organization_id, user_id=user_id, status__in=[Status.ACTIVE, Status.PAUSED]
-                )
+                visible_memberships()
+                .select_for_update(of=("self",))
+                .filter(organization_id=current.organization_id, user_id=user_id)
                 .first()
             )
             if member is not None:
