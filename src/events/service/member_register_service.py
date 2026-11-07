@@ -112,7 +112,8 @@ def _settle_adopted(adopted: MembershipRecord, member: OrganizationMember) -> Me
         closed = close_standard_record(
             member.organization_id, member.user_id, reason=MembershipRecord.EndedReason.TIER_CHANGED, now=now
         )
-        assert closed is not None  # the record was linked a moment ago, under the same lock
+        if closed is None:  # unreachable: the record was linked a moment ago, under the same lock
+            return adopted
         return _reopen_from(closed, tier=member.tier, now=now)
     if submission is not None and adopted.questionnaire_submission_id is None:
         adopted.questionnaire_submission = submission
