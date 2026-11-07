@@ -124,11 +124,20 @@ def _call_flagged(node: ast.Call, name: str) -> bool:
     if any(_A_KEYWORD.search(n) for n in names):  # rule (a)
         return True
     if is_filter and isinstance(node.func, ast.Attribute) and _is_member_receiver(node.func.value):  # rule (b)
-        for q in (n for arg in node.args for n in ast.walk(arg)):  # positional Q(...) & ~Q(...) trees
-            if isinstance(q, ast.Call) and _call_name(q) == "Q":
-                q_names, q_opaque = _keyword_names(q)
+        # Positional Q(...) & ~Q(...) trees: walk only the combinators, never into keyword values
+        # (a nested queryset's own Q(status=...) belongs to another model).
+        pending: list[ast.expr] = list(node.args)
+        while pending:
+            arg = pending.pop()
+            if isinstance(arg, ast.BinOp) and isinstance(arg.op, (ast.BitAnd, ast.BitOr, ast.BitXor)):
+                pending.extend((arg.left, arg.right))
+            elif isinstance(arg, ast.UnaryOp) and isinstance(arg.op, ast.Invert):
+                pending.append(arg.operand)
+            elif isinstance(arg, ast.Call) and _call_name(arg) == "Q":
+                q_names, q_opaque = _keyword_names(arg)
                 names.extend(q_names)
                 opaque = opaque or q_opaque
+                pending.extend(arg.args)
         if opaque or any(n in _B_KEYWORDS for n in names):
             return True
     arg_nodes: list[ast.AST] = [*node.args, *(kw.value for kw in node.keywords)]
@@ -210,6 +219,7 @@ def test_guard_ignores_unrelated() -> None:
         "ticket.status == Ticket.TicketStatus.ACTIVE",
         "OrganizationMembershipRequest.objects.filter(status=s)",
         "self.members_count == 3",
+        'OrganizationMember.objects.filter(Q(pk__in=Ticket.objects.filter(Q(status=s)).values("pk")))',
     ]
     assert [find_violations(s, "x.py") for s in snippets] == [[]] * len(snippets)
 
