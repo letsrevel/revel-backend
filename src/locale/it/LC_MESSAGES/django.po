@@ -2914,6 +2914,9 @@ msgstr "Questo pass è riservato ai soci."
 msgid "This pass is not available to members."
 msgstr "Questo pass non è disponibile per i soci."
 
+msgid "A pass for non-members only cannot be visible to members only."
+msgstr "Un pass riservato ai non soci non può essere visibile solo ai soci."
+
 msgid "You already hold this pass."
 msgstr "Possiedi già questo pass."
 

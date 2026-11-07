@@ -6,13 +6,17 @@ from decimal import Decimal
 
 import orjson
 import pytest
+from django.core.exceptions import ValidationError
+from django.http import HttpRequest
 from django.test.client import Client
 from django.urls import reverse
 from django.utils import timezone
 from ninja.errors import HttpError
+from ninja_extra.exceptions import PermissionDenied
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
+from events.controllers.permissions import CanPurchaseTicket
 from events.models import (
     Event,
     EventSeries,
@@ -32,6 +36,7 @@ from events.service.batch_ticket_service.eligibility import assert_cart_purchasa
 from events.service.duplication import duplicate_event
 from events.service.event_manager import NextStep, ReasonCode, UserIsIneligibleError
 from events.service.series_pass_purchase import SeriesPassPurchaseService
+from events.service.ticket_service import UserEventStatus, get_user_event_status
 
 pytestmark = pytest.mark.django_db
 
@@ -231,11 +236,6 @@ class TestCheckout:
         member_user: RevelUser,
         public_user: RevelUser,
     ) -> None:
-        from django.http import HttpRequest
-        from ninja_extra.exceptions import PermissionDenied
-
-        from events.controllers.permissions import CanPurchaseTicket
-
         _join(organization, member_user)
 
         def _check(user: RevelUser) -> bool:
@@ -340,6 +340,7 @@ class TestAdminValidation:
             owner_client, event, purchasable_by="public", excluded_membership_tiers_ids=[str(gold.pk)]
         )
         assert response.status_code == 400, response.content
+        assert not TicketTier.objects.filter(event=event, name="T").exists()
 
     def test_foreign_org_excluded_tier_404(self, owner_client: Client, event: Event, django_user_model: t.Any) -> None:
         other = Organization.objects.create(
@@ -352,10 +353,12 @@ class TestAdminValidation:
             owner_client, event, purchasable_by="non_members", excluded_membership_tiers_ids=[str(foreign.pk)]
         )
         assert response.status_code == 404, response.content
+        assert not TicketTier.objects.filter(event=event, name="T").exists()
 
     def test_non_members_cannot_be_members_only_visible(self, owner_client: Client, event: Event) -> None:
         response = self._create(owner_client, event, purchasable_by="non_members", visibility="members-only")
         assert response.status_code == 400, response.content
+        assert not TicketTier.objects.filter(event=event, name="T").exists()
 
     def test_restricted_and_excluded_together_rejected(
         self, owner_client: Client, event: Event, gold: MembershipTier
@@ -369,6 +372,7 @@ class TestAdminValidation:
                 excluded_membership_tiers_ids=[str(gold.pk)],
             )
             assert response.status_code == 400, response.content
+            assert not TicketTier.objects.filter(event=event, name="T").exists()
 
     def test_single_put_switches_members_to_non_members(
         self, owner_client: Client, event: Event, gold: MembershipTier
@@ -405,9 +409,147 @@ class TestAdminValidation:
         assert response.status_code == 400, response.content
         assert TicketTier.objects.get(pk=gold_excluded_tier.pk).purchasable_by == PB.NON_MEMBERS
 
+    def test_update_rejects_non_members_members_only_visibility(
+        self, owner_client: Client, nm_tier: TicketTier
+    ) -> None:
+        response = self._update(owner_client, nm_tier, visibility="members-only")
+        assert response.status_code == 400, response.content
+        assert TicketTier.objects.get(pk=nm_tier.pk).visibility != "members-only"
+
+    def test_duplicate_ids_do_not_404(self, owner_client: Client, event: Event, gold: MembershipTier) -> None:
+        response = self._create(
+            owner_client,
+            event,
+            purchasable_by="non_members",
+            excluded_membership_tiers_ids=[str(gold.pk), str(gold.pk)],
+        )
+        assert response.status_code == 200, response.content
+        assert len(response.json()["excluded_membership_tiers"]) == 1
+
+    def test_failed_update_rolls_back_link_changes(
+        self, owner_client: Client, gold_excluded_tier: TicketTier, gold: MembershipTier, silver: MembershipTier
+    ) -> None:
+        """The links are written before the save; a failing full_clean must undo them."""
+        response = self._update(
+            owner_client,
+            gold_excluded_tier,
+            purchasable_by="public",
+            excluded_membership_tiers_ids=[str(silver.pk)],
+        )
+        assert response.status_code == 400, response.content
+        tier = TicketTier.objects.get(pk=gold_excluded_tier.pk)
+        assert tier.purchasable_by == PB.NON_MEMBERS
+        assert list(tier.excluded_membership_tiers.all()) == [gold]
+
 
 def test_duplication_copies_excluded_tiers(event: Event, gold_excluded_tier: TicketTier, gold: MembershipTier) -> None:
     new_event = duplicate_event(event, "Copy", timezone.now() + timedelta(days=30))
     copy = TicketTier.objects.get(event=new_event, name="Non-members")
     assert copy.purchasable_by == PB.NON_MEMBERS
     assert list(copy.excluded_membership_tiers.all()) == [gold]
+
+
+@pytest.mark.parametrize("status", [Status.PAUSED, Status.CANCELLED])
+def test_inactive_member_checkout_succeeds(
+    event: Event, organization: Organization, nm_tier: TicketTier, member_user: RevelUser, status: str
+) -> None:
+    _join(organization, member_user, status)
+    assert len(_buy(event, nm_tier, member_user)) == 1
+
+
+def test_paused_member_can_buy_non_member_pass(
+    organization: Organization, member_user: RevelUser, event_series: EventSeries, event: Event
+) -> None:
+    _join(organization, member_user, Status.PAUSED)
+    organization.visibility = Organization.Visibility.PUBLIC
+    organization.save(update_fields=["visibility"])
+    events = [event]
+    for i in (1, 2):
+        events.append(
+            Event.objects.create(
+                organization=organization,
+                name=f"E{i}",
+                slug=f"e{i}",
+                event_type=Event.EventType.PUBLIC,
+                visibility=Event.Visibility.PUBLIC,
+                event_series=event_series,
+                max_attendees=100,
+                start=timezone.now() + timedelta(days=3 * i),
+                end=timezone.now() + timedelta(days=3 * i, hours=4),
+                status=Event.EventStatus.OPEN,
+                requires_ticket=True,
+            )
+        )
+    event.start = timezone.now() + timedelta(days=1)
+    event.end = event.start + timedelta(hours=4)
+    event.save(update_fields=["start", "end"])
+    series_pass = SeriesPass.objects.create(
+        event_series=event_series,
+        name="NM",
+        price=Decimal("20.00"),
+        pro_rata_discount=Decimal("0.00"),
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.FREE,
+        visibility=SeriesPass.Visibility.PUBLIC,
+        purchasable_by=PB.NON_MEMBERS,
+    )
+    for covered in events:
+        tier = TicketTier.objects.create(
+            event=covered,
+            name=f"PT {covered.slug}",
+            price=Decimal("10.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.FREE,
+        )
+        SeriesPassTierLink.objects.create(series_pass=series_pass, event=covered, tier=tier)
+    SeriesPassPurchaseService(series_pass, member_user).purchase()
+
+
+def test_series_pass_non_members_rejects_members_only_visibility(event_series: EventSeries) -> None:
+    series_pass = SeriesPass(
+        event_series=event_series,
+        name="Bad",
+        price=Decimal("1"),
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.FREE,
+        visibility=SeriesPass.Visibility.MEMBERS_ONLY,
+        purchasable_by=PB.NON_MEMBERS,
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        series_pass.clean()
+    assert "purchasable_by" in exc_info.value.message_dict
+
+
+def test_user_event_status_reports_excluded_member_cannot_purchase(
+    event: Event, organization: Organization, nm_tier: TicketTier, member_user: RevelUser
+) -> None:
+    open_tier = TicketTier.objects.create(
+        event=event,
+        name="Open",
+        price=Decimal("0"),
+        payment_method=TicketTier.PaymentMethod.FREE,
+        purchasable_by=PB.PUBLIC,
+    )
+    _join(organization, member_user)
+    _buy(event, open_tier, member_user)
+    result = get_user_event_status(event, member_user)
+    assert isinstance(result, UserEventStatus)
+    by_tier = {r.tier_id: r for r in result.remaining_tickets}
+    assert by_tier[nm_tier.pk].can_purchase is False
+    assert by_tier[open_tier.pk].can_purchase is True
+
+
+def test_can_purchase_ticket_permission_staff_and_other_membership_tier(
+    event: Event,
+    organization: Organization,
+    gold_excluded_tier: TicketTier,
+    silver: MembershipTier,
+    member_user: RevelUser,
+    organization_staff_user: RevelUser,
+    staff_member: OrganizationStaff,
+) -> None:
+    _join(organization, member_user, tier=silver)
+    for user in (member_user, organization_staff_user):
+        request = HttpRequest()
+        request.user = user
+        assert CanPurchaseTicket().has_object_permission(request, t.cast(t.Any, None), gold_excluded_tier) is True

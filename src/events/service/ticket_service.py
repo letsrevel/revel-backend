@@ -37,6 +37,8 @@ from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.vat_category import ZERO_RATE_RULE_FIELDS, effective_vat_exemption_reason, is_paid_online
 
 if t.TYPE_CHECKING:
+    from django.db.models.fields.related_descriptors import ManyRelatedManager
+
     from common.models import FileExport
     from events.schema import TicketTierCreateSchema, TicketTierUpdateSchema
     from events.service.event_manager import EventUserEligibility
@@ -475,7 +477,9 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
     return TicketTier.objects.with_venue_and_sector().get(pk=tier.pk)
 
 
-def _set_tier_membership_links(manager: t.Any, membership_tier_ids: list[UUID], organization: "Organization") -> None:
+def _set_tier_membership_links(
+    manager: "ManyRelatedManager[MembershipTier, t.Any]", membership_tier_ids: list[UUID], organization: "Organization"
+) -> None:
     """Validate membership tier IDs against the organization, then set them on a tier's M2M.
 
     Does not run ``full_clean()``; the caller validates once after all links are set.
@@ -485,7 +489,7 @@ def _set_tier_membership_links(manager: t.Any, membership_tier_ids: list[UUID], 
     """
     membership_tiers = MembershipTier.objects.filter(id__in=membership_tier_ids, organization=organization)
 
-    if membership_tiers.count() != len(membership_tier_ids):
+    if membership_tiers.count() != len(set(membership_tier_ids)):
         raise HttpError(
             404,
             str(_("One or more membership tier IDs are invalid or don't belong to the event's organization.")),

@@ -293,7 +293,7 @@ def test_check_in_query_budget(
     (a null FK short-circuits without a query), so only the M2M prefetch and the
     tier->event->organization join actually pay off here; a seated/venue tier saves more.
     23 sat strictly between the two. #1316 added the ``excluded_membership_tiers`` prefetch (one
-    more query per prefetched M2M, here two sites), so the ceiling is now 24.
+    more query), so the ceiling is now 24.
     """
     with django_assert_max_num_queries(24):
         response = organization_owner_client.post(
