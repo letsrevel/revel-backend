@@ -22,26 +22,23 @@ from events.exceptions import (
 )
 from events.models import (
     Event,
-    EventInvitation,
     EventRSVP,
-    EventToken,
     MembershipTier,
     Organization,
-    OrganizationMember,
     Payment,
     Ticket,
     TicketTier,
 )
-from events.models.mixins import VisibilityMixin
 from events.models.ticket import CancellationSource
-from events.service import small_business_scheme_service
+from events.service import small_business_scheme_service, tier_eligibility
 from events.service.attendee_vat_service import get_effective_vat_rate
 from events.service.seating.pricing import price_paid_is_admin_entered, recorded_or_resolved_price
 from events.service.waitlist_service import enqueue_waitlist_processing
-from events.utils.membership_access import is_eligible_status, is_visible_status
 from events.utils.vat_category import ZERO_RATE_RULE_FIELDS, effective_vat_exemption_reason, is_paid_online
 
 if t.TYPE_CHECKING:
+    from django.db.models.fields.related_descriptors import ManyRelatedManager
+
     from common.models import FileExport
     from events.schema import TicketTierCreateSchema, TicketTierUpdateSchema
     from events.service.event_manager import EventUserEligibility
@@ -97,198 +94,6 @@ class UserEventStatus:
     event_remaining: int | None = None
 
 
-def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
-    """Get ticket tiers the user is eligible to purchase from.
-
-    A tier is eligible if ALL of these pass:
-    1. Visibility check: user can see the tier (PUBLIC, MEMBERS_ONLY for members,
-       PRIVATE for invited users, or user is org staff/owner)
-    2. Sales window: currently within the tier's sales window
-    3. Purchasable_by check: user is allowed to purchase (PUBLIC, MEMBERS for members,
-       INVITED for invitees, INVITED_AND_MEMBERS for either)
-    4. Membership tier restriction: user has the required membership tier (if restricted)
-
-    Note:
-        This function differs from EventManager.check_eligibility() in purpose:
-        - check_eligibility() determines if user can ACCESS the event at all (blacklist,
-          event status, invitation requirements, questionnaires, etc.)
-        - get_eligible_tiers() determines which TIERS user can purchase from, assuming
-          they already have event access.
-
-        The caller should ensure event.organization is prefetched to avoid an extra query.
-
-    Args:
-        event: The event to check tiers for. Should have organization prefetched.
-        user: The user to check eligibility for.
-
-    Returns:
-        List of TicketTier objects the user is eligible to purchase.
-    """
-    now = timezone.now()
-    org = event.organization
-
-    # Pre-fetch user context (single queries, not in loop)
-    is_staff_or_owner = org.is_owner_or_staff(user)
-
-    # One membership query (any status): visible statuses may SEE member tiers, only eligible may BUY
-    membership = OrganizationMember.objects.filter(organization=org, user=user).only("status", "tier_id").first()
-    status = membership.status if membership else None
-    can_see_member_tiers = is_visible_status(status)
-    is_member = is_eligible_status(status)
-    user_membership_tier_ids = {membership.tier_id} if membership and is_member and membership.tier_id else set()
-
-    # Check if user is invited to this event and get linked tier IDs
-    invitation = EventInvitation.objects.prefetch_related("tiers").filter(event=event, user=user).first()
-    is_invited = invitation is not None
-    invitation_tier_ids = set(invitation.tiers.values_list("id", flat=True)) if invitation else set()
-
-    eligible: list[TicketTier] = []
-
-    # Prefetch restricted_to_membership_tiers to avoid N+1 queries
-    for tier in event.ticket_tiers.prefetch_related("restricted_to_membership_tiers").all():
-        # 1. Check visibility
-        if not _check_tier_visibility(tier, is_staff_or_owner, can_see_member_tiers, is_invited, invitation_tier_ids):
-            continue
-
-        # 2. Check sales window / pause
-        if tier.sales_paused:
-            continue
-        if tier.sales_start_at and now < tier.sales_start_at:
-            continue
-        if tier.sales_end_at and now > tier.sales_end_at:
-            continue
-
-        # 3. Check purchasable_by (staff/owners are exempt, consistent with _assert_purchasable_by)
-        if not is_staff_or_owner:
-            if not _check_purchasable_by(tier, is_member, is_invited, invitation_tier_ids):
-                continue
-
-            # 4. Check membership tier restriction
-            required_tier_ids = {mt.id for mt in tier.restricted_to_membership_tiers.all()}
-            if required_tier_ids and not (user_membership_tier_ids & required_tier_ids):
-                continue
-
-        eligible.append(tier)
-
-    return eligible
-
-
-def _check_tier_visibility(
-    tier: TicketTier,
-    is_staff_or_owner: bool,
-    can_see_member_tiers: bool,
-    is_invited: bool,
-    invitation_tier_ids: set[UUID],
-) -> bool:
-    """Check if user can see the tier based on visibility settings.
-
-    Args:
-        tier: The ticket tier to check.
-        is_staff_or_owner: Whether user is org staff or owner.
-        can_see_member_tiers: Whether user's membership may see member-only content.
-        is_invited: Whether user has an invitation to the event.
-        invitation_tier_ids: Set of tier IDs linked to user's invitation.
-
-    Returns:
-        True if user can see the tier.
-    """
-    # Staff/owners can see all tiers
-    if is_staff_or_owner:
-        return True
-
-    visibility = tier.visibility
-
-    if visibility in VisibilityMixin.Visibility.publicly_accessible():
-        return True
-
-    if visibility == VisibilityMixin.Visibility.MEMBERS_ONLY:
-        return can_see_member_tiers
-
-    if visibility == VisibilityMixin.Visibility.PRIVATE:
-        if tier.restrict_visibility_to_linked_invitations:
-            return tier.id in invitation_tier_ids
-        return is_invited
-
-    # STAFF_ONLY - only staff/owner (already checked above)
-    return False
-
-
-def anonymous_can_purchase(tier: TicketTier, event: Event, event_token: EventToken | None) -> bool:
-    """Whether an anonymous viewer may buy from this tier.
-
-    Public tiers always. Otherwise only what a granting invitation link for this
-    event would unlock once guest checkout claims it — the same rule as
-    :func:`_check_purchasable_by` for an invited non-member, keyed on the token's
-    tier links instead of an invitation's. Keeps the listing's ``can_purchase``
-    honest for link holders, so the frontend need not second-guess it.
-
-    Args:
-        tier: The tier being listed.
-        event: The event the tier belongs to.
-        event_token: The invitation link the request carries, if any.
-
-    Returns:
-        True if an anonymous viewer carrying ``event_token`` can purchase from the tier.
-    """
-    # A paused tier is unbuyable for everyone, so the listing must not advertise it (mirrors
-    # get_eligible_tiers step 2). The sales *window* is deliberately still not checked here —
-    # that gap predates the kill switch and is tracked separately.
-    if tier.sales_paused:
-        return False
-    # A membership-tier restriction can never be met without an account (mirrors
-    # get_eligible_tiers step 4). ``.all()`` reads the manager's prefetch.
-    if tier.restricted_to_membership_tiers.all():
-        return False
-    if tier.purchasable_by == TicketTier.PurchasableBy.PUBLIC:
-        return True
-    if event_token is None or not event_token.grants_invitation or event_token.event_id != event.id:
-        return False
-    token_tier_ids = {linked.id for linked in event_token.ticket_tiers.all()}
-    return _check_purchasable_by(tier, is_member=False, is_invited=True, invitation_tier_ids=token_tier_ids)
-
-
-def _check_purchasable_by(
-    tier: TicketTier,
-    is_member: bool,
-    is_invited: bool,
-    invitation_tier_ids: set[UUID],
-) -> bool:
-    """Check if a regular user is allowed to purchase from this tier based on purchasable_by setting.
-
-    Note: Staff/owners are exempted by the caller (get_eligible_tiers and _assert_purchasable_by)
-    before this function is reached. This function only evaluates membership/invitation rules.
-
-    Args:
-        tier: The ticket tier to check.
-        is_member: Whether user is an active org member.
-        is_invited: Whether user has an invitation to the event.
-        invitation_tier_ids: Set of tier IDs linked to user's invitation.
-
-    Returns:
-        True if user can purchase from this tier.
-    """
-    purchasable_by = tier.purchasable_by
-
-    if purchasable_by == TicketTier.PurchasableBy.PUBLIC:
-        return True
-
-    if purchasable_by == TicketTier.PurchasableBy.MEMBERS:
-        return is_member
-
-    if purchasable_by == TicketTier.PurchasableBy.INVITED:
-        if tier.restrict_purchase_to_linked_invitations:
-            return tier.id in invitation_tier_ids
-        return is_invited
-
-    if purchasable_by == TicketTier.PurchasableBy.INVITED_AND_MEMBERS:
-        invited_ok = is_invited
-        if tier.restrict_purchase_to_linked_invitations:
-            invited_ok = tier.id in invitation_tier_ids
-        return is_member or invited_ok
-
-    return False
-
-
 def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | EventUserEligibility:
     """Get user's current status for an event.
 
@@ -342,7 +147,7 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
         event_capacity_remaining = max(0, effective_cap - total_sold)
 
     # Get eligible tiers (can purchase) and all visible tiers for this user
-    eligible_tier_ids = {t.id for t in get_eligible_tiers(event, user)}
+    eligible_tier_ids = {t.id for t in tier_eligibility.get_eligible_tiers(event, user)}
     visible_tiers = list(TicketTier.objects.for_visible_event(event, user))
 
     remaining_list: list[TierRemainingTickets] = []
@@ -525,6 +330,7 @@ def create_ticket_tier(event: Event, payload: "TicketTierCreateSchema") -> Ticke
 
     payload_dict = payload.model_dump(exclude_unset=True, mode="json")
     restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
+    excluded_membership_tiers_ids = payload_dict.pop("excluded_membership_tiers_ids", None)
     _drop_null_category_prices(payload_dict)
     # Before the write: a handled exception does not roll back under ATOMIC_REQUESTS.
     new_tier = TicketTier(event=event, **payload_dict)
@@ -545,8 +351,12 @@ def create_ticket_tier(event: Event, payload: "TicketTierCreateSchema") -> Ticke
     # Create the ticket tier (save() will call full_clean() automatically)
     tier = TicketTier.objects.create(event=event, **payload_dict)
 
-    if restricted_to_membership_tiers_ids:
-        _set_tier_membership_restrictions(tier, restricted_to_membership_tiers_ids, event.organization)
+    changed = _apply_membership_tier_links(
+        tier, restricted_to_membership_tiers_ids, excluded_membership_tiers_ids, event.organization
+    )
+    if changed:
+        # Validate M2M relationships (TicketTier.clean() checks membership tiers and purchasable_by logic)
+        tier.full_clean()
 
     return TicketTier.objects.with_venue_and_sector().get(pk=tier.pk)
 
@@ -609,10 +419,10 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
         HttpError 404: If any provided membership tier ID is invalid or belongs to another org.
 
     Note:
-        ``restricted_to_membership_tiers_ids`` semantics:
-            - non-empty list -> replace all restrictions
-            - empty list     -> clear all restrictions
-            - omitted (None) -> preserve existing restrictions
+        ``restricted_to_membership_tiers_ids`` and ``excluded_membership_tiers_ids`` semantics:
+            - non-empty list -> replace all links
+            - empty list     -> clear all links
+            - omitted (None) -> preserve existing links
 
         ``category_prices`` follows the same three-way contract:
             - non-empty map  -> replace the whole map
@@ -623,6 +433,7 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
     """
     payload_dict = payload.model_dump(exclude_unset=True, mode="json")
     restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
+    excluded_membership_tiers_ids = payload_dict.pop("excluded_membership_tiers_ids", None)
     _drop_null_category_prices(payload_dict)
 
     # Resuming a paused tier is the other way to put an ONLINE tier on sale (the Eventbrite import
@@ -649,44 +460,68 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
     if payload_dict.keys() & ZERO_RATE_RULE_FIELDS or resuming:
         _assert_zero_rate_has_exemption_reason(tier, tier.event.organization)
 
+    # Membership-tier links go BEFORE the save so its full_clean() sees them: one PATCH may switch
+    # MEMBERS + restricted[X] to NON_MEMBERS + restricted[] + excluded[X]. A ValidationError rolls
+    # the M2M writes back (@transaction.atomic).
+    links_changed = _apply_membership_tier_links(
+        tier, restricted_to_membership_tiers_ids, excluded_membership_tiers_ids, tier.event.organization
+    )
+
     if payload_dict:
         # save() will call full_clean() automatically via TimeStampedModel
         tier.save(update_fields=list(payload_dict.keys()))
-
-    # Handle membership tier restrictions update
-    if restricted_to_membership_tiers_ids is not None:
-        if restricted_to_membership_tiers_ids:
-            _set_tier_membership_restrictions(tier, restricted_to_membership_tiers_ids, tier.event.organization)
-        else:
-            # Empty list means clear all restrictions
-            tier.restricted_to_membership_tiers.clear()
-            # Validate M2M relationships (TicketTier.clean() checks membership tiers and purchasable_by logic)
-            tier.full_clean()
+    elif links_changed:
+        # Validate M2M relationships (TicketTier.clean() checks membership tiers and purchasable_by logic)
+        tier.full_clean()
 
     return TicketTier.objects.with_venue_and_sector().get(pk=tier.pk)
 
 
-def _set_tier_membership_restrictions(
-    tier: TicketTier, restricted_to_membership_tiers_ids: list[UUID], organization: "Organization"
+def _set_tier_membership_links(
+    manager: "ManyRelatedManager[MembershipTier, t.Any]", membership_tier_ids: list[UUID], organization: "Organization"
 ) -> None:
-    """Validate membership tier IDs against the organization, then set them on the tier.
+    """Validate membership tier IDs against the organization, then set them on a tier's M2M.
+
+    Does not run ``full_clean()``; the caller validates once after all links are set.
 
     Raises:
         HttpError 404: If any ID is unknown or belongs to a different organization.
     """
-    membership_tiers = MembershipTier.objects.filter(
-        id__in=restricted_to_membership_tiers_ids, organization=organization
-    )
+    membership_tiers = MembershipTier.objects.filter(id__in=membership_tier_ids, organization=organization)
 
-    if membership_tiers.count() != len(restricted_to_membership_tiers_ids):
+    if membership_tiers.count() != len(set(membership_tier_ids)):
         raise HttpError(
             404,
             str(_("One or more membership tier IDs are invalid or don't belong to the event's organization.")),
         )
 
-    tier.restricted_to_membership_tiers.set(membership_tiers)
-    # Validate M2M relationships (TicketTier.clean() checks membership tiers and purchasable_by logic)
-    tier.full_clean()
+    manager.set(membership_tiers)
+
+
+def _apply_membership_tier_links(
+    tier: TicketTier,
+    restricted_ids: list[UUID] | None,
+    excluded_ids: list[UUID] | None,
+    organization: "Organization",
+) -> bool:
+    """Apply restricted/excluded membership-tier links (non-empty replaces, [] clears, None keeps).
+
+    Returns:
+        True if any link was written, i.e. the tier needs re-validating.
+    """
+    changed = False
+    for manager, ids in (
+        (tier.restricted_to_membership_tiers, restricted_ids),
+        (tier.excluded_membership_tiers, excluded_ids),
+    ):
+        if ids is None:
+            continue
+        if ids:
+            _set_tier_membership_links(manager, ids, organization)
+        else:
+            manager.clear()
+        changed = True
+    return changed
 
 
 def check_online_payment_prerequisites(org: "Organization") -> None:

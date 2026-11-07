@@ -63,6 +63,11 @@ class SeriesPassPurchaseService:
                 return
             if not is_eligible_member(self.user, self.org.pk):
                 raise HttpError(403, str(_("This pass is for members only.")))
+        elif self.series_pass.purchasable_by == TicketTier.PurchasableBy.NON_MEMBERS:
+            if self.org.is_owner_or_staff(self.user):
+                return
+            if is_eligible_member(self.user, self.org.pk):
+                raise HttpError(403, str(_("This pass is not available to members.")))
 
     def _assert_series_questionnaires(self) -> None:
         """Enforce the series' admission questionnaires, as a ticket purchase would (#1321).

@@ -32,7 +32,7 @@ from events.models import (
 from events.models.mixins import VisibilityMixin
 from events.schema import DirectInvitationCreateSchema
 from events.service.invitation_service import create_direct_invitations
-from events.service.ticket_service import (
+from events.service.tier_eligibility import (
     _check_purchasable_by,
     _check_tier_visibility,
     get_eligible_tiers,

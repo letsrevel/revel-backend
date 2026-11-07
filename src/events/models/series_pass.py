@@ -73,6 +73,13 @@ class SeriesPass(TimeStampedModel, VisibilityMixin):
             TicketTier.PurchasableBy.INVITED_AND_MEMBERS,
         ):
             raise DjangoValidationError({"purchasable_by": _("Series passes cannot be invitation-restricted.")})
+        if (
+            self.purchasable_by == TicketTier.PurchasableBy.NON_MEMBERS
+            and self.visibility == self.Visibility.MEMBERS_ONLY
+        ):
+            raise DjangoValidationError(
+                {"purchasable_by": _("A pass for non-members only cannot be visible to members only.")}
+            )
         if self.pk:
             old = SeriesPass.objects.filter(pk=self.pk).values("currency", "payment_method").first()
             if old is None:

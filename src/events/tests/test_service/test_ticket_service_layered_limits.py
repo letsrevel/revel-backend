@@ -241,7 +241,8 @@ class TestListingLayeredLimits:
 
         The bound came down from 13 to 12 in #901: the per-tier counts are now taken from
         the ticket list the function already loads, so the grouped aggregate that used to
-        re-read the same rows is gone.
+        re-read the same rows is gone. #1316 raised it to 15: each of the three tier loads
+        adds one ``excluded_membership_tiers`` prefetch (flat, not per tier).
         """
         Ticket.objects.create(
             event=event,
@@ -251,5 +252,5 @@ class TestListingLayeredLimits:
             status=Ticket.TicketStatus.ACTIVE,
         )
 
-        with django_assert_max_num_queries(12):
+        with django_assert_max_num_queries(15):
             get_user_event_status(event, user)

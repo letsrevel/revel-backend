@@ -147,7 +147,7 @@ def check_in_ticket(
         "held_pass__series_pass",
         "seat",
         "sector",
-    ).prefetch_related("tier__restricted_to_membership_tiers")
+    ).prefetch_related("tier__restricted_to_membership_tiers", "tier__excluded_membership_tiers")
     # Read-only for door staff (``CheckInResponseSchema.private_note``); a subquery, so no extra round trip.
     if include_note:
         ticket_qs = ticket_qs.annotate(

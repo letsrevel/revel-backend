@@ -22,6 +22,7 @@ from events.service.event_manager import (
     Reasons,
     UserIsIneligibleError,
 )
+from events.service.tier_eligibility import is_member_excluded
 from events.utils.membership_access import get_eligible_membership
 
 if t.TYPE_CHECKING:
@@ -69,7 +70,11 @@ def assert_sale_window(tier: TicketTier) -> None:
 
 
 def assert_purchasable_by(
-    tier: TicketTier, *, is_owner_or_staff: bool, is_member: bool, invitation: EventInvitation | None
+    tier: TicketTier,
+    *,
+    is_owner_or_staff: bool,
+    membership: OrganizationMember | None,
+    invitation: EventInvitation | None,
 ) -> None:
     """Assert a buyer with these standings may purchase from this tier.
 
@@ -82,15 +87,32 @@ def assert_purchasable_by(
         tier: The tier being purchased from.
         is_owner_or_staff: Whether the buyer owns or staffs the organization —
             exempt from every restriction (consistent with CanPurchaseTicket).
-        is_member: Whether the buyer holds an active organization membership.
+        membership: The buyer's eligible (ACTIVE) organization membership, if any.
         invitation: The buyer's invitation to the event, if any. When the tier
             restricts purchase to linked invitations, it must link this tier.
 
     Raises:
         HttpError: 403 when the buyer does not satisfy the tier's rule.
+        UserIsIneligibleError: If the tier is non-members-only and the buyer's membership is
+            excluded. Rendered as 400 + the eligibility payload (``members_excluded``).
     """
     PB = TicketTier.PurchasableBy
     if tier.purchasable_by == PB.PUBLIC or is_owner_or_staff:
+        return
+    is_member = membership is not None
+
+    if tier.purchasable_by == PB.NON_MEMBERS:
+        if is_member_excluded(tier, membership):
+            raise UserIsIneligibleError(
+                message="Not available to members.",
+                eligibility=EventUserEligibility(
+                    allowed=False,
+                    event_id=tier.event_id,
+                    reason=str(_(Reasons.MEMBERS_EXCLUDED)),
+                    reason_code=Reasons.MEMBERS_EXCLUDED.code,
+                    next_step=NextStep.CHOOSE_ANOTHER_TIER,
+                ),
+            )
         return
 
     def _invited_passes() -> bool:
@@ -115,7 +137,7 @@ def assert_membership_tier_allowed(
 ) -> None:
     """Assert the buyer holds one of the membership tiers this tier is restricted to.
 
-    Same guard as the membership-tier check in ``ticket_service.get_eligible_tiers``,
+    Same guard as the membership-tier check in ``tier_eligibility.get_eligible_tiers``,
     applied to the purchase path (#807): the tier listing hid the tier, but nothing
     stopped a direct checkout call. Semantics are copied verbatim — an empty
     restriction is unrestricted, only an ACTIVE membership counts, and the member's
@@ -174,9 +196,7 @@ def assert_cart_purchasable_by(event: Event, user: "RevelUser", tiers: t.Iterabl
     membership = get_eligible_membership(user, event.organization_id)
     invitation = EventInvitation.objects.filter(event=event, user=user).first()
     for tier in tiers:
-        assert_purchasable_by(
-            tier, is_owner_or_staff=is_owner_or_staff, is_member=membership is not None, invitation=invitation
-        )
+        assert_purchasable_by(tier, is_owner_or_staff=is_owner_or_staff, membership=membership, invitation=invitation)
         assert_membership_tier_allowed(tier, event, is_owner_or_staff=is_owner_or_staff, membership=membership)
 
 
@@ -215,14 +235,14 @@ class PurchaseEligibilityMixin(BatchTicketContext):
         assert_purchasable_by(
             tier,
             is_owner_or_staff=self._buyer_is_owner_or_staff,
-            is_member=self._buyer_membership is not None,
+            membership=self._buyer_membership,
             invitation=self._buyer_invitation,
         )
 
     def _assert_membership_tier_allowed(self, tier: TicketTier) -> None:
         """Assert the buyer holds one of the membership tiers this tier is restricted to.
 
-        Same guard as the membership-tier check in ``ticket_service.get_eligible_tiers``,
+        Same guard as the membership-tier check in ``tier_eligibility.get_eligible_tiers``,
         applied to the purchase path (#807): the tier listing hid the tier, but nothing
         stopped a direct checkout call. Semantics are copied verbatim — an empty
         restriction is unrestricted, only an ACTIVE membership counts, and the member's

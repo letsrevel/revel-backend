@@ -40,6 +40,7 @@ class ReasonCode(StrEnum):
     NO_TICKETS_ON_SALE = "no_tickets_on_sale"
     SALES_PAUSED = "sales_paused"
     MEMBERSHIP_TIER_REQUIRED = "membership_tier_required"
+    MEMBERS_EXCLUDED = "members_excluded"
     BLACKLISTED = "blacklisted"
     VERIFICATION_REQUIRED = "verification_required"
     WHITELIST_PENDING = "whitelist_pending"
@@ -63,6 +64,7 @@ class NextStep(StrEnum):
     PURCHASE_TICKET = "purchase_ticket"
     RSVP = "rsvp"
     UPGRADE_MEMBERSHIP = "upgrade_membership"
+    CHOOSE_ANOTHER_TIER = "choose_another_tier"
     REQUEST_WHITELIST = "request_whitelist"
     WAIT_FOR_WHITELIST_APPROVAL = "wait_for_whitelist_approval"
     COMPLETE_PROFILE = "complete_profile"
@@ -104,6 +106,7 @@ class Reasons(StrEnum):
     NO_TICKETS_ON_SALE = gettext_noop("Tickets are not currently on sale.")
     SALES_PAUSED = gettext_noop("Ticket sales are paused.")
     MEMBERSHIP_TIER_REQUIRED = gettext_noop("This ticket tier requires a specific membership tier.")
+    MEMBERS_EXCLUDED = gettext_noop("This ticket tier is not available to members.")
     BLACKLISTED = gettext_noop("You are not allowed to participate in this organization's events.")
     VERIFICATION_REQUIRED = gettext_noop("Additional verification required.")
     WHITELIST_PENDING = gettext_noop("Your verification request is pending approval.")

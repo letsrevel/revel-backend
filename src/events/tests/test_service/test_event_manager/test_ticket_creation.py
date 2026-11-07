@@ -12,7 +12,7 @@ from events.models import (
     TicketTier,
 )
 from events.service.event_manager import EventManager, NextStep, Reasons, UserIsIneligibleError
-from events.service.ticket_service import get_eligible_tiers
+from events.service.tier_eligibility import get_eligible_tiers
 
 pytestmark = pytest.mark.django_db
 

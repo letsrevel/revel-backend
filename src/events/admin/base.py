@@ -280,7 +280,7 @@ class TicketTierInline(TabularInline):  # type: ignore[misc]
     extra = 1
     # raw_id: plain <select>s here enumerate every venue/sector/membership-tier in the DB
     # and fire one __str__ query per <option>, per row + empty form (#880).
-    raw_id_fields = ["venue", "sector", "restricted_to_membership_tiers"]
+    raw_id_fields = ["venue", "sector", "restricted_to_membership_tiers", "excluded_membership_tiers"]
 
     def has_add_permission(self, request: HttpRequest, obj: models.Event | None = None) -> bool:
         """Block adding tiers to RSVP-only events, which sell nothing (#1295)."""

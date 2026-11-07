@@ -46,7 +46,7 @@ class TicketTierAdmin(ModelAdmin, EventLinkMixin, VenueLinkMixin):  # type: igno
     list_filter_submit = True
     search_fields = ["name", "event__name", "description"]
     autocomplete_fields = ["event", "venue", "sector"]
-    filter_horizontal = ["restricted_to_membership_tiers"]
+    filter_horizontal = ["restricted_to_membership_tiers", "excluded_membership_tiers"]
 
     @admin.display(description="Price", ordering="price")
     def price_display(self, obj: models.TicketTier) -> str:

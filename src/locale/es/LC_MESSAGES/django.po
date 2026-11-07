@@ -1982,6 +1982,15 @@ msgstr ""
 "Si las entradas están restringidas a niveles concretos, 'Comprable por' debe "
 "estar configurado como 'Solo miembros' o 'Solo invitados y miembros'."
 
+msgid "All excluded membership tiers must belong to the event's organization."
+msgstr "Todos los niveles de membresía excluidos deben pertenecer a la organización del evento."
+
+msgid "Excluded membership tiers can only be set when 'Purchasable By' is 'Non-members only'."
+msgstr "Los niveles de membresía excluidos solo se pueden definir cuando 'Comprable por' es 'Solo no miembros'."
+
+msgid "A tier for non-members only cannot be visible to members only."
+msgstr "Un tipo de entrada solo para no miembros no puede ser visible solo para miembros."
+
 msgid "Sector must belong to the specified venue."
 msgstr "El sector debe pertenecer al lugar especificado."
 
@@ -2444,6 +2453,9 @@ msgstr "Las entradas no están a la venta en este momento."
 msgid "This ticket tier requires a specific membership tier."
 msgstr "Este tipo de entrada requiere un nivel de membresía específico."
 
+msgid "This ticket tier is not available to members."
+msgstr "Este tipo de entrada no está disponible para miembros."
+
 msgid "You are not allowed to participate in this organization's events."
 msgstr "No puedes participar en los eventos de esta organización."
 
@@ -2895,6 +2907,12 @@ msgstr "No puedes comprar en esta organización."
 
 msgid "This pass is for members only."
 msgstr "Este pase es solo para miembros."
+
+msgid "This pass is not available to members."
+msgstr "Este pase no está disponible para miembros."
+
+msgid "A pass for non-members only cannot be visible to members only."
+msgstr "Un pase solo para no miembros no puede ser visible solo para miembros."
 
 msgid "You already hold this pass."
 msgstr "Ya tienes este pase."

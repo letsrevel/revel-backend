@@ -250,7 +250,9 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
 class TicketTierManager(models.Manager["TicketTier"]):
     def get_queryset(self) -> TicketTierQuerySet:
         """Get base queryset for ticket tiers."""
-        return TicketTierQuerySet(self.model, using=self._db).prefetch_related("restricted_to_membership_tiers")
+        return TicketTierQuerySet(self.model, using=self._db).prefetch_related(
+            "restricted_to_membership_tiers", "excluded_membership_tiers"
+        )
 
     def with_venue_and_sector(self) -> TicketTierQuerySet:
         """Return queryset with venue and sector prefetched for API serialization."""
@@ -291,6 +293,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         MEMBERS = "members", "Members only"
         INVITED = "invited", "Invitees only"
         INVITED_AND_MEMBERS = "invited_and_members", "Invited and Members only"
+        NON_MEMBERS = "non_members", "Non-members only"
 
     class PaymentMethod(models.TextChoices):
         ONLINE = "online", "Online"
@@ -383,6 +386,12 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         related_name="restricted_ticket_tiers",
         blank=True,
         help_text="If set, only members of these tiers can purchase this ticket.",
+    )
+    excluded_membership_tiers = models.ManyToManyField(
+        MembershipTier,
+        related_name="excluded_ticket_tiers",
+        blank=True,
+        help_text="If set with 'Non-members only', only members of these tiers are excluded.",
     )
 
     # Venue/seating configuration
@@ -537,6 +546,27 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
                         "to 'Members only' or 'Invited and Members only'."
                     )
                 }
+            )
+        for membership_tier in self.excluded_membership_tiers.all():
+            if membership_tier.organization_id != self.event.organization_id:
+                raise DjangoValidationError(
+                    {
+                        "excluded_membership_tiers": _(
+                            "All excluded membership tiers must belong to the event's organization."
+                        )
+                    }
+                )
+        if self.purchasable_by != self.PurchasableBy.NON_MEMBERS and self.excluded_membership_tiers.exists():
+            raise DjangoValidationError(
+                {
+                    "excluded_membership_tiers": _(
+                        "Excluded membership tiers can only be set when 'Purchasable By' is 'Non-members only'."
+                    )
+                }
+            )
+        if self.purchasable_by == self.PurchasableBy.NON_MEMBERS and self.visibility == self.Visibility.MEMBERS_ONLY:
+            raise DjangoValidationError(
+                {"purchasable_by": _("A tier for non-members only cannot be visible to members only.")}
             )
 
     def _validate_venue_sector(self) -> None:
