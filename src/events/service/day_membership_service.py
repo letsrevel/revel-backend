@@ -25,12 +25,12 @@ from events.models import (
     MembershipRecord,
     MembershipRecordKind,
     MembershipTier,
-    OrganizationMember,
     OrganizationQuestionnaire,
     Ticket,
     TicketTier,
 )
 from events.service.member_register_service import _snapshot_full_name
+from events.utils import membership_access
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 _ATTENDING = tuple(Ticket.ATTENDING_STATUSES)
@@ -92,9 +92,7 @@ def _admission_evidence(user_id: UUID, event: Event, *, via_pass: bool = False) 
 
 
 def _is_banned(organization_id: UUID, user_id: UUID) -> bool:
-    return OrganizationMember.objects.filter(
-        organization_id=organization_id, user_id=user_id, status=OrganizationMember.MembershipStatus.BANNED
-    ).exists()
+    return membership_access.banned_memberships().filter(organization_id=organization_id, user_id=user_id).exists()
 
 
 def _record_kwargs(
@@ -235,11 +233,12 @@ def _write_records(
                 )
             }
         banned = set(
-            OrganizationMember.objects.filter(
+            membership_access.banned_memberships()
+            .filter(
                 organization_id__in={e.organization_id for e in events.values()},
                 user_id__in={ticket.user_id for ticket in granting},
-                status=OrganizationMember.MembershipStatus.BANNED,
-            ).values_list("organization_id", "user_id")
+            )
+            .values_list("organization_id", "user_id")
         )
         reopened: list[MembershipRecord] = []
         created: list[MembershipRecord] = []
