@@ -12,6 +12,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from events.models import (
     Event,
+    EventQuestionnaireSubmission,
     EventSeries,
     MembershipRecord,
     MembershipTier,
@@ -218,11 +219,17 @@ def _admission_submission(
     series: EventSeries | None = None,
     evaluation: str | None = None,
     name: str = "Waiver",
+    per_event: bool = False,
+    requires_evaluation: bool = False,
+    scoped_to: Event | None = None,
+    published: str = Questionnaire.QuestionnaireStatus.PUBLISHED,
 ) -> QuestionnaireSubmission:
-    questionnaire = Questionnaire.objects.create(name=name)
+    questionnaire = Questionnaire.objects.create(name=name, status=published)
     org_q = OrganizationQuestionnaire.objects.create(
         organization=organization,
         questionnaire=questionnaire,
+        per_event=per_event,
+        requires_evaluation=requires_evaluation,
         questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
     )
     if events:
@@ -237,6 +244,14 @@ def _admission_submission(
     )
     if evaluation:
         QuestionnaireEvaluation.objects.create(submission=submission, status=evaluation)
+    if scoped_to is not None:
+        EventQuestionnaireSubmission.objects.create(
+            user=holder,
+            event=scoped_to,
+            questionnaire=questionnaire,
+            submission=submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+        )
     return submission
 
 
@@ -286,3 +301,102 @@ def test_rejected_or_unrelated_submissions_are_not_evidence(
     assert record.questionnaire_submission is None
     assert record.questionnaire_name == ""
     assert record.accepted_at is None
+
+
+def test_per_event_submission_for_another_event_is_not_evidence(
+    organization: Organization,
+    day_event: Event,
+    event: Event,
+    day_tier: TicketTier,
+    holder: RevelUser,
+    make_ticket: t.Callable[..., Ticket],
+) -> None:
+    _admission_submission(holder, organization, events=[day_event], per_event=True, scoped_to=event)
+    (record,) = records_for(make_ticket(day_tier))
+    assert record.questionnaire_submission is None
+
+
+def test_per_event_submission_for_this_event_is_evidence(
+    organization: Organization,
+    day_event: Event,
+    day_tier: TicketTier,
+    holder: RevelUser,
+    make_ticket: t.Callable[..., Ticket],
+) -> None:
+    submission = _admission_submission(holder, organization, events=[day_event], per_event=True, scoped_to=day_event)
+    (record,) = records_for(make_ticket(day_tier))
+    assert record.questionnaire_submission_id == submission.pk
+
+
+def test_pending_review_and_unpublished_are_not_evidence(
+    organization: Organization,
+    day_event: Event,
+    day_tier: TicketTier,
+    holder: RevelUser,
+    make_ticket: t.Callable[..., Ticket],
+) -> None:
+    status = QuestionnaireEvaluation.QuestionnaireEvaluationStatus
+    _admission_submission(
+        holder,
+        organization,
+        events=[day_event],
+        requires_evaluation=True,
+        evaluation=status.PENDING_REVIEW,
+        name="Pending",
+    )
+    _admission_submission(
+        holder, organization, events=[day_event], published=Questionnaire.QuestionnaireStatus.DRAFT, name="Draft"
+    )
+    (record,) = records_for(make_ticket(day_tier))
+    assert record.questionnaire_submission is None
+
+
+def test_approved_evaluation_is_evidence(
+    organization: Organization,
+    day_event: Event,
+    day_tier: TicketTier,
+    holder: RevelUser,
+    make_ticket: t.Callable[..., Ticket],
+) -> None:
+    status = QuestionnaireEvaluation.QuestionnaireEvaluationStatus
+    submission = _admission_submission(
+        holder, organization, events=[day_event], requires_evaluation=True, evaluation=status.APPROVED
+    )
+    (record,) = records_for(make_ticket(day_tier))
+    assert record.questionnaire_submission_id == submission.pk
+
+
+def test_two_real_saves_grant_once(day_tier: TicketTier, make_ticket: t.Callable[..., Ticket]) -> None:
+    ticket = make_ticket(day_tier)
+    ticket.guest_name = "Renamed"
+    ticket.save()
+    ticket.status = Status.PENDING
+    ticket.save(update_fields=["status"])
+    ticket.status = Status.ACTIVE
+    ticket.save(update_fields=["status"])
+    ticket.save()
+    assert len(records_for(ticket)) == 1
+
+
+def test_bulk_issuance_costs_a_constant_number_of_grant_queries(
+    day_event: Event,
+    day_tier: TicketTier,
+    day_member_tier: MembershipTier,
+    holder: RevelUser,
+) -> None:
+    """New-ticket grants are one bulk_create: 1 vs 4 tickets cost the same."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    def issue(count: int) -> int:
+        tickets = [
+            Ticket(event=day_event, tier=day_tier, user=holder, status=Status.ACTIVE, guest_name=f"G{i}")
+            for i in range(count)
+        ]
+        created = Ticket.objects.bulk_create(tickets)
+        with CaptureQueriesContext(connection) as ctx:
+            day_membership_service.on_tickets_issued(created)
+        assert MembershipRecord.objects.filter(ticket__in=created).count() == count
+        return len(ctx)
+
+    assert issue(1) == issue(4)

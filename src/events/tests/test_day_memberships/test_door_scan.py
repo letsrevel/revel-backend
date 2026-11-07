@@ -95,3 +95,45 @@ def test_member_card_scan_without_ticket_reports_membership(
     assert response.membership is not None
     assert response.membership.kind == MembershipRecord.Kind.STANDARD
     assert response.membership.tier_name == tier.name
+
+
+def _post_check_in(owner: RevelUser, event: Event, code: str) -> dict[str, t.Any]:
+    from django.test import Client
+    from django.urls import reverse
+    from ninja_jwt.tokens import RefreshToken
+
+    client = Client(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(owner).access_token}")  # type: ignore[attr-defined]
+    response = client.post(
+        reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": code}), content_type="application/json"
+    )
+    assert response.status_code == 200, response.content
+    body: dict[str, t.Any] = response.json()
+    return body
+
+
+def test_http_ticket_check_in_returns_membership_block(
+    open_door: Event,
+    day_tier: TicketTier,
+    make_ticket: t.Callable[..., Ticket],
+    organization_owner_user: RevelUser,
+) -> None:
+    ticket = make_ticket(day_tier)
+    body = _post_check_in(organization_owner_user, open_door, str(ticket.id))
+    assert body["kind"] == "checked_in"
+    assert body["membership"]["kind"] == "temporary"
+    assert body["membership"]["tier_name"] == day_tier.grants_membership_tier.name  # type: ignore[union-attr]
+    assert body["membership"]["valid_until"] is not None
+
+
+def test_http_member_card_scan_returns_membership_block(
+    organization: Organization,
+    open_door: Event,
+    holder: RevelUser,
+    organization_owner_user: RevelUser,
+) -> None:
+    tier = MembershipTier.objects.filter(organization=organization).first()
+    member = OrganizationMember.objects.create(organization=organization, user=holder, tier=tier)
+    body = _post_check_in(organization_owner_user, open_door, member.qr_payload)
+    assert body["kind"] == "member"
+    assert body["membership"]["kind"] == "standard"
+    assert body["membership"]["valid_until"] is None

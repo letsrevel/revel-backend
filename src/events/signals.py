@@ -240,6 +240,12 @@ def handle_ticket_visibility_and_potluck(
         release_potluck_claims_unless_entitled(instance.event_id, instance.user_id)
 
 
+@receiver(pre_delete, sender=Event)
+def revoke_day_memberships_on_event_delete(sender: type[Event], instance: Event, **kwargs: t.Any) -> None:
+    """Deleting an event that has not started leaves no live future day memberships (records survive, #1320)."""
+    day_membership_service.revoke_for_deleted_event(instance)
+
+
 @receiver(post_save, sender=Ticket)
 def sync_day_membership_on_ticket_save(sender: type[Ticket], instance: Ticket, **kwargs: t.Any) -> None:
     """Grant / revoke the ticket's day membership (#1320); bulk writers call the service themselves."""
@@ -400,6 +406,8 @@ def revoke_day_memberships_on_ban(
     sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any
 ) -> None:
     """A banned person loses their upcoming day memberships (#1320)."""
+    if kwargs.get("raw"):
+        return
     if instance.status == OrganizationMember.MembershipStatus.BANNED:
         day_membership_service.revoke_upcoming_for_ban(instance.organization_id, instance.user_id)
 

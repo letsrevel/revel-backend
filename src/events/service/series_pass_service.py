@@ -344,8 +344,9 @@ def materialize_tickets(
         if link.event_id not in existing_event_ids
     ]
     created = Ticket.objects.bulk_create(tickets)
-    ticket_number_service.assign_ticket_numbers(created)  # bulk_create skips the post_save numbering
-    day_membership_service.on_tickets_issued(created)  # ...and the day-membership grant (ACTIVE only)
+    # Lock order: ... Ticket -> MembershipRecord -> TicketNumberSequence, so grant before numbering.
+    day_membership_service.on_tickets_issued(created)  # bulk_create skips the day-membership grant (ACTIVE only)
+    ticket_number_service.assign_ticket_numbers(created)  # ...and the post_save numbering
     return created
 
 
@@ -776,8 +777,8 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
             ticket.status = Ticket.TicketStatus.ACTIVE
             ticket.price_paid = share
         Ticket.objects.bulk_update(pending_tickets, ["status", "price_paid"])
-        ticket_number_service.assign_ticket_numbers(pending_tickets)
         day_membership_service.on_tickets_issued(pending_tickets, old_status=Ticket.TicketStatus.PENDING)
+        ticket_number_service.assign_ticket_numbers(pending_tickets)
 
     # bulk_update skips post_save, so the attendee count and visibility flags are rebuilt
     # explicitly, once per activated event, after commit. Backfilled events dispatch their own
