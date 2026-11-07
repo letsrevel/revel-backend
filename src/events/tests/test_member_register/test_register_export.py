@@ -38,6 +38,7 @@ def _rec(organization: Organization, name: str, **kw: t.Any) -> MembershipRecord
 
 
 def _export(organization: Organization, user: RevelUser, active_on: t.Any = None) -> FileExport:
+    """Create a pending member-register export row."""
     return FileExport.objects.create(
         requested_by=user,
         export_type=FileExport.ExportType.MEMBER_REGISTER,
@@ -128,6 +129,7 @@ def test_workbook_all_records(organization: Organization, organization_owner_use
 def test_workbook_active_on_is_a_calendar_day_in_org_timezone(
     ny_organization: Organization, organization_owner_user: RevelUser
 ) -> None:
+    """The export uses the same local-day semantics as the list filter."""
     ny = ZoneInfo("America/New_York")
     day = date(2026, 6, 15)
     midnight = datetime(2026, 6, 15, tzinfo=ny)

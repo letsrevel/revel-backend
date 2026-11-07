@@ -156,6 +156,7 @@ def test_list_filters(
 def test_list_active_on_is_a_calendar_day_in_org_timezone(
     owner_client: Client, ny_organization: Organization, tier: MembershipTier
 ) -> None:
+    """A record overlapping the local day is listed; boundaries at local midnight are excluded."""
     ny = ZoneInfo("America/New_York")
     day = date(2026, 6, 15)
     midnight = datetime(2026, 6, 15, tzinfo=ny)
@@ -192,6 +193,7 @@ def test_list_active_on_is_a_calendar_day_in_org_timezone(
 
 
 def test_list_active_on_invalid_date(owner_client: Client, organization: Organization) -> None:
+    """An impossible date is a client error, not a 500."""
     resp = owner_client.get(_url("list_member_register", organization), {"active_on": "2026-13-01"})
     assert 400 <= resp.status_code < 500
 
