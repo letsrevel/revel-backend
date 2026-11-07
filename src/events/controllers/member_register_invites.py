@@ -6,7 +6,7 @@ from ninja_extra import api_controller, route
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ErrorDetail
-from common.throttling import AnonDefaultThrottle, WriteThrottle
+from common.throttling import MemberRegisterInviteLookupThrottle, WriteThrottle
 from events import schema
 from events.service import member_register_linking
 from events.service.member_register_linking import LinkOutcome
@@ -36,7 +36,7 @@ class MemberRegisterInvitesController(UserAwareController):
         url_name="preview_member_register_invite",
         response={200: schema.MemberRegisterInvitePreviewSchema, 404: ErrorDetail},
         auth=None,
-        throttle=AnonDefaultThrottle(),
+        throttle=MemberRegisterInviteLookupThrottle(),
     )
     def preview_invite(self, token: str) -> tuple[int, schema.MemberRegisterInvitePreviewSchema | ErrorDetail]:
         """Show which organization and entry an invitation link is for. 404 if unknown or already used."""
