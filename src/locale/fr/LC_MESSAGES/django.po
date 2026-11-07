@@ -7500,3 +7500,6 @@ msgstr "Une entrée qui en a absorbé d'autres ne peut pas être fusionnée ; an
 
 msgid "This register entry starts in the future."
 msgstr "Cette entrée de registre commence dans le futur."
+
+msgid "Unlink the entries merged into this one before deleting it."
+msgstr "Annule d'abord la fusion des entrées fusionnées dans celle-ci avant de la supprimer."

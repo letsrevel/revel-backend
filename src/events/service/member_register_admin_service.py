@@ -201,4 +201,8 @@ def delete_record(record: MembershipRecord) -> None:
         raise HttpError(
             409, str(_("Remove the member from the organization before deleting their open register entry."))
         )
-    _lock_after_member_check(record).delete()
+    locked = _lock_after_member_check(record)
+    if locked.absorbed_records.exists():
+        # Deleting the survivor would SET_NULL ``merged_into`` and resurrect the absorbed entries as live ones.
+        raise HttpError(409, str(_("Unlink the entries merged into this one before deleting it.")))
+    locked.delete()

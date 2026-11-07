@@ -7464,3 +7464,6 @@ msgstr "Una voce che ne ha assorbite altre non può essere unita; annulla prima 
 
 msgid "This register entry starts in the future."
 msgstr "Questa voce del registro inizia nel futuro."
+
+msgid "Unlink the entries merged into this one before deleting it."
+msgstr "Annulla l'unione delle voci unite in questa prima di eliminarla."

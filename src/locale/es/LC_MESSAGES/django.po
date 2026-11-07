@@ -7433,3 +7433,6 @@ msgstr "Una entrada que ha absorbido otras entradas no se puede fusionar; deshaz
 
 msgid "This register entry starts in the future."
 msgstr "Esta entrada del registro comienza en el futuro."
+
+msgid "Unlink the entries merged into this one before deleting it."
+msgstr "Deshaz primero la fusión de las entradas fusionadas en esta antes de eliminarla."

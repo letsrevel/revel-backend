@@ -415,3 +415,19 @@ def test_merge_keeps_the_survivors_own_duplicate_claim(
 
     survivor.refresh_from_db()
     assert survivor.duplicate_claimant_id == claimant.pk
+
+
+def test_survivor_with_absorbed_entries_cannot_be_deleted(
+    owner_client: Client, organization: Organization, make_record: RecordFactory
+) -> None:
+    """Deleting a survivor would resurrect its absorbed entries as live ones: refused until they are unlinked."""
+    survivor = make_record(full_name="Survivor", email="s@example.com")
+    absorbed = make_record(full_name="Absorbed", email="a@example.com", valid_from=timezone.now() - timedelta(days=30))
+    assert _merge(owner_client, organization, survivor, absorbed).status_code == 200
+    url = reverse("api:delete_member_register_record", kwargs={"slug": organization.slug, "record_id": survivor.pk})
+
+    assert owner_client.delete(url).status_code == 409
+    assert MembershipRecord.objects.filter(pk=survivor.pk).exists()
+
+    assert owner_client.post(_unlink_url(organization, absorbed)).status_code == 200
+    assert owner_client.delete(url).status_code == 204

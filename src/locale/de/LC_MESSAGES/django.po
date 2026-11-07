@@ -7523,3 +7523,6 @@ msgstr "Ein Eintrag, der andere Einträge aufgenommen hat, kann nicht zusammenge
 
 msgid "This register entry starts in the future."
 msgstr "Dieser Registereintrag beginnt in der Zukunft."
+
+msgid "Unlink the entries merged into this one before deleting it."
+msgstr "Löse zuerst die Zusammenführung der Einträge, die in diesen eingeflossen sind, bevor du ihn löschst."
