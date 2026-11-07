@@ -59,22 +59,20 @@ def test_private_event_rejected(event_series: EventSeries, private_event: Event)
         series_pass_service.validate_events_coverable(event_series, [private_event])
 
 
-def test_admission_questionnaire_on_event_rejected(
+def test_admission_questionnaire_on_event_allowed(
     event_series: EventSeries, event: Event, org_questionnaire: OrganizationQuestionnaire
 ) -> None:
-    """An admission questionnaire targeting the event blocks coverage."""
+    """An admission questionnaire targeting the event does not block coverage (purchase enforces it)."""
     org_questionnaire.events.add(event)
-    with pytest.raises(SeriesPassCoverageError, match="admission questionnaire"):
-        series_pass_service.validate_events_coverable(event_series, [event])
+    series_pass_service.validate_events_coverable(event_series, [event])
 
 
-def test_admission_questionnaire_on_series_rejected(
+def test_admission_questionnaire_on_series_allowed(
     event_series: EventSeries, event: Event, org_questionnaire: OrganizationQuestionnaire
 ) -> None:
-    """An admission questionnaire targeting the series blocks coverage of any of its events."""
+    """A questionnaire-gated series can have passes: purchase enforces the questionnaire."""
     org_questionnaire.event_series.add(event_series)
-    with pytest.raises(SeriesPassCoverageError, match="admission questionnaire"):
-        series_pass_service.validate_events_coverable(event_series, [event])
+    series_pass_service.validate_events_coverable(event_series, [event])
 
 
 def test_happy_path_creates_links(series_pass: SeriesPass, event: Event, ticket_tier: TicketTier) -> None:

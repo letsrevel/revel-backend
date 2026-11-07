@@ -120,10 +120,10 @@ class SeriesPassController(UserAwareController):
         series_pass = self._get_visible_pass(pass_id)
         quote = series_pass_service.get_quote(series_pass)
         user = self.maybe_user()
-        missing, questionnaire_event_id = (
+        missing, questionnaire_event_id, routes = (
             missing_series_questionnaires(series_pass, user)
             if user.is_authenticated and quote.purchasable
-            else ([], None)
+            else ([], None, [])
         )
         return schema.SeriesPassQuoteSchema(
             price=quote.price,
@@ -135,6 +135,9 @@ class SeriesPassController(UserAwareController):
             compliance=schema.SeriesPassComplianceSchema(online_payment=quote.online_payment),
             questionnaires_missing=missing,
             questionnaire_event_id=questionnaire_event_id,
+            questionnaire_events=[
+                schema.SeriesPassQuestionnaireEventSchema(questionnaire_id=q, event_id=e) for q, e in routes
+            ],
         )
 
     @route.post(

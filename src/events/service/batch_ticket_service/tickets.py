@@ -12,7 +12,7 @@ from django.db import transaction
 from events.models import Ticket, TicketSaleSource, TicketTier, VenueSeat
 from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
-from events.service import ticket_number_service
+from events.service import day_membership_service, ticket_number_service
 from events.service.batch_ticket_service.context import BatchTicketContext
 from events.service.seating.pricing import TicketPrice
 from events.tasks import build_attendee_visibility_flags
@@ -104,6 +104,8 @@ class TicketWriterMixin(BatchTicketContext):
 
         created = Ticket.objects.bulk_create(tickets)
         # bulk_create skips post_save, so number the tickets issued right away (free / reroute).
+        # Lock order: ... Ticket -> MembershipRecord -> TicketNumberSequence, so grant before numbering.
+        day_membership_service.on_tickets_issued(created)  # ...and the day-membership grant (ACTIVE only)
         ticket_number_service.assign_ticket_numbers(created)
         return created
 

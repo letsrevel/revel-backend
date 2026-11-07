@@ -6,14 +6,21 @@ from uuid import UUID
 
 from django.utils.translation import gettext as _
 from ninja import ModelSchema, Schema
-from pydantic import Field
+from pydantic import AwareDatetime, Field
 
 from accounts.schema import MemberUserSchema, MinimalRevelUserSchema
 from common.schema import StrippedString
 from common.signing import get_file_url
 from events import models
 from events.compliance.enforcement import ticket_fields
-from events.models import DiscountCode, Payment, Ticket, TicketAttribution, TicketSaleSource
+from events.models import (
+    DiscountCode,
+    MembershipRecordKind,
+    Payment,
+    Ticket,
+    TicketAttribution,
+    TicketSaleSource,
+)
 
 from .event import MinimalEventSchema
 from .organization import MemberVerificationSchema, MinimalOrganizationMemberSchema
@@ -230,6 +237,14 @@ class UserTicketSchema(ModelSchema):
     resolve_series_pass: t.ClassVar = staticmethod(_resolve_ticket_series_pass)
 
 
+class CheckInMembershipSchema(Schema):
+    """Membership standing shown to door staff: a standard member, or a day member for this event."""
+
+    kind: MembershipRecordKind
+    tier_name: str
+    valid_until: AwareDatetime | None = None
+
+
 class CheckInResponseSchema(ModelSchema):
     """Schema for ticket check-in response."""
 
@@ -241,6 +256,8 @@ class CheckInResponseSchema(ModelSchema):
     sector_name: str | None = None
     # Staff-only (door staff, read-only): set by ``check_in_service.check_in_ticket``.
     private_note: str | None = None
+    # Set by ``check_in_service.check_in_ticket`` after the check-in transition.
+    membership: CheckInMembershipSchema | None = None
 
     class Meta:
         model = Ticket
@@ -293,6 +310,7 @@ class MemberScanResponseSchema(Schema):
     member: MemberVerificationSchema
     tickets: list[MemberScanTicketSummarySchema] = Field(default_factory=list)
     detail: str
+    membership: CheckInMembershipSchema | None = None
 
     @classmethod
     def from_result(cls, result: "MemberScanResult") -> "MemberScanResponseSchema":
@@ -312,4 +330,7 @@ class MemberScanResponseSchema(Schema):
                 for tk in result.tickets
             ],
             detail=detail,
+            membership=CheckInMembershipSchema.model_validate(result.membership, from_attributes=True)
+            if result.membership
+            else None,
         )

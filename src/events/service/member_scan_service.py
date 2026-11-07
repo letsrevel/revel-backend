@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404
 
 from accounts.models import RevelUser
 from events.models import Event, OrganizationMember, Ticket
+from events.service import day_membership_service
 from events.service.check_in_service import check_in_ticket
 from events.service.user_note_service import get_note_body
 
@@ -28,6 +29,7 @@ class MemberScanResult:
     tickets: list[Ticket]
     checked_in: Ticket | None
     private_note: str | None = None
+    membership: day_membership_service.MembershipSummary | None = None
 
 
 def scan_member_code(
@@ -77,4 +79,5 @@ def scan_member_code(
         tickets=tickets,
         checked_in=None,
         private_note=get_note_body(event.organization_id, member.user_id) if include_note else None,
+        membership=day_membership_service.membership_summary(event.organization_id, member.user_id, ticket=None),
     )

@@ -8,10 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Day memberships granted by tickets** (#1320, #1321): a valid ticket (ACTIVE, or checked in straight from PENDING) of a tier with `grants_membership_tier` creates a temporary membership-register record for the holder. It covers the event's window and stores the admission questionnaire acceptance that satisfied the event or series gate. It is granted on every issuance path: checkout, free, offline confirm, Stripe, door check-in, box office sales and comps, and series-pass purchase/confirm/materialize/backfill (one record per pass ticket, for its own event).
+  - Cancelling or unconfirming the ticket revokes the record while the event hasn't started and the person isn't checked in; a later re-confirm reopens the same record. Banning a person, or deleting an event that hasn't started, revokes upcoming day records. Changing an event's dates before it ends moves its day records.
+  - Day members get no platform privileges: they count as non-members everywhere.
+  - Ticket check-in and member-card scan responses include a read-only `membership` block (standard tier, or day member with `valid_until`)
 - **Temporary (day-membership) tiers** (#1320): a membership tier can be created as `temporary`. Temporary tiers can't be held by members, applied for, given subscription plans, granted by organization tokens, or used for ticket-tier restrictions, poll tiers or announcement targets. A ticket tier can name one in `grants_membership_tier_id`. Such a ticket tier can't be purchasable by members only, must allow one ticket per person, and is not synced to external listing platforms. Granting itself ships in the follow-up PR
 - **Series pass quote shows the questionnaire requirement** (#1323): for signed-in buyers, the pass quote lists the series admission questionnaires still to answer and the event to answer them through, so the questionnaire step can be shown before checkout
 
 ### Changed
+- **Series passes can cover questionnaire-gated events** (#1320): passes can be created on, or extended to, series and events with admission questionnaires. A pass purchase now also requires the admission questionnaires of each upcoming covered event (an event's `per_event` questionnaire needs a submission for that event), and the quote lists them all. Existing pass holders still receive tickets for events added later, without answering those events' questionnaires
 - **Fewer queries when buying a series pass** (#1327): the series questionnaire check no longer loads the full event eligibility data
 - **Membership access checks share one set of predicates**: visibility and eligibility rules for membership status now live in one module, and a guard test fails when new code writes an inline membership status filter
 - **Fewer queries in event eligibility checks**: one fewer database query per eligibility check

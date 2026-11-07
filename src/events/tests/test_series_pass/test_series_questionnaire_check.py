@@ -90,10 +90,11 @@ def _submit(user: RevelUser, questionnaire: Questionnaire) -> QuestionnaireSubmi
 
 # Query budget, non-privileged user with one non-exempt, non-per_event series questionnaire:
 #   1. owner/staff check
-#   2. anchor tier link (+ event) lookup
-#   3. series questionnaires (+ questionnaire)
-#   4. the user's ready submissions for the questionnaire ids
-EXPECTED_QUERIES = 4
+#   2. upcoming covered tier links (+ event); the anchor is picked in Python
+#   3. series + covered-event questionnaires (+ questionnaire)
+#   4. prefetch of the covered events each questionnaire is attached to
+#   5. the user's ready submissions for the questionnaire ids
+EXPECTED_QUERIES = 5
 
 
 def test_query_count_missing_submission(
@@ -160,7 +161,7 @@ def test_owner_or_staff_false_skips_staff_queries(
 def test_no_questionnaires_stops_early(
     series_pass: SeriesPass, revel_user: RevelUser, django_assert_num_queries: t.Any
 ) -> None:
-    """Without series questionnaires: owner/staff + anchor + questionnaires, no submission queries."""
+    """Without questionnaires: owner/staff + links + questionnaires, no prefetch or submission queries."""
     with django_assert_num_queries(3):
         assert check_series_questionnaires(series_pass, revel_user) is None
 
@@ -228,7 +229,7 @@ def test_rejected_evaluation_issues_no_lazy_queries(
     assert result.reason_code == Reasons.QUESTIONNAIRE_FAILED.code
 
 
-SCALING_QUERIES = 5
+SCALING_QUERIES = 6
 
 
 def test_query_count_scales_with_neither_events_nor_submissions(
@@ -242,7 +243,7 @@ def test_query_count_scales_with_neither_events_nor_submissions(
 ) -> None:
     """Three questionnaires (global + per_event), many covered events and submissions: still one query per read.
 
-    Queries: owner/staff, anchor, questionnaires, global submissions, per_event submissions.
+    Queries: owner/staff, links, questionnaires, covered-events prefetch, global submissions, per_event submissions.
     """
     questionnaires = [questionnaire]
     for i in range(2):
@@ -290,3 +291,51 @@ def test_query_count_scales_with_neither_events_nor_submissions(
     grow(8, 3)
     with django_assert_num_queries(SCALING_QUERIES):
         assert check_series_questionnaires(series_pass, revel_user) is None
+
+
+def test_members_exempt_questionnaire_query_count_is_constant_in_event_count(
+    series_pass: SeriesPass,
+    organization: Organization,
+    event_series: EventSeries,
+    revel_user: RevelUser,
+) -> None:
+    """A member with a members_exempt questionnaire in play pays one extra (membership) query, not one per event."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    exempt = Questionnaire.objects.create(name="Exempt", status=Questionnaire.QuestionnaireStatus.PUBLISHED)
+    required = Questionnaire.objects.create(name="Required", status=Questionnaire.QuestionnaireStatus.PUBLISHED)
+    for q, is_exempt in ((exempt, True), (required, False)):
+        OrganizationQuestionnaire.objects.create(
+            organization=organization, questionnaire=q, members_exempt=is_exempt, requires_evaluation=False
+        ).event_series.add(event_series)
+    OrganizationMember.objects.create(organization=organization, user=revel_user)
+
+    def grow(count: int, offset: int) -> None:
+        for n in range(count):
+            event = _event(organization, event_series, f"exempt{offset + n}", 10 + offset + n)
+            tier = TicketTier.objects.create(
+                event=event, name=f"Tier {event.slug}", price=Decimal("10.00"), currency="EUR",
+                payment_method=TicketTier.PaymentMethod.FREE,
+            )  # fmt: skip
+            SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=tier)
+            only_event = OrganizationQuestionnaire.objects.create(
+                organization=organization,
+                questionnaire=Questionnaire.objects.create(
+                    name=f"Only {event.slug}", status=Questionnaire.QuestionnaireStatus.PUBLISHED
+                ),
+                members_exempt=n % 2 == 0,
+                requires_evaluation=False,
+            )
+            only_event.events.add(event)
+
+    def count() -> int:
+        with CaptureQueriesContext(connection) as ctx:
+            result = check_series_questionnaires(series_pass, revel_user)
+        assert result is not None  # the non-exempt series questionnaire is still missing
+        return len(ctx)
+
+    grow(2, 0)
+    few = count()
+    grow(6, 2)
+    assert count() == few
