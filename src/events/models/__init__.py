@@ -34,6 +34,7 @@ from .membership_record import (
     MembershipRecordKind,
     MembershipRecordQuerySet,
     MembershipRecordSource,
+    RegisterMatchReason,
 )
 from .misc import AdditionalResource
 from .mixins import ResourceVisibility
@@ -138,6 +139,7 @@ __all__ = [
     "MembershipRecordInviteStatus",
     "MembershipRecordKind",
     "MembershipRecordSource",
+    "RegisterMatchReason",
     # Recurrence
     "RecurrenceRule",
     # Reserved slug tokens

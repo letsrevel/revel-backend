@@ -79,7 +79,15 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
                 models.MembershipTier.objects.standard(), pk=payload.tier_id, organization=organization
             )
 
-        organization_service.approve_membership_request(membership_request, self.user(), tier, force=payload.force)
+        link_record = None
+        if payload.link_record_id:
+            link_record = get_object_or_404(
+                models.MembershipRecord, pk=payload.link_record_id, organization=organization
+            )
+
+        organization_service.approve_membership_request(
+            membership_request, self.user(), tier, force=payload.force, link_record=link_record
+        )
         return 204, None
 
     @route.post(

@@ -7469,3 +7469,45 @@ msgstr "Dieser Registereintrag wurde gerade mit einem Konto verknüpft; lade ihn
 
 msgid "You can't join this organization."
 msgstr "Du kannst dieser Organisation nicht beitreten."
+
+msgid "A closed entry can only be attached to an entry linked to an account."
+msgstr "Ein beendeter Eintrag kann nur an einen Eintrag angehängt werden, der mit einem Konto verknüpft ist."
+
+msgid "A merged register entry cannot be merged again."
+msgstr "Ein bereits zusammengeführter Registereintrag kann nicht erneut zusammengeführt werden."
+
+msgid "A paid application cannot be linked to a register entry yet."
+msgstr "Eine kostenpflichtige Bewerbung kann noch nicht mit einem Registereintrag verknüpft werden."
+
+msgid "A register entry cannot be merged into itself."
+msgstr "Ein Registereintrag kann nicht mit sich selbst zusammengeführt werden."
+
+msgid "An open entry can only be merged into another open standard entry."
+msgstr "Ein offener Eintrag kann nur mit einem anderen offenen Standardeintrag zusammengeführt werden."
+
+msgid "Claim"
+msgstr "Anspruch"
+
+msgid "Name"
+msgstr "Name"
+
+msgid "Only an entry without an account can be merged into another entry."
+msgstr "Nur ein Eintrag ohne Konto kann mit einem anderen Eintrag zusammengeführt werden."
+
+msgid "Only an open standard register entry can be linked to an application."
+msgstr "Nur ein offener Standard-Registereintrag kann mit einer Bewerbung verknüpft werden."
+
+msgid "Register entries must belong to the same organization."
+msgstr "Registereinträge müssen zur selben Organisation gehören."
+
+msgid "The applicant already has an open register entry."
+msgstr "Die antragstellende Person hat bereits einen offenen Registereintrag."
+
+msgid "This register entry does not belong to the organization."
+msgstr "Dieser Registereintrag gehört nicht zur Organisation."
+
+msgid "This register entry is already linked or merged."
+msgstr "Dieser Registereintrag ist bereits verknüpft oder zusammengeführt."
+
+msgid "This register entry is not linked or merged."
+msgstr "Dieser Registereintrag ist weder verknüpft noch zusammengeführt."
