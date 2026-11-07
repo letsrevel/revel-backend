@@ -255,11 +255,14 @@ class Poll(TimeStampedModel):
         "events.MembershipTier",
         blank=True,
         related_name="voteable_polls",
+        # Keep in sync with MembershipTier.Kind.STANDARD (string: polls references events by name only).
+        limit_choices_to={"kind": "standard"},
     )
     result_membership_tiers = models.ManyToManyField(
         "events.MembershipTier",
         blank=True,
         related_name="results_visible_polls",
+        limit_choices_to={"kind": "standard"},
     )
 
     staff_anonymous = models.BooleanField(default=True)

@@ -142,11 +142,15 @@ def _tier_skip_before_currency(tier: TicketTier, event: Event) -> tuple[Integrat
     """Every skip rule that does not depend on the event's chosen currency."""
     if tier.price_type != TicketTier.PriceType.FIXED:
         return IntegrationErrorCode.TIER_VARIABLE_PRICE, _("Pay-what-you-can tiers cannot be listed externally.")
+    # Member-restricted and membership-granting tiers are skipped (same code).
     # `restricted_to_membership_tiers` is prefetched by map_event()'s queryset, so `.exists()`
     # here reuses that prefetch cache (0 queries per tier) — chaining a `.filter()` on it
     # instead would bypass the cache and reintroduce an N+1 across tiers.
     if tier.restricted_to_membership_tiers.exists():
         return IntegrationErrorCode.TIER_MEMBERS_ONLY, _("Membership-restricted tiers cannot be listed externally.")
+    # A sale on the external platform creates no Revel ticket, so it could never grant the day membership.
+    if tier.grants_membership_tier_id:
+        return IntegrationErrorCode.TIER_MEMBERS_ONLY, _("Tiers that grant a membership cannot be listed externally.")
     if tier.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE:
         return IntegrationErrorCode.TIER_SEATED, _("Seated tiers cannot be listed externally.")
     if tier.payment_method not in (TicketTier.PaymentMethod.ONLINE, TicketTier.PaymentMethod.FREE):

@@ -7313,8 +7313,9 @@ msgstr "Un livello di biglietto che concede un'iscrizione non può essere limita
 msgid "A ticket tier that grants a membership must be limited to one ticket per person."
 msgstr "Un livello di biglietto che concede un'iscrizione deve essere limitato a un biglietto per persona."
 
-msgid "A ticket tier that grants a membership cannot be restricted to membership tiers."
-msgstr "Un livello di biglietto che concede un'iscrizione non può essere limitato a livelli di iscrizione."
 
 msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
 msgstr "I livelli temporanei sono iscrizioni giornaliere concesse dai biglietti; non possono essere mantenuti né richiesti."
+
+msgid "Tiers that grant a membership cannot be listed externally."
+msgstr "I livelli che concedono un'iscrizione non possono essere pubblicati esternamente."

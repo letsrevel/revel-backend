@@ -13,13 +13,14 @@ from unfold.contrib.filters.admin import AutocompleteSelectFilter
 from events import models
 from events.admin.base import (
     EventLinkMixin,
+    GrantsTemporaryTierMixin,
     UserLinkMixin,
     VenueLinkMixin,
 )
 
 
 @admin.register(models.TicketTier)
-class TicketTierAdmin(ModelAdmin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
+class TicketTierAdmin(GrantsTemporaryTierMixin, ModelAdmin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
     """Admin view for TicketTier."""
 
     list_display = [

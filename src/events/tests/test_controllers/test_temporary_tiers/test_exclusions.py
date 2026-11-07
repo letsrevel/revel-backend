@@ -254,7 +254,7 @@ class TestTicketTierMembershipLinks:
     def test_model_rejects_temporary_tier_in_either_m2m(
         self, event: Event, temp_tier: MembershipTier, field: str
     ) -> None:
-        """Covers the Django admin, which bypasses the service filter."""
+        """Model-level guard for writes that bypass the service filter (admin's picker is limited separately)."""
         from django.core.exceptions import ValidationError
 
         tier = TicketTier.objects.create(
@@ -319,3 +319,34 @@ class TestAnnouncements:
             announcement_service.update_announcement(
                 announcement, AnnouncementUpdateSchema(target_tier_ids=[temp_tier.id])
             )
+
+
+class TestAdminPickers:
+    @pytest.mark.parametrize("field", ["restricted_to_membership_tiers", "excluded_membership_tiers"])
+    def test_ticket_tier_admin_form_excludes_temporary_tiers(
+        self, field: str, standard_tier: MembershipTier, temp_tier: MembershipTier, superuser: RevelUser
+    ) -> None:
+        """Admin saves M2Ms after full_clean, so the picker itself must not offer TEMPORARY tiers."""
+        from django.contrib import admin
+        from django.test import RequestFactory
+
+        def _admin_request(user: RevelUser) -> t.Any:
+            request = RequestFactory().get("/")
+            request.user = user
+            return request
+
+        model_admin = admin.site._registry[TicketTier]
+        form = model_admin.get_form(_admin_request(superuser))()
+        offered = set(t.cast(t.Any, form.fields[field]).queryset)
+        assert standard_tier in offered
+        assert temp_tier not in offered
+
+    def test_application_model_rejects_temporary_tier(
+        self, organization: Organization, nonmember_user: RevelUser, temp_tier: MembershipTier
+    ) -> None:
+        from django.core.exceptions import ValidationError
+
+        request = OrganizationMembershipRequest(organization=organization, user=nonmember_user, tier=temp_tier)
+        with pytest.raises(ValidationError) as exc:
+            request.full_clean()
+        assert "tier" in exc.value.message_dict

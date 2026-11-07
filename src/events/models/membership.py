@@ -95,8 +95,9 @@ class MembershipTier(TimeStampedModel):
         if self.kind == MembershipTierKind.TEMPORARY and (
             self.membership_questionnaire_id or self.requires_membership_approval is not None
         ):
+            field = "membership_questionnaire" if self.membership_questionnaire_id else "requires_membership_approval"
             raise DjangoValidationError(
-                _("A temporary tier cannot have a membership questionnaire or an approval requirement.")
+                {field: _("A temporary tier cannot have a membership questionnaire or an approval requirement.")}
             )
         if self.membership_questionnaire_id and self.organization_id:
             # Lazy import to avoid circular dependency: questionnaire.py imports organization.py.
@@ -320,3 +321,9 @@ class OrganizationMembershipRequest(UserRequestMixin):
 
     def __str__(self) -> str:
         return f"Membership application: {self.user_id} -> {self.organization_id} ({self.status})"
+
+    def clean(self) -> None:
+        """Reject applications for TEMPORARY (day-membership) tiers, which cannot be applied for."""
+        super().clean()
+        if self.tier is not None and self.tier.kind == MembershipTierKind.TEMPORARY:
+            raise DjangoValidationError({"tier": _("A temporary tier cannot be held as a membership.")})

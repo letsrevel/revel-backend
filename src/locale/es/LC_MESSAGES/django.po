@@ -7282,8 +7282,9 @@ msgstr "Un nivel de entrada que concede una membresía no puede limitarse a miem
 msgid "A ticket tier that grants a membership must be limited to one ticket per person."
 msgstr "Un nivel de entrada que concede una membresía debe limitarse a una entrada por persona."
 
-msgid "A ticket tier that grants a membership cannot be restricted to membership tiers."
-msgstr "Un nivel de entrada que concede una membresía no puede limitarse a niveles de membresía."
 
 msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
 msgstr "Los niveles temporales son membresías de un día concedidas por entradas; no pueden mantenerse ni solicitarse."
+
+msgid "Tiers that grant a membership cannot be listed externally."
+msgstr "Los niveles que conceden una membresía no pueden publicarse externamente."

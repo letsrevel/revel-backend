@@ -7349,8 +7349,9 @@ msgstr "Une catégorie de billets qui accorde une adhésion ne peut pas être r�
 msgid "A ticket tier that grants a membership must be limited to one ticket per person."
 msgstr "Une catégorie de billets qui accorde une adhésion doit être limitée à un billet par personne."
 
-msgid "A ticket tier that grants a membership cannot be restricted to membership tiers."
-msgstr "Une catégorie de billets qui accorde une adhésion ne peut pas être limitée à des niveaux d'adhésion."
 
 msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
 msgstr "Les niveaux temporaires sont des adhésions à la journée accordées par des billets ; ils ne peuvent être ni détenus ni demandés."
+
+msgid "Tiers that grant a membership cannot be listed externally."
+msgstr "Les catégories qui accordent une adhésion ne peuvent pas être listées en externe."

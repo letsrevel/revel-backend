@@ -18,7 +18,7 @@ from events.utils.membership_access import visible_memberships
 from events.utils.tier_pricing import validate_category_prices
 from events.utils.visibility import get_invited_event_ids, get_valid_member_org_ids, owner_or_staff_q
 
-from .membership import MembershipTier
+from .membership import MembershipTier, MembershipTierKind
 from .mixins import VisibilityMixin
 from .ticket_number import PreserveTicketNumberMixin
 from .ticket_queryset import TicketManager
@@ -385,12 +385,15 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         MembershipTier,
         related_name="restricted_ticket_tiers",
         blank=True,
+        # Admin saves M2Ms after full_clean, so the model check alone would not guard it: limit the picker too.
+        limit_choices_to={"kind": MembershipTierKind.STANDARD},
         help_text="If set, only members of these tiers can purchase this ticket.",
     )
     excluded_membership_tiers = models.ManyToManyField(
         MembershipTier,
         related_name="excluded_ticket_tiers",
         blank=True,
+        limit_choices_to={"kind": MembershipTierKind.STANDARD},
         help_text="If set with 'Non-members only', only members of these tiers are excluded.",
     )
     grants_membership_tier = models.ForeignKey(
@@ -399,8 +402,6 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         null=True,
         blank=True,
         related_name="granting_ticket_tiers",
-        # String literal: keep in sync with MembershipTier.Kind.TEMPORARY.
-        limit_choices_to={"kind": "temporary"},
         help_text="TEMPORARY membership tier whose day membership a valid ticket of this tier grants (#1320).",
     )
 
@@ -591,6 +592,10 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
                 {"purchasable_by": _("A tier for non-members only cannot be visible to members only.")}
             )
 
+    def clean_fields(self, exclude: t.Collection[str] | None = None) -> None:
+        """Skip Django's generic FK check for the grant: ``clean()`` reports a missing tier with one message."""
+        super().clean_fields(exclude={*(exclude or ()), "grants_membership_tier"})
+
     def _validate_grants_membership_tier(self) -> None:
         """Validate the day-membership grant: TEMPORARY tier of this org, one ticket per person, no member gating."""
         if not self.grants_membership_tier_id:
@@ -617,14 +622,8 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
                     )
                 }
             )
-        if self.restricted_to_membership_tiers.exists():
-            raise DjangoValidationError(
-                {
-                    "grants_membership_tier": _(
-                        "A ticket tier that grants a membership cannot be restricted to membership tiers."
-                    )
-                }
-            )
+        # No check against restricted_to_membership_tiers: those already require MEMBERS/INVITED_AND_MEMBERS,
+        # which the purchasable_by rule above rejects.
 
     def _validate_venue_sector(self) -> None:
         """Validate and auto-fill venue/sector constraints."""

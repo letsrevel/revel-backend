@@ -533,6 +533,7 @@ class ApproveMembershipRequestSchema(Schema):
 
 class MembershipTierSchema(ModelSchema):
     description: str | None = None
+    kind: models.MembershipTierKind
 
     class Meta:
         model = models.MembershipTier

@@ -275,7 +275,16 @@ class TicketTierFormSet(forms.BaseInlineFormSet):  # type: ignore[type-arg]
             raise ValidationError(_("This event is RSVP-only and does not sell tickets."))
 
 
-class TicketTierInline(TabularInline):  # type: ignore[misc]
+class GrantsTemporaryTierMixin:
+    """Offer only TEMPORARY tiers in the ``grants_membership_tier`` picker (the model check yields a single message)."""
+
+    def formfield_for_foreignkey(self, db_field: t.Any, request: HttpRequest, **kwargs: t.Any) -> t.Any:
+        if db_field.name == "grants_membership_tier":
+            kwargs["queryset"] = models.MembershipTier.objects.filter(kind=models.MembershipTier.Kind.TEMPORARY)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)  # type: ignore[misc]
+
+
+class TicketTierInline(GrantsTemporaryTierMixin, TabularInline):  # type: ignore[misc]
     model = models.TicketTier
     formset = TicketTierFormSet
     extra = 1

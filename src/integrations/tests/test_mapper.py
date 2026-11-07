@@ -145,6 +145,10 @@ def test_tier_skip_rules(clean_event: Event) -> None:
     _tier(clean_event, "PWYC", price_type=TicketTier.PriceType.PWYC, pwyc_min=Decimal("1"))
     members = _tier(clean_event, "Members")
     members.restricted_to_membership_tiers.add(mt)
+    day = MembershipTier.objects.create(
+        organization=clean_event.organization, name="Day", kind=MembershipTier.Kind.TEMPORARY
+    )
+    _tier(clean_event, "Grants", max_tickets_per_user=1, grants_membership_tier=day)
     seated = _tier(clean_event, "Seated")
     # BEST_AVAILABLE requires a sector at the model-validation level; the mapper only cares
     # about the field value, so set it directly via the queryset to skip full_clean().
@@ -159,6 +163,7 @@ def test_tier_skip_rules(clean_event: Event) -> None:
     assert codes == {
         "PWYC": IntegrationErrorCode.TIER_VARIABLE_PRICE,
         "Members": IntegrationErrorCode.TIER_MEMBERS_ONLY,
+        "Grants": IntegrationErrorCode.TIER_MEMBERS_ONLY,
         "Seated": IntegrationErrorCode.TIER_SEATED,
         "Door": IntegrationErrorCode.TIER_OFFLINE_PAYMENT,
         "Unlimited": IntegrationErrorCode.TIER_NO_CAPACITY,

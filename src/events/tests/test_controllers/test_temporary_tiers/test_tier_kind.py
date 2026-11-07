@@ -108,23 +108,25 @@ class TestTemporaryTierModelRules:
             questionnaire=questionnaire,
             questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP,
         )
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError) as exc:
             MembershipTier.objects.create(
                 organization=organization,
                 name="Day pass",
                 kind=MembershipTier.Kind.TEMPORARY,
                 membership_questionnaire=oq,
             )
+        assert "membership_questionnaire" in exc.value.message_dict
 
     @pytest.mark.parametrize("requires_approval", [True, False])
     def test_cannot_set_approval_override(self, organization: Organization, requires_approval: bool) -> None:
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError) as exc:
             MembershipTier.objects.create(
                 organization=organization,
                 name="Day pass",
                 kind=MembershipTier.Kind.TEMPORARY,
                 requires_membership_approval=requires_approval,
             )
+        assert "requires_membership_approval" in exc.value.message_dict
 
     def test_cannot_be_held_on_an_access_row(
         self, organization: Organization, member_user: RevelUser, temp_tier: MembershipTier

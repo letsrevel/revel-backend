@@ -7372,8 +7372,9 @@ msgstr "Eine Ticketstufe, die eine Mitgliedschaft vergibt, kann nicht auf Mitgli
 msgid "A ticket tier that grants a membership must be limited to one ticket per person."
 msgstr "Eine Ticketstufe, die eine Mitgliedschaft vergibt, muss auf ein Ticket pro Person begrenzt sein."
 
-msgid "A ticket tier that grants a membership cannot be restricted to membership tiers."
-msgstr "Eine Ticketstufe, die eine Mitgliedschaft vergibt, kann nicht auf Mitgliedschaftsstufen beschränkt werden."
 
 msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
 msgstr "Temporäre Stufen sind Tagesmitgliedschaften, die durch Tickets vergeben werden; sie können weder gehalten noch beantragt werden."
+
+msgid "Tiers that grant a membership cannot be listed externally."
+msgstr "Stufen, die eine Mitgliedschaft vergeben, können nicht extern gelistet werden."

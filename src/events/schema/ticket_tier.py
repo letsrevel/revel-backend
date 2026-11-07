@@ -337,7 +337,7 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None
     excluded_membership_tiers_ids: list[UUID4] | None = None
-    grants_membership_tier_id: UUID4 | None = None  # update: omitted keeps, null clears
+    grants_membership_tier_id: UUID4 | None = None
     manual_payment_instructions: StrippedString | None = None
 
     # Venue/seating configuration
