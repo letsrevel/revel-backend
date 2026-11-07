@@ -56,7 +56,17 @@ class SeriesPassComplianceSchema(Schema):
 
 
 class SeriesPassQuoteSchema(Schema):
-    """Current pro-rata price and purchasability for a series pass."""
+    """Current pro-rata price and purchasability for a series pass.
+
+    For an authenticated buyer, `questionnaires_missing` lists the series admission questionnaires
+    they must answer before `POST /series-passes/{pass_id}/checkout` can succeed, and
+    `questionnaire_event_id` is the event whose questionnaire endpoint to submit them through
+    (`/events/{questionnaire_event_id}/questionnaire/{id}`). Both are empty/null for anonymous
+    callers, owners, staff, exempt members, when the requirement is satisfied, and when the
+    questionnaire can no longer be submitted (checkout then answers 400 with
+    `application_deadline_passed`). A pending-review or failed questionnaire is not listed here;
+    checkout reports it as a 400 eligibility payload.
+    """
 
     price: Decimal
     passed_events: int
@@ -65,6 +75,8 @@ class SeriesPassQuoteSchema(Schema):
     purchasable: bool
     reason: str | None = None
     compliance: SeriesPassComplianceSchema
+    questionnaires_missing: list[UUID] = []
+    questionnaire_event_id: UUID | None = None
 
 
 class SeriesPassSeriesInfoSchema(Schema):

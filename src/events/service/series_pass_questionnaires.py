@@ -135,3 +135,11 @@ def check_series_questionnaires(
             update={"reason": reason, "reason_code": Reasons.APPLICATION_DEADLINE_PASSED.code, "next_step": None}
         )
     return result
+
+
+def missing_series_questionnaires(series_pass: SeriesPass, user: RevelUser) -> tuple[list[uuid.UUID], uuid.UUID | None]:
+    """Questionnaires the user can still answer to unlock the pass, and the event to answer them through."""
+    result = check_series_questionnaires(series_pass, user)
+    if result is None or result.next_step != NextStep.COMPLETE_QUESTIONNAIRE:
+        return [], None
+    return list(result.questionnaires_missing or []), result.event_id

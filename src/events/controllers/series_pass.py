@@ -21,6 +21,7 @@ from events import models, schema
 from events.service import series_pass_file_service, series_pass_service
 from events.service.event_manager import EventUserEligibility
 from events.service.series_pass_purchase import SeriesPassPurchaseService
+from events.service.series_pass_questionnaires import missing_series_questionnaires
 from events.utils import apple_wallet_configured, google_wallet_configured
 from wallet.google import service as google_wallet_service
 from wallet.schema import GoogleWalletSaveUrlSchema, WalletPassErrorSchema
@@ -118,6 +119,10 @@ class SeriesPassController(UserAwareController):
         """Get the current pro-rata price and purchasability for a series pass."""
         series_pass = self._get_visible_pass(pass_id)
         quote = series_pass_service.get_quote(series_pass)
+        user = self.maybe_user()
+        missing, questionnaire_event_id = (
+            missing_series_questionnaires(series_pass, user) if user.is_authenticated else ([], None)
+        )
         return schema.SeriesPassQuoteSchema(
             price=quote.price,
             passed_events=quote.passed_events,
@@ -126,6 +131,8 @@ class SeriesPassController(UserAwareController):
             purchasable=quote.purchasable,
             reason=quote.reason,
             compliance=schema.SeriesPassComplianceSchema(online_payment=quote.online_payment),
+            questionnaires_missing=missing,
+            questionnaire_event_id=questionnaire_event_id,
         )
 
     @route.post(
