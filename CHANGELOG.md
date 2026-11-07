@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Series pass quote shows the questionnaire requirement** (#1323): for signed-in buyers, the pass quote lists the series admission questionnaires still to answer and the event to answer them through, so the questionnaire step can be shown before checkout
+
 ### Changed
+- **Fewer queries when buying a series pass** (#1327): the series questionnaire check no longer loads the full event eligibility data
 - **Membership access checks share one set of predicates**: visibility and eligibility rules for membership status now live in one module, and a guard test fails when new code writes an inline membership status filter
 - **Fewer queries in event eligibility checks**: one fewer database query per eligibility check
 - **Attendance now consistently means an ACTIVE or checked-in ticket**: checked-in attendees stay on the attendee list (including the staff view), in the dietary summary and in event-update notifications, and keep attendee-only visibility

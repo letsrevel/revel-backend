@@ -38,23 +38,10 @@ class EligibilityService:
     Most notably, it performs eligibility checks, raises explicit errors with relevant information.
     """
 
-    def __init__(
-        self,
-        user: RevelUser,
-        event: models.Event,
-        *,
-        questionnaire_scope: t.Literal["event", "series"] = "event",
-    ) -> None:
+    def __init__(self, user: RevelUser, event: models.Event) -> None:
         """Initialize the service, pre-fetching all required data in a highly optimized way.
 
         This ensures all subsequent checks are performed in-memory without further database hits.
-
-        Args:
-            user: The user whose eligibility is checked.
-            event: The event to check against.
-            questionnaire_scope: Which admission questionnaires apply. ``"event"`` (default) uses
-                those linked to the event or its series; ``"series"`` uses only those linked to
-                the event's series (none if the event has no series).
         """
         # First, get the user with all their relevant submissions and evaluations.
         # This is a separate query but is necessary and efficient for the questionnaire check.
@@ -65,13 +52,9 @@ class EligibilityService:
             )
         ).get(pk=user.pk)
 
-        self.questionnaire_scope = questionnaire_scope
-        if questionnaire_scope == "series":
-            event_link_filter = Q(event_series=event.event_series) if event.event_series else Q(pk__in=[])
-        else:
-            event_link_filter = Q(events=event)
-            if event.event_series:
-                event_link_filter |= Q(event_series=event.event_series)
+        event_link_filter = Q(events=event)
+        if event.event_series:
+            event_link_filter |= Q(event_series=event.event_series)
 
         questionnaire_filter = event_link_filter & Q(
             questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
@@ -198,26 +181,12 @@ class EligibilityService:
 
         Lazily evaluated — only queried when a per_event questionnaire is encountered.
         """
-        return self._build_event_submission_map(Q(event__pk=self.event.pk))
-
-    @functools.cached_property
-    def series_event_submission_map(self) -> dict[uuid.UUID, list[QuestionnaireSubmission]]:
-        """Like :attr:`event_submission_map`, but spanning every event of this event's series.
-
-        Used in series scope, where one per_event submission made for any event of the
-        series covers the pass (#1321). Empty if the event has no series.
-        """
-        if not self.event.event_series_id:
-            return {}
-        return self._build_event_submission_map(Q(event__event_series_id=self.event.event_series_id))
-
-    def _build_event_submission_map(self, event_filter: Q) -> dict[uuid.UUID, list[QuestionnaireSubmission]]:
         from events.models import EventQuestionnaireSubmission
 
         event_questionnaire_submissions = (
             EventQuestionnaireSubmission.objects.filter(
-                event_filter,
                 user=self.user,
+                event__pk=self.event.pk,
                 submission__status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
             )
             .select_related("submission__evaluation")
