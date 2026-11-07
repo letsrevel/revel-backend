@@ -176,6 +176,22 @@ class MembershipRequestRejectedTemplate(NotificationTemplate):
         return _("Membership Request Update: %(org)s") % {"org": org_name}
 
 
+class StaffMemberRecordAutoLinkedTemplate(NotificationTemplate):
+    """Template for STAFF_MEMBER_RECORD_AUTO_LINKED notification (to org staff/owners)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return _("%(member)s was linked to a register entry in %(org)s") % {
+            "member": notification.context.get("member_display_name", ""),
+            "org": notification.context.get("organization_name", ""),
+        }
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        org_name = notification.context.get("organization_name", "")
+        return _("Register entry linked automatically: %(org)s") % {"org": org_name}
+
+
 # Register templates
 register_template(NotificationType.MEMBERSHIP_GRANTED, MembershipGrantedTemplate())
 register_template(NotificationType.MEMBERSHIP_PROMOTED, MembershipPromotedTemplate())
@@ -184,3 +200,4 @@ register_template(NotificationType.MEMBERSHIP_CARD_UPDATED, MembershipCardUpdate
 register_template(NotificationType.MEMBERSHIP_REQUEST_CREATED, MembershipRequestCreatedTemplate())
 register_template(NotificationType.MEMBERSHIP_REQUEST_APPROVED, MembershipRequestApprovedTemplate())
 register_template(NotificationType.MEMBERSHIP_REQUEST_REJECTED, MembershipRequestRejectedTemplate())
+register_template(NotificationType.STAFF_MEMBER_RECORD_AUTO_LINKED, StaffMemberRecordAutoLinkedTemplate())
