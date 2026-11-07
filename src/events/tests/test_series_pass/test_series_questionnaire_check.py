@@ -90,10 +90,11 @@ def _submit(user: RevelUser, questionnaire: Questionnaire) -> QuestionnaireSubmi
 
 # Query budget, non-privileged user with one non-exempt, non-per_event series questionnaire:
 #   1. owner/staff check
-#   2. anchor tier link (+ event) lookup
-#   3. series questionnaires (+ questionnaire)
-#   4. the user's ready submissions for the questionnaire ids
-EXPECTED_QUERIES = 4
+#   2. upcoming covered tier links (+ event); the anchor is picked in Python
+#   3. series + covered-event questionnaires (+ questionnaire)
+#   4. prefetch of the covered events each questionnaire is attached to
+#   5. the user's ready submissions for the questionnaire ids
+EXPECTED_QUERIES = 5
 
 
 def test_query_count_missing_submission(
@@ -160,7 +161,7 @@ def test_owner_or_staff_false_skips_staff_queries(
 def test_no_questionnaires_stops_early(
     series_pass: SeriesPass, revel_user: RevelUser, django_assert_num_queries: t.Any
 ) -> None:
-    """Without series questionnaires: owner/staff + anchor + questionnaires, no submission queries."""
+    """Without questionnaires: owner/staff + links + questionnaires, no prefetch or submission queries."""
     with django_assert_num_queries(3):
         assert check_series_questionnaires(series_pass, revel_user) is None
 
@@ -228,7 +229,7 @@ def test_rejected_evaluation_issues_no_lazy_queries(
     assert result.reason_code == Reasons.QUESTIONNAIRE_FAILED.code
 
 
-SCALING_QUERIES = 5
+SCALING_QUERIES = 6
 
 
 def test_query_count_scales_with_neither_events_nor_submissions(
@@ -242,7 +243,7 @@ def test_query_count_scales_with_neither_events_nor_submissions(
 ) -> None:
     """Three questionnaires (global + per_event), many covered events and submissions: still one query per read.
 
-    Queries: owner/staff, anchor, questionnaires, global submissions, per_event submissions.
+    Queries: owner/staff, links, questionnaires, covered-events prefetch, global submissions, per_event submissions.
     """
     questionnaires = [questionnaire]
     for i in range(2):

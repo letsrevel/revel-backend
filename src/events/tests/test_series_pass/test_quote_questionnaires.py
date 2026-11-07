@@ -245,9 +245,9 @@ def test_not_purchasable_quote_is_clear(
 
 # The authenticated quote costs this many queries more than the anonymous one: the user, the
 # banned-membership / telegram / blacklist lookups (auth + visibility), the owner/staff check
-# (visibility + questionnaire gate), the anchor tier-link lookup, the series questionnaires and
-# the user's submissions.
-AUTH_EXTRA_QUERIES = 9
+# (visibility + questionnaire gate), the covered tier-link lookup, the questionnaires, their covered-events
+# prefetch and the user's submissions.
+AUTH_EXTRA_QUERIES = 10
 
 
 def _count_queries(client: Client, url: str) -> int:

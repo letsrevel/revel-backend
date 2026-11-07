@@ -98,6 +98,8 @@ def _extend_holder(holder_id: UUID, links: list[SeriesPassTierLink], skipped: li
             grantable.append(link)
         # Free of charge — holders paid for the season, so extended tickets never
         # inherit the mapped tier's price (keeps revenue/VAT reports honest, #644).
+        # ponytail: holders never answered a questionnaire attached to the newly linked event; tickets are issued
+        # anyway. Upgrade path: gate extension tickets on the questionnaire, or notify holders to answer it.
         created = series_pass_service.materialize_tickets(
             held_pass, grantable, Ticket.TicketStatus.ACTIVE, price_paid=Decimal("0.00")
         )
