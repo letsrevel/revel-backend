@@ -106,7 +106,10 @@ def _backfill_chunk(
         )
         existing.add((member.organization_id, member.user_id))
     if batch:
-        MembershipRecord.objects.bulk_create(batch, batch_size=BATCH_SIZE)
+        # ignore_conflicts: a STANDARD record opened after `existing` was loaded is skipped by ON CONFLICT
+        # instead of aborting the migration. Defence in depth: in a rolling deploy migrations run before
+        # the code with the mirror starts. CheckConstraint violations are not swallowed by ON CONFLICT.
+        MembershipRecord.objects.bulk_create(batch, batch_size=BATCH_SIZE, ignore_conflicts=True)
 
 
 class Migration(migrations.Migration):
