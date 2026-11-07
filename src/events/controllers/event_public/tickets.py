@@ -16,7 +16,7 @@ from common.schema import ErrorDetail
 from common.throttling import WriteThrottle
 from events import models, schema
 from events.controllers.permissions import CanPurchaseTicket
-from events.service import discount_code_service, ticket_service, waitlist_service
+from events.service import discount_code_service, tier_eligibility, waitlist_service
 from events.service.batch_ticket_service import BatchTicketService, CartGroup
 from events.service.event_manager import EventManager, EventUserEligibility
 
@@ -69,13 +69,13 @@ class EventPublicTicketsController(EventPublicBaseController):
             .order_by("display_order", "name")
         )
         if user and not user.is_anonymous:
-            eligible_ids = {tier.id for tier in ticket_service.get_eligible_tiers(event, user)}
+            eligible_ids = {tier.id for tier in tier_eligibility.get_eligible_tiers(event, user)}
         else:
             # Anonymous users can only purchase PUBLIC tiers — plus what a granting
             # invitation link for this event unlocks: guest checkout claims it
             # (EventPublicGuestController), so the listing must say so up front.
             eligible_ids = {
-                tier.id for tier in visible_tiers if ticket_service.anonymous_can_purchase(tier, event, event_token)
+                tier.id for tier in visible_tiers if tier_eligibility.anonymous_can_purchase(tier, event, event_token)
             }
         # Computed once and read by TicketTierSchema.resolve_total_available via the shared event.
         event._remaining_capacity = waitlist_service.event_remaining_capacity(event)  # type: ignore[attr-defined]

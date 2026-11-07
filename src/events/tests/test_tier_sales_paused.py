@@ -10,7 +10,7 @@ from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
 from events.models import Event, Organization, TicketTier
-from events.service import ticket_service
+from events.service import tier_eligibility
 from events.service.event_manager.enums import ReasonCode
 from events.service.event_manager.gates import TicketSalesGate
 
@@ -44,7 +44,7 @@ def test_can_purchase_false_when_paused(ticket_tier: TicketTier) -> None:
 def test_eligible_tiers_skip_paused(ticket_tier: TicketTier) -> None:
     ticket_tier.sales_paused = True
     ticket_tier.save(update_fields=["sales_paused"])
-    tiers = ticket_service.get_eligible_tiers(ticket_tier.event, ticket_tier.event.organization.owner)
+    tiers = tier_eligibility.get_eligible_tiers(ticket_tier.event, ticket_tier.event.organization.owner)
     assert ticket_tier not in tiers
 
 
@@ -85,9 +85,9 @@ def test_paused_tier_403s_with_a_pause_message_not_a_sale_window_one() -> None:
 
 def test_anonymous_listing_does_not_advertise_a_paused_tier(event: Event, ticket_tier: TicketTier) -> None:
     """The public tier list must not report ``can_purchase`` for a tier nobody can buy."""
-    assert ticket_service.anonymous_can_purchase(ticket_tier, event, None) is True
+    assert tier_eligibility.anonymous_can_purchase(ticket_tier, event, None) is True
     ticket_tier.sales_paused = True
-    assert ticket_service.anonymous_can_purchase(ticket_tier, event, None) is False
+    assert tier_eligibility.anonymous_can_purchase(ticket_tier, event, None) is False
 
 
 # --- Resuming an ONLINE tier is gated on Stripe Connect (#945) -------------------------------

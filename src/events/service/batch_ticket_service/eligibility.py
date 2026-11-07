@@ -115,7 +115,7 @@ def assert_membership_tier_allowed(
 ) -> None:
     """Assert the buyer holds one of the membership tiers this tier is restricted to.
 
-    Same guard as the membership-tier check in ``ticket_service.get_eligible_tiers``,
+    Same guard as the membership-tier check in ``tier_eligibility.get_eligible_tiers``,
     applied to the purchase path (#807): the tier listing hid the tier, but nothing
     stopped a direct checkout call. Semantics are copied verbatim — an empty
     restriction is unrestricted, only an ACTIVE membership counts, and the member's
@@ -222,7 +222,7 @@ class PurchaseEligibilityMixin(BatchTicketContext):
     def _assert_membership_tier_allowed(self, tier: TicketTier) -> None:
         """Assert the buyer holds one of the membership tiers this tier is restricted to.
 
-        Same guard as the membership-tier check in ``ticket_service.get_eligible_tiers``,
+        Same guard as the membership-tier check in ``tier_eligibility.get_eligible_tiers``,
         applied to the purchase path (#807): the tier listing hid the tier, but nothing
         stopped a direct checkout call. Semantics are copied verbatim — an empty
         restriction is unrestricted, only an ACTIVE membership counts, and the member's
