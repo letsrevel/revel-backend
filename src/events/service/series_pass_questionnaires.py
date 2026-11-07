@@ -119,22 +119,43 @@ def _load_submissions(
     return found
 
 
+def _reporting_events(
+    questionnaires: list[OrganizationQuestionnaire], events: dict[uuid.UUID, Event], now: datetime.datetime
+) -> dict[uuid.UUID, uuid.UUID]:
+    """For each non-per_event event-only questionnaire, the covered event it is reported against.
+
+    The earliest carrying event that can still take submissions, else the earliest carrying one.
+    """
+    reporting: dict[uuid.UUID, uuid.UUID] = {}
+    for oq in questionnaires:
+        if oq.is_series or oq.per_event:  # type: ignore[attr-defined]
+            continue
+        carrying = sorted(
+            (events[e.pk] for e in oq.covered_events if e.pk in events),  # type: ignore[attr-defined]
+            key=lambda e: (e.start, e.pk),
+        )
+        if carrying:
+            submittable = [
+                e for e in carrying if e.status == Event.EventStatus.OPEN and now <= e.effective_apply_deadline
+            ]
+            reporting[oq.pk] = (submittable or carrying)[0].pk
+    return reporting
+
+
 def _event_group(
     event: Event,
     questionnaires: list[OrganizationQuestionnaire],
     submissions: _Submissions,
-    seen_global: set[uuid.UUID],
+    reporting: dict[uuid.UUID, uuid.UUID],
 ) -> _Group | None:
     """The event-only requirements reported against ``event``, or None if it has none."""
     oqs: list[OrganizationQuestionnaire] = []
     for oq in questionnaires:
         if oq.is_series or event.pk not in {e.pk for e in oq.covered_events}:  # type: ignore[attr-defined]
             continue
-        if not oq.per_event:
-            # Required once, reported against the earliest covered event carrying it.
-            if oq.pk in seen_global:
-                continue
-            seen_global.add(oq.pk)
+        # Required once, reported against one covered event (see ``_reporting_events``).
+        if not oq.per_event and reporting.get(oq.pk) != event.pk:
+            continue
         oqs.append(oq)
     if not oqs:
         return None
@@ -154,6 +175,7 @@ def _build_groups(
     anchor: Event,
     events: dict[uuid.UUID, Event],
     questionnaires: list[OrganizationQuestionnaire],
+    now: datetime.datetime,
 ) -> list[_Group]:
     """Series group first (anchor event), then one group per covered event holding its event-only requirements."""
     submissions = _load_submissions(series_pass, user, questionnaires)
@@ -167,9 +189,9 @@ def _build_groups(
     series_oqs = [oq for oq in questionnaires if oq.is_series]  # type: ignore[attr-defined]
     if series_oqs:
         groups.append(_Group(anchor, series_oqs, series_lookup))
-    seen_global: set[uuid.UUID] = set()
+    reporting = _reporting_events(questionnaires, events, now)
     for event in sorted(events.values(), key=lambda e: (e.start, e.pk)):
-        group = _event_group(event, questionnaires, submissions, seen_global)
+        group = _event_group(event, questionnaires, submissions, reporting)
         if group is not None:
             groups.append(group)
     return groups
@@ -183,8 +205,9 @@ def check_series_questionnaires(
     Required: the series' admission questionnaires (reported against the anchor event, the earliest
     upcoming covered event still taking applications) plus each upcoming covered event's own admission
     questionnaires. A questionnaire linked to both is required once, as a series one. An event-only
-    questionnaire is required once, reported against the earliest covered event carrying it, unless it is
-    ``per_event``: then every covered event carrying it needs a submission scoped to that event.
+    questionnaire is required once, reported against the earliest carrying covered event that can still take
+    submissions (else the earliest carrying one), unless it is ``per_event``: then every covered event carrying
+    it needs a submission scoped to that event.
 
     Groups (series first, then covered events by start) are checked separately. If any is missing
     questionnaires, ONE verdict lists every missing id and points at the first such group's event;
@@ -199,46 +222,62 @@ def check_series_questionnaires(
     Returns:
         The blocking eligibility verdict, or None if the user may proceed.
     """
+    return _check(series_pass, user, owner_or_staff)[0]
+
+
+def _check(
+    series_pass: SeriesPass, user: RevelUser, owner_or_staff: bool | None
+) -> tuple[EventUserEligibility | None, list[tuple[uuid.UUID, uuid.UUID]]]:
+    """The verdict plus the (questionnaire id, event id) pairs its missing questionnaires are submitted through."""
     if owner_or_staff is None:
         owner_or_staff = series_pass.event_series.organization.is_owner_or_staff(user)
     if owner_or_staff:
-        return None
+        return None, []
     now = timezone.now()
     links = list(series_pass.tier_links.filter(event__start__gte=now).select_related("event"))
     anchor = _anchor_event(links, now)
     if anchor is None:
-        return None
+        return None, []
     events = {link.event_id: link.event for link in links}
     questionnaires = _applicable_questionnaires(series_pass, user, list(events))
     if not questionnaires:
-        return None
+        return None, []
     verdicts: list[tuple[Event, EventUserEligibility]] = []
-    for group in _build_groups(series_pass, user, anchor, events, questionnaires):
+    for group in _build_groups(series_pass, user, anchor, events, questionnaires, now):
         verdict = QuestionnaireRequirementCheck(group.event.id, group.questionnaires, group.lookup).check()
         if verdict is not None:
             verdicts.append((group.event, verdict))
     if not verdicts:
-        return None
+        return None, []
     missing = [(e, v) for e, v in verdicts if v.next_step == NextStep.COMPLETE_QUESTIONNAIRE]
     if missing:
         target, result = missing[0]
         all_missing = list(dict.fromkeys(q for _, v in missing for q in v.questionnaires_missing or []))
+        routes = list(dict.fromkeys((q, e.pk) for e, v in missing for q in v.questionnaires_missing or []))
         result = result.model_copy(update={"questionnaires_missing": all_missing})
     else:
         target, result = verdicts[0]
+        routes = []
     can_submit = target.status == Event.EventStatus.OPEN and now <= target.effective_apply_deadline
     if result.next_step == NextStep.COMPLETE_QUESTIONNAIRE and not can_submit:
         # The questionnaire is outstanding but the event it points at can no longer take a submission.
-        reason = str(_("The series questionnaire can no longer be submitted, so this pass cannot be purchased."))
+        reason = str(_("A required questionnaire can no longer be submitted, so this pass cannot be purchased."))
         result = result.model_copy(
             update={"reason": reason, "reason_code": Reasons.APPLICATION_DEADLINE_PASSED.code, "next_step": None}
         )
-    return result
+        routes = []
+    return result, routes
 
 
-def missing_series_questionnaires(series_pass: SeriesPass, user: RevelUser) -> tuple[list[uuid.UUID], uuid.UUID | None]:
-    """Questionnaires the user can still answer to unlock the pass, and the event to answer them through."""
-    result = check_series_questionnaires(series_pass, user)
+def missing_series_questionnaires(
+    series_pass: SeriesPass, user: RevelUser
+) -> tuple[list[uuid.UUID], uuid.UUID | None, list[tuple[uuid.UUID, uuid.UUID]]]:
+    """What the user can still answer to unlock the pass.
+
+    Returns the missing questionnaire ids, the event of the first group, and one (questionnaire id, event id)
+    pair per missing questionnaire: the event whose ``/events/{id}/questionnaire/{qid}`` endpoint accepts it.
+    """
+    result, routes = _check(series_pass, user, None)
     if result is None or result.next_step != NextStep.COMPLETE_QUESTIONNAIRE:
-        return [], None
-    return list(result.questionnaires_missing or []), result.event_id
+        return [], None, []
+    return list(result.questionnaires_missing or []), result.event_id, routes

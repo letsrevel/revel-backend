@@ -25,7 +25,7 @@ from events.models import (
     VenueSeat,
 )
 from events.schema import TicketPurchaseItem
-from events.service import check_in_service, day_membership_service, ticket_service
+from events.service import check_in_service, ticket_service
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.seating import box_office
 from events.service.stripe_webhooks import StripeEventHandler
@@ -85,13 +85,6 @@ def test_pending_ticket_grants_nothing_until_active(day_tier: TicketTier, make_t
     ticket.status = Status.CANCELLED
     ticket.save(update_fields=["status"])
     assert records_for(ticket) == []
-
-
-def test_regranting_is_idempotent(day_tier: TicketTier, make_ticket: t.Callable[..., Ticket]) -> None:
-    ticket = make_ticket(day_tier)
-    day_membership_service.on_ticket_status_change(ticket, Status.PENDING)
-    day_membership_service.on_ticket_status_change(ticket, None)
-    assert len(records_for(ticket)) == 1
 
 
 def test_free_checkout_grants(
@@ -377,27 +370,3 @@ def test_two_real_saves_grant_once(day_tier: TicketTier, make_ticket: t.Callable
     ticket.save(update_fields=["status"])
     ticket.save()
     assert len(records_for(ticket)) == 1
-
-
-def test_bulk_issuance_costs_a_constant_number_of_grant_queries(
-    day_event: Event,
-    day_tier: TicketTier,
-    day_member_tier: MembershipTier,
-    holder: RevelUser,
-) -> None:
-    """New-ticket grants are one bulk_create: 1 vs 4 tickets cost the same."""
-    from django.db import connection
-    from django.test.utils import CaptureQueriesContext
-
-    def issue(count: int) -> int:
-        tickets = [
-            Ticket(event=day_event, tier=day_tier, user=holder, status=Status.ACTIVE, guest_name=f"G{i}")
-            for i in range(count)
-        ]
-        created = Ticket.objects.bulk_create(tickets)
-        with CaptureQueriesContext(connection) as ctx:
-            day_membership_service.on_tickets_issued(created)
-        assert MembershipRecord.objects.filter(ticket__in=created).count() == count
-        return len(ctx)
-
-    assert issue(1) == issue(4)

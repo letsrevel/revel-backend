@@ -384,16 +384,41 @@ def test_deleting_an_upcoming_event_revokes_its_records_but_not_past_ones(
     assert MembershipRecord.objects.get(pk=past_pk).ended_reason is None
 
 
+def test_ban_keeps_the_record_of_a_checked_in_ticket(
+    organization: Organization,
+    day_tier: TicketTier,
+    make_ticket: t.Callable[..., Ticket],
+    holder: RevelUser,
+) -> None:
+    ticket = make_ticket(day_tier)
+    Ticket.objects.filter(pk=ticket.pk).update(checked_in_at=timezone.now())  # checked in early, event not started
+    OrganizationMember.objects.create(
+        organization=organization, user=holder, status=OrganizationMember.MembershipStatus.BANNED
+    )
+    assert _only(ticket).ended_reason is None
+
+
+def test_deleting_an_event_keeps_the_record_of_a_checked_in_ticket(
+    day_event: Event, day_tier: TicketTier, make_ticket: t.Callable[..., Ticket]
+) -> None:
+    ticket = make_ticket(day_tier)
+    Ticket.objects.filter(pk=ticket.pk).update(checked_in_at=timezone.now())
+    pk = records_for_pk(ticket)
+    day_event.delete()
+    assert MembershipRecord.objects.get(pk=pk).ended_reason is None
+
+
 def records_for_pk(ticket: Ticket) -> t.Any:
     return MembershipRecord.objects.filter(ticket=ticket).values_list("pk", flat=True).first()
 
 
-def test_event_cancellation_flag_decided_at_fan_out(
+def test_fan_out_passes_only_the_ticket_to_the_subtask(
     day_event: Event,
     day_tier: TicketTier,
     make_ticket: t.Callable[..., Ticket],
     organization_owner_user: RevelUser,
 ) -> None:
+    """No new kwarg: a producer on the new code must not crash a worker still on the old signature."""
     from events.tasks.refunds import refund_cancelled_event_tickets
 
     ticket = make_ticket(day_tier)
@@ -402,24 +427,37 @@ def test_event_cancellation_flag_decided_at_fan_out(
         patch("events.tasks.refunds.send_event_refund_summary_task.apply_async"),
     ):
         refund_cancelled_event_tickets(str(day_event.id), str(organization_owner_user.id))
-    assert delay.call_args.kwargs == {"revoke_day_membership": True}
-
-    # The subtask runs after the event started: the fan-out-time decision still revokes.
-    Event.objects.filter(pk=day_event.pk).update(start=timezone.now() - timedelta(hours=1))
-    with patch("events.tasks.refunds.build_attendee_visibility_flags"):
-        refund_one_cancelled_event_ticket(str(ticket.id), str(organization_owner_user.id), revoke_day_membership=True)
-    assert _only(ticket).ended_reason == Reason.REVOKED
+    delay.assert_called_once_with(str(ticket.id), str(organization_owner_user.id))
 
 
-def test_event_cancellation_after_start_at_fan_out_does_not_revoke(
+def test_cancellation_swept_before_start_revokes_even_if_the_subtask_runs_after_start(
     day_event: Event,
     day_tier: TicketTier,
     make_ticket: t.Callable[..., Ticket],
     organization_owner_user: RevelUser,
 ) -> None:
     ticket = make_ticket(day_tier)
+    # The sweep began two hours ago, before the event started an hour ago; the subtask only runs now.
+    Event.objects.filter(pk=day_event.pk).update(
+        tickets_refund_started_at=timezone.now() - timedelta(hours=2), start=timezone.now() - timedelta(hours=1)
+    )
     with patch("events.tasks.refunds.build_attendee_visibility_flags"):
-        refund_one_cancelled_event_ticket(str(ticket.id), str(organization_owner_user.id), revoke_day_membership=False)
+        refund_one_cancelled_event_ticket(str(ticket.id), str(organization_owner_user.id))
+    assert _only(ticket).ended_reason == Reason.REVOKED
+
+
+def test_cancellation_swept_after_start_does_not_revoke(
+    day_event: Event,
+    day_tier: TicketTier,
+    make_ticket: t.Callable[..., Ticket],
+    organization_owner_user: RevelUser,
+) -> None:
+    ticket = make_ticket(day_tier)
+    Event.objects.filter(pk=day_event.pk).update(
+        start=timezone.now() - timedelta(hours=2), tickets_refund_started_at=timezone.now() - timedelta(hours=1)
+    )
+    with patch("events.tasks.refunds.build_attendee_visibility_flags"):
+        refund_one_cancelled_event_ticket(str(ticket.id), str(organization_owner_user.id))
     assert _only(ticket).ended_reason is None
 
 

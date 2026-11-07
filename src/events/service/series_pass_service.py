@@ -769,7 +769,9 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
     # so the distribution — and which ticket absorbs any rounding remainder — is
     # deterministic regardless of query/insertion order.
     pending_tickets: list[Ticket] = list(
-        Ticket.objects.filter(held_pass=held_pass, status=Ticket.TicketStatus.PENDING).order_by("event__start", "pk")
+        Ticket.objects.filter(held_pass=held_pass, status=Ticket.TicketStatus.PENDING)
+        .select_related("user", "event", "tier")
+        .order_by("event__start", "pk")
     )
     if pending_tickets:
         shares = distribute_amount_across_items(held_pass.price_paid, len(pending_tickets))
