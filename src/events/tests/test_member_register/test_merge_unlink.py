@@ -402,3 +402,16 @@ class TestPermissions:
         else:
             response = Client().post(_unlink_url(organization, survivor))
         assert response.status_code == 401
+
+
+def test_merge_keeps_the_survivors_own_duplicate_claim(
+    owner_client: Client, organization: Organization, make_record: RecordFactory, claimant: RevelUser
+) -> None:
+    """An unlinked survivor's duplicate claim concerns another claimant and survives the merge."""
+    survivor = make_record(full_name="Survivor", email="s@example.com", duplicate_claimant=claimant)
+    absorbed = make_record(full_name="Absorbed", email="a@example.com", valid_from=timezone.now() - timedelta(days=30))
+
+    assert _merge(owner_client, organization, survivor, absorbed).status_code == 200
+
+    survivor.refresh_from_db()
+    assert survivor.duplicate_claimant_id == claimant.pk

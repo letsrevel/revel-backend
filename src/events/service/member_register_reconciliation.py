@@ -193,8 +193,8 @@ def merge_records(survivor: MembershipRecord, absorbed: MembershipRecord) -> Mem
                 ]
             )
             survivor.valid_from = min(survivor.valid_from, absorbed.valid_from)
-            survivor.duplicate_claimant = None
-            survivor.save(update_fields=["valid_from", "duplicate_claimant", "updated_at"])
+            # The survivor's own duplicate claim (if any) concerns another claimant: keep it for staff.
+            survivor.save(update_fields=["valid_from", "updated_at"])
         else:
             if survivor.user_id is None:
                 raise HttpError(400, str(_("A closed entry can only be attached to an entry linked to an account.")))
