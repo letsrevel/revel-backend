@@ -25,5 +25,14 @@ class MembershipRecordAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[
     list_filter = ["kind", "source", "ended_reason"]
     search_fields = ["full_name", "email", "organization__name", "organization__slug"]
     autocomplete_fields = ["organization", "user"]
-    raw_id_fields = ["tier", "ticket", "event", "subscription", "questionnaire_submission", "created_by"]
+    raw_id_fields = [
+        "tier",
+        "ticket",
+        "event",
+        "subscription",
+        "questionnaire_submission",
+        "created_by",
+        "duplicate_claimant",
+    ]
+    exclude = ["invite_token"]  # a bearer secret: never shown or editable
     readonly_fields = ["created_at", "updated_at"]

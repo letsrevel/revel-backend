@@ -7345,8 +7345,8 @@ msgstr "Membro:"
 msgid "Register entry:"
 msgstr "Voce del registro:"
 
-msgid "If this is wrong, unlink it from the member register."
-msgstr "Se è un errore, scollegala dal registro dei membri."
+msgid "If this is wrong, review the entry in the member register."
+msgstr "Se è un errore, controlla la voce nel registro dei membri."
 
 msgid "Open Member Register"
 msgstr "Apri il registro dei membri"
@@ -7396,8 +7396,17 @@ msgstr "Questa voce del registro non ha un indirizzo email a cui inviare l'invit
 msgid "This register entry is already linked to an account."
 msgstr "Questa voce del registro è già collegata a un account."
 
-msgid "You already have a membership in this organization. Its staff have been told about the duplicate entry."
-msgstr "Hai già un'iscrizione in questa organizzazione. Il suo staff è stato informato della voce duplicata."
+msgid "You already have a membership in this organization. Its staff can review the duplicate entry in their member register."
+msgstr "Hai già un'iscrizione in questa organizzazione. Il suo staff può controllare la voce duplicata nel proprio registro dei membri."
+
+msgid "This membership hasn't started yet. Try the link again once it has."
+msgstr "Questa iscrizione non è ancora iniziata. Riprova con il link quando sarà iniziata."
+
+msgid "This register entry starts in the future; invite the person once it has started."
+msgstr "Questa voce del registro inizia in futuro; invita la persona quando sarà iniziata."
+
+msgid "This register entry was just linked to an account; reload it and try again."
+msgstr "Questa voce del registro è appena stata collegata a un account; ricaricala e riprova."
 
 msgid "You can't join this organization."
 msgstr "Non puoi unirti a questa organizzazione."

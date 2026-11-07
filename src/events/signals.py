@@ -302,7 +302,7 @@ def stash_previous_link_state(
     sender: type[RevelUser], instance: RevelUser, update_fields: t.Iterable[str] | None = None, **kwargs: t.Any
 ) -> None:
     """Remember the old (email, email_verified, guest) so ``post_save`` can tell a link-relevant change (#1319)."""
-    if instance.pk is None or (update_fields is not None and not _LINK_RELEVANT_USER_FIELDS & set(update_fields)):
+    if instance._state.adding or (update_fields is not None and not _LINK_RELEVANT_USER_FIELDS & set(update_fields)):
         instance._register_link_prev = None  # type: ignore[attr-defined]
         return
     instance._register_link_prev = (  # type: ignore[attr-defined]

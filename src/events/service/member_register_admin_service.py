@@ -60,6 +60,19 @@ def _lock(record: MembershipRecord) -> MembershipRecord:
     return MembershipRecord.objects.select_for_update(of=("self",)).select_related("tier").get(pk=record.pk)
 
 
+def _lock_after_member_check(record: MembershipRecord) -> MembershipRecord:
+    """Lock ``record`` after ``_live_access_row(record)`` ran on the caller's (unlocked) instance.
+
+    A claim can link the record between that check and this lock, which makes the check stale (a live access
+    row now backs it). Locking the member now would invert the member -> record order the mirror uses, so the
+    operation is refused instead; the caller retries and sees the linked record.
+    """
+    locked = _lock(record)
+    if locked.user_id != record.user_id:
+        raise HttpError(409, str(_("This register entry was just linked to an account; reload it and try again.")))
+    return locked
+
+
 @transaction.atomic
 def create_manual_record(
     organization: Organization,
@@ -152,7 +165,7 @@ def end_record(
     if reason not in END_REASONS:
         raise HttpError(400, str(_("Reason must be 'cancelled' or 'removed'.")))
     member = _live_access_row(record)
-    record = _lock(record)
+    record = _lock_after_member_check(record)
     if record.valid_until is not None:
         raise HttpError(409, str(_("This membership has already ended.")))
     now = timezone.now()
@@ -183,4 +196,4 @@ def delete_record(record: MembershipRecord) -> None:
         raise HttpError(
             409, str(_("Remove the member from the organization before deleting their open register entry."))
         )
-    _lock(record).delete()
+    _lock_after_member_check(record).delete()

@@ -16,8 +16,12 @@ from events.service.member_register_linking import LinkOutcome
 _FAILURES = {
     LinkOutcome.DUPLICATE: (
         409,
-        _("You already have a membership in this organization. Its staff have been told about the duplicate entry."),
+        _(
+            "You already have a membership in this organization. "
+            "Its staff can review the duplicate entry in their member register."
+        ),
     ),
+    LinkOutcome.NOT_STARTED: (409, _("This membership hasn't started yet. Try the link again once it has.")),
     LinkOutcome.BANNED: (403, _("You can't join this organization.")),
 }
 _NOT_FOUND = _("Invitation not found.")

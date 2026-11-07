@@ -18,15 +18,17 @@ logger = structlog.get_logger(__name__)
 
 
 @shared_task(name="events.send_member_register_invite")
-def send_member_register_invite(record_id: str, token: str) -> None:
+def send_member_register_invite(record_id: str) -> None:
     """Email the claim link of an account-less register record.
 
     A direct templated email (like guest confirmations), not a ``NotificationType``: the notification system
     needs a recipient account, and handing the claim link to whoever registered the address would defeat it.
-    Skipped when the record is gone, already linked, or ``token`` was superseded by a resend.
+    The current ``invite_token`` is read from the record (it never travels through the broker), so a resend
+    simply makes the latest link win. Skipped when the record is gone, already linked or holds no token.
     """
     record = MembershipRecord.objects.select_related("organization").filter(pk=record_id).first()
-    if record is None or record.user_id is not None or not record.email or record.invite_token != token:
+    token = record.invite_token if record else None
+    if record is None or record.user_id is not None or not record.email or not token:
         logger.info("member_register_invite_skipped", record_id=record_id)
         return
     org = record.organization
