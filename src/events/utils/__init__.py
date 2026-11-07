@@ -10,7 +10,7 @@ import base64
 import mimetypes
 import re
 import typing as t
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from io import BytesIO
 from zoneinfo import ZoneInfo
 
@@ -106,6 +106,24 @@ def get_organization_timezone(org: "Organization") -> ZoneInfo:
     if org.city and org.city.timezone:
         return ZoneInfo(org.city.timezone)
     return ZoneInfo(settings.TIME_ZONE)
+
+
+def get_organization_day_bounds(org: "Organization", day: date) -> tuple[datetime, datetime]:
+    """Return the local-midnight bounds of a calendar day in the org's timezone.
+
+    Args:
+        org: Organization instance (timezone via :func:`get_organization_timezone`).
+        day: The calendar day.
+
+    Returns:
+        ``(start, end)``: aware datetimes for local midnight of ``day`` and of the next day, so
+        the window ``[start, end)`` is the whole local day (23h or 25h on DST changeover days).
+    """
+    tz = get_organization_timezone(org)
+    return (
+        datetime.combine(day, time.min, tzinfo=tz),
+        datetime.combine(day + timedelta(days=1), time.min, tzinfo=tz),
+    )
 
 
 def format_event_datetime(
