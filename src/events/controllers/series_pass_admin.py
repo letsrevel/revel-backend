@@ -99,7 +99,8 @@ class SeriesPassAdminController(UserAwareController):
 
         Every event named in ``tier_links`` must pass the enable-time coverage gate
         (open, ticketed, PUBLIC — neither invitation-only nor members-only — event on a
-        non-recurring series, not gated by an admission questionnaire) — 400 otherwise.
+        non-recurring series) — 400 otherwise. Admission questionnaires do not block coverage;
+        pass purchase requires them.
         Requires 'edit_event_series'
         permission.
         """

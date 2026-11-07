@@ -13,7 +13,7 @@ from uuid import UUID
 import structlog
 from django.contrib.auth.models import AnonymousUser
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F
 from django.db.models.deletion import ProtectedError, RestrictedError
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -28,7 +28,6 @@ from events.models import (
     EventSeries,
     HeldSeriesPass,
     Organization,
-    OrganizationQuestionnaire,
     Payment,
     Refund,
     SeriesPass,
@@ -174,8 +173,9 @@ def validate_events_coverable(series: EventSeries, events: t.Sequence[Event]) ->
 
     Every event covered by a series pass must be "simple": it must belong to
     the given series (which must itself be non-recurring), be OPEN, require a
-    ticket, be PUBLIC (neither invitation-only nor members-only), and not be
-    gated by an admission questionnaire targeting either the event or the series.
+    ticket, and be PUBLIC (neither invitation-only nor members-only). Admission
+    questionnaires do not block coverage: pass *purchase* requires them instead
+    (``series_pass_questionnaires.check_series_questionnaires``).
 
     Args:
         series: The EventSeries the pass belongs to.
@@ -202,13 +202,6 @@ def validate_events_coverable(series: EventSeries, events: t.Sequence[Event]) ->
                     % event.name
                 )
             )
-    gated = OrganizationQuestionnaire.objects.filter(
-        questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
-    ).filter(Q(event_series=series) | Q(events__in=[event.pk for event in events]))
-    if gated.exists():
-        raise SeriesPassCoverageError(
-            str(_("Events gated by an admission questionnaire cannot be covered by a series pass."))
-        )
 
 
 @transaction.atomic
@@ -423,6 +416,8 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
             )
             continue
         grantable.append(link)
+    # ponytail: a holder never answered a questionnaire attached to an event linked after purchase; tickets are
+    # issued anyway. Upgrade path: gate extension tickets on the questionnaire, or notify holders to answer it.
     created = materialize_tickets(held_pass, grantable, Ticket.TicketStatus.ACTIVE, price_paid=_ZERO)
     if created:
         # One ticket per tier by construction (each covered event has its own tier link).
