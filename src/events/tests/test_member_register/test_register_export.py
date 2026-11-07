@@ -171,3 +171,35 @@ def test_failure_marks_failed(organization: Organization, organization_owner_use
     export.refresh_from_db()
     assert export.status == FileExport.ExportStatus.FAILED
     assert export.error_message is not None and export.error_message.startswith("Export failed:")
+
+
+def test_merged_record_is_marked_and_not_counted_open(
+    organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    survivor = _rec(organization, "Survivor")
+    absorbed = _rec(organization, "Absorbed", merged_into=survivor)
+    export = _export(organization, organization_owner_user)
+
+    generate_member_register_export(export.id)
+
+    summary = dict(_rows(export, "Summary"))
+    assert summary["Total records"] == 2
+    assert summary["Open records"] == 1
+    rows = _rows(export, "Register")
+    assert rows[0][-1] == "Merged Into"
+    by_name = {r[0]: r for r in rows[1:]}
+    assert by_name["Absorbed"][-1] == str(survivor.pk)
+    assert by_name["Survivor"][-1] in ("", None)
+    assert absorbed.merged_into_id == survivor.pk
+
+
+def test_day_filtered_export_excludes_absorbed_record(
+    organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    survivor = _rec(organization, "Survivor")
+    _rec(organization, "Absorbed", merged_into=survivor)
+    export = _export(organization, organization_owner_user, active_on=timezone.now().date())
+
+    generate_member_register_export(export.id)
+
+    assert {r[0] for r in _rows(export, "Register")[1:]} == {"Survivor"}

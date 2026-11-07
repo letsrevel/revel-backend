@@ -6,6 +6,7 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import Max, ProtectedError, Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -218,10 +219,20 @@ def _link_register_entry_to_applicant(
         .exists()
     ):
         raise HttpError(400, str(_("The applicant already has an open register entry.")))
+    if locked.valid_from > timezone.now():
+        raise HttpError(400, str(_("This register entry starts in the future.")))
     locked.user = applicant
     locked.invite_token = None
     locked.duplicate_claimant = None
-    locked.save(update_fields=["user", "invite_token", "duplicate_claimant", "updated_at"])
+    update_fields = ["user", "invite_token", "duplicate_claimant", "updated_at"]
+    submission = membership_request.questionnaire_submission
+    if submission is not None and locked.questionnaire_submission_id is None:
+        # Same evidence rule as an adopted record (member_register_service._settle_adopted).
+        locked.questionnaire_submission = submission
+        locked.accepted_at = submission.submitted_at or submission.created_at
+        locked.questionnaire_name = submission.questionnaire.name
+        update_fields += ["questionnaire_submission", "accepted_at", "questionnaire_name"]
+    locked.save(update_fields=update_fields)
 
 
 @transaction.atomic

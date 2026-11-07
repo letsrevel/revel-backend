@@ -7470,3 +7470,15 @@ msgstr "Dieser Registereintrag ist bereits verknüpft oder zusammengeführt."
 
 msgid "This register entry is not linked or merged."
 msgstr "Dieser Registereintrag ist weder verknüpft noch zusammengeführt."
+
+msgid "Linking a register entry needs a signed-in staff session."
+msgstr "Zum Verknüpfen eines Registereintrags ist eine angemeldete Staff-Sitzung nötig."
+
+msgid "A merged register entry cannot be invited."
+msgstr "Ein zusammengeführter Registereintrag kann nicht eingeladen werden."
+
+msgid "An entry that has absorbed other entries cannot be merged; unlink them first."
+msgstr "Ein Eintrag, der andere Einträge aufgenommen hat, kann nicht zusammengeführt werden; löse zuerst deren Zusammenführung auf."
+
+msgid "This register entry starts in the future."
+msgstr "Dieser Registereintrag beginnt in der Zukunft."

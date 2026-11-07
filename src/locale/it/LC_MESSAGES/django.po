@@ -7411,3 +7411,15 @@ msgstr "Questa voce del registro è già collegata o unita."
 
 msgid "This register entry is not linked or merged."
 msgstr "Questa voce del registro non è né collegata né unita."
+
+msgid "Linking a register entry needs a signed-in staff session."
+msgstr "Collegare una voce del registro richiede una sessione di staff con accesso effettuato."
+
+msgid "A merged register entry cannot be invited."
+msgstr "Una voce del registro unita non può essere invitata."
+
+msgid "An entry that has absorbed other entries cannot be merged; unlink them first."
+msgstr "Una voce che ne ha assorbite altre non può essere unita; annulla prima quelle unioni."
+
+msgid "This register entry starts in the future."
+msgstr "Questa voce del registro inizia nel futuro."

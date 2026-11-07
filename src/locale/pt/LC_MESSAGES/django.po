@@ -7321,3 +7321,15 @@ msgstr "Esta entrada do registo já está associada ou fundida."
 
 msgid "This register entry is not linked or merged."
 msgstr "Esta entrada do registo não está associada nem fundida."
+
+msgid "Linking a register entry needs a signed-in staff session."
+msgstr "Associar uma entrada do registo requer uma sessão iniciada de um membro da equipa."
+
+msgid "A merged register entry cannot be invited."
+msgstr "Uma entrada do registo fundida não pode ser convidada."
+
+msgid "An entry that has absorbed other entries cannot be merged; unlink them first."
+msgstr "Uma entrada que absorveu outras entradas não pode ser fundida; desfaça primeiro essas fusões."
+
+msgid "This register entry starts in the future."
+msgstr "Esta entrada do registo começa no futuro."
