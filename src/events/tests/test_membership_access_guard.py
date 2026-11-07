@@ -12,7 +12,8 @@ string literals such as GDPR export keys are ignored). ``**{"k": v}`` literals c
   or ``__iexact`` (so ``organization__members__id`` and ``memberships__status__exact`` count);
 * (b) ``filter``/``exclude`` on a member receiver (``OrganizationMember.objects`` / ``._default_manager``
   or a related manager ``memberships`` / ``organization_memberships`` / ``members``) with a ``status``,
-  ``status__in``, ``status__exact`` or ``status__iexact`` keyword, or a non-literal ``**mapping``;
+  ``status__in``, ``status__exact`` or ``status__iexact`` keyword (directly or inside a positional
+  ``Q(...)`` expression), or a non-literal ``**mapping``;
 * (c) a ``MembershipStatus.<X>`` attribute used as an argument of a ``filter``/``exclude``/``Q`` call.
 
 Other rules:
@@ -123,6 +124,11 @@ def _call_flagged(node: ast.Call, name: str) -> bool:
     if any(_A_KEYWORD.search(n) for n in names):  # rule (a)
         return True
     if is_filter and isinstance(node.func, ast.Attribute) and _is_member_receiver(node.func.value):  # rule (b)
+        for q in (n for arg in node.args for n in ast.walk(arg)):  # positional Q(...) & ~Q(...) trees
+            if isinstance(q, ast.Call) and _call_name(q) == "Q":
+                q_names, q_opaque = _keyword_names(q)
+                names.extend(q_names)
+                opaque = opaque or q_opaque
         if opaque or any(n in _B_KEYWORDS for n in names):
             return True
     arg_nodes: list[ast.AST] = [*node.args, *(kw.value for kw in node.keywords)]
@@ -182,6 +188,8 @@ def test_guard_detects_violation() -> None:
         "OrganizationMember._default_manager.filter(status=s)",  # (b) _default_manager
         'OrganizationMember.objects.filter(**{"status": s})',  # (b) literal unpacking
         "OrganizationMember.objects.filter(**lookups)",  # (b) opaque unpacking
+        "OrganizationMember.objects.filter(Q(user=u) & ~Q(status=s))",  # (b) positional Q
+        "org.memberships.exclude(Q(status__in=s) | Q(tier=t))",  # (b) positional Q, related manager
         "OrganizationMember.objects.active_only()",  # (d)
         "qs.for_visibility()",  # (d)
         "x.banned_only()",  # (d)
