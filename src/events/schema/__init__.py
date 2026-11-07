@@ -163,6 +163,13 @@ from .invoice import (
 )
 
 # Misc schemas
+from .member_register import (
+    MemberRegisterExportRequestSchema,
+    MembershipRecordCreateSchema,
+    MembershipRecordEndSchema,
+    MembershipRecordSchema,
+    MembershipRecordUpdateSchema,
+)
 from .misc import (
     AdditionalResourceCreateSchema,
     AdditionalResourceSchema,
@@ -621,6 +628,11 @@ __all__ = [
     "MembershipEligibilitySchema",
     "MembershipFinancialsSchema",
     "MembershipPaymentSchema",
+    "MemberRegisterExportRequestSchema",
+    "MembershipRecordCreateSchema",
+    "MembershipRecordEndSchema",
+    "MembershipRecordSchema",
+    "MembershipRecordUpdateSchema",
     "MembershipTierAdminSchema",
     "MembershipTierCreateSchema",
     "MembershipTierMinimalSchema",

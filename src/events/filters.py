@@ -18,6 +18,7 @@ from events.models import (
     EventInvitationRequest,
     EventRSVP,
     EventSeries,
+    MembershipRecord,
     MembershipRequestStatus,
     Organization,
     OrganizationMember,
@@ -364,6 +365,37 @@ class MembershipRequestFilterSchema(FilterSchema):
     """Filter schema for organization membership requests."""
 
     status: MembershipRequestStatus | None = None
+
+
+class MembershipRecordFilterSchema(FilterSchema):
+    """Filters for the membership register."""
+
+    kind: MembershipRecord.Kind | None = Field(None, description="Standard or temporary membership.")
+    tier_id: UUID | None = Field(None, description="Only entries of this tier.")
+    is_open: bool | None = Field(None, description="True: no end date. False: has an end date.")
+    has_account: bool | None = Field(None, description="True: linked to an account. False: account-less.")
+    active_on: AwareDatetime | None = Field(
+        None, description="Only non-revoked entries covering this instant (valid_from <= x < valid_until)."
+    )
+
+    def filter_is_open(self, is_open: bool | None) -> Q:
+        """Open entries have no end date."""
+        return Q() if is_open is None else Q(valid_until__isnull=is_open)
+
+    def filter_has_account(self, has_account: bool | None) -> Q:
+        """Account-less entries have no user."""
+        return Q() if has_account is None else Q(user__isnull=not has_account)
+
+    def filter_active_on(self, active_on: AwareDatetime | None) -> Q:
+        """Handled in :meth:`filter` (needs the queryset method, not a Q)."""
+        return Q()
+
+    def filter(self, queryset: "models.QuerySet[MembershipRecord]") -> "models.QuerySet[MembershipRecord]":  # type: ignore[override]
+        """Apply the Q filters, then ``active_on`` through the queryset method."""
+        queryset = super().filter(queryset)
+        if self.active_on is not None:
+            queryset = queryset.active_on(self.active_on)  # type: ignore[attr-defined]
+        return queryset
 
 
 class InvitationRequestFilterSchema(FilterSchema):

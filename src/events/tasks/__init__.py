@@ -19,7 +19,11 @@ from events.tasks.custom_domains import (
     reconcile_turnstile_hostnames,
     sync_custom_domains_task,
 )
-from events.tasks.exports import generate_attendee_export_task, generate_questionnaire_export_task
+from events.tasks.exports import (
+    generate_attendee_export_task,
+    generate_member_register_export_task,
+    generate_questionnaire_export_task,
+)
 from events.tasks.invoicing import (
     calculate_referral_payouts,
     deliver_attendee_credit_note_task,
@@ -78,6 +82,7 @@ __all__ = [
     "expire_waitlist_offers_task",
     "generate_attendee_credit_note_task",
     "generate_attendee_export_task",
+    "generate_member_register_export_task",
     "generate_attendee_invoice_task",
     "generate_monthly_invoices_task",
     "generate_questionnaire_export_task",
