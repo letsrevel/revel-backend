@@ -141,7 +141,12 @@ def update_record(record: MembershipRecord, payload_data: dict[str, t.Any]) -> M
         record.full_name = payload_data["full_name"]
         fields.append("full_name")
     if "email" in payload_data:
-        record.email = payload_data["email"] or ""
+        new_email = payload_data["email"] or ""
+        if record.user_id is None and new_email.casefold() != record.email.casefold() and record.invite_token:
+            # The link was mailed to the old address: kill it so only a fresh invite to the corrected one works.
+            record.invite_token, record.invited_at = None, None
+            fields += ["invite_token", "invited_at"]
+        record.email = new_email
         fields.append("email")
     if "valid_from" in payload_data:
         if linked_open and payload_data["valid_from"] > timezone.now():

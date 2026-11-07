@@ -490,3 +490,24 @@ def test_revocation_is_rechecked_under_the_lock(make_record: RecordFactory, clai
     assert link_record(record, claimant, token="tok").outcome == LinkOutcome.ALREADY_LINKED
     record.refresh_from_db()
     assert record.user is None
+
+
+def test_email_change_invalidates_the_mailed_link(make_record: RecordFactory) -> None:
+    """Correcting an invited entry's email kills the old link and resets the invite state."""
+    record = make_record(invite_token="old", invited_at=timezone.now())
+
+    admin_service.update_record(record, {"email": "corrected@example.com"})
+
+    record.refresh_from_db()
+    assert record.invite_token is None and record.invited_at is None
+    assert linking.get_record_for_invite_token("old") is None
+
+
+def test_same_email_edit_keeps_the_link(make_record: RecordFactory) -> None:
+    """A case-only or unchanged email keeps the outstanding invitation."""
+    record = make_record(invite_token="keep", invited_at=timezone.now())
+
+    admin_service.update_record(record, {"email": "PAT@example.com", "full_name": "Pat R."})
+
+    record.refresh_from_db()
+    assert record.invite_token == "keep" and record.invited_at is not None
