@@ -14,10 +14,39 @@ from .mixins import UserRequestMixin
 from .organization import Organization
 
 
+# Module-level with a distinct name (not a nested ``Kind``): django-ninja dedupes OpenAPI components by
+# bare class name (#782). Code keeps the ``MembershipTier.Kind`` idiom through the class-level alias.
+class MembershipTierKind(models.TextChoices):
+    STANDARD = "standard", _("Standard")
+    TEMPORARY = "temporary", _("Temporary")
+
+
+class MembershipTierQuerySet(models.QuerySet["MembershipTier"]):
+    """Queries over membership tiers."""
+
+    def standard(self) -> t.Self:
+        """Tiers people can hold as members (everything except TEMPORARY day-membership tiers)."""
+        return self.filter(kind=MembershipTierKind.STANDARD)
+
+
 class MembershipTier(TimeStampedModel):
-    """Represents a membership tier within an organization."""
+    """Represents a membership tier within an organization.
+
+    TEMPORARY tiers are register-only day memberships granted by tickets (#1320): they are never held on
+    an access row and are offered only by the ticket-tier "grants" picker.
+    """
+
+    Kind = MembershipTierKind
 
     name = models.CharField(max_length=255)
+    kind = models.CharField(
+        max_length=20,
+        choices=Kind.choices,
+        default=Kind.STANDARD,
+        # db_default: a rolling deploy runs the migration while old code still INSERTs without the column.
+        db_default=Kind.STANDARD,
+        help_text=_("Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."),
+    )
     description = MarkdownField(blank=True, null=True)
     organization = models.ForeignKey(
         Organization,
@@ -43,6 +72,8 @@ class MembershipTier(TimeStampedModel):
         help_text=_("Tier-specific manual-approval override. NULL = inherit org.default_requires_membership_approval."),
     )
 
+    objects = MembershipTierQuerySet.as_manager()
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -61,6 +92,13 @@ class MembershipTier(TimeStampedModel):
     def clean(self) -> None:
         """Validate tier-level membership questionnaire references the same organization and is MEMBERSHIP type."""
         super().clean()
+        if self.kind == MembershipTierKind.TEMPORARY and (
+            self.membership_questionnaire_id or self.requires_membership_approval is not None
+        ):
+            field = "membership_questionnaire" if self.membership_questionnaire_id else "requires_membership_approval"
+            raise DjangoValidationError(
+                {field: _("A temporary tier cannot have a membership questionnaire or an approval requirement.")}
+            )
         if self.membership_questionnaire_id and self.organization_id:
             # Lazy import to avoid circular dependency: questionnaire.py imports organization.py.
             from .questionnaire import OrganizationQuestionnaire
@@ -161,8 +199,10 @@ class OrganizationMember(TimeStampedModel):
         return f"{self.user_id} @ {self.organization_id} ({self.status})"
 
     def clean(self) -> None:
-        """Validate that tier belongs to the same organization."""
+        """Validate that tier belongs to the same organization and is not a TEMPORARY tier."""
         super().clean()
+        if self.tier and self.tier.kind == MembershipTierKind.TEMPORARY:
+            raise DjangoValidationError({"tier": _("A temporary tier cannot be held as a membership.")})
         if self.tier and self.tier.organization_id != self.organization_id:
             raise DjangoValidationError({"tier": _("The tier must belong to the same organization as the membership.")})
 
@@ -281,3 +321,9 @@ class OrganizationMembershipRequest(UserRequestMixin):
 
     def __str__(self) -> str:
         return f"Membership application: {self.user_id} -> {self.organization_id} ({self.status})"
+
+    def clean(self) -> None:
+        """Reject applications for TEMPORARY (day-membership) tiers, which cannot be applied for."""
+        super().clean()
+        if self.tier is not None and self.tier.kind == MembershipTierKind.TEMPORARY:
+            raise DjangoValidationError({"tier": _("A temporary tier cannot be held as a membership.")})

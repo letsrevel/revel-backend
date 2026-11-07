@@ -13,13 +13,14 @@ from unfold.contrib.filters.admin import AutocompleteSelectFilter
 from events import models
 from events.admin.base import (
     EventLinkMixin,
+    GrantsTemporaryTierMixin,
     UserLinkMixin,
     VenueLinkMixin,
 )
 
 
 @admin.register(models.TicketTier)
-class TicketTierAdmin(ModelAdmin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
+class TicketTierAdmin(GrantsTemporaryTierMixin, ModelAdmin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
     """Admin view for TicketTier."""
 
     list_display = [
@@ -45,7 +46,7 @@ class TicketTierAdmin(ModelAdmin, EventLinkMixin, VenueLinkMixin):  # type: igno
     ]
     list_filter_submit = True
     search_fields = ["name", "event__name", "description"]
-    autocomplete_fields = ["event", "venue", "sector"]
+    autocomplete_fields = ["event", "venue", "sector", "grants_membership_tier"]
     filter_horizontal = ["restricted_to_membership_tiers", "excluded_membership_tiers"]
 
     @admin.display(description="Price", ordering="price")

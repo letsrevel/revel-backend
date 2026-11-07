@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Temporary (day-membership) tiers** (#1320): a membership tier can be created as `temporary`. Temporary tiers can't be held by members, applied for, given subscription plans, granted by organization tokens, or used for ticket-tier restrictions, poll tiers or announcement targets. A ticket tier can name one in `grants_membership_tier_id`. Such a ticket tier can't be purchasable by members only, must allow one ticket per person, and is not synced to external listing platforms. Granting itself ships in the follow-up PR
 - **Series pass quote shows the questionnaire requirement** (#1323): for signed-in buyers, the pass quote lists the series admission questionnaires still to answer and the event to answer them through, so the questionnaire step can be shown before checkout
 
 ### Changed

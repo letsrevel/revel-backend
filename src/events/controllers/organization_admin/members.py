@@ -210,7 +210,9 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
             if tier_id is None:
                 clear_tier = True
             else:
-                tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
+                tier = get_object_or_404(
+                    models.MembershipTier.objects.standard(), pk=tier_id, organization=organization
+                )
 
         updated = organization_service.update_member(
             member, status=update_data.get("status"), tier=tier, clear_tier=clear_tier
@@ -240,7 +242,9 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         """Add a member to an organization."""
         organization = self.get_one(slug)
         user_to_add = get_object_or_404(RevelUser, id=user_id)
-        tier = get_object_or_404(models.MembershipTier, pk=payload.tier_id, organization=organization)
+        tier = get_object_or_404(
+            models.MembershipTier.objects.standard(), pk=payload.tier_id, organization=organization
+        )
         return 201, self._with_note(organization, organization_service.add_member(organization, user_to_add, tier))
 
     # ---- Membership Tiers ----

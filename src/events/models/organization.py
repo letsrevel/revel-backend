@@ -690,6 +690,12 @@ class OrganizationToken(TokenMixin):
         if self.grants_membership and not self.membership_tier:
             raise DjangoValidationError({"membership_tier": _("Membership tier is required when granting membership.")})
 
+        # Lazy: membership.py imports this module.
+        from .membership import MembershipTierKind
+
+        if self.membership_tier and self.membership_tier.kind == MembershipTierKind.TEMPORARY:
+            raise DjangoValidationError({"membership_tier": _("A temporary tier cannot be granted by a token.")})
+
         # If membership_tier is set, verify it belongs to the same organization
         if self.membership_tier and self.membership_tier.organization_id != self.organization_id:
             raise DjangoValidationError(

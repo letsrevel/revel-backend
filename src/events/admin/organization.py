@@ -551,14 +551,19 @@ class OrganizationQuestionnaireAdmin(ModelAdmin, OrganizationLinkMixin):  # type
 class MembershipTierAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for MembershipTier model."""
 
-    list_display = ["__str__", "name", "organization_link", "member_count", "created_at"]
+    list_display = ["__str__", "name", "kind", "organization_link", "member_count", "created_at"]
     list_select_related = ["organization"]
-    list_filter = [("organization", AutocompleteSelectFilter), "created_at"]
+    list_filter = [("organization", AutocompleteSelectFilter), "kind", "created_at"]
     list_filter_submit = True
     search_fields = ["name", "organization__name"]
     autocomplete_fields = ["organization"]
     readonly_fields = ["created_at", "updated_at"]
     date_hierarchy = "created_at"
+
+    def get_readonly_fields(self, request: HttpRequest, obj: models.MembershipTier | None = None) -> list[str]:
+        """``kind`` is immutable once the tier exists (switching a held tier would break invariants)."""
+        fields: list[str] = list(super().get_readonly_fields(request, obj))
+        return [*fields, "kind"] if obj else fields
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[models.MembershipTier]:
         qs: QuerySet[models.MembershipTier] = super().get_queryset(request)

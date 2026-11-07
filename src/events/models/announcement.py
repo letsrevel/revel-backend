@@ -128,6 +128,8 @@ class Announcement(TimeStampedModel):
         "events.MembershipTier",
         blank=True,
         related_name="targeted_announcements",
+        # String literal (keep in sync with MembershipTier.Kind.STANDARD): admin saves M2Ms after full_clean.
+        limit_choices_to={"kind": "standard"},
         help_text=_("Target members of specific membership tiers"),
     )
     target_staff_only = models.BooleanField(

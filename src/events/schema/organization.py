@@ -533,10 +533,11 @@ class ApproveMembershipRequestSchema(Schema):
 
 class MembershipTierSchema(ModelSchema):
     description: str | None = None
+    kind: models.MembershipTierKind
 
     class Meta:
         model = models.MembershipTier
-        fields = ["id", "name", "description", "display_order"]
+        fields = ["id", "name", "description", "display_order", "kind"]
 
 
 class MembershipTierAdminSchema(MembershipTierSchema):
@@ -554,6 +555,8 @@ class MembershipTierAdminSchema(MembershipTierSchema):
 class MembershipTierCreateSchema(Schema):
     name: OneToOneFiftyString
     description: str | None = None
+    # Immutable after creation, hence absent from MembershipTierUpdateSchema.
+    kind: models.MembershipTierKind = models.MembershipTierKind.STANDARD
     membership_questionnaire_id: UUID | None = None
     requires_membership_approval: bool | None = None
 

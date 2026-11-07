@@ -45,7 +45,8 @@ class MeMembershipApplicationsController(UserAwareController):
     def _resolve_tier(self, organization: Organization, tier_id: UUID | None) -> MembershipTier | None:
         if tier_id is None:
             return None
-        return get_object_or_404(MembershipTier, pk=tier_id, organization=organization)
+        # TEMPORARY (day-membership) tiers cannot be applied for: 404 like an unknown tier.
+        return get_object_or_404(MembershipTier.objects.standard(), pk=tier_id, organization=organization)
 
     def _resolve_plan(self, organization: Organization, plan_id: UUID | None) -> MembershipSubscriptionPlan | None:
         if plan_id is None:

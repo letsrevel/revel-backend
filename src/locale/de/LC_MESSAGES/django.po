@@ -7341,3 +7341,44 @@ msgstr "Entferne das Mitglied aus der Organisation, bevor du seinen offenen Regi
 
 msgid "A linked membership cannot start in the future."
 msgstr "Eine verknüpfte Mitgliedschaft kann nicht in der Zukunft beginnen."
+
+msgid "A temporary tier cannot have a membership questionnaire or an approval requirement."
+msgstr "Eine temporäre Stufe kann keinen Mitgliedschaftsfragebogen und keine Genehmigungspflicht haben."
+
+msgid "A temporary tier cannot be held as a membership."
+msgstr "Eine temporäre Stufe kann nicht als Mitgliedschaft gehalten werden."
+
+msgid "A temporary tier cannot have subscription plans."
+msgstr "Eine temporäre Stufe kann keine Abonnementpläne haben."
+
+msgid "A temporary tier cannot be granted by a token."
+msgstr "Eine temporäre Stufe kann nicht über ein Token vergeben werden."
+
+msgid "Temporary membership tiers cannot be used to restrict ticket tiers."
+msgstr "Temporäre Mitgliedschaftsstufen können nicht zur Beschränkung von Ticketstufen verwendet werden."
+
+msgid "Temporary membership tiers cannot be used to exclude members from ticket tiers."
+msgstr "Temporäre Mitgliedschaftsstufen können nicht verwendet werden, um Mitglieder von Ticketstufen auszuschließen."
+
+msgid "The granted membership tier must belong to the event's organization."
+msgstr "Die vergebene Mitgliedschaftsstufe muss zur Organisation der Veranstaltung gehören."
+
+msgid "Only a temporary tier can be granted by tickets."
+msgstr "Durch Tickets kann nur eine temporäre Stufe vergeben werden."
+
+msgid "A ticket tier that grants a membership cannot be restricted to members."
+msgstr "Eine Ticketstufe, die eine Mitgliedschaft vergibt, kann nicht auf Mitglieder beschränkt werden."
+
+msgid "A ticket tier that grants a membership must be limited to one ticket per person."
+msgstr "Eine Ticketstufe, die eine Mitgliedschaft vergibt, muss auf ein Ticket pro Person begrenzt sein."
+
+
+msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
+msgstr "Temporäre Stufen sind Tagesmitgliedschaften, die durch Tickets vergeben werden; sie können weder gehalten noch beantragt werden."
+
+msgid "Tiers that grant a membership cannot be listed externally."
+msgstr "Stufen, die eine Mitgliedschaft vergeben, können nicht extern gelistet werden."
+
+#: events/service/announcement_service.py
+msgid "Temporary membership tiers cannot be targeted by announcements."
+msgstr "Temporäre Mitgliedschaftsstufen können nicht als Ziel von Ankündigungen gewählt werden."

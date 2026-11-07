@@ -238,7 +238,8 @@ class OrganizationQuestionnaireInline(TabularInline):  # type: ignore[misc]
 class MembershipTierInline(TabularInline):  # type: ignore[misc]
     model = models.MembershipTier
     extra = 1
-    fields = ["name", "description"]
+    fields = ["name", "kind", "description"]
+    readonly_fields = ["kind"]  # immutable; inline-created tiers are always STANDARD (the model default)
 
 
 class VenueInline(TabularInline):  # type: ignore[misc]
@@ -274,13 +275,28 @@ class TicketTierFormSet(forms.BaseInlineFormSet):  # type: ignore[type-arg]
             raise ValidationError(_("This event is RSVP-only and does not sell tickets."))
 
 
-class TicketTierInline(TabularInline):  # type: ignore[misc]
+class GrantsTemporaryTierMixin:
+    """Offer only TEMPORARY tiers in the ``grants_membership_tier`` picker (the model check yields a single message)."""
+
+    def formfield_for_foreignkey(self, db_field: t.Any, request: HttpRequest, **kwargs: t.Any) -> t.Any:
+        if db_field.name == "grants_membership_tier":
+            kwargs["queryset"] = models.MembershipTier.objects.filter(kind=models.MembershipTier.Kind.TEMPORARY)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)  # type: ignore[misc]
+
+
+class TicketTierInline(GrantsTemporaryTierMixin, TabularInline):  # type: ignore[misc]
     model = models.TicketTier
     formset = TicketTierFormSet
     extra = 1
     # raw_id: plain <select>s here enumerate every venue/sector/membership-tier in the DB
     # and fire one __str__ query per <option>, per row + empty form (#880).
-    raw_id_fields = ["venue", "sector", "restricted_to_membership_tiers", "excluded_membership_tiers"]
+    raw_id_fields = [
+        "venue",
+        "sector",
+        "restricted_to_membership_tiers",
+        "excluded_membership_tiers",
+        "grants_membership_tier",
+    ]
 
     def has_add_permission(self, request: HttpRequest, obj: models.Event | None = None) -> bool:
         """Block adding tiers to RSVP-only events, which sell nothing (#1295)."""

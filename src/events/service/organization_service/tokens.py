@@ -98,10 +98,10 @@ def list_organization_tokens(organization: Organization, user: RevelUser) -> Que
 
 
 def _resolve_membership_tier(organization: Organization, tier_id: UUID | None) -> MembershipTier | None:
-    """Resolve a ``MembershipTier`` belonging to ``organization`` by id."""
+    """Resolve a STANDARD ``MembershipTier`` belonging to ``organization`` by id."""
     if tier_id is None:
         return None
-    return get_object_or_404(MembershipTier, pk=tier_id, organization=organization)
+    return get_object_or_404(MembershipTier.objects.standard(), pk=tier_id, organization=organization)
 
 
 def create_organization_token_from_payload(

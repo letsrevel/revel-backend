@@ -487,7 +487,8 @@ def _set_tier_membership_links(
     Raises:
         HttpError 404: If any ID is unknown or belongs to a different organization.
     """
-    membership_tiers = MembershipTier.objects.filter(id__in=membership_tier_ids, organization=organization)
+    # STANDARD only: TEMPORARY tiers are never held on an access row, so they cannot gate or exclude buyers.
+    membership_tiers = MembershipTier.objects.standard().filter(id__in=membership_tier_ids, organization=organization)
 
     if membership_tiers.count() != len(set(membership_tier_ids)):
         raise HttpError(

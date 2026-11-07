@@ -7282,3 +7282,44 @@ msgstr "Rimuovi il membro dall'organizzazione prima di eliminare la sua voce ape
 
 msgid "A linked membership cannot start in the future."
 msgstr "Un'iscrizione collegata non può iniziare nel futuro."
+
+msgid "A temporary tier cannot have a membership questionnaire or an approval requirement."
+msgstr "Un livello temporaneo non può avere un questionario di iscrizione né un requisito di approvazione."
+
+msgid "A temporary tier cannot be held as a membership."
+msgstr "Un livello temporaneo non può essere mantenuto come iscrizione."
+
+msgid "A temporary tier cannot have subscription plans."
+msgstr "Un livello temporaneo non può avere piani di abbonamento."
+
+msgid "A temporary tier cannot be granted by a token."
+msgstr "Un livello temporaneo non può essere concesso tramite un token."
+
+msgid "Temporary membership tiers cannot be used to restrict ticket tiers."
+msgstr "I livelli di iscrizione temporanei non possono essere usati per limitare i livelli di biglietto."
+
+msgid "Temporary membership tiers cannot be used to exclude members from ticket tiers."
+msgstr "I livelli di iscrizione temporanei non possono essere usati per escludere iscritti dai livelli di biglietto."
+
+msgid "The granted membership tier must belong to the event's organization."
+msgstr "Il livello di iscrizione concesso deve appartenere all'organizzazione dell'evento."
+
+msgid "Only a temporary tier can be granted by tickets."
+msgstr "Solo un livello temporaneo può essere concesso dai biglietti."
+
+msgid "A ticket tier that grants a membership cannot be restricted to members."
+msgstr "Un livello di biglietto che concede un'iscrizione non può essere limitato ai membri."
+
+msgid "A ticket tier that grants a membership must be limited to one ticket per person."
+msgstr "Un livello di biglietto che concede un'iscrizione deve essere limitato a un biglietto per persona."
+
+
+msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
+msgstr "I livelli temporanei sono iscrizioni giornaliere concesse dai biglietti; non possono essere mantenuti né richiesti."
+
+msgid "Tiers that grant a membership cannot be listed externally."
+msgstr "I livelli che concedono un'iscrizione non possono essere pubblicati esternamente."
+
+#: events/service/announcement_service.py
+msgid "Temporary membership tiers cannot be targeted by announcements."
+msgstr "I livelli di iscrizione temporanei non possono essere destinatari di annunci."
