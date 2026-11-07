@@ -271,3 +271,18 @@ def test_mirror_follows_db_row_not_stale_instance(
 
     open_record = MembershipRecord.objects.open().get(organization=organization, user=member_user)
     assert open_record.tier_id == tier2.pk
+
+
+def test_unicode_local_part_email_does_not_block_member_save(
+    organization: Organization, member_user: RevelUser
+) -> None:
+    """The record's email is a snapshot, so an address EmailValidator rejects must not break the mirror."""
+    email = "jöhn@example.com"
+    RevelUser.objects.filter(pk=member_user.pk).update(email=email)
+    member_user.refresh_from_db()
+
+    _join(organization, member_user, None)
+
+    (rec,) = _records(organization, member_user)
+    assert rec.valid_until is None
+    assert rec.email == email

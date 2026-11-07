@@ -63,7 +63,8 @@ class MembershipRecord(TimeStampedModel):
         related_name="membership_records",
     )
     full_name = models.CharField(max_length=255)
-    email = models.EmailField(blank=True)
+    # Snapshot, not input: deliberately not an EmailField so full_clean on save never rejects a stored address.
+    email = models.CharField(max_length=254, blank=True)
     kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.STANDARD)
     tier = models.ForeignKey(
         "events.MembershipTier", on_delete=models.SET_NULL, null=True, blank=True, related_name="records"
