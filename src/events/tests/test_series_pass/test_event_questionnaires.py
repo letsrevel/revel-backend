@@ -1,10 +1,12 @@
 """Series pass purchase also requires the covered events' own admission questionnaires (#1321, owner ruling)."""
 
 import typing as t
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
+import orjson
 import pytest
 from django.test import Client
 from django.urls import reverse
@@ -28,7 +30,13 @@ from events.models import (
 from events.service.event_manager import NextStep, Reasons
 from events.service.series_pass_questionnaires import check_series_questionnaires
 from events.tasks.series_pass import materialize_series_pass_holders
-from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
+from questionnaires.models import (
+    MultipleChoiceOption,
+    MultipleChoiceQuestion,
+    Questionnaire,
+    QuestionnaireEvaluation,
+    QuestionnaireSubmission,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -274,6 +282,101 @@ def test_query_count_independent_of_covered_event_count(
     grow(4)  # five grown events now
     assert count() == one
     assert one == 6
+
+
+def _with_question(oq: OrganizationQuestionnaire) -> tuple[MultipleChoiceQuestion, MultipleChoiceOption]:
+    question = MultipleChoiceQuestion.objects.create(
+        questionnaire=oq.questionnaire, question=f"Q {oq.questionnaire.name}", is_mandatory=True
+    )
+    return question, MultipleChoiceOption.objects.create(question=question, option="Yes", is_correct=True)
+
+
+def _submit_via_http(user: RevelUser, event_id: t.Any, oq_questionnaire_id: t.Any, mcq: t.Any, option: t.Any) -> int:
+    url = reverse("api:submit_questionnaire", kwargs={"event_id": event_id, "questionnaire_id": oq_questionnaire_id})
+    payload = {
+        "questionnaire_id": str(oq_questionnaire_id),
+        "status": "ready",
+        "multiple_choice_answers": [{"question_id": str(mcq.id), "options_id": [str(option.id)]}],
+    }
+    return _client(user).post(url, data=orjson.dumps(payload), content_type="application/json").status_code
+
+
+def test_quote_routes_each_missing_questionnaire_to_an_event_that_accepts_it(
+    free_pass: SeriesPass,
+    organization: Organization,
+    event_series: EventSeries,
+    revel_user: RevelUser,
+    covered: list[Event],
+) -> None:
+    """A merged verdict spans groups; each questionnaire must be submitted through its own event."""
+    series_oq = _oq(organization, "Series", series=event_series)
+    event_oq = _oq(organization, "Event only", events=[covered[1]])
+    questions = {oq.questionnaire_id: _with_question(oq) for oq in (series_oq, event_oq)}
+    quote_url = reverse("api:get_series_pass_quote", kwargs={"pass_id": free_pass.id})
+
+    body: dict[str, t.Any] = _client(revel_user).get(quote_url).json()
+    assert body["questionnaires_missing"] == [str(series_oq.questionnaire_id), str(event_oq.questionnaire_id)]
+    assert body["questionnaire_events"] == [
+        {"questionnaire_id": str(series_oq.questionnaire_id), "event_id": str(covered[0].id)},
+        {"questionnaire_id": str(event_oq.questionnaire_id), "event_id": str(covered[1].id)},
+    ]
+    # The anchor event does not carry the event-only questionnaire: submitting there would 404.
+    mcq, option = questions[event_oq.questionnaire_id]
+    assert _submit_via_http(revel_user, covered[0].id, event_oq.questionnaire_id, mcq, option) == 404
+
+    for entry in body["questionnaire_events"]:
+        mcq, option = questions[uuid.UUID(entry["questionnaire_id"])]
+        assert _submit_via_http(revel_user, entry["event_id"], entry["questionnaire_id"], mcq, option) == 200
+
+    body = _client(revel_user).get(quote_url).json()
+    assert body["questionnaires_missing"] == []
+    assert body["questionnaire_events"] == []
+    checkout = _client(revel_user).post(
+        reverse("api:checkout_series_pass", kwargs={"pass_id": free_pass.id}), data=b"", content_type="application/json"
+    )
+    assert checkout.status_code == 200, checkout.content
+
+
+def test_per_event_event_only_questionnaire_maps_once_per_event(
+    free_pass: SeriesPass, organization: Organization, revel_user: RevelUser, covered: list[Event]
+) -> None:
+    oq = _oq(organization, "Per event", events=[covered[1], covered[2]], per_event=True)
+    body: dict[str, t.Any] = (
+        _client(revel_user).get(reverse("api:get_series_pass_quote", kwargs={"pass_id": free_pass.id})).json()
+    )
+    assert body["questionnaires_missing"] == [str(oq.questionnaire_id)]
+    assert body["questionnaire_events"] == [
+        {"questionnaire_id": str(oq.questionnaire_id), "event_id": str(covered[1].id)},
+        {"questionnaire_id": str(oq.questionnaire_id), "event_id": str(covered[2].id)},
+    ]
+
+
+def test_shared_event_only_questionnaire_is_reported_against_earliest_submittable_event(
+    free_pass: SeriesPass, organization: Organization, revel_user: RevelUser, covered: list[Event]
+) -> None:
+    """B (earlier) is past its apply deadline, C is open: the questionnaire is reported against C."""
+    oq = _oq(organization, "Shared", events=[covered[1], covered[2]])
+    Event.objects.filter(pk=covered[1].pk).update(apply_before=timezone.now() - timedelta(hours=1))
+
+    verdict = check_series_questionnaires(free_pass, revel_user)
+
+    assert verdict is not None
+    assert verdict.next_step == NextStep.COMPLETE_QUESTIONNAIRE
+    assert verdict.event_id == covered[2].id
+    assert verdict.questionnaires_missing == [oq.questionnaire_id]
+
+
+def test_shared_event_only_questionnaire_falls_back_to_earliest_when_none_submittable(
+    free_pass: SeriesPass, organization: Organization, revel_user: RevelUser, covered: list[Event]
+) -> None:
+    _oq(organization, "Shared", events=[covered[1], covered[2]])
+    Event.objects.filter(pk__in=[covered[1].pk, covered[2].pk]).update(apply_before=timezone.now() - timedelta(hours=1))
+
+    verdict = check_series_questionnaires(free_pass, revel_user)
+
+    assert verdict is not None
+    assert verdict.next_step is None  # downgraded: nothing can take a submission
+    assert verdict.reason_code == Reasons.APPLICATION_DEADLINE_PASSED.code
 
 
 def test_extension_still_issues_tickets_to_holders_without_the_new_questionnaire(

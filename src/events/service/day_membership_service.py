@@ -49,23 +49,33 @@ def _event_window(event: Event) -> tuple[datetime, datetime]:
     return event.start, max(event.end, event.start)
 
 
-def _admission_evidence(user_id: UUID, event: Event) -> QuestionnaireSubmission | None:
+def _admission_evidence(user_id: UUID, event: Event, *, via_pass: bool = False) -> QuestionnaireSubmission | None:
     """Newest READY admission submission the admission gate would accept for this event (or its series).
 
     Mirrors ``event_manager``: PUBLISHED questionnaire, a ``per_event`` one needs a submission made for THIS
     event, a rejected evaluation never counts, and when the org questionnaire requires evaluation a
-    pending-review one does not count either.
+    pending-review one does not count either. For a ticket issued by a series pass (``via_pass``) a
+    series-linked ``per_event`` questionnaire is also satisfied by a submission for ANY event of the series,
+    which is what the pass purchase gate accepted.
     """
     scope = Q(questionnaire__org_questionnaires__events=event)
     if event.event_series_id:
         scope |= Q(questionnaire__org_questionnaires__event_series=event.event_series_id)
     for_this_event = Exists(EventQuestionnaireSubmission.objects.filter(event=event, submission=OuterRef("pk")))
     evaluation_status = QuestionnaireEvaluation.QuestionnaireEvaluationStatus
+    per_event_ok = Q(questionnaire__org_questionnaires__per_event=False) | Q(for_this_event)
+    if via_pass and event.event_series_id:
+        for_series = Exists(
+            EventQuestionnaireSubmission.objects.filter(
+                event__event_series_id=event.event_series_id, submission=OuterRef("pk")
+            )
+        )
+        per_event_ok |= Q(questionnaire__org_questionnaires__event_series=event.event_series_id) & Q(for_series)
     return (
         QuestionnaireSubmission.objects.ready()
         .filter(
             scope,
-            Q(questionnaire__org_questionnaires__per_event=False) | for_this_event,
+            per_event_ok,
             user_id=user_id,
             questionnaire__status=Questionnaire.QuestionnaireStatus.PUBLISHED,
             questionnaire__org_questionnaires__questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
@@ -114,12 +124,13 @@ def _record_kwargs(
 def _grant(ticket: Ticket, granted_tier: MembershipTier, event: Event) -> None:
     """Create (or reopen) the ticket's day-membership record. Idempotent: one row per ticket.
 
-    A banned person is granted nothing and a ban-revoked record is not reopened.
+    A banned person is granted nothing and a ban-revoked record is not reopened. The ban is checked inside
+    the transaction, right before the write, so a concurrent ban cannot slip between check and write.
     """
-    if _is_banned(event.organization_id, ticket.user_id):
-        return
     valid_from, valid_until = _event_window(event)
     with transaction.atomic():
+        if _is_banned(event.organization_id, ticket.user_id):
+            return
         existing = MembershipRecord.objects.select_for_update().filter(ticket=ticket).first()
         if existing is not None:
             if existing.ended_reason == MembershipRecord.EndedReason.REVOKED:
@@ -128,7 +139,12 @@ def _grant(ticket: Ticket, granted_tier: MembershipTier, event: Event) -> None:
                 existing.valid_until = valid_until
                 existing.save(update_fields=["ended_reason", "valid_from", "valid_until", "updated_at"])
             return
-        kwargs = _record_kwargs(ticket, granted_tier, event, _admission_evidence(ticket.user_id, event))
+        kwargs = _record_kwargs(
+            ticket,
+            granted_tier,
+            event,
+            _admission_evidence(ticket.user_id, event, via_pass=ticket.held_pass_id is not None),
+        )
         get_or_create_with_race_protection(MembershipRecord, Q(ticket=ticket), kwargs)
 
 
@@ -155,12 +171,12 @@ def on_ticket_status_change(ticket: Ticket, old_status: str | None, *, revoke_ig
     ``revoke_ignoring_start`` skips the "event has not started" check on revoke, for callers that decided it
     earlier (bulk event cancellation decides at fan-out time). Never revokes after a check-in.
     """
-    # ponytail: enabling ``grants_membership_tier`` on a tier with tickets already sold grants nothing
-    # retroactively (no status transition happens). Upgrade path: an explicit backfill action.
     if old_status == ticket.status:
         return
     was_attending = old_status in _ATTENDING
     if ticket.status in _ATTENDING and not was_attending:
+        # ponytail: enabling ``grants_membership_tier`` on a tier with tickets already sold grants nothing
+        # retroactively (no status transition happens). Upgrade path: an explicit backfill action.
         granted = ticket.tier.grants_membership_tier
         if granted is not None:
             _grant(ticket, granted, ticket.event)
@@ -172,9 +188,10 @@ def on_tickets_issued(tickets: Sequence[Ticket], old_status: str | None = None) 
     """Grant day memberships for bulk-written tickets that are now attending (bulk writers skip signals).
 
     Call BEFORE ``assign_ticket_numbers`` (lock order: ... Ticket -> MembershipRecord -> TicketNumberSequence).
-    With ``old_status=None`` the tickets were just created, so no record can exist: records are built and
-    inserted in one ``bulk_create``, evidence computed once per (user, event). Otherwise (PENDING -> ACTIVE
-    confirm) each ticket goes through ``_grant``, which can reopen a revoked record.
+    The cost is constant in the number of tickets (per buyer for the evidence lookup): one lock over the
+    tickets' existing records (only when ``old_status`` is set, i.e. a PENDING -> ACTIVE confirm, since freshly
+    created tickets have none), reopening revoked ones in bulk, and one ``bulk_create`` for the rest. Bans are
+    re-checked inside the transaction, right before the writes.
     """
     if old_status in _ATTENDING:
         return
@@ -191,35 +208,69 @@ def on_tickets_issued(tickets: Sequence[Ticket], old_status: str | None = None) 
     if not granting:
         return
     events = Event.objects.in_bulk({ticket.event_id for ticket in granting})
-    if old_status is not None:
-        for ticket in granting:
-            _grant(
-                ticket, t.cast(MembershipTier, tiers[ticket.tier_id].grants_membership_tier), events[ticket.event_id]
-            )
-        return
-    banned = set(
-        OrganizationMember.objects.filter(
-            organization_id__in={e.organization_id for e in events.values()},
-            user_id__in={ticket.user_id for ticket in granting},
-            status=OrganizationMember.MembershipStatus.BANNED,
-        ).values_list("organization_id", "user_id")
-    )
-    evidence: dict[tuple[UUID, UUID], QuestionnaireSubmission | None] = {}
-    records: list[MembershipRecord] = []
+    evidence: dict[tuple[UUID, UUID, bool], QuestionnaireSubmission | None] = {}
     for ticket in granting:
-        event = events[ticket.event_id]
-        if (event.organization_id, ticket.user_id) in banned:
-            continue
-        key = (ticket.user_id, event.pk)
+        key = (ticket.user_id, ticket.event_id, ticket.held_pass_id is not None)
         if key not in evidence:
-            evidence[key] = _admission_evidence(ticket.user_id, event)
-        granted = t.cast(MembershipTier, tiers[ticket.tier_id].grants_membership_tier)
-        records.append(MembershipRecord(**_record_kwargs(ticket, granted, event, evidence[key])))
-    MembershipRecord.objects.bulk_create(records)
+            evidence[key] = _admission_evidence(ticket.user_id, events[ticket.event_id], via_pass=key[2])
+    _write_records(granting, tiers, events, evidence, lock_existing=old_status is not None)
+
+
+def _write_records(
+    granting: list[Ticket],
+    tiers: dict[UUID, TicketTier],
+    events: dict[UUID, Event],
+    evidence: dict[tuple[UUID, UUID, bool], QuestionnaireSubmission | None],
+    *,
+    lock_existing: bool,
+) -> None:
+    """Create / reopen the records for ``granting`` in one transaction, re-checking bans right before the writes."""
+    with transaction.atomic():
+        existing: dict[UUID, MembershipRecord] = {}
+        if lock_existing:
+            existing = {
+                record.ticket_id: record  # type: ignore[misc]
+                for record in MembershipRecord.objects.select_for_update().filter(
+                    ticket_id__in=[ticket.pk for ticket in granting]
+                )
+            }
+        banned = set(
+            OrganizationMember.objects.filter(
+                organization_id__in={e.organization_id for e in events.values()},
+                user_id__in={ticket.user_id for ticket in granting},
+                status=OrganizationMember.MembershipStatus.BANNED,
+            ).values_list("organization_id", "user_id")
+        )
+        reopened: list[MembershipRecord] = []
+        created: list[MembershipRecord] = []
+        for ticket in granting:
+            event = events[ticket.event_id]
+            if (event.organization_id, ticket.user_id) in banned:
+                continue
+            record = existing.get(ticket.pk)
+            if record is None:
+                granted = t.cast(MembershipTier, tiers[ticket.tier_id].grants_membership_tier)
+                key = (ticket.user_id, ticket.event_id, ticket.held_pass_id is not None)
+                created.append(MembershipRecord(**_record_kwargs(ticket, granted, event, evidence[key])))
+            elif _reopen(record, event):
+                reopened.append(record)
+        if reopened:
+            MembershipRecord.objects.bulk_update(reopened, ["ended_reason", "valid_from", "valid_until", "updated_at"])
+        MembershipRecord.objects.bulk_create(created)
+
+
+def _reopen(record: MembershipRecord, event: Event) -> bool:
+    """Reset a ban/cancel-revoked record to the event's window in memory; False if it was not revoked."""
+    if record.ended_reason != MembershipRecord.EndedReason.REVOKED:
+        return False
+    record.ended_reason = None
+    record.valid_from, record.valid_until = _event_window(event)
+    record.updated_at = timezone.now()
+    return True
 
 
 def revoke_for_deleted_event(event: Event) -> int:
-    """Revoke the ticket-granted day records of an event that is being deleted before it starts."""
+    """Revoke the ticket-granted day records (not checked-in ones) of an event deleted before it starts."""
     return (
         MembershipRecord.objects.filter(
             event=event,
@@ -228,12 +279,13 @@ def revoke_for_deleted_event(event: Event) -> int:
             valid_from__gt=timezone.now(),
         )
         .exclude(ended_reason=MembershipRecord.EndedReason.REVOKED)
+        .exclude(ticket__checked_in_at__isnull=False)
         .update(ended_reason=MembershipRecord.EndedReason.REVOKED, updated_at=timezone.now())
     )
 
 
 def revoke_upcoming_for_ban(organization_id: UUID, user_id: UUID) -> int:
-    """Revoke the user's TEMPORARY records in the org that have not started yet. Ongoing/past ones stay."""
+    """Revoke the user's TEMPORARY records in the org that have not started yet. Ongoing/past/checked-in ones stay."""
     return (
         MembershipRecord.objects.filter(
             organization_id=organization_id,
@@ -242,6 +294,7 @@ def revoke_upcoming_for_ban(organization_id: UUID, user_id: UUID) -> int:
             valid_from__gt=timezone.now(),
         )
         .exclude(ended_reason=MembershipRecord.EndedReason.REVOKED)
+        .exclude(ticket__checked_in_at__isnull=False)
         .update(ended_reason=MembershipRecord.EndedReason.REVOKED, updated_at=timezone.now())
     )
 
