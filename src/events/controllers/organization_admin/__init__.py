@@ -10,6 +10,7 @@ from .discount_codes import OrganizationAdminDiscountCodesController
 from .core import OrganizationAdminCoreController
 from .custom_domain import OrganizationAdminCustomDomainController
 from .member_register import OrganizationAdminMemberRegisterController
+from .member_register_linking import OrganizationAdminMemberRegisterLinkingController
 from .members import OrganizationAdminMembersController
 from .membership_requests import OrganizationAdminMembershipRequestsController
 from .resources import OrganizationAdminResourcesController
@@ -42,6 +43,9 @@ ORGANIZATION_ADMIN_CONTROLLERS: list[type] = [
     OrganizationAdminTicketsController,
     OrganizationAdminCustomDomainController,
     OrganizationAdminUserNotesController,
+    # Before the register controller: its ``/member-register/{record_id}`` would otherwise swallow the
+    # literal ``/member-register/invite-all`` (Django picks the first matching path, then 405s the method).
+    OrganizationAdminMemberRegisterLinkingController,
     OrganizationAdminMemberRegisterController,
 ]
 
@@ -65,4 +69,5 @@ __all__ = [
     "OrganizationAdminTicketsController",
     "OrganizationAdminUserNotesController",
     "OrganizationAdminMemberRegisterController",
+    "OrganizationAdminMemberRegisterLinkingController",
 ]

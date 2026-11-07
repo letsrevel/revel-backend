@@ -28,6 +28,7 @@ from .membership import (
 from .membership_record import (
     MembershipRecord,
     MembershipRecordEndedReason,
+    MembershipRecordInviteStatus,
     MembershipRecordKind,
     MembershipRecordQuerySet,
     MembershipRecordSource,
@@ -130,6 +131,7 @@ __all__ = [
     "MembershipSubscriptionPlan",
     "SubscriptionPaymentMethod",
     "MembershipRecordEndedReason",
+    "MembershipRecordInviteStatus",
     "MembershipRecordKind",
     "MembershipRecordSource",
     # Recurrence

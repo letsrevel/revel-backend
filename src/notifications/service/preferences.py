@@ -48,6 +48,7 @@ def get_guest_notification_type_settings() -> dict[NotificationType, Notificatio
         NotificationType.STAFF_PAYMENT_DISPUTED,
         NotificationType.STAFF_SERIES_PASS_PURCHASED,
         NotificationType.STAFF_SERIES_PASS_CANCELLED,
+        NotificationType.STAFF_MEMBER_RECORD_AUTO_LINKED,
     ]
 
     return {

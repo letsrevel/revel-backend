@@ -57,7 +57,7 @@ class TestCreateNotificationPreferences:
     ) -> None:
         """Test that guest users get restricted notification types.
 
-        Guest users get 22 notification types disabled (only event participation
+        Guest users get 24 notification types disabled (only event participation
         essentials like TICKET_CREATED, EVENT_REMINDER, etc. remain enabled).
         """
         # Act
@@ -75,8 +75,8 @@ class TestCreateNotificationPreferences:
         assert DeliveryChannel.IN_APP in prefs.enabled_channels
         assert DeliveryChannel.EMAIL in prefs.enabled_channels
 
-        # But have 23 notification types disabled
-        assert len(prefs.notification_type_settings) == 23
+        # But have 24 notification types disabled
+        assert len(prefs.notification_type_settings) == 24
 
         # Verify specific disabled types
         disabled_types = [

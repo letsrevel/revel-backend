@@ -468,6 +468,17 @@ class MembershipRequestCreatedContext(BaseNotificationContext):
     request_message: t.NotRequired[str]
 
 
+class StaffMemberRecordAutoLinkedContext(BaseNotificationContext):
+    """Context for STAFF_MEMBER_RECORD_AUTO_LINKED notification (to org staff/owners)."""
+
+    organization_id: str
+    organization_name: str
+    record_id: str
+    record_full_name: str
+    member_display_name: str
+    member_email: str
+
+
 class MembershipRequestApprovedContext(BaseNotificationContext):
     """Context for MEMBERSHIP_REQUEST_APPROVED notification (to the applicant).
 
@@ -884,6 +895,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.MEMBERSHIP_REQUEST_CREATED: MembershipRequestCreatedContext,
     NotificationType.MEMBERSHIP_REQUEST_APPROVED: MembershipRequestApprovedContext,
     NotificationType.MEMBERSHIP_REQUEST_REJECTED: MembershipRequestRejectedContext,
+    NotificationType.STAFF_MEMBER_RECORD_AUTO_LINKED: StaffMemberRecordAutoLinkedContext,
     NotificationType.ACCOUNT_BANNED: AccountBannedContext,
     NotificationType.ORG_ANNOUNCEMENT: OrgAnnouncementContext,
     NotificationType.ORG_CONTACT_MESSAGE_RECEIVED: OrgContactMessageReceivedContext,

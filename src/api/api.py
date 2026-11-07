@@ -31,6 +31,7 @@ from events.controllers.following import FollowingController
 from events.controllers.me_applications import MeMembershipApplicationsController
 from events.controllers.me_membership_questionnaire import MeMembershipQuestionnaireController
 from events.controllers.me_subscriptions import MeSubscriptionsController
+from events.controllers.member_register_invites import MemberRegisterInvitesController
 from events.controllers.organization import OrganizationController
 from events.controllers.organization_admin import ORGANIZATION_ADMIN_CONTROLLERS
 from events.controllers.permissions import PermissionController
@@ -199,6 +200,7 @@ api.register_controllers(
     MeSubscriptionsController,
     MeMembershipApplicationsController,
     MeMembershipQuestionnaireController,
+    MemberRegisterInvitesController,
     StripeWebhookController,
     TlsAskController,
     ExportController,
