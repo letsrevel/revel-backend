@@ -37,6 +37,7 @@ from events.tasks.invoicing import (
     revalidate_vat_ids_task,
     send_invoice_email_task,
 )
+from events.tasks.member_register import auto_link_member_records, send_member_register_invite
 from events.tasks.organization import (
     notify_admin_new_organization_discord,
     notify_admin_new_organization_pushover,
@@ -71,6 +72,8 @@ from events.tasks.waitlist import (
 )
 
 __all__ = [
+    "auto_link_member_records",
+    "send_member_register_invite",
     "build_attendee_visibility_flags",
     "calculate_referral_payouts",
     "cleanup_expired_payments",

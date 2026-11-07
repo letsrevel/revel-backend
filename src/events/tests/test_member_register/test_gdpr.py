@@ -57,3 +57,21 @@ def test_export_excludes_records_created_as_staff(
 
     assert "Someone Else" not in json.dumps(data)
     assert "created_membership_records" not in data
+
+
+def test_export_omits_invite_token_and_duplicate_claimant(
+    organization: Organization, member_user: RevelUser, organization_owner_user: RevelUser
+) -> None:
+    """The claim-link secret and the staff-facing duplicate flag are not part of the member's export."""
+    _record(
+        organization,
+        member_user,
+        "Linked Name",
+        invite_token="secret-token",
+        duplicate_claimant=organization_owner_user,
+    )
+
+    data = _export(member_user)
+
+    assert "secret-token" not in json.dumps(data)
+    assert set(data["membership_records"][0]).isdisjoint({"invite_token", "duplicate_claimant"})

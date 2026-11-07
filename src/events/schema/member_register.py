@@ -7,7 +7,13 @@ from uuid import UUID
 from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime, EmailStr, Field, field_validator
 
-from events.models import MembershipRecord, MembershipRecordEndedReason, MembershipRecordKind, MembershipRecordSource
+from events.models import (
+    MembershipRecord,
+    MembershipRecordEndedReason,
+    MembershipRecordInviteStatus,
+    MembershipRecordKind,
+    MembershipRecordSource,
+)
 
 _FULL_NAME_MAX = 255
 
@@ -37,6 +43,8 @@ class MembershipRecordSchema(ModelSchema):
     accepted_at: AwareDatetime | None = None
     created_at: AwareDatetime
     has_account: bool
+    invited_at: AwareDatetime | None = None
+    invite_status: MembershipRecordInviteStatus
 
     class Meta:
         model = MembershipRecord
@@ -46,6 +54,11 @@ class MembershipRecordSchema(ModelSchema):
     def resolve_has_account(obj: MembershipRecord) -> bool:
         """Whether the person still has an account."""
         return obj.user_id is not None
+
+    @staticmethod
+    def resolve_invite_status(obj: MembershipRecord) -> MembershipRecordInviteStatus:
+        """Not invited, invited (link sent, unclaimed) or linked to an account."""
+        return obj.invite_status
 
 
 class MembershipRecordCreateSchema(Schema):
@@ -103,3 +116,24 @@ class MemberRegisterExportRequestSchema(Schema):
     """Export the register, optionally only the entries active on a calendar day in the organization's timezone."""
 
     active_on: date | None = Field(None, lt=date.max)  # the next day must exist
+
+
+class MemberRegisterBulkInviteResultSchema(Schema):
+    """How many records a bulk invitation reached."""
+
+    invited: int
+
+
+class MemberRegisterInvitePreviewSchema(Schema):
+    """What an invitation link is for, shown before the person logs in or registers."""
+
+    organization_name: str
+    organization_slug: str
+    full_name: str
+
+
+class MemberRegisterInviteClaimSchema(Schema):
+    """The record that was linked to the claimant's account."""
+
+    organization_slug: str
+    record_id: UUID

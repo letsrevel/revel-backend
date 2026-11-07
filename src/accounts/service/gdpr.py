@@ -464,7 +464,7 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "organization_follows": ExportRule(include=True),
     "organization_memberships": ExportRule(include=True),
     # The org-kept register rows about the user (#1318); ``created_by`` is the staff actor.
-    "membership_records": ExportRule(include=True, exclude_fields=("created_by",)),
+    "membership_records": ExportRule(include=True, exclude_fields=("created_by", "invite_token", "duplicate_claimant")),
     "organization_staff_memberships": ExportRule(include=True),
     "eventwaitlist_set": ExportRule(include=True),
     "waitlist_offers": ExportRule(include=True),
@@ -541,6 +541,7 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "accounts.globalban.created_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "events.blacklist.created_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "events.organizationusernote.updated_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
+    "events.membershiprecord.duplicate_claimant": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "events.whitelistrequest.decided_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "accounts.referralapplication.decided_by": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     # simple-history: ``history_user`` is the editor, ``user``/``recorded_by``
