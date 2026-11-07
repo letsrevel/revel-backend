@@ -545,6 +545,10 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
                 raise DjangoValidationError(
                     {"restricted_to_tiers": _("All linked membership tiers must belong to the event's organization.")}
                 )
+            if membership_tier.kind == MembershipTier.Kind.TEMPORARY:
+                raise DjangoValidationError(
+                    {"restricted_to_tiers": _("Temporary membership tiers cannot be used to restrict ticket tiers.")}
+                )
         if self.restricted_to_membership_tiers.exists() and self.purchasable_by not in [
             self.PurchasableBy.MEMBERS,
             self.PurchasableBy.INVITED_AND_MEMBERS,
@@ -566,6 +570,14 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
                         )
                     }
                 )
+            if membership_tier.kind == MembershipTier.Kind.TEMPORARY:
+                raise DjangoValidationError(
+                    {
+                        "excluded_membership_tiers": _(
+                            "Temporary membership tiers cannot be used to exclude members from ticket tiers."
+                        )
+                    }
+                )
         if self.purchasable_by != self.PurchasableBy.NON_MEMBERS and self.excluded_membership_tiers.exists():
             raise DjangoValidationError(
                 {
@@ -577,6 +589,41 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         if self.purchasable_by == self.PurchasableBy.NON_MEMBERS and self.visibility == self.Visibility.MEMBERS_ONLY:
             raise DjangoValidationError(
                 {"purchasable_by": _("A tier for non-members only cannot be visible to members only.")}
+            )
+
+    def _validate_grants_membership_tier(self) -> None:
+        """Validate the day-membership grant: TEMPORARY tier of this org, one ticket per person, no member gating."""
+        if not self.grants_membership_tier_id:
+            return
+        # Queried, not dereferenced: a nonexistent id must be a ValidationError, not RelatedObjectDoesNotExist.
+        granted = MembershipTier.objects.filter(pk=self.grants_membership_tier_id).first()
+        if granted is None or granted.organization_id != self.event.organization_id:
+            raise DjangoValidationError(
+                {"grants_membership_tier": _("The granted membership tier must belong to the event's organization.")}
+            )
+        if granted.kind != MembershipTier.Kind.TEMPORARY:
+            raise DjangoValidationError(
+                {"grants_membership_tier": _("Only a temporary tier can be granted by tickets.")}
+            )
+        if self.purchasable_by in [self.PurchasableBy.MEMBERS, self.PurchasableBy.INVITED_AND_MEMBERS]:
+            raise DjangoValidationError(
+                {"purchasable_by": _("A ticket tier that grants a membership cannot be restricted to members.")}
+            )
+        if self.max_tickets_per_user != 1:
+            raise DjangoValidationError(
+                {
+                    "max_tickets_per_user": _(
+                        "A ticket tier that grants a membership must be limited to one ticket per person."
+                    )
+                }
+            )
+        if self.restricted_to_membership_tiers.exists():
+            raise DjangoValidationError(
+                {
+                    "grants_membership_tier": _(
+                        "A ticket tier that grants a membership cannot be restricted to membership tiers."
+                    )
+                }
             )
 
     def _validate_venue_sector(self) -> None:
@@ -676,6 +723,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         self._validate_check_in_window()
         self._validate_pwyc()
         self._validate_membership_tiers()
+        self._validate_grants_membership_tier()
         self._validate_venue_sector()
         validate_category_prices(self)
         self._validate_invitation_restrictions()

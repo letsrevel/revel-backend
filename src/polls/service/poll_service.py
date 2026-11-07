@@ -133,7 +133,7 @@ def _resolve_membership_tiers_or_raise(
     unique_ids = set(tier_ids)
     if not unique_ids:
         return []
-    tiers = list(MembershipTier.objects.filter(organization=organization, id__in=unique_ids))
+    tiers = list(MembershipTier.objects.standard().filter(organization=organization, id__in=unique_ids))
     if len(tiers) != len(unique_ids):
         resolved_ids = {tier.id for tier in tiers}
         missing = sorted(str(tid) for tid in unique_ids - resolved_ids)

@@ -7251,3 +7251,39 @@ msgstr "Elimina al miembro de la organización antes de borrar su entrada abiert
 
 msgid "A linked membership cannot start in the future."
 msgstr "Una membresía vinculada no puede empezar en el futuro."
+
+msgid "A temporary tier cannot have a membership questionnaire or an approval requirement."
+msgstr "Un nivel temporal no puede tener un cuestionario de membresía ni un requisito de aprobación."
+
+msgid "A temporary tier cannot be held as a membership."
+msgstr "Un nivel temporal no puede mantenerse como membresía."
+
+msgid "A temporary tier cannot have subscription plans."
+msgstr "Un nivel temporal no puede tener planes de suscripción."
+
+msgid "A temporary tier cannot be granted by a token."
+msgstr "Un nivel temporal no puede concederse mediante un token."
+
+msgid "Temporary membership tiers cannot be used to restrict ticket tiers."
+msgstr "Los niveles de membresía temporales no pueden usarse para restringir niveles de entrada."
+
+msgid "Temporary membership tiers cannot be used to exclude members from ticket tiers."
+msgstr "Los niveles de membresía temporales no pueden usarse para excluir a miembros de niveles de entrada."
+
+msgid "The granted membership tier must belong to the event's organization."
+msgstr "El nivel de membresía concedido debe pertenecer a la organización del evento."
+
+msgid "Only a temporary tier can be granted by tickets."
+msgstr "Las entradas solo pueden conceder un nivel temporal."
+
+msgid "A ticket tier that grants a membership cannot be restricted to members."
+msgstr "Un nivel de entrada que concede una membresía no puede limitarse a miembros."
+
+msgid "A ticket tier that grants a membership must be limited to one ticket per person."
+msgstr "Un nivel de entrada que concede una membresía debe limitarse a una entrada por persona."
+
+msgid "A ticket tier that grants a membership cannot be restricted to membership tiers."
+msgstr "Un nivel de entrada que concede una membresía no puede limitarse a niveles de membresía."
+
+msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
+msgstr "Los niveles temporales son membresías de un día concedidas por entradas; no pueden mantenerse ni solicitarse."

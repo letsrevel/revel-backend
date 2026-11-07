@@ -109,7 +109,7 @@ def create_announcement(
 
     # Handle target tiers
     if payload.target_tier_ids:
-        tiers = MembershipTier.objects.filter(
+        tiers = MembershipTier.objects.standard().filter(
             id__in=payload.target_tier_ids,
             organization=organization,
         )
@@ -185,7 +185,7 @@ def update_announcement(
         if tier_ids is None or len(tier_ids) == 0:
             announcement.target_tiers.clear()
         else:
-            tiers = MembershipTier.objects.filter(
+            tiers = MembershipTier.objects.standard().filter(
                 id__in=tier_ids,
                 organization=announcement.organization,
             )

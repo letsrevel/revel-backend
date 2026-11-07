@@ -92,6 +92,12 @@ class MembershipTier(TimeStampedModel):
     def clean(self) -> None:
         """Validate tier-level membership questionnaire references the same organization and is MEMBERSHIP type."""
         super().clean()
+        if self.kind == MembershipTierKind.TEMPORARY and (
+            self.membership_questionnaire_id or self.requires_membership_approval is not None
+        ):
+            raise DjangoValidationError(
+                _("A temporary tier cannot have a membership questionnaire or an approval requirement.")
+            )
         if self.membership_questionnaire_id and self.organization_id:
             # Lazy import to avoid circular dependency: questionnaire.py imports organization.py.
             from .questionnaire import OrganizationQuestionnaire
@@ -192,8 +198,10 @@ class OrganizationMember(TimeStampedModel):
         return f"{self.user_id} @ {self.organization_id} ({self.status})"
 
     def clean(self) -> None:
-        """Validate that tier belongs to the same organization."""
+        """Validate that tier belongs to the same organization and is not a TEMPORARY tier."""
         super().clean()
+        if self.tier and self.tier.kind == MembershipTierKind.TEMPORARY:
+            raise DjangoValidationError({"tier": _("A temporary tier cannot be held as a membership.")})
         if self.tier and self.tier.organization_id != self.organization_id:
             raise DjangoValidationError({"tier": _("The tier must belong to the same organization as the membership.")})
 
