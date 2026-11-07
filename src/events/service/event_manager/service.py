@@ -265,7 +265,8 @@ class EligibilityService:
 
         organization = self.event.organization
         tiers: list[MembershipTier | None] = list(
-            MembershipTier.objects.filter(organization=organization)
+            MembershipTier.objects.standard()
+            .filter(organization=organization)
             .select_related("membership_questionnaire")
             .order_by("display_order")
         )

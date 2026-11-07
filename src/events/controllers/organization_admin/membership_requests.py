@@ -75,7 +75,9 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
 
         tier = None
         if payload.tier_id:
-            tier = get_object_or_404(models.MembershipTier, pk=payload.tier_id, organization=organization)
+            tier = get_object_or_404(
+                models.MembershipTier.objects.standard(), pk=payload.tier_id, organization=organization
+            )
 
         organization_service.approve_membership_request(membership_request, self.user(), tier, force=payload.force)
         return 204, None

@@ -195,6 +195,8 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         these shapes earlier with better messages.
         """
         super().clean()
+        if self.tier_id and self.tier.kind == MembershipTier.Kind.TEMPORARY:
+            raise DjangoValidationError({"tier": _("A temporary tier cannot have subscription plans.")})
         # lazy: subscription_plan_rules imports from events.models, so a
         # top-level import here would cycle.
         from events.utils.subscription_plan_rules import validate_plan_shape

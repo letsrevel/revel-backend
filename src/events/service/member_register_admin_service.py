@@ -53,8 +53,7 @@ def _check_range(valid_from: datetime, valid_until: datetime | None) -> None:
 
 
 def _resolve_tier(organization: Organization, tier_id: UUID) -> MembershipTier:
-    # ponytail: MembershipTier has no ``kind`` yet; once it does, only STANDARD tiers may be chosen here.
-    return get_object_or_404(MembershipTier, pk=tier_id, organization=organization)
+    return get_object_or_404(MembershipTier.objects.standard(), pk=tier_id, organization=organization)
 
 
 def _lock(record: MembershipRecord) -> MembershipRecord:

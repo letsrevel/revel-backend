@@ -7318,3 +7318,44 @@ msgstr "Retirez le membre de l'organisation avant de supprimer son entrée ouver
 
 msgid "A linked membership cannot start in the future."
 msgstr "Une adhésion liée ne peut pas commencer dans le futur."
+
+msgid "A temporary tier cannot have a membership questionnaire or an approval requirement."
+msgstr "Un niveau temporaire ne peut pas avoir de questionnaire d'adhésion ni d'exigence d'approbation."
+
+msgid "A temporary tier cannot be held as a membership."
+msgstr "Un niveau temporaire ne peut pas être détenu comme adhésion."
+
+msgid "A temporary tier cannot have subscription plans."
+msgstr "Un niveau temporaire ne peut pas avoir de formules d'abonnement."
+
+msgid "A temporary tier cannot be granted by a token."
+msgstr "Un niveau temporaire ne peut pas être accordé par un jeton."
+
+msgid "Temporary membership tiers cannot be used to restrict ticket tiers."
+msgstr "Les niveaux d'adhésion temporaires ne peuvent pas servir à restreindre des catégories de billets."
+
+msgid "Temporary membership tiers cannot be used to exclude members from ticket tiers."
+msgstr "Les niveaux d'adhésion temporaires ne peuvent pas servir à exclure des membres de catégories de billets."
+
+msgid "The granted membership tier must belong to the event's organization."
+msgstr "Le niveau d'adhésion accordé doit appartenir à l'organisation de l'événement."
+
+msgid "Only a temporary tier can be granted by tickets."
+msgstr "Seul un niveau temporaire peut être accordé par des billets."
+
+msgid "A ticket tier that grants a membership cannot be restricted to members."
+msgstr "Une catégorie de billets qui accorde une adhésion ne peut pas être réservée aux membres."
+
+msgid "A ticket tier that grants a membership must be limited to one ticket per person."
+msgstr "Une catégorie de billets qui accorde une adhésion doit être limitée à un billet par personne."
+
+
+msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
+msgstr "Les niveaux temporaires sont des adhésions à la journée accordées par des billets ; ils ne peuvent être ni détenus ni demandés."
+
+msgid "Tiers that grant a membership cannot be listed externally."
+msgstr "Les catégories qui accordent une adhésion ne peuvent pas être listées en externe."
+
+#: events/service/announcement_service.py
+msgid "Temporary membership tiers cannot be targeted by announcements."
+msgstr "Les niveaux d’adhésion temporaires ne peuvent pas être ciblés par des annonces."

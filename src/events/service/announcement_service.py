@@ -62,6 +62,19 @@ def _validate_announcement_has_targeting(announcement: Announcement) -> None:
         )
 
 
+def _resolve_target_tiers(organization: Organization, tier_ids: list[UUID]) -> list[MembershipTier]:
+    """Resolve announcement target tiers of the organization (unknown or foreign ids are dropped, as before).
+
+    Raises:
+        ValueError: If an id is a TEMPORARY (day-membership) tier, which has no members to target.
+    """
+    tiers = list(MembershipTier.objects.filter(id__in=tier_ids, organization=organization))
+    if any(tier.kind == MembershipTier.Kind.TEMPORARY for tier in tiers):
+        raise ValueError(str(_("Temporary membership tiers cannot be targeted by announcements.")))
+    return tiers
+
+
+@transaction.atomic
 def create_announcement(
     organization: Organization,
     user: RevelUser,
@@ -93,6 +106,9 @@ def create_announcement(
         if not event:
             raise ValueError(_ERR_EVENT_NOT_FOUND)
 
+    # Resolved before any write: a handled error does not roll back under ATOMIC_REQUESTS.
+    target_tiers = _resolve_target_tiers(organization, payload.target_tier_ids) if payload.target_tier_ids else []
+
     # Create announcement
     announcement = Announcement.objects.create(
         organization=organization,
@@ -107,13 +123,8 @@ def create_announcement(
         status=Announcement.AnnouncementStatus.DRAFT,
     )
 
-    # Handle target tiers
-    if payload.target_tier_ids:
-        tiers = MembershipTier.objects.filter(
-            id__in=payload.target_tier_ids,
-            organization=organization,
-        )
-        announcement.target_tiers.set(tiers)
+    if target_tiers:
+        announcement.target_tiers.set(target_tiers)
 
     logger.info(
         "announcement_created",
@@ -154,6 +165,7 @@ def _apply_event_id_update(announcement: Announcement, event_id: UUID | None) ->
     announcement.event = event
 
 
+@transaction.atomic
 def update_announcement(
     announcement: Announcement,
     payload: AnnouncementUpdateSchema,
@@ -175,21 +187,20 @@ def update_announcement(
         raise ValueError(str(_("Only draft or scheduled announcements can be updated")))
 
     update_data = payload.model_dump(exclude_unset=True)
+    tiers_sent = "target_tier_ids" in update_data
+    tier_ids = update_data.pop("target_tier_ids", None)
+    # Resolved before any write: a handled error does not roll back under ATOMIC_REQUESTS.
+    new_tiers = _resolve_target_tiers(announcement.organization, tier_ids) if tier_ids else []
 
     if "event_id" in update_data:
         _apply_event_id_update(announcement, update_data.pop("event_id"))
 
-    # Handle target_tier_ids specially
-    if "target_tier_ids" in update_data:
-        tier_ids = update_data.pop("target_tier_ids")
-        if tier_ids is None or len(tier_ids) == 0:
-            announcement.target_tiers.clear()
+    # Handle target_tier_ids specially: null or [] clears
+    if tiers_sent:
+        if new_tiers:
+            announcement.target_tiers.set(new_tiers)
         else:
-            tiers = MembershipTier.objects.filter(
-                id__in=tier_ids,
-                organization=announcement.organization,
-            )
-            announcement.target_tiers.set(tiers)
+            announcement.target_tiers.clear()
 
     # Update remaining fields
     for field, value in update_data.items():

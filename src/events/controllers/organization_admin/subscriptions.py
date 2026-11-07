@@ -85,7 +85,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     def list_plans(self, slug: str, tier_id: UUID) -> QuerySet[models.MembershipSubscriptionPlan]:
         """List all subscription plans for a tier."""
         organization = self.get_one(slug)
-        tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
+        tier = get_object_or_404(models.MembershipTier.objects.standard(), pk=tier_id, organization=organization)
         return (
             models.MembershipSubscriptionPlan.objects.with_active_subscription_count()
             .filter(tier=tier)
@@ -114,7 +114,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     ) -> tuple[int, models.MembershipSubscriptionPlan]:
         """Create a new subscription plan on a membership tier."""
         organization = self.get_one(slug)
-        tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
+        tier = get_object_or_404(models.MembershipTier.objects.standard(), pk=tier_id, organization=organization)
         plan = subscription_plans.create_plan(tier, **payload.model_dump())
         return 201, plan
 

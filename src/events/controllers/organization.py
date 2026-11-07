@@ -258,7 +258,7 @@ class OrganizationController(UserAwareController):
         organization = self.get_one(slug)
         return (
             models.MembershipSubscriptionPlan.objects.with_active_subscription_count()
-            .filter(tier__organization=organization, is_active=True)
+            .filter(tier__organization=organization, tier__kind=models.MembershipTier.Kind.STANDARD, is_active=True)
             .select_related("tier")
             .order_by("tier__name", "price")
         )
@@ -282,7 +282,8 @@ class OrganizationController(UserAwareController):
         """
         organization = self.get_one(slug)
         return (
-            models.MembershipTier.objects.filter(organization=organization)
+            models.MembershipTier.objects.standard()
+            .filter(organization=organization)
             # Both FKs feed the policy resolution in PublicMembershipTierSchema.
             .select_related("membership_questionnaire", "organization__default_membership_questionnaire")
             .prefetch_related(

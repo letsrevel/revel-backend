@@ -22,6 +22,8 @@ from .invoice import PlatformFeeCreditNote, PlatformFeeInvoice
 from .membership import (
     MembershipRequestStatus,
     MembershipTier,
+    MembershipTierKind,
+    MembershipTierQuerySet,
     OrganizationMember,
     OrganizationMembershipRequest,
 )
@@ -108,6 +110,8 @@ __all__ = [
     "MembershipRecord",
     "MembershipRecordQuerySet",
     "MembershipTier",
+    "MembershipTierKind",
+    "MembershipTierQuerySet",
     "Organization",
     "OrganizationContactMessage",
     "OrganizationDomain",

@@ -7192,3 +7192,44 @@ msgstr "Remova o membro da organização antes de eliminar a sua entrada aberta 
 
 msgid "A linked membership cannot start in the future."
 msgstr "Uma associação vinculada não pode começar no futuro."
+
+msgid "A temporary tier cannot have a membership questionnaire or an approval requirement."
+msgstr "Um nível temporário não pode ter um questionário de adesão nem exigência de aprovação."
+
+msgid "A temporary tier cannot be held as a membership."
+msgstr "Um nível temporário não pode ser mantido como adesão."
+
+msgid "A temporary tier cannot have subscription plans."
+msgstr "Um nível temporário não pode ter planos de assinatura."
+
+msgid "A temporary tier cannot be granted by a token."
+msgstr "Um nível temporário não pode ser concedido por um token."
+
+msgid "Temporary membership tiers cannot be used to restrict ticket tiers."
+msgstr "Os níveis de adesão temporários não podem ser usados para restringir níveis de bilhete."
+
+msgid "Temporary membership tiers cannot be used to exclude members from ticket tiers."
+msgstr "Os níveis de adesão temporários não podem ser usados para excluir membros de níveis de bilhete."
+
+msgid "The granted membership tier must belong to the event's organization."
+msgstr "O nível de adesão concedido deve pertencer à organização do evento."
+
+msgid "Only a temporary tier can be granted by tickets."
+msgstr "Apenas um nível temporário pode ser concedido por bilhetes."
+
+msgid "A ticket tier that grants a membership cannot be restricted to members."
+msgstr "Um nível de bilhete que concede uma adesão não pode ser restrito a membros."
+
+msgid "A ticket tier that grants a membership must be limited to one ticket per person."
+msgstr "Um nível de bilhete que concede uma adesão deve ser limitado a um bilhete por pessoa."
+
+
+msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
+msgstr "Os níveis temporários são adesões de um dia concedidas por bilhetes; não podem ser mantidos nem solicitados."
+
+msgid "Tiers that grant a membership cannot be listed externally."
+msgstr "Os níveis que concedem uma adesão não podem ser listados externamente."
+
+#: events/service/announcement_service.py
+msgid "Temporary membership tiers cannot be targeted by announcements."
+msgstr "Os níveis de associação temporários não podem ser destinatários de anúncios."
