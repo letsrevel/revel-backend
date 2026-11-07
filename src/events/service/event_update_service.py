@@ -32,7 +32,7 @@ from common.utils import update_db_instance
 from events import models
 from events.exceptions import EventRefundsStartedError
 from events.schema import EventCreateSchema, EventEditSchema, SeriesPassLinkInputSchema
-from events.service import series_pass_service
+from events.service import day_membership_service, series_pass_service
 from events.service.waitlist_service import enqueue_waitlist_processing, revoke_all_pending_offers
 from events.utils.schedule import EventScheduleSession
 from events.utils.visibility_settings import build_visibility_settings_update, validate_visibility_settings
@@ -178,6 +178,7 @@ def update_event(
     # capacity increases and waitlist_open True -> False transitions.
     old_effective_capacity = event.effective_capacity
     was_waitlist_open = event.waitlist_open
+    old_start, old_end = event.start, event.end
 
     # Merge partial visibility toggles onto the stored blob rather than replacing
     # it: naming one toggle must not silently re-enable the ones left out.
@@ -204,6 +205,10 @@ def update_event(
         if changed:
             updated_event.is_modified = True
             updated_event.save(update_fields=["is_modified"])
+
+    # Day memberships follow the event window until the event has ended (then the record is frozen).
+    if (updated_event.start != old_start or updated_event.end != old_end) and old_end > timezone.now():
+        day_membership_service.resync_event_window(updated_event)
 
     # If the effective capacity grew, freshly-available seats may unblock
     # waitlisted users — enqueue a processing pass.

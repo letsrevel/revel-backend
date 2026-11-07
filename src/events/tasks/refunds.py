@@ -9,7 +9,7 @@ from django.utils import timezone
 from events.exceptions import NothingToRefundError, RefundInsufficientBalanceError, StripeRefundFailed
 from events.models import Event, Payment, Refund, Ticket, TicketTier
 from events.models.ticket import CancellationSource
-from events.service import refund_service, ticket_service
+from events.service import day_membership_service, refund_service, ticket_service
 from events.tasks.attendees import build_attendee_visibility_flags
 from notifications.signals.payment import send_event_refund_summary
 
@@ -132,6 +132,7 @@ def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | Non
             quantity_sold=F("quantity_sold") - 1
         )
         ticket_service.record_offline_payment_kept(locked_ticket)
+        previous_status = locked_ticket.status
         Ticket.objects.filter(pk=locked_ticket.pk).update(
             status=Ticket.TicketStatus.CANCELLED,
             offline_refund_amount=locked_ticket.offline_refund_amount,
@@ -140,6 +141,8 @@ def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | Non
             cancellation_source=CancellationSource.EVENT_CANCELLATION,
             cancellation_reason=locked_ticket.event.cancellation_reason or "",
         )
+        locked_ticket.status = Ticket.TicketStatus.CANCELLED
+        day_membership_service.on_ticket_status_change(locked_ticket, previous_status)
         # The .update() above fired no post_save signal, so the usual
         # attendee_count/is_full recompute (events.signals
         # .handle_ticket_visibility_and_potluck) never ran — replicate it explicitly,

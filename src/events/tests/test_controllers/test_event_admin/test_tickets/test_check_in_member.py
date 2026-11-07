@@ -293,9 +293,9 @@ def test_check_in_query_budget(
     (a null FK short-circuits without a query), so only the M2M prefetch and the
     tier->event->organization join actually pay off here; a seated/venue tier saves more.
     23 sat strictly between the two. #1316 added the ``excluded_membership_tiers`` prefetch (one
-    more query), so the ceiling is now 24.
+    more query), so the ceiling was 24; the door-scan ``membership`` block (#1320) adds one (25).
     """
-    with django_assert_max_num_queries(24):
+    with django_assert_max_num_queries(25):
         response = organization_owner_client.post(
             _check_in_url(event, str(active_online_ticket.id)), content_type="application/json"
         )
