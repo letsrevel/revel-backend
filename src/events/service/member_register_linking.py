@@ -131,11 +131,12 @@ def link_record(
         stale_token = token is not None and (
             locked.invite_token != token or locked.ended_reason == MembershipRecord.EndedReason.REVOKED
         )
+        # Same ``iexact`` the selection used, evaluated by Postgres (Python's upper() differs for some Unicode).
         email_mismatch = require_verified_email and (
             user.guest
             or not user.email_verified
             or not user.email
-            or user.email.upper() != locked.email.upper()  # iexact is UPPER() on Postgres
+            or not MembershipRecord.objects.filter(pk=locked.pk, email__iexact=user.email).exists()
         )
         if locked.user_id is not None or stale_token or email_mismatch:
             return LinkResult(LinkOutcome.ALREADY_LINKED, locked)
