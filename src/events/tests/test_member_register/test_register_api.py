@@ -481,3 +481,52 @@ def test_delete_linked_open_409_then_ok_after_removal(
     rec.refresh_from_db()
     assert rec.valid_until is not None
     assert owner_client.delete(url).status_code == 204
+
+
+# ---- review follow-ups ----
+
+
+def test_writes_on_foreign_record_404(
+    owner_client: Client, organization: Organization, organization_owner_user: RevelUser, tier: MembershipTier
+) -> None:
+    other = Organization.objects.create(name="Other", slug="other", owner=organization_owner_user)
+    foreign = _rec(other, name="Foreign")
+    assert _patch(owner_client, organization, foreign, {"full_name": "X"}).status_code == 404
+    assert _end(owner_client, organization, foreign, {"reason": "cancelled"}).status_code == 404
+    assert owner_client.delete(_url("delete_member_register_record", organization, foreign)).status_code == 404
+    foreign.refresh_from_db()
+    assert foreign.full_name == "Foreign" and foreign.valid_until is None
+
+
+def test_staff_with_manage_members_can_edit_and_end(
+    staff_client: Client, organization: Organization, tier: MembershipTier
+) -> None:
+    rec = _rec(organization, tier=tier)
+    assert _patch(staff_client, organization, rec, {"full_name": "Edited"}).status_code == 200
+    assert _end(staff_client, organization, rec, {"reason": "removed"}).status_code == 200
+    rec.refresh_from_db()
+    assert rec.full_name == "Edited" and rec.ended_reason == Reason.REMOVED
+
+
+def test_end_linked_backdated_keeps_date_and_reason(
+    owner_client: Client, organization: Organization, member_user: RevelUser, tier: MembershipTier
+) -> None:
+    OrganizationMember.objects.create(organization=organization, user=member_user, tier=tier)
+    rec = MembershipRecord.objects.get(organization=organization, user=member_user)
+    rec.valid_from = timezone.now() - timedelta(days=30)
+    rec.save(update_fields=["valid_from"])
+    when = timezone.now() - timedelta(days=2)
+    r = _end(owner_client, organization, rec, {"reason": "removed", "valid_until": when.isoformat()})
+    assert r.status_code == 200, r.content
+    rec.refresh_from_db()
+    assert rec.valid_until == when and rec.ended_reason == Reason.REMOVED
+    assert OrganizationMember.objects.get(organization=organization, user=member_user).status == Status.CANCELLED
+
+
+def test_update_linked_open_future_start_400(
+    owner_client: Client, organization: Organization, member_user: RevelUser, tier: MembershipTier
+) -> None:
+    OrganizationMember.objects.create(organization=organization, user=member_user, tier=tier)
+    rec = MembershipRecord.objects.get(organization=organization, user=member_user)
+    body = {"valid_from": (timezone.now() + timedelta(days=1)).isoformat()}
+    assert _patch(owner_client, organization, rec, body).status_code == 400

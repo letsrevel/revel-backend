@@ -24,21 +24,21 @@ END_REASONS = (MembershipRecord.EndedReason.CANCELLED, MembershipRecord.EndedRea
 def _live_access_row(record: MembershipRecord) -> OrganizationMember | None:
     """The ACTIVE/PAUSED access row backing an open linked STANDARD record, if any.
 
-    The row is locked: callers lock it before the record, the same member -> record order as the mirror.
+    The member row is locked whatever its status, so a concurrent status change cannot slip in between
+    this check and the caller's write. Callers lock it before the record: the mirror's member -> record order.
     """
     if record.user_id is None or record.kind != MembershipRecord.Kind.STANDARD or record.valid_until is not None:
         return None
-    Status = OrganizationMember.MembershipStatus
-    return (
+    member = (
         OrganizationMember.objects.select_for_update(of=("self",))
         .select_related("user", "organization", "tier")
-        .filter(
-            organization_id=record.organization_id,
-            user_id=record.user_id,
-            status__in=(Status.ACTIVE, Status.PAUSED),
-        )
+        .filter(organization_id=record.organization_id, user_id=record.user_id)
         .first()
     )
+    Status = OrganizationMember.MembershipStatus
+    if member is None or member.status not in (Status.ACTIVE, Status.PAUSED):
+        return None
+    return member
 
 
 def _check_range(valid_from: datetime, valid_until: datetime | None) -> None:
@@ -101,7 +101,12 @@ def _apply_valid_until(record: MembershipRecord, new_until: datetime | None, *, 
 
 @transaction.atomic
 def update_record(record: MembershipRecord, payload_data: dict[str, t.Any]) -> MembershipRecord:
-    """Apply a partial update (``model_dump(exclude_unset=True)`` of the update schema)."""
+    """Apply a partial update (``model_dump(exclude_unset=True)`` of the update schema).
+
+    Records without a user are fully editable (a hand-corrected legal log).
+    """
+    # ponytail: no overlap check against the person's other periods (e.g. a TIER_CHANGED successor);
+    # staff corrections are trusted. Add one if overlapping periods start confusing "member on date X".
     record = _lock(record)
     linked_open = (
         record.user_id is not None and record.kind == MembershipRecord.Kind.STANDARD and record.valid_until is None
@@ -121,6 +126,8 @@ def update_record(record: MembershipRecord, payload_data: dict[str, t.Any]) -> M
         record.email = payload_data["email"] or ""
         fields.append("email")
     if "valid_from" in payload_data:
+        if linked_open and payload_data["valid_from"] > timezone.now():
+            raise HttpError(400, str(_("A linked membership cannot start in the future.")))
         record.valid_from = payload_data["valid_from"]
         fields.append("valid_from")
     if "valid_until" in payload_data:

@@ -26,6 +26,7 @@ from events.models import (
     TicketTier,
     WhitelistRequest,
 )
+from events.models.membership_record import MembershipRecordQuerySet
 from events.models.skipped_fiscal_document import SkippedFiscalDocumentKind, SkippedFiscalDocumentReason
 from events.utils.membership_access import visible_member_org_ids
 from questionnaires.models import QuestionnaireEvaluation
@@ -390,11 +391,11 @@ class MembershipRecordFilterSchema(FilterSchema):
         """Handled in :meth:`filter` (needs the queryset method, not a Q)."""
         return Q()
 
-    def filter(self, queryset: "models.QuerySet[MembershipRecord]") -> "models.QuerySet[MembershipRecord]":  # type: ignore[override]
+    def filter(self, queryset: MembershipRecordQuerySet) -> MembershipRecordQuerySet:  # type: ignore[override]
         """Apply the Q filters, then ``active_on`` through the queryset method."""
         queryset = super().filter(queryset)
         if self.active_on is not None:
-            queryset = queryset.active_on(self.active_on)  # type: ignore[attr-defined]
+            queryset = queryset.active_on(self.active_on)
         return queryset
 
 

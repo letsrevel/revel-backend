@@ -48,7 +48,7 @@ class MembershipRecordSchema(ModelSchema):
 
 
 class MembershipRecordCreateSchema(Schema):
-    """Manually add a register entry for a person (with or without an account)."""
+    """Manually add an account-less register entry (linking to an account is a separate step)."""
 
     full_name: str = Field(..., min_length=1, max_length=_FULL_NAME_MAX)
     email: EmailStr | None = None

@@ -7320,3 +7320,6 @@ msgstr "Eine verknüpfte Mitgliedschaft kann nicht in der Zukunft beendet werden
 
 msgid "Remove the member from the organization before deleting their open register entry."
 msgstr "Entferne das Mitglied aus der Organisation, bevor du seinen offenen Registereintrag löschst."
+
+msgid "A linked membership cannot start in the future."
+msgstr "Eine verknüpfte Mitgliedschaft kann nicht in der Zukunft beginnen."

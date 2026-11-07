@@ -7297,3 +7297,6 @@ msgstr "Une adhésion liée ne peut pas se terminer dans le futur ; terminez-la 
 
 msgid "Remove the member from the organization before deleting their open register entry."
 msgstr "Retirez le membre de l'organisation avant de supprimer son entrée ouverte du registre."
+
+msgid "A linked membership cannot start in the future."
+msgstr "Une adhésion liée ne peut pas commencer dans le futur."

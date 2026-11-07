@@ -7261,3 +7261,6 @@ msgstr "Un'iscrizione collegata non può terminare nel futuro; terminala ora o m
 
 msgid "Remove the member from the organization before deleting their open register entry."
 msgstr "Rimuovi il membro dall'organizzazione prima di eliminare la sua voce aperta nel registro."
+
+msgid "A linked membership cannot start in the future."
+msgstr "Un'iscrizione collegata non può iniziare nel futuro."

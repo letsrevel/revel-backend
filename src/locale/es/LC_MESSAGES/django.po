@@ -7230,3 +7230,6 @@ msgstr "Una membresía vinculada no se puede finalizar en el futuro; finalízala
 
 msgid "Remove the member from the organization before deleting their open register entry."
 msgstr "Elimina al miembro de la organización antes de borrar su entrada abierta del registro."
+
+msgid "A linked membership cannot start in the future."
+msgstr "Una membresía vinculada no puede empezar en el futuro."

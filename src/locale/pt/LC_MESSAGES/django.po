@@ -7171,3 +7171,6 @@ msgstr "Uma associação vinculada não pode ser encerrada no futuro; encerre-a 
 
 msgid "Remove the member from the organization before deleting their open register entry."
 msgstr "Remova o membro da organização antes de eliminar a sua entrada aberta no registo."
+
+msgid "A linked membership cannot start in the future."
+msgstr "Uma associação vinculada não pode começar no futuro."
