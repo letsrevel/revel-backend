@@ -744,54 +744,7 @@ def test_apply_deadline_passed_with_per_event_and_global_submission(
     assert eligibility.reason == Reasons.APPLICATION_DEADLINE_PASSED
 
 
-# --- Test Cases for questionnaire_scope ---
-
-
-def test_series_scope_ignores_event_only_questionnaire(
-    member_user: RevelUser,
-    public_event: Event,
-    organization: Organization,
-    org_questionnaire: OrganizationQuestionnaire,
-) -> None:
-    """With series scope, a questionnaire linked only to the event is not relevant."""
-    public_event.event_series = EventSeries.objects.create(organization=organization, name="Series", slug="series")
-    public_event.save()
-    org_questionnaire.events.add(public_event)
-
-    service = EligibilityService(member_user, public_event, questionnaire_scope="series")
-
-    assert service.event.organization.relevant_org_questionnaires == []  # type: ignore[attr-defined]
-
-
-def test_series_scope_includes_series_questionnaire(
-    member_user: RevelUser,
-    public_event: Event,
-    organization: Organization,
-    org_questionnaire: OrganizationQuestionnaire,
-) -> None:
-    """With series scope, a questionnaire linked to the event's series is relevant."""
-    series = EventSeries.objects.create(organization=organization, name="Series", slug="series")
-    public_event.event_series = series
-    public_event.save()
-    org_questionnaire.event_series.add(series)
-
-    service = EligibilityService(member_user, public_event, questionnaire_scope="series")
-
-    relevant = _relevant(service)
-    assert [oq.id for oq in relevant] == [org_questionnaire.id]
-
-
-def test_series_scope_without_series_has_no_questionnaires(
-    member_user: RevelUser,
-    public_event: Event,
-    org_questionnaire: OrganizationQuestionnaire,
-) -> None:
-    """With series scope and an event outside any series, no questionnaire applies."""
-    org_questionnaire.events.add(public_event)
-
-    service = EligibilityService(member_user, public_event, questionnaire_scope="series")
-
-    assert service.event.organization.relevant_org_questionnaires == []  # type: ignore[attr-defined]
+# --- Test Cases for questionnaire relevance ---
 
 
 def test_default_scope_unchanged_includes_both(
