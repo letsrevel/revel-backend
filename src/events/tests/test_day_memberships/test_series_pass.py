@@ -1,5 +1,6 @@
 """Day memberships granted by series-pass tickets (#1321 part B)."""
 
+import typing as t
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
@@ -162,3 +163,47 @@ def test_cancel_held_pass_revokes_upcoming_only(
     (upcoming,) = records_for(Ticket.objects.get(held_pass=held_pass, event=second))
     assert started.ended_reason is None
     assert upcoming.ended_reason == Reason.REVOKED
+
+
+def test_online_pass_stripe_activation_and_backfill_grant(
+    organization: Organization,
+    event_series: EventSeries,
+    day_member_tier: MembershipTier,
+    holder: RevelUser,
+) -> None:
+    from unittest.mock import MagicMock, Mock
+
+    import stripe
+
+    from events.service import stripe_service
+    from events.service.stripe_webhooks import StripeEventHandler
+
+    organization.stripe_account_id = "acct_test123"
+    organization.stripe_charges_enabled = True
+    organization.stripe_details_submitted = True
+    organization.platform_fee_percent = Decimal("3.00")
+    organization.platform_fee_fixed = Decimal("0.50")
+    organization.save()
+    series_pass, events = _make_pass(organization, event_series, day_member_tier, TicketTier.PaymentMethod.ONLINE)
+    session = Mock()
+    session.id = "cs_day_pass"
+    session.url = "https://checkout.stripe.com/pay/cs_day_pass"
+    with patch("stripe.checkout.Session.create", return_value=session):
+        _, reservation_id = SeriesPassPurchaseService(series_pass, holder).purchase()  # type: ignore[misc]
+        stripe_service.create_series_pass_session(reservation_id=reservation_id)
+    held_pass = HeldSeriesPass.objects.get(series_pass=series_pass, user=holder)
+    assert not MembershipRecord.objects.filter(user=holder).exists()  # PENDING tickets grant nothing
+    # Extension while PENDING: the webhook activation backfills it.
+    new_event, _ = _link(organization, event_series, series_pass, day_member_tier, "sp-wb", timedelta(days=9))
+
+    session_obj = {"id": "cs_day_pass", "payment_status": "paid", "payment_intent": "pi_day_pass"}
+    data: dict[str, t.Any] = {"type": "checkout.session.completed", "data": {"object": session_obj}}
+    stripe_event = MagicMock(spec=stripe.Event)
+    stripe_event.__iter__.return_value = iter(data.items())
+    stripe_event.type = data["type"]
+    stripe_event.data = MagicMock()
+    stripe_event.data.object = session_obj
+    with patch("events.service.series_pass_service.send_series_pass_purchased"):
+        StripeEventHandler(stripe_event).handle_checkout_session_completed(stripe_event)
+
+    _assert_window_records(held_pass, [*events, new_event], day_member_tier)

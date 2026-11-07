@@ -38,13 +38,17 @@ def refund_cancelled_event_tickets(event_id: str, initiated_by_id: str | None = 
     notify org staff when the sweep completes. Skipped when there is nothing to
     dispatch — an empty sweep has nothing to summarize.
     """
+    # Decided here, not when each subtask runs: a queued subtask may execute after the event started.
+    revoke_day_membership = Event.objects.filter(pk=event_id, start__gt=timezone.now()).exists()
     ticket_ids = list(
         Ticket.objects.filter(event_id=event_id)
         .exclude(status=Ticket.TicketStatus.CANCELLED)
         .values_list("id", flat=True)
     )
     for ticket_id in ticket_ids:
-        refund_one_cancelled_event_ticket.delay(str(ticket_id), initiated_by_id)
+        refund_one_cancelled_event_ticket.delay(
+            str(ticket_id), initiated_by_id, revoke_day_membership=revoke_day_membership
+        )
 
     if ticket_ids:
         send_event_refund_summary_task.apply_async(args=(event_id,), countdown=_SUMMARY_RETRY_COUNTDOWN)
@@ -54,7 +58,9 @@ def refund_cancelled_event_tickets(event_id: str, initiated_by_id: str | None = 
 
 
 @shared_task(name="events.refund_one_cancelled_event_ticket")
-def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | None = None) -> None:
+def refund_one_cancelled_event_ticket(
+    ticket_id: str, initiated_by_id: str | None = None, revoke_day_membership: bool | None = None
+) -> None:
     """Refund, then cancel, a single ticket as part of a bulk event-cancellation sweep.
 
     The refund runs FIRST, in its own transaction; the cancellation (including flipping
@@ -142,7 +148,12 @@ def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | Non
             cancellation_reason=locked_ticket.event.cancellation_reason or "",
         )
         locked_ticket.status = Ticket.TicketStatus.CANCELLED
-        day_membership_service.on_ticket_status_change(locked_ticket, previous_status)
+        # ``revoke_day_membership`` was decided at fan-out (True: event had not started; False: it had);
+        # None (an in-flight message from before the kwarg existed) falls back to the start check now.
+        if revoke_day_membership is not False:
+            day_membership_service.on_ticket_status_change(
+                locked_ticket, previous_status, revoke_ignoring_start=revoke_day_membership is True
+            )
         # The .update() above fired no post_save signal, so the usual
         # attendee_count/is_full recompute (events.signals
         # .handle_ticket_visibility_and_potluck) never ran — replicate it explicitly,

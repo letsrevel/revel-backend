@@ -18,19 +18,26 @@ before ``.update()`` are not detected.
 # would need data-flow analysis; upgrade path is to forbid the alias pattern instead.
 
 import ast
+import typing as t
 from pathlib import Path
 
 _SRC = Path(__file__).resolve().parents[3]
 
-# Paths relative to src/ (prefix match). Each entry says how the site keeps the hook honest.
-ALLOWLIST: dict[str, str] = {
-    "events/service/batch_ticket_service/tickets.py": "bulk_create; calls day_membership_service.on_tickets_issued",
-    "events/service/series_pass_service.py": (
-        "bulk_create in materialize_tickets and the PENDING->ACTIVE bulk_update in confirm_held_pass_payment; "
-        "both call day_membership_service.on_tickets_issued"
+# (path relative to src/, enclosing function name) -> how that site keeps the hook honest.
+ALLOWLIST: dict[tuple[str, str], str] = {
+    ("events/service/batch_ticket_service/tickets.py", "create_tickets"): (
+        "bulk_create; calls day_membership_service.on_tickets_issued"
     ),
-    "events/tasks/refunds.py": "bulk event cancellation .update(status=CANCELLED); calls on_ticket_status_change",
-    "events/service/ticket_file_service.py": (
+    ("events/service/series_pass_service.py", "materialize_tickets"): (
+        "bulk_create; calls day_membership_service.on_tickets_issued"
+    ),
+    ("events/service/series_pass_service.py", "confirm_held_pass_payment"): (
+        "PENDING->ACTIVE bulk_update; calls day_membership_service.on_tickets_issued with old_status=PENDING"
+    ),
+    ("events/tasks/refunds.py", "refund_one_cancelled_event_ticket"): (
+        "bulk event cancellation .update(status=CANCELLED); calls day_membership_service.on_ticket_status_change"
+    ),
+    ("events/service/ticket_file_service.py", "_persist_and_update"): (
         "**update_fields carries only pdf_file/pkpass_file/file_content_hash, never status"
     ),
 }
@@ -65,26 +72,49 @@ def _bulk_update_flagged(node: ast.Call) -> bool:
     return any(not isinstance(e, ast.Constant) or e.value == "status" for e in fields.elts)
 
 
-def find_bulk_ticket_writes(source: str, path: str) -> list[str]:
-    """Return ``path:line`` entries for every bulk Ticket write that can change status or create rows."""
-    hits: list[str] = []
-    for node in ast.walk(ast.parse(source)):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
-            continue
-        name = node.func.attr
-        if name == "bulk_create":
-            flagged = True
-        elif name == "bulk_update":
-            flagged = _bulk_update_flagged(node)
-        elif name == "update":
-            flagged = any(
-                kw.arg == "status" if kw.arg is not None else _unpacked_kwargs_flagged(kw.value) for kw in node.keywords
-            )
-        else:
-            continue
-        if flagged and _contains_ticket_objects(node.func.value):
-            hits.append(f"{path}:{node.lineno}")
-    return hits
+def _flagged(node: ast.Call) -> bool:
+    if not isinstance(node.func, ast.Attribute):
+        return False
+    name = node.func.attr
+    if name == "bulk_create":
+        flagged = True
+    elif name == "bulk_update":
+        flagged = _bulk_update_flagged(node)
+    elif name == "update":
+        flagged = any(
+            kw.arg == "status" if kw.arg is not None else _unpacked_kwargs_flagged(kw.value) for kw in node.keywords
+        )
+    else:
+        return False
+    return flagged and _contains_ticket_objects(node.func.value)
+
+
+class _Finder(ast.NodeVisitor):
+    """Collect ``(line, enclosing function name)`` of flagged calls; module level counts as ``<module>``."""
+
+    def __init__(self) -> None:
+        self.stack: list[str] = []
+        self.hits: list[tuple[int, str]] = []
+
+    def _function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        self.stack.append(node.name)
+        self.generic_visit(node)
+        self.stack.pop()
+
+    visit_FunctionDef = _function
+    visit_AsyncFunctionDef = _function
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if _flagged(node):
+            self.hits.append((node.lineno, self.stack[-1] if self.stack else "<module>"))
+        self.generic_visit(node)
+
+
+def find_bulk_ticket_writes(source: str, path: str) -> list[tuple[str, int, str]]:
+    """Return ``(path, line, enclosing function)`` for every bulk Ticket write that can change status or create rows."""
+    finder = _Finder()
+    finder.visit(ast.parse(source))
+    return [(path, line, func) for line, func in finder.hits]
 
 
 def test_guard_detects_bulk_writes() -> None:
@@ -114,27 +144,46 @@ def test_guard_ignores_unrelated() -> None:
     assert [find_bulk_ticket_writes(s, "x.py") for s in snippets] == [[]] * len(snippets)
 
 
-def test_no_unlisted_bulk_ticket_writes_in_src() -> None:
-    """No production module outside the allowlist bulk-writes Ticket status or rows."""
-    violations: list[str] = []
-    scanned = 0
+def test_guard_reports_the_enclosing_function() -> None:
+    """Allowlisting is per function, so a second write in the same file is not covered by the first."""
+    source = (
+        "def a():\n    Ticket.objects.bulk_create(r)\n\n"
+        "class C:\n    def b(self):\n        Ticket.objects.bulk_create(r)\n"
+    )
+    assert [func for _, _, func in find_bulk_ticket_writes(source, "x.py")] == ["a", "b"]
+
+
+def _production_files() -> t.Iterator[tuple[str, Path]]:
     for file in sorted(_SRC.rglob("*.py")):
         parts = file.relative_to(_SRC).parts
-        rel = "/".join(parts)
         if {"tests", "migrations"} & set(parts[:-1]) or ("management" in parts and "commands" in parts):
             continue
-        if rel in ALLOWLIST:
-            continue
+        yield "/".join(parts), file
+
+
+def test_no_unlisted_bulk_ticket_writes_in_src() -> None:
+    """No production function outside the allowlist bulk-writes Ticket status or rows."""
+    violations: list[str] = []
+    scanned = 0
+    for rel, file in _production_files():
         scanned += 1
-        violations.extend(find_bulk_ticket_writes(file.read_text(), rel))
+        violations.extend(
+            f"{path}:{line} in {func}()"
+            for path, line, func in find_bulk_ticket_writes(file.read_text(), rel)
+            if (path, func) not in ALLOWLIST
+        )
     assert scanned > 100, f"guard scanned only {scanned} files; the walk is probably broken"
     assert not violations, "Bulk Ticket writes bypass the day-membership hook:\n" + "\n".join(violations)
 
 
-def test_allowlisted_files_exist_and_call_the_service() -> None:
-    """An allowlist entry that points nowhere, or at a file that no longer calls the hook, is stale."""
-    for rel, reason in ALLOWLIST.items():
-        source = (_SRC / rel).read_text()
+def test_allowlist_entries_are_live_and_hooked() -> None:
+    """An entry that points at a function that no longer bulk-writes tickets, or lost its hook, is stale."""
+    found = {
+        (rel, func)
+        for rel, file in _production_files()
+        for _, _, func in find_bulk_ticket_writes(file.read_text(), rel)
+    }
+    for (rel, func), reason in ALLOWLIST.items():
+        assert (rel, func) in found, f"{rel}:{func} no longer bulk-writes tickets; drop it from ALLOWLIST"
         if "calls " in reason:
-            assert "day_membership_service" in source, f"{rel} no longer calls day_membership_service"
-        assert find_bulk_ticket_writes(source, rel), f"{rel} no longer bulk-writes tickets; drop it from ALLOWLIST"
+            assert "day_membership_service" in (_SRC / rel).read_text(), f"{rel} no longer calls day_membership_service"

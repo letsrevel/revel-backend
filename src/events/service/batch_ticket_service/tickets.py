@@ -104,8 +104,9 @@ class TicketWriterMixin(BatchTicketContext):
 
         created = Ticket.objects.bulk_create(tickets)
         # bulk_create skips post_save, so number the tickets issued right away (free / reroute).
-        ticket_number_service.assign_ticket_numbers(created)
+        # Lock order: ... Ticket -> MembershipRecord -> TicketNumberSequence, so grant before numbering.
         day_membership_service.on_tickets_issued(created)  # ...and the day-membership grant (ACTIVE only)
+        ticket_number_service.assign_ticket_numbers(created)
         return created
 
     def _default_guest_name(self) -> str:

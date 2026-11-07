@@ -170,6 +170,8 @@ def test_no_revoke_after_check_in(
     check_in_service.check_in_ticket(day_event, ticket.id, organization_owner_user)
     ticket = Ticket.objects.select_related("tier", "event").get(pk=ticket.pk)
     assert ticket.checked_in_at is not None
+    # There is no real path from CHECKED_IN to CANCELLED, so the hook is called directly with a CHECKED_IN->
+    # CANCELLED-style transition to pin the "never revoke a checked-in holder" rule inside the service.
     # Even a status flip with a still-future event (clock moved back) must not revoke a checked-in holder.
     Event.objects.filter(pk=day_event.pk).update(start=timezone.now() + timedelta(days=1))
     ticket.event.refresh_from_db()
@@ -273,3 +275,176 @@ def test_date_edit_after_event_end_leaves_records_frozen(
 
     after = _only(ticket)
     assert (after.valid_from, after.valid_until) == (before.valid_from, before.valid_until)
+
+
+# ---- organizer cancel paths, ban path, deletion, bulk cancel ----
+
+
+def test_admin_cancel_and_offline_refund_revoke_before_start(
+    day_tier_factory: t.Callable[..., TicketTier],
+    make_ticket: t.Callable[..., Ticket],
+    revel_user_factory: t.Any,
+    organization_owner_user: RevelUser,
+) -> None:
+    from events.service import refund_service
+
+    tier = day_tier_factory(payment_method=TicketTier.PaymentMethod.OFFLINE, price=Decimal("10.00"))
+    one = make_ticket(tier)
+    two = make_ticket(
+        day_tier_factory(payment_method=TicketTier.PaymentMethod.OFFLINE, price=Decimal("10.00")),
+        user=revel_user_factory(username="o@example.com", email="o@example.com"),
+    )
+    refund_service.admin_cancel_ticket(one, cancelled_by=organization_owner_user, reason=None, refund_amount=None)
+    ticket_service.mark_offline_ticket_refunded(two, cancelled_by=organization_owner_user)
+    assert _only(one).ended_reason == Reason.REVOKED
+    assert _only(two).ended_reason == Reason.REVOKED
+
+
+def test_blacklisting_a_member_revokes_upcoming_day_records(
+    organization: Organization,
+    day_tier: TicketTier,
+    make_ticket: t.Callable[..., Ticket],
+    holder: RevelUser,
+    organization_owner_user: RevelUser,
+) -> None:
+    from events.service import blacklist_service
+
+    ticket = make_ticket(day_tier)
+    OrganizationMember.objects.create(organization=organization, user=holder)
+    blacklist_service.add_to_blacklist(organization, organization_owner_user, user=holder)
+    assert _only(ticket).ended_reason == Reason.REVOKED
+
+
+def test_ban_blocks_later_grants_and_reopens(
+    organization: Organization,
+    day_tier_factory: t.Callable[..., TicketTier],
+    make_ticket: t.Callable[..., Ticket],
+    holder: RevelUser,
+) -> None:
+    tier = day_tier_factory(payment_method=TicketTier.PaymentMethod.OFFLINE, price=Decimal("10.00"))
+    pending = make_ticket(tier, Status.PENDING)
+    granted = make_ticket(day_tier_factory(name="Other"))
+    OrganizationMember.objects.create(
+        organization=organization, user=holder, status=OrganizationMember.MembershipStatus.BANNED
+    )
+    assert _only(granted).ended_reason == Reason.REVOKED
+
+    ticket_service.confirm_ticket_payment(Ticket.objects.select_related("tier").get(pk=pending.pk))
+    assert records_for(pending) == []
+
+    granted.refresh_from_db()
+    granted.status = Status.PENDING
+    granted.save(update_fields=["status"])
+    granted.status = Status.ACTIVE
+    granted.save(update_fields=["status"])
+    assert _only(granted).ended_reason == Reason.REVOKED  # not reopened
+
+
+def test_deleting_an_upcoming_event_revokes_its_records_but_not_past_ones(
+    day_event: Event,
+    day_tier: TicketTier,
+    make_ticket: t.Callable[..., Ticket],
+    organization: Organization,
+    event_series: t.Any,
+) -> None:
+    ticket = make_ticket(day_tier)
+    past_start = timezone.now() - timedelta(days=2)
+    past = Event.objects.create(
+        organization=organization,
+        name="Past",
+        slug="past",
+        event_type=Event.EventType.PUBLIC,
+        visibility=Event.Visibility.PUBLIC,
+        event_series=event_series,
+        start=past_start,
+        end=past_start + timedelta(hours=3),
+        status=Event.EventStatus.OPEN,
+        requires_ticket=True,
+    )
+    past_tier = TicketTier.objects.create(
+        event=past,
+        name="Past tier",
+        price=Decimal("0.00"),
+        payment_method=TicketTier.PaymentMethod.FREE,
+        grants_membership_tier=day_tier.grants_membership_tier,
+    )
+    past_ticket = Ticket.objects.create(
+        event=past, tier=past_tier, user=ticket.user, status=Status.ACTIVE, guest_name="Dana Day"
+    )
+
+    upcoming_pk = records_for_pk(ticket)
+    past_pk = records_for_pk(past_ticket)
+    day_event.delete()
+    past.delete()
+
+    record = MembershipRecord.objects.get(pk=upcoming_pk)
+    assert record.ended_reason == Reason.REVOKED
+    assert record.event_id is None  # survives deletion
+    assert MembershipRecord.objects.get(pk=past_pk).ended_reason is None
+
+
+def records_for_pk(ticket: Ticket) -> t.Any:
+    return MembershipRecord.objects.filter(ticket=ticket).values_list("pk", flat=True).first()
+
+
+def test_event_cancellation_flag_decided_at_fan_out(
+    day_event: Event,
+    day_tier: TicketTier,
+    make_ticket: t.Callable[..., Ticket],
+    organization_owner_user: RevelUser,
+) -> None:
+    from events.tasks.refunds import refund_cancelled_event_tickets
+
+    ticket = make_ticket(day_tier)
+    with (
+        patch("events.tasks.refunds.refund_one_cancelled_event_ticket.delay") as delay,
+        patch("events.tasks.refunds.send_event_refund_summary_task.apply_async"),
+    ):
+        refund_cancelled_event_tickets(str(day_event.id), str(organization_owner_user.id))
+    assert delay.call_args.kwargs == {"revoke_day_membership": True}
+
+    # The subtask runs after the event started: the fan-out-time decision still revokes.
+    Event.objects.filter(pk=day_event.pk).update(start=timezone.now() - timedelta(hours=1))
+    with patch("events.tasks.refunds.build_attendee_visibility_flags"):
+        refund_one_cancelled_event_ticket(str(ticket.id), str(organization_owner_user.id), revoke_day_membership=True)
+    assert _only(ticket).ended_reason == Reason.REVOKED
+
+
+def test_event_cancellation_after_start_at_fan_out_does_not_revoke(
+    day_event: Event,
+    day_tier: TicketTier,
+    make_ticket: t.Callable[..., Ticket],
+    organization_owner_user: RevelUser,
+) -> None:
+    ticket = make_ticket(day_tier)
+    with patch("events.tasks.refunds.build_attendee_visibility_flags"):
+        refund_one_cancelled_event_ticket(str(ticket.id), str(organization_owner_user.id), revoke_day_membership=False)
+    assert _only(ticket).ended_reason is None
+
+
+def test_resync_only_moves_ticket_sourced_records(
+    day_event: Event,
+    day_tier: TicketTier,
+    make_ticket: t.Callable[..., Ticket],
+    organization: Organization,
+    holder: RevelUser,
+) -> None:
+    ticket = make_ticket(day_tier)
+    manual = MembershipRecord.objects.create(
+        organization=organization,
+        user=holder,
+        full_name="Dana Day",
+        kind=MembershipRecord.Kind.TEMPORARY,
+        valid_from=day_event.start,
+        valid_until=day_event.end,
+        source=MembershipRecord.Source.MANUAL,
+        event=day_event,
+    )
+    Event.objects.filter(pk=day_event.pk).update(
+        start=day_event.start + timedelta(days=2), end=day_event.end + timedelta(days=2)
+    )
+    day_event.refresh_from_db()
+    assert day_membership_service.resync_event_window(day_event) == 1
+    manual.refresh_from_db()
+    assert manual.valid_from != day_event.start
+    assert _only(ticket).valid_from == day_event.start
