@@ -1,5 +1,6 @@
 # src/events/filters.py
 
+import datetime
 import typing as t
 from functools import reduce
 from uuid import UUID
@@ -26,7 +27,6 @@ from events.models import (
     TicketTier,
     WhitelistRequest,
 )
-from events.models.membership_record import MembershipRecordQuerySet
 from events.models.skipped_fiscal_document import SkippedFiscalDocumentKind, SkippedFiscalDocumentReason
 from events.utils.membership_access import visible_member_org_ids
 from questionnaires.models import QuestionnaireEvaluation
@@ -375,8 +375,9 @@ class MembershipRecordFilterSchema(FilterSchema):
     tier_id: UUID | None = Field(None, description="Only entries of this tier.")
     is_open: bool | None = Field(None, description="True: no end date. False: has an end date.")
     has_account: bool | None = Field(None, description="True: linked to an account. False: account-less.")
-    active_on: AwareDatetime | None = Field(
-        None, description="Only non-revoked entries covering this instant (valid_from <= x < valid_until)."
+    active_on: datetime.date | None = Field(
+        None,
+        description="Only non-revoked entries whose period overlaps this calendar day in the organization's timezone.",
     )
 
     def filter_is_open(self, is_open: bool | None) -> Q:
@@ -387,16 +388,9 @@ class MembershipRecordFilterSchema(FilterSchema):
         """Account-less entries have no user."""
         return Q() if has_account is None else Q(user__isnull=not has_account)
 
-    def filter_active_on(self, active_on: AwareDatetime | None) -> Q:
-        """Handled in :meth:`filter` (needs the queryset method, not a Q)."""
+    def filter_active_on(self, active_on: datetime.date | None) -> Q:
+        """No-op: the controller applies ``active_on`` (it needs the organization's timezone)."""
         return Q()
-
-    def filter(self, queryset: MembershipRecordQuerySet) -> MembershipRecordQuerySet:  # type: ignore[override]
-        """Apply the Q filters, then ``active_on`` through the queryset method."""
-        queryset = super().filter(queryset)
-        if self.active_on is not None:
-            queryset = queryset.active_on(self.active_on)
-        return queryset
 
 
 class InvitationRequestFilterSchema(FilterSchema):

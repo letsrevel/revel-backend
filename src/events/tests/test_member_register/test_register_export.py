@@ -1,9 +1,10 @@
 """Tests for the member register xlsx export (#1319)."""
 
 import typing as t
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import pytest
 from django.test.client import Client
@@ -72,12 +73,12 @@ def test_start_dispatches_on_commit(
     organization: Organization, organization_owner_user: RevelUser, django_capture_on_commit_callbacks: t.Any
 ) -> None:
     """``on_commit`` never fires inside the test transaction, so capture and execute the callbacks."""
-    when = timezone.now()
+    day = date(2026, 6, 15)
     with patch("events.tasks.generate_member_register_export_task") as task:
         with django_capture_on_commit_callbacks(execute=True):
-            export = start_member_register_export(organization, organization_owner_user, when)
+            export = start_member_register_export(organization, organization_owner_user, day)
     task.delay.assert_called_once_with(str(export.id))
-    assert export.parameters["active_on"] == when.isoformat()
+    assert export.parameters["active_on"] == "2026-06-15"
 
 
 def test_endpoint_requires_manage_members(organization: Organization, organization_staff_user: RevelUser) -> None:
@@ -124,28 +125,26 @@ def test_workbook_all_records(organization: Organization, organization_owner_use
     assert by_name["Tmp"][2] == "Temporary"
 
 
-def test_workbook_active_on_excludes_revoked_and_boundary(
-    organization: Organization, organization_owner_user: RevelUser
+def test_workbook_active_on_is_a_calendar_day_in_org_timezone(
+    ny_organization: Organization, organization_owner_user: RevelUser
 ) -> None:
-    now = timezone.now()
-    when = now - timedelta(days=5)
-    _rec(organization, "Active", valid_from=now - timedelta(days=9))
-    _rec(organization, "Revoked", valid_until=now - timedelta(days=1), ended_reason=Reason.REVOKED)
-    _rec(
-        organization,
-        "EndedAtBoundary",
-        valid_from=now - timedelta(days=9),
-        valid_until=when,
-        ended_reason=Reason.REMOVED,
-    )
-    _rec(organization, "NotYet", valid_from=now - timedelta(days=2))
-    export = _export(organization, organization_owner_user, active_on=when)
+    ny = ZoneInfo("America/New_York")
+    day = date(2026, 6, 15)
+    midnight = datetime(2026, 6, 15, tzinfo=ny)
+    next_midnight = midnight + timedelta(days=1)
+    long_ago = midnight - timedelta(days=30)
+    _rec(ny_organization, "Active", valid_from=long_ago)
+    _rec(ny_organization, "Revoked", valid_from=long_ago, valid_until=next_midnight, ended_reason=Reason.REVOKED)
+    _rec(ny_organization, "EndedAtMidnight", valid_from=long_ago, valid_until=midnight, ended_reason=Reason.REMOVED)
+    _rec(ny_organization, "StartsNextDay", valid_from=next_midnight)
+    _rec(ny_organization, "StartsLate", valid_from=next_midnight - timedelta(minutes=1))
+    export = _export(ny_organization, organization_owner_user, active_on=day)
 
     generate_member_register_export(export.id)
 
-    names = [r[0] for r in _rows(export, "Register")[1:]]
-    assert names == ["Active"]
-    assert dict(_rows(export, "Summary"))["Members on"] == when.isoformat()
+    names = {r[0] for r in _rows(export, "Register")[1:]}
+    assert names == {"Active", "StartsLate"}
+    assert dict(_rows(export, "Summary"))["Members on"] == f"{day.isoformat()} (America/New_York)"
 
 
 def test_formula_injection_sanitized(organization: Organization, organization_owner_user: RevelUser) -> None:

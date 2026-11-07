@@ -1,14 +1,16 @@
-"""Shared fixtures for the register linking tests (#1319)."""
+"""Shared fixtures for the member register tests (#1319)."""
 
 import typing as t
 
 import pytest
+from django.contrib.gis.geos import Point
 from django.test.client import Client
 from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
 from events.models import MembershipRecord, MembershipTier, Organization, OrganizationStaff
+from geo.models import City
 
 RecordFactory = t.Callable[..., MembershipRecord]
 
@@ -82,3 +84,21 @@ def plain_staff_client(organization_staff_user: RevelUser, organization: Organiz
 def outsider_client(django_user_model: type[RevelUser]) -> Client:
     """Client of an unrelated user."""
     return make_client(django_user_model.objects.create_user(username="out", email="out@example.com", password="pw"))
+
+
+@pytest.fixture
+def ny_organization(organization: Organization) -> Organization:
+    """The shared organization, moved to a New York city (America/New_York timezone)."""
+    city = City.objects.create(
+        name="New York",
+        ascii_name="New York",
+        country="United States",
+        iso2="US",
+        iso3="USA",
+        city_id=88001,
+        location=Point(-74.0060, 40.7128, srid=4326),
+        timezone="America/New_York",
+    )
+    organization.city = city
+    organization.save(update_fields=["city"])
+    return organization

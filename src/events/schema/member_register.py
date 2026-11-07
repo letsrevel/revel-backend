@@ -1,6 +1,7 @@
 """Schemas for the membership register API (#1319)."""
 
 import typing as t
+from datetime import date
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
@@ -118,9 +119,9 @@ class MembershipRecordEndSchema(Schema):
 
 
 class MemberRegisterExportRequestSchema(Schema):
-    """Export the register, optionally only the entries active on a date."""
+    """Export the register, optionally only the entries active on a calendar day in the organization's timezone."""
 
-    active_on: AwareDatetime | None = None
+    active_on: date | None = None
 
 
 class MemberRegisterBulkInviteResultSchema(Schema):
