@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 from django.contrib import admin
 from django.test import RequestFactory
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from accounts.tasks import delete_user_account
@@ -178,3 +179,25 @@ def test_admin_tier_delete_routes_through_register(organization: Organization, t
     assert new.valid_until is None
     assert new.tier_id is None
     assert not MembershipTier.objects.filter(pk=tier.pk).exists()
+
+
+def test_delete_tier_leaves_merged_absorbed_record_alone(organization: Organization, tier: MembershipTier) -> None:
+    """A merged (absorbed) record keeps its audit state: tier deletion opens no successor for it."""
+    survivor = MembershipRecord.objects.create(
+        organization=organization, full_name="Survivor", valid_from=timezone.now(), source="manual"
+    )
+    absorbed = MembershipRecord.objects.create(
+        organization=organization,
+        full_name="Absorbed",
+        tier=tier,
+        tier_name="Gold",
+        valid_from=timezone.now(),
+        source="manual",
+        merged_into=survivor,
+    )
+
+    organization_service.delete_membership_tier(tier)
+
+    assert MembershipRecord.objects.filter(organization=organization).count() == 2
+    absorbed.refresh_from_db()
+    assert absorbed.valid_until is None and absorbed.ended_reason is None and absorbed.tier_id is None

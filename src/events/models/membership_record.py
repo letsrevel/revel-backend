@@ -44,6 +44,14 @@ class MembershipRecordInviteStatus(models.TextChoices):
     LINKED = "linked", _("Linked")
 
 
+class RegisterMatchReason(models.TextChoices):
+    """Why an account-less register entry may be the same person as an account or a linked entry (#1319)."""
+
+    EMAIL = "email", _("Email")
+    NAME = "name", _("Name")
+    CLAIM = "claim", _("Claim")
+
+
 class MembershipRecordQuerySet(models.QuerySet["MembershipRecord"]):
     """Queries over register records."""
 
@@ -52,15 +60,40 @@ class MembershipRecordQuerySet(models.QuerySet["MembershipRecord"]):
         return self.filter(valid_until__isnull=True)
 
     def unlinked(self) -> t.Self:
-        """Records without an account (they grant nothing)."""
-        return self.filter(user__isnull=True)
+        """Records without an account (they grant nothing) that were not merged into another record."""
+        return self.filter(user__isnull=True, merged_into__isnull=True)
+
+    def unmerged(self) -> t.Self:
+        """Records that were not merged into a survivor."""
+        return self.filter(merged_into__isnull=True)
 
     def active_on(self, when: datetime) -> t.Self:
         """Non-revoked records covering ``when`` (``valid_from <= when < valid_until``)."""
         return (
-            self.exclude(ended_reason=MembershipRecord.EndedReason.REVOKED)
+            self.unmerged()
+            .exclude(ended_reason=MembershipRecord.EndedReason.REVOKED)
             .filter(valid_from__lte=when)
             .filter(models.Q(valid_until__isnull=True) | models.Q(valid_until__gt=when))
+        )
+
+    def active_during(self, start: datetime, end: datetime) -> t.Self:
+        """Non-revoked records whose period overlaps the half-open window ``[start, end)``.
+
+        A record overlaps when it starts before ``end`` and has not ended at or before ``start``
+        (``valid_from < end`` and ``valid_until`` is null or ``> start``).
+
+        Args:
+            start: Inclusive start of the window.
+            end: Exclusive end of the window.
+
+        Returns:
+            The filtered queryset.
+        """
+        return (
+            self.unmerged()
+            .exclude(ended_reason=MembershipRecord.EndedReason.REVOKED)
+            .filter(valid_from__lt=end)
+            .filter(models.Q(valid_until__isnull=True) | models.Q(valid_until__gt=start))
         )
 
 
@@ -121,6 +154,14 @@ class MembershipRecord(TimeStampedModel):
     duplicate_claimant = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
+
+    # Reconciliation (#1319): an account-less duplicate absorbed into a survivor stays for audit but counts nowhere.
+    # SET_NULL: deleting a survivor must not silently delete the absorbed history.
+    merged_into = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="absorbed_records"
+    )
+    # The survivor's ``valid_from`` before the merge, so an unlink can restore it.
+    merge_prior_valid_from = models.DateTimeField(null=True, blank=True)
 
     objects = MembershipRecordQuerySet.as_manager()
 

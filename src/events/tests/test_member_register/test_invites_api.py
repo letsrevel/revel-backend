@@ -45,6 +45,20 @@ def _claim(client: Client, token: str) -> t.Any:
 
 
 class TestSendInvite:
+    def test_merged_record_cannot_be_invited(
+        self, owner_client: Client, organization: Organization, make_record: RecordFactory
+    ) -> None:
+        survivor = make_record(email="survivor@example.com")
+        absorbed = make_record(merged_into=survivor)
+
+        with patch(DELAY) as delay:
+            response = owner_client.post(_invite_url(organization, absorbed))
+
+        assert response.status_code == 400
+        delay.assert_not_called()
+        absorbed.refresh_from_db()
+        assert absorbed.invite_token is None
+
     def test_send_sets_token_and_dispatches_once(
         self,
         owner_client: Client,

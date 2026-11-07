@@ -18,6 +18,7 @@ from events import filters, models, schema
 from events.controllers.permissions import IsOrganizationOwner, OrganizationPermission
 from events.service import member_register_admin_service as register_service
 from events.service.export.member_register_export import start_member_register_export
+from events.utils import get_organization_day_bounds
 
 from .base import OrganizationAdminBaseController
 
@@ -56,7 +57,10 @@ class OrganizationAdminMemberRegisterController(OrganizationAdminBaseController)
         """List register entries, newest first."""
         organization = self.get_one(slug)
         qs = models.MembershipRecord.objects.filter(organization=organization).select_related("tier")
-        return params.filter(qs).order_by("-valid_from", "-created_at")
+        qs = params.filter(qs)
+        if params.active_on is not None:
+            qs = qs.active_during(*get_organization_day_bounds(organization, params.active_on))
+        return qs.order_by("-valid_from", "-created_at")
 
     @route.post(
         "/member-register/export",

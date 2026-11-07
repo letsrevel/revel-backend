@@ -3,14 +3,16 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
 from ninja import Query
+from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
 from common.authentication import ScopedJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
-from events.controllers.permissions import OrganizationPermission
+from events.controllers.permissions import OrganizationPermission, controller_uses_app_token
 from events.models import OrganizationMembershipRequest
 from events.service import organization_service
 from oauth.permissions import RequireScope
@@ -77,7 +79,17 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
         if payload.tier_id:
             tier = get_object_or_404(models.MembershipTier, pk=payload.tier_id, organization=organization)
 
-        organization_service.approve_membership_request(membership_request, self.user(), tier, force=payload.force)
+        link_record = None
+        if payload.link_record_id:
+            if controller_uses_app_token(self):
+                raise HttpError(403, str(_("Linking a register entry needs a signed-in staff session.")))
+            link_record = get_object_or_404(
+                models.MembershipRecord, pk=payload.link_record_id, organization=organization
+            )
+
+        organization_service.approve_membership_request(
+            membership_request, self.user(), tier, force=payload.force, link_record=link_record
+        )
         return 204, None
 
     @route.post(

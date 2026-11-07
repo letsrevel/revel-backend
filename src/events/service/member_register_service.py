@@ -23,6 +23,7 @@ from events.models import (
     OrganizationMember,
 )
 from events.models.membership_record import MembershipRecordQuerySet
+from events.service.member_register_linking import adopt_unlinked_record
 from questionnaires.models import QuestionnaireSubmission
 
 # ``None`` means no ``record_source`` block is active (records then default to STAFF, or inherit on re-open).
@@ -77,6 +78,8 @@ def open_standard_record(member: OrganizationMember) -> MembershipRecord:
         existing = _open_standard_qs(member.organization_id, member.user_id).select_for_update().first()
         if existing is not None:
             return existing
+        if (adopted := adopt_unlinked_record(member)) is not None:
+            return _settle_adopted(adopted, member)
 
         user = member.user
         submission = _submission_var.get()
@@ -99,6 +102,25 @@ def open_standard_record(member: OrganizationMember) -> MembershipRecord:
             accepted_at=accepted_at,
             questionnaire_name=questionnaire_name,
         )
+
+
+def _settle_adopted(adopted: MembershipRecord, member: OrganizationMember) -> MembershipRecord:
+    """Make an adopted (just linked) record agree with the access row: tier first, else missing evidence."""
+    submission = _submission_var.get()
+    if adopted.tier_id != member.tier_id:
+        now = max(timezone.now(), adopted.valid_from)
+        closed = close_standard_record(
+            member.organization_id, member.user_id, reason=MembershipRecord.EndedReason.TIER_CHANGED, now=now
+        )
+        if closed is None:  # unreachable: the record was linked a moment ago, under the same lock
+            return adopted
+        return _reopen_from(closed, tier=member.tier, now=now)
+    if submission is not None and adopted.questionnaire_submission_id is None:
+        adopted.questionnaire_submission = submission
+        adopted.accepted_at = submission.submitted_at or submission.created_at
+        adopted.questionnaire_name = submission.questionnaire.name
+        adopted.save(update_fields=["questionnaire_submission", "accepted_at", "questionnaire_name", "updated_at"])
+    return adopted
 
 
 def close_standard_record(
@@ -215,7 +237,10 @@ def reopen_for_tier_deletion(tier: MembershipTier) -> int:
         # Lock the affected member rows first: same member -> record order as mirror_member.
         list(OrganizationMember.objects.select_for_update(of=("self",)).filter(tier=tier))
         records = list(
-            MembershipRecord.objects.open().filter(tier=tier, kind=MembershipRecord.Kind.STANDARD).select_for_update()
+            MembershipRecord.objects.open()
+            .unmerged()
+            .filter(tier=tier, kind=MembershipRecord.Kind.STANDARD)
+            .select_for_update()
         )
         now = timezone.now()
         for record in records:

@@ -1,6 +1,6 @@
 """Generate an Excel export of an organization's member register (#1319)."""
 
-from datetime import datetime
+from datetime import date
 from io import BytesIO
 from uuid import UUID
 
@@ -13,6 +13,7 @@ from accounts.models import RevelUser
 from common.models import FileExport
 from common.service.export_service import complete_export, fail_export, start_export
 from events.models import MembershipRecord, Organization
+from events.utils import get_organization_day_bounds, get_organization_timezone
 
 from .formatting import auto_fit_columns, sanitize_cell, style_header_row, style_summary_sheet
 
@@ -20,14 +21,15 @@ logger = structlog.get_logger(__name__)
 
 
 def start_member_register_export(
-    organization: Organization, requested_by: RevelUser, active_on: datetime | None
+    organization: Organization, requested_by: RevelUser, active_on: date | None
 ) -> FileExport:
     """Create a ``FileExport`` for the member register and dispatch the export task.
 
     Args:
         organization: The organization whose register is exported.
         requested_by: The user requesting the export.
-        active_on: If given, only records covering this instant are exported.
+        active_on: If given, only records overlapping this calendar day in the
+            organization's timezone are exported.
 
     Returns:
         The newly-created ``FileExport`` in PENDING state.
@@ -66,22 +68,22 @@ def _build_workbook(export: FileExport) -> bytes:
     """Build the workbook and return raw bytes."""
     organization = Organization.objects.get(pk=UUID(export.parameters["org_id"]))
     raw_active_on = export.parameters.get("active_on")
-    active_on = datetime.fromisoformat(raw_active_on) if raw_active_on else None
+    day = date.fromisoformat(raw_active_on) if raw_active_on else None
 
     qs = MembershipRecord.objects.filter(organization=organization).select_related("tier")
-    if active_on is not None:
-        qs = qs.active_on(active_on)
+    if day is not None:
+        qs = qs.active_during(*get_organization_day_bounds(organization, day))
     records = list(qs.order_by("valid_from", "created_at"))
 
     wb = Workbook()
     ws = wb.active if wb.active is not None else wb.create_sheet()
     ws.title = "Summary"
-    open_count = sum(1 for r in records if r.valid_until is None)
+    open_count = sum(1 for r in records if r.valid_until is None and r.merged_into_id is None)
     standard = sum(1 for r in records if r.kind == MembershipRecord.Kind.STANDARD)
     for row in [
         ("Organization", sanitize_cell(organization.name)),
         ("Generated at", timezone.now().isoformat()),
-        ("Members on", active_on.isoformat() if active_on else "All records"),
+        ("Members on", f"{day.isoformat()} ({get_organization_timezone(organization)})" if day else "All records"),
         ("Total records", len(records)),
         ("Open records", open_count),
         ("Standard", standard),
@@ -118,6 +120,7 @@ def _write_register_sheet(wb: Workbook, records: list[MembershipRecord]) -> None
             "Questionnaire",
             "Accepted At",
             "Created At",
+            "Merged Into",
         ]
     )
     with translation.override("en"):
@@ -137,6 +140,7 @@ def _write_register_sheet(wb: Workbook, records: list[MembershipRecord]) -> None
                     sanitize_cell(r.questionnaire_name or ""),
                     r.accepted_at.isoformat() if r.accepted_at else "",
                     r.created_at.isoformat(),
+                    str(r.merged_into_id) if r.merged_into_id else "",
                 ]
             )
     style_header_row(ws)
