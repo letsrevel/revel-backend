@@ -636,7 +636,8 @@ class TestPaintAffectedTierReport:
         prior paint state all at once — one query fewer than #746 needed for the first two.
 
         The tenth query is the chart-version bump (#752): one UPDATE on one venue row,
-        flat in the number of seats painted like everything else here.
+        flat in the number of seats painted like everything else here. The eleventh is the
+        affected tiers' ``excluded_membership_tiers`` prefetch (#1316), also flat.
         """
         VenueSeat.objects.create(sector=sector, label="anchor", default_price_category=category)
 
@@ -647,13 +648,13 @@ class TestPaintAffectedTierReport:
             return [s.id for s in seats]
 
         small = make(2, "small")
-        with django_assert_num_queries(10):
+        with django_assert_num_queries(11):
             small_result = venue_service.paint_seats(
                 venue, schema.VenueSeatPaintSchema(seat_ids=small, price_category_id=balcony.id)
             )
 
         large = make(200, "large")
-        with django_assert_num_queries(10):
+        with django_assert_num_queries(11):
             large_result = venue_service.paint_seats(
                 venue, schema.VenueSeatPaintSchema(seat_ids=large, price_category_id=balcony.id)
             )
@@ -801,7 +802,7 @@ class TestPaintPreview:
         balcony: PriceCategory,
         django_assert_num_queries: t.Any,
     ) -> None:
-        """Preview = the real paint (9) minus the UPDATE, at any size.
+        """Preview = the real paint (11) minus the UPDATE and chart-version bump, at any size.
 
         Flat in the number of seats for the same reason the paint is: the prior-state read
         is grouped by (sector × category × is_active), never per seat.
@@ -815,13 +816,13 @@ class TestPaintPreview:
             return [s.id for s in seats]
 
         small = make(2, "small")
-        with django_assert_num_queries(8):
+        with django_assert_num_queries(9):
             small_result = venue_service.paint_seats(
                 venue, schema.VenueSeatPaintSchema(seat_ids=small, price_category_id=balcony.id), preview=True
             )
 
         large = make(200, "large")
-        with django_assert_num_queries(8):
+        with django_assert_num_queries(9):
             large_result = venue_service.paint_seats(
                 venue, schema.VenueSeatPaintSchema(seat_ids=large, price_category_id=balcony.id), preview=True
             )
