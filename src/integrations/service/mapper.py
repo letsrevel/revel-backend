@@ -151,6 +151,11 @@ def _tier_skip_before_currency(tier: TicketTier, event: Event) -> tuple[Integrat
     # A sale on the external platform creates no Revel ticket, so it could never grant the day membership.
     if tier.grants_membership_tier_id:
         return IntegrationErrorCode.TIER_MEMBERS_ONLY, _("Tiers that grant a membership cannot be listed externally.")
+    # The platform cannot check membership or invitations, so only tiers anyone may buy are listed (#1332).
+    if tier.purchasable_by != TicketTier.PurchasableBy.PUBLIC:
+        return IntegrationErrorCode.TIER_PURCHASE_RESTRICTED, _(
+            "Tiers limited to members, invitees or non-members cannot be listed externally."
+        )
     if tier.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE:
         return IntegrationErrorCode.TIER_SEATED, _("Seated tiers cannot be listed externally.")
     if tier.payment_method not in (TicketTier.PaymentMethod.ONLINE, TicketTier.PaymentMethod.FREE):

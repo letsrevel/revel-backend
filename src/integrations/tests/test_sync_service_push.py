@@ -174,6 +174,21 @@ def test_unmappable_tier_is_hidden_then_unhidden_without_touching_remote_paused(
     assert fake_provider.get_event(connected.token(), "ev-1").ticket_classes[0].hidden is False
 
 
+def test_tier_switched_to_members_only_is_removed_on_next_push(
+    clean_event: Event, connected: PlatformConnection, fake_provider: FakeProvider
+) -> None:
+    link = sync_service.push_link(sync_service.ensure_link(clean_event, connected))
+    ga = clean_event.ticket_tiers.get(name="GA")
+    remote_id = TierLink.objects.get(event_link=link, tier=ga).remote_id
+    ga.purchasable_by = TicketTier.PurchasableBy.MEMBERS
+    ga.save()
+
+    sync_service.push_link(link)
+
+    assert ("delete_ticket_class", "ev-1", remote_id) in fake_provider.calls  # nothing sold, so deleted
+    assert not TierLink.objects.filter(event_link=link, tier=ga).exists()
+
+
 def test_class_deleted_on_the_platform_is_recreated(
     clean_event: Event, connected: PlatformConnection, fake_provider: FakeProvider
 ) -> None:

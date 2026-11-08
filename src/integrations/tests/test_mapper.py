@@ -172,6 +172,51 @@ def test_tier_skip_rules(clean_event: Event) -> None:
     assert all(e.tier_id is not None for e in mapped.report if e.scope == "tier")
 
 
+@pytest.mark.parametrize(
+    "purchasable_by",
+    [
+        TicketTier.PurchasableBy.MEMBERS,
+        TicketTier.PurchasableBy.INVITED,
+        TicketTier.PurchasableBy.INVITED_AND_MEMBERS,
+        TicketTier.PurchasableBy.NON_MEMBERS,
+    ],
+)
+def test_purchase_restricted_tiers_are_skipped(clean_event: Event, purchasable_by: TicketTier.PurchasableBy) -> None:
+    """The platform cannot check membership or invitations, so only PUBLIC tiers are listed (#1332)."""
+    _tier(clean_event, "Restricted", purchasable_by=purchasable_by)
+    mapped = mapper.map_event(clean_event, remote_paused={}, remote_tier_ids={})
+    assert mapped.tiers == []
+    assert [e.code for e in mapped.report if e.scope == "tier"] == [IntegrationErrorCode.TIER_PURCHASE_RESTRICTED]
+
+
+def test_public_tier_is_mapped(clean_event: Event) -> None:
+    _tier(clean_event, "Open", purchasable_by=TicketTier.PurchasableBy.PUBLIC)
+    mapped = mapper.map_event(clean_event, remote_paused={}, remote_tier_ids={})
+    assert [m.remote.name for m in mapped.tiers] == ["Open"]
+
+
+def test_membership_codes_win_over_purchase_restricted(clean_event: Event) -> None:
+    mt = MembershipTier.objects.create(organization=clean_event.organization, name="Gold")
+    members = _tier(clean_event, "Members", purchasable_by=TicketTier.PurchasableBy.MEMBERS)
+    members.restricted_to_membership_tiers.add(mt)
+    day = MembershipTier.objects.create(
+        organization=clean_event.organization, name="Day", kind=MembershipTier.Kind.TEMPORARY
+    )
+    _tier(
+        clean_event,
+        "Grants",
+        max_tickets_per_user=1,
+        grants_membership_tier=day,
+        purchasable_by=TicketTier.PurchasableBy.NON_MEMBERS,
+    )
+    mapped = mapper.map_event(clean_event, remote_paused={}, remote_tier_ids={})
+    codes = {e.tier_name: e.code for e in mapped.report if e.scope == "tier"}
+    assert codes == {
+        "Members": IntegrationErrorCode.TIER_MEMBERS_ONLY,
+        "Grants": IntegrationErrorCode.TIER_MEMBERS_ONLY,
+    }
+
+
 def test_unlimited_tier_uses_max_attendees(clean_event: Event) -> None:
     clean_event.max_attendees = 250
     clean_event.save()
