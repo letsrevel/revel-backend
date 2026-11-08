@@ -28,7 +28,7 @@ from common.thumbnails.tasks import (  # noqa: F401
     delete_orphaned_thumbnails_task,
     generate_thumbnails_task,
 )
-from common.utils import with_message_id
+from common.utils import render_plain_text, with_message_id
 
 logger = structlog.get_logger(__name__)
 
@@ -402,7 +402,7 @@ def notify_malware_detected(
 def _notify_user_about_malware(user: RevelUser, subject: str) -> None:
     """Send malware notification email to a user."""
     context = {"user": user, "frontend_base_url": SiteSettings.get_solo().frontend_base_url}
-    txt_body = render_to_string("common/emails/malware_detected_user.txt", context)
+    txt_body = render_plain_text("common/emails/malware_detected_user.txt", context)
     html_body = render_to_string("common/emails/malware_detected_user.html", context)
 
     send_email.delay(
@@ -444,7 +444,7 @@ def _notify_superusers_about_malware(
         "frontend_base_url": SiteSettings.get_solo().frontend_base_url,
     }
 
-    txt_body = render_to_string("common/emails/malware_detected_superuser.txt", context)
+    txt_body = render_plain_text("common/emails/malware_detected_superuser.txt", context)
     html_body = render_to_string("common/emails/malware_detected_superuser.html", context)
 
     send_email.delay(

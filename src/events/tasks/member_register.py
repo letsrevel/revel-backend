@@ -9,6 +9,7 @@ from django.utils import translation
 from django.utils.translation import gettext as _
 
 from common.tasks import send_email
+from common.utils import render_plain_text
 from events.models import MembershipRecord
 from events.service import member_register_linking
 from events.tasks.attendees import _guest_language, _tenant_sender
@@ -39,7 +40,7 @@ def send_member_register_invite(record_id: str) -> None:
     }
     with translation.override(_guest_language(record.email)):
         subject = _("%(organization)s invites you to link your membership") % {"organization": org.name}
-        body = render_to_string("events/emails/member_register_invite_body.txt", ctx)
+        body = render_plain_text("events/emails/member_register_invite_body.txt", ctx)
         html_body = render_to_string("events/emails/member_register_invite_body.html", ctx)
     send_email(
         to=record.email,

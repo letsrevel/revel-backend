@@ -24,7 +24,7 @@ from common.service.invoice_utils import (
     platform_issuer_name,
     render_pdf,
 )
-from common.utils import apex_email_domain, is_reserved_mailbox
+from common.utils import apex_email_domain, is_reserved_mailbox, render_plain_text
 from events.compliance import BuyerContext, Decision
 from events.compliance import enforcement as compliance
 from events.compliance.base import ALL_NEXUS
@@ -578,7 +578,7 @@ def deliver_attendee_invoice(invoice: AttendeeInvoice) -> None:
     sent = _send_org_branded_email(
         invoice=invoice,
         subject=f"Invoice {invoice.invoice_number} — {event_name}",
-        body=render_to_string("events/emails/attendee_invoice_email.txt", email_ctx),
+        body=render_plain_text("events/emails/attendee_invoice_email.txt", email_ctx),
         html_body=render_to_string("events/emails/attendee_invoice_email.html", email_ctx),
         attachment_path=invoice.pdf_file.name,
         attachment_filename=f"{invoice.invoice_number}.pdf",
@@ -981,7 +981,7 @@ def deliver_credit_note(credit_note: AttendeeInvoiceCreditNote) -> None:
     sent = _send_org_branded_email(
         invoice=invoice,
         subject=f"Credit Note {credit_note.credit_note_number} — {event_name}",
-        body=render_to_string("events/emails/attendee_credit_note_email.txt", email_ctx),
+        body=render_plain_text("events/emails/attendee_credit_note_email.txt", email_ctx),
         html_body=render_to_string("events/emails/attendee_credit_note_email.html", email_ctx),
         attachment_path=credit_note.pdf_file.name,
         attachment_filename=f"{credit_note.credit_note_number}.pdf",

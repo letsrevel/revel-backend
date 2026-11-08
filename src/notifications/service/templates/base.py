@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 
 from django.template.loader import render_to_string
 
+from common.utils import render_plain_text
 from notifications.models import Notification
 from notifications.utils import get_formatted_context_for_template
 
@@ -78,10 +79,10 @@ class NotificationTemplate(ABC):
             notification: The notification instance
 
         Returns:
-            Plain text email body
+            Plain text email body (autoescape off: plain text is not an HTML context)
         """
         template_name = f"notifications/email/{notification.notification_type}.txt"
-        return render_to_string(template_name, self._get_template_context(notification))
+        return render_plain_text(template_name, self._get_template_context(notification))
 
     def get_email_html_body(self, notification: Notification) -> str | None:
         """Get HTML email body.

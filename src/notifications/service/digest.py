@@ -10,6 +10,7 @@ from django.utils import timezone
 from django.utils.translation import ngettext
 
 from accounts.models import RevelUser
+from common.utils import render_plain_text
 from notifications.enums import DeliveryChannel, DeliveryStatus, NotificationType
 from notifications.models import Notification, NotificationPreference
 
@@ -90,7 +91,7 @@ class NotificationDigest:
             "unsubscribe_link": unsubscribe_link,
         }
 
-        text_body = render_to_string("notifications/emails/digest.txt", context)
+        text_body = render_plain_text("notifications/emails/digest.txt", context)
 
         html_body = render_to_string("notifications/emails/digest.html", context)
 

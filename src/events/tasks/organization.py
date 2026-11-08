@@ -13,6 +13,7 @@ from django.utils.translation import gettext as _
 
 from common.models import SiteSettings
 from common.tasks import send_email
+from common.utils import render_plain_text
 from events.models import Organization, OrganizationContactMessage
 
 logger = structlog.get_logger(__name__)
@@ -62,7 +63,7 @@ def send_organization_contact_email_verification(
     site_settings = SiteSettings.get_solo()
     frontend_base_url = site_settings.frontend_base_url
     verification_link = frontend_base_url + f"/org/{organization_slug}/verify-contact-email?token={token}"
-    body = render_to_string(
+    body = render_plain_text(
         "events/emails/organization_contact_email_verification_body.txt",
         {
             "verification_link": verification_link,
@@ -106,7 +107,7 @@ def send_organization_contact_message_email(message_id: str) -> None:
     site_settings = SiteSettings.get_solo()
     frontend_base_url = site_settings.frontend_base_url
     admin_link = frontend_base_url + f"/org/{organization.slug}/admin/contact-messages/{message.id}"
-    body = render_to_string(
+    body = render_plain_text(
         "events/emails/organization_contact_message_body.txt",
         {
             "organization_name": organization.name,

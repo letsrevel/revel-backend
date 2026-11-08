@@ -44,6 +44,7 @@ from accounts.models import (
 )
 from common.models import SiteSettings
 from common.tasks import send_email
+from common.utils import render_plain_text
 
 logger = structlog.get_logger(__name__)
 
@@ -286,8 +287,8 @@ def _notify_admins_of_forfeiture(user: RevelUser, summary: ReferralForfeitureSum
         "currency": summary.currency,
         "frontend_base_url": SiteSettings.get_solo().frontend_base_url,
     }
-    subject = str(render_to_string("accounts/emails/referral_forfeiture_admin_subject.txt", context)).strip()
-    body = render_to_string("accounts/emails/referral_forfeiture_admin_body.txt", context)
+    subject = str(render_plain_text("accounts/emails/referral_forfeiture_admin_subject.txt", context)).strip()
+    body = render_plain_text("accounts/emails/referral_forfeiture_admin_body.txt", context)
     html_body = render_to_string("accounts/emails/referral_forfeiture_admin_body.html", context)
     for admin in admins:
         send_email(to=admin.email, subject=subject, body=body, html_body=html_body)
