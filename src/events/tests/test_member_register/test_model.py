@@ -143,15 +143,18 @@ def test_day_bounds_org_timezone(ny_organization: Organization) -> None:
     ("day", "start_utc", "hours"),
     [
         # Havana springs forward at local midnight (00:00 -> 01:00): the day starts at the jump.
-        (date(2026, 3, 8), datetime(2026, 3, 8, 5, tzinfo=UTC), 23),
+        (date(2025, 3, 9), datetime(2025, 3, 9, 5, tzinfo=UTC), 23),
         # Havana falls back at 01:00 -> 00:00: midnight happens twice; the day starts at the first one.
-        (date(2026, 11, 1), datetime(2026, 11, 1, 4, tzinfo=UTC), 25),
+        (date(2025, 11, 2), datetime(2025, 11, 2, 4, tzinfo=UTC), 25),
     ],
 )
 def test_day_bounds_when_midnight_is_skipped_or_repeated(
     ny_organization: Organization, day: date, start_utc: datetime, hours: int
 ) -> None:
-    """fold=0 on a nonexistent/ambiguous local midnight maps to the first instant of the local day (PEP 495)."""
+    """fold=0 on a nonexistent/ambiguous local midnight maps to the first instant of the local day (PEP 495).
+
+    Historical transitions, so a future tzdata change to Cuba's rules can't break the test.
+    """
     assert ny_organization.city is not None
     ny_organization.city.timezone = "America/Havana"
     ny_organization.city.save(update_fields=["timezone"])
