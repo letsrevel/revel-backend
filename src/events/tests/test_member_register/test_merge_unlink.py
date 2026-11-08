@@ -231,6 +231,24 @@ class TestUnlink:
         survivor.refresh_from_db()
         assert survivor.valid_from == original_from
 
+    def test_two_merges_unlinked_in_merge_order(
+        self, owner_client: Client, organization: Organization, survivor: MembershipRecord, make_record: RecordFactory
+    ) -> None:
+        """Non-LIFO: unlinking the older merge first still ends with the survivor's own start."""
+        original_from = survivor.valid_from
+        first = make_record(valid_from=timezone.now() - 20 * DAY)
+        second = make_record(valid_from=timezone.now() - 40 * DAY)
+        _merge(owner_client, organization, survivor, first)
+        _merge(owner_client, organization, survivor, second)
+
+        owner_client.post(_unlink_url(organization, first))
+        survivor.refresh_from_db()
+        assert survivor.valid_from == second.valid_from
+
+        owner_client.post(_unlink_url(organization, second))
+        survivor.refresh_from_db()
+        assert survivor.valid_from == original_from
+
     def test_unmerge_keeps_a_start_staff_moved_since(
         self, owner_client: Client, organization: Organization, survivor: MembershipRecord, make_record: RecordFactory
     ) -> None:

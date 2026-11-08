@@ -179,7 +179,14 @@ def merge_records(survivor: MembershipRecord, absorbed: MembershipRecord) -> Mem
         if _is_open_standard(absorbed):
             if not _is_open_standard(survivor):
                 raise HttpError(400, str(_("An open entry can only be merged into another open standard entry.")))
-            absorbed.merge_prior_valid_from = survivor.valid_from
+            # Every entry absorbed by one survivor stores the survivor's *own* start (from before its first
+            # merge), so any unlink order can recompute the start from what is still merged.
+            own_start = (
+                survivor.absorbed_records.exclude(merge_prior_valid_from=None)
+                .values_list("merge_prior_valid_from", flat=True)
+                .first()
+            )
+            absorbed.merge_prior_valid_from = own_start or survivor.valid_from
             absorbed.merged_into = survivor
             absorbed.invite_token = None
             absorbed.duplicate_claimant = None
@@ -228,11 +235,11 @@ def unlink_record(record: MembershipRecord) -> MembershipRecord:
                 .exclude(pk=current.pk)
                 .values_list("valid_from", flat=True)
             )
-            # Restore only while the survivor's start is still the one this entry gave it; a start staff moved
-            # since is theirs to keep. ponytail: exact for a single merge and for LIFO unlinks of several; after
-            # a non-LIFO unlink the restored date can be later than the true original (upgrade path: a merge log).
-            if current.merge_prior_valid_from is not None and survivor.valid_from == current.valid_from:
-                restored = min([current.merge_prior_valid_from, *others])
+            # Recompute only while the survivor's start is still the merge-derived one (its own start or the
+            # earliest absorbed start); a start staff moved since is theirs to keep.
+            own_start = current.merge_prior_valid_from
+            if own_start is not None and survivor.valid_from == min([own_start, current.valid_from, *others]):
+                restored = min([own_start, *others])
                 if survivor.valid_until is not None:
                     restored = min(restored, survivor.valid_until)
                 survivor.valid_from = restored

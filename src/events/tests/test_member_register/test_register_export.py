@@ -1,7 +1,7 @@
 """Tests for the member register xlsx export (#1319)."""
 
 import typing as t
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -209,9 +209,11 @@ def test_merged_record_is_marked_and_not_counted_open(
 def test_day_filtered_export_excludes_absorbed_record(
     organization: Organization, organization_owner_user: RevelUser
 ) -> None:
-    survivor = _rec(organization, "Survivor")
-    _rec(organization, "Absorbed", merged_into=survivor)
-    export = _export(organization, organization_owner_user, active_on=timezone.now().date())
+    """A fixed day well inside both records' periods keeps the test independent of the clock and timezone."""
+    start = datetime(2026, 6, 1, tzinfo=UTC)
+    survivor = _rec(organization, "Survivor", valid_from=start)
+    _rec(organization, "Absorbed", merged_into=survivor, valid_from=start)
+    export = _export(organization, organization_owner_user, active_on=date(2026, 6, 15))
 
     generate_member_register_export(export.id)
 
