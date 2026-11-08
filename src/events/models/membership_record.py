@@ -44,6 +44,19 @@ class MembershipRecordInviteStatus(models.TextChoices):
     LINKED = "linked", _("Linked")
 
 
+class MembershipRecordLinkMethod(models.TextChoices):
+    """How an account-less register entry got linked to an account (#1319).
+
+    Not set for entries the access-row mirror creates already linked (there was no link event) nor for
+    rows that predate this field.
+    """
+
+    INVITE = "invite", _("Invitation")
+    AUTO_EMAIL = "auto_email", _("Verified email")
+    APPROVAL = "approval", _("Application approval")
+    MERGE = "merge", _("Merge")
+
+
 class RegisterMatchReason(models.TextChoices):
     """Why an account-less register entry may be the same person as an account or a linked entry (#1319)."""
 
@@ -110,6 +123,7 @@ class MembershipRecord(TimeStampedModel):
     EndedReason = MembershipRecordEndedReason
     Source = MembershipRecordSource
     InviteStatus = MembershipRecordInviteStatus
+    LinkMethod = MembershipRecordLinkMethod
 
     organization = models.ForeignKey("events.Organization", on_delete=models.CASCADE, related_name="membership_records")
     user = models.ForeignKey(
@@ -156,6 +170,10 @@ class MembershipRecord(TimeStampedModel):
     duplicate_claimant = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
+
+    # Provenance of the link (#1319): null for unlinked entries, mirror-created ones and rows from before the field.
+    linked_via = models.CharField(max_length=20, choices=LinkMethod.choices, null=True, blank=True)
+    linked_at = models.DateTimeField(null=True, blank=True)
 
     # Reconciliation (#1319): an account-less duplicate absorbed into a survivor stays for audit but counts nowhere.
     # SET_NULL: deleting a survivor must not silently delete the absorbed history.

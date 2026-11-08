@@ -11,6 +11,7 @@ from uuid import UUID
 
 import structlog
 from django.db import transaction
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -208,7 +209,11 @@ def merge_records(survivor: MembershipRecord, absorbed: MembershipRecord) -> Mem
             absorbed.user = survivor.user
             absorbed.invite_token = None
             absorbed.duplicate_claimant = None
-            absorbed.save(update_fields=["user", "invite_token", "duplicate_claimant", "updated_at"])
+            absorbed.linked_via = MembershipRecord.LinkMethod.MERGE
+            absorbed.linked_at = timezone.now()
+            absorbed.save(
+                update_fields=["user", "invite_token", "duplicate_claimant", "linked_via", "linked_at", "updated_at"]
+            )
         logger.info("member_register_merged", survivor_id=str(survivor.pk), absorbed_id=str(absorbed.pk))
         return survivor
 
@@ -254,7 +259,9 @@ def unlink_record(record: MembershipRecord) -> MembershipRecord:
         was_open_standard = _is_open_standard(current)
         # The link goes first, so the mirror finds no open record for the account and leaves the register alone.
         current.user = None
-        current.save(update_fields=["user", "updated_at"])
+        current.linked_via = None
+        current.linked_at = None
+        current.save(update_fields=["user", "linked_via", "linked_at", "updated_at"])
         if was_open_standard:
             member = (
                 visible_memberships()

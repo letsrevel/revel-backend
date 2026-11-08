@@ -7300,6 +7300,18 @@ msgstr "Associado"
 msgid "Not invited"
 msgstr "Não convidado"
 
+msgid "Invitation"
+msgstr "Convite"
+
+msgid "Verified email"
+msgstr "E-mail verificado"
+
+msgid "Application approval"
+msgstr "Aprovação da candidatura"
+
+msgid "Merge"
+msgstr "Fusão"
+
 msgid "This register entry has no email address to invite."
 msgstr "Esta entrada do registo não tem um endereço de e-mail para onde enviar o convite."
 

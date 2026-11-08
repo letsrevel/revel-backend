@@ -100,6 +100,7 @@ class TestAdoptionAtSource:
 
         record.refresh_from_db()
         assert record.user == user
+        assert (record.linked_via, record.linked_at is not None) == (MembershipRecord.LinkMethod.AUTO_EMAIL, True)
         assert _open_records(organization, user) == [record]
         assert MembershipRecord.objects.filter(organization=organization).count() == 1
         alerts = _alerts(send)
@@ -398,6 +399,7 @@ class TestApproveAndLink:
         assert response.status_code == 204, response.content
         record.refresh_from_db()
         assert record.user == user
+        assert (record.linked_via, record.linked_at is not None) == (MembershipRecord.LinkMethod.APPROVAL, True)
         assert _open_records(organization, user) == [record]
         assert OrganizationMember.objects.get(organization=organization, user=user).status == "active"
 

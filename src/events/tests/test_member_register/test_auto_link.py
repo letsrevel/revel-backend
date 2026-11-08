@@ -49,6 +49,7 @@ def test_verification_links_and_alerts_staff(
 
     record.refresh_from_db()
     assert record.user == user
+    assert (record.linked_via, record.linked_at is not None) == (MembershipRecord.LinkMethod.AUTO_EMAIL, True)
     assert OrganizationMember.objects.filter(organization=organization, user=user).exists()
     sent = {c.kwargs["notification_type"]: c.kwargs for c in send.call_args_list}
     assert NotificationType.MEMBERSHIP_GRANTED in sent

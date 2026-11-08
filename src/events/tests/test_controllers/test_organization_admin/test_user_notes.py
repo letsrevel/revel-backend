@@ -64,6 +64,7 @@ class TestNoteCrud:
         assert first.status_code == 200, first.content
         assert first.json()["body"] == "Allergic to **nuts**"
         assert first.json()["updated_by_id"] == str(organization_owner_user.id)
+        assert first.json()["updated_by_name"] == organization_owner_user.get_display_name()
 
         second = _put(organization_owner_client, organization, target, "Updated")
         assert second.status_code == 200
@@ -72,6 +73,27 @@ class TestNoteCrud:
         got = organization_owner_client.get(_note_url(organization, target))
         assert got.status_code == 200
         assert got.json()["body"] == "Updated"
+
+    def test_get_names_the_editor_in_one_query_and_none_when_deleted(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        target: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        _put(organization_owner_client, organization, target, "Hello")
+        url = _note_url(organization, target)
+
+        with CaptureQueriesContext(connection) as ctx:
+            body = organization_owner_client.get(url).json()
+        assert body["updated_by_name"] == organization_owner_user.get_display_name()
+        # The editor comes from the note's own query (JOIN), never a per-note lookup.
+        editor_lookups = [q for q in ctx.captured_queries if 'FROM "accounts_reveluser" WHERE' in q["sql"]]
+        assert not [q for q in editor_lookups if str(organization_owner_user.id) in q["sql"]]
+
+        OrganizationUserNote.objects.filter(organization=organization, user=target).update(updated_by=None)
+        gone = organization_owner_client.get(url).json()
+        assert gone["updated_by_id"] is None and gone["updated_by_name"] is None
 
     def test_put_unknown_user_404(self, organization_owner_client: Client, organization: Organization) -> None:
         response = organization_owner_client.put(

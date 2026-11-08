@@ -55,6 +55,7 @@ def test_no_access_row_creates_active_member_at_record_tier(
     assert result.member == member
     record.refresh_from_db()
     assert record.user == claimant and record.invite_token is None
+    assert (record.linked_via, record.linked_at is not None) == (MembershipRecord.LinkMethod.INVITE, True)
     assert _open(organization, claimant) == [record]
     assert len(_granted_notifications(send)) == 1
 

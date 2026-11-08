@@ -136,6 +136,7 @@ class TestMerge:
         absorbed.refresh_from_db()
         survivor.refresh_from_db()
         assert absorbed.user == survivor.user and absorbed.merged_into is None
+        assert (absorbed.linked_via, absorbed.linked_at is not None) == (MembershipRecord.LinkMethod.MERGE, True)
         assert survivor.valid_from < timezone.now()
 
     def test_temporary_absorbed_is_attached(
@@ -310,11 +311,15 @@ class TestUnlink:
         survivor: MembershipRecord,
         account: RevelUser,
     ) -> None:
+        survivor.linked_via, survivor.linked_at = MembershipRecord.LinkMethod.INVITE, timezone.now()
+        survivor.save(update_fields=["linked_via", "linked_at"])
+
         response = owner_client.post(_unlink_url(organization, survivor))
 
         assert response.status_code == 200, response.content
         survivor.refresh_from_db()
         assert survivor.user is None and survivor.valid_until is None
+        assert MembershipRecord.objects.filter(pk=survivor.pk, linked_via=None, linked_at=None).exists()
         member = OrganizationMember.objects.get(organization=organization, user=account)
         assert member.status == OrganizationMember.MembershipStatus.CANCELLED
         assert not MembershipRecord.objects.open().filter(organization=organization, user=account).exists()
@@ -346,12 +351,18 @@ class TestUnlink:
         account: RevelUser,
         make_record: RecordFactory,
     ) -> None:
-        closed = make_record(user=account, valid_from=timezone.now() - 90 * DAY, valid_until=timezone.now() - 60 * DAY)
+        closed = make_record(
+            user=account,
+            valid_from=timezone.now() - 90 * DAY,
+            valid_until=timezone.now() - 60 * DAY,
+            linked_via=MembershipRecord.LinkMethod.MERGE,
+            linked_at=timezone.now(),
+        )
 
         assert owner_client.post(_unlink_url(organization, closed)).status_code == 200
 
         closed.refresh_from_db()
-        assert closed.user is None
+        assert closed.user is None and closed.linked_via is None and closed.linked_at is None
         member = OrganizationMember.objects.get(organization=organization, user=account)
         assert member.status == OrganizationMember.MembershipStatus.ACTIVE
         assert MembershipRecord.objects.open().filter(organization=organization, user=account).count() == 1
