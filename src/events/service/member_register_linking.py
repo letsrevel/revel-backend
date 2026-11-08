@@ -138,7 +138,8 @@ def link_record(
             or not user.email
             or not MembershipRecord.objects.filter(pk=locked.pk, email__iexact=user.email).exists()
         )
-        if locked.user_id is not None or revoked or stale_token or email_mismatch:
+        merged = locked.merged_into_id is not None  # merged after the caller's selection: it is not linkable
+        if locked.user_id is not None or merged or revoked or stale_token or email_mismatch:
             return LinkResult(LinkOutcome.ALREADY_LINKED, locked)
 
         open_standard = locked.valid_until is None and locked.kind == MembershipRecord.Kind.STANDARD

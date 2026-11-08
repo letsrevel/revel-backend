@@ -431,3 +431,21 @@ def test_survivor_with_absorbed_entries_cannot_be_deleted(
 
     assert owner_client.post(_unlink_url(organization, absorbed)).status_code == 200
     assert owner_client.delete(url).status_code == 204
+
+
+def test_link_record_refuses_an_entry_merged_after_selection(
+    make_record: RecordFactory, django_user_model: type[RevelUser]
+) -> None:
+    """An auto-link that selected an entry before staff merged it does nothing once it holds the lock."""
+    from events.service.member_register_linking import LinkOutcome, link_record
+
+    survivor = make_record(full_name="Survivor", email="s@example.com")
+    absorbed = make_record(email="pat@example.com", valid_from=timezone.now() - timedelta(days=30))
+    MembershipRecord.objects.filter(pk=absorbed.pk).update(merged_into=survivor)
+    user = django_user_model.objects.create_user(
+        username="pat@example.com", email="pat@example.com", password="pw", email_verified=True
+    )
+
+    assert link_record(absorbed, user, require_verified_email=True).outcome == LinkOutcome.ALREADY_LINKED
+    absorbed.refresh_from_db()
+    assert absorbed.user is None
