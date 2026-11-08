@@ -85,6 +85,7 @@ def outsider_client(django_user_model: type[RevelUser]) -> Client:
     """Client of an unrelated user."""
     return make_client(django_user_model.objects.create_user(username="out", email="out@example.com", password="pw"))
 
+
 @pytest.fixture
 def ny_organization(organization: Organization) -> Organization:
     """The shared organization, moved to a New York city (America/New_York timezone)."""
