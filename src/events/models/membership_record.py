@@ -69,6 +69,8 @@ class MembershipRecordQuerySet(models.QuerySet["MembershipRecord"]):
             self.exclude(ended_reason=MembershipRecord.EndedReason.REVOKED)
             .filter(valid_from__lt=end)
             .filter(models.Q(valid_until__isnull=True) | models.Q(valid_until__gt=start))
+            # A zero-length period (valid_until == valid_from, e.g. an instant tier change) covers no time.
+            .filter(models.Q(valid_until__isnull=True) | models.Q(valid_until__gt=models.F("valid_from")))
         )
 
 

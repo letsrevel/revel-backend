@@ -169,3 +169,18 @@ def test_day_bounds_dst_spring_forward(ny_organization: Organization) -> None:
     assert start.utcoffset() == timedelta(hours=-5)
     assert end.utcoffset() == timedelta(hours=-4)
     assert end.astimezone(UTC) - start.astimezone(UTC) == timedelta(hours=23)
+
+
+def test_active_during_skips_zero_length_periods(organization: Organization) -> None:
+    """A record that ends the instant it starts covers no time, so it is never active on a day."""
+    at = timezone.now() - timedelta(days=1)
+    empty = MembershipRecord.objects.create(
+        organization=organization,
+        full_name="Instant",
+        valid_from=at,
+        valid_until=at,
+        ended_reason=MembershipRecordEndedReason.TIER_CHANGED,
+        source=MembershipRecord.Source.MANUAL,
+    )
+    qs = MembershipRecord.objects.filter(organization=organization)
+    assert empty not in qs.active_during(at - timedelta(hours=1), at + timedelta(hours=1))
