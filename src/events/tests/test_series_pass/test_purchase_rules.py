@@ -93,3 +93,47 @@ class TestTierLinkPurchaseRules:
         with pytest.raises(ValidationError) as exc:
             series_pass.full_clean()
         assert "purchasable_by" in exc.value.message_dict
+
+
+@pytest.mark.django_db
+class TestExistingLinksUntouched:
+    def test_resaving_a_pre_existing_mismatched_link_is_allowed(self, series_pass: SeriesPass, event: Event) -> None:
+        """A link that predates the rule (bulk_create bypasses clean) can still be re-saved, e.g. by an admin inline."""
+        tier = _tier(event, P.MEMBERS)
+        SeriesPassTierLink.objects.bulk_create([SeriesPassTierLink(series_pass=series_pass, event=event, tier=tier)])
+        link = SeriesPassTierLink.objects.get(series_pass=series_pass, event=event)
+        link.save()  # full_cleans; must not raise
+
+    def test_repointing_an_existing_link_to_a_stricter_tier_is_rejected(
+        self, series_pass: SeriesPass, event: Event
+    ) -> None:
+        link = SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=_tier(event, P.PUBLIC))
+        link.tier = _tier(event, P.MEMBERS)
+        with pytest.raises(ValidationError) as exc:
+            link.save()
+        assert "tier" in exc.value.message_dict
+
+
+@pytest.mark.django_db
+class TestDayMembershipGrantingTiers:
+    """Granting tiers (#1334) may be non_members; only a non_members pass may cover one."""
+
+    def _granting_tier(self, event: Event, organization: Organization) -> TicketTier:
+        day = MembershipTier.objects.create(organization=organization, name="Day", kind=MembershipTier.Kind.TEMPORARY)
+        return _tier(event, P.NON_MEMBERS, grants_membership_tier=day, max_tickets_per_user=1)
+
+    def test_public_pass_rejects_non_members_granting_tier(
+        self, series_pass: SeriesPass, event: Event, organization: Organization
+    ) -> None:
+        link = SeriesPassTierLink(series_pass=series_pass, event=event, tier=self._granting_tier(event, organization))
+        with pytest.raises(ValidationError):
+            link.full_clean()
+
+    def test_non_members_pass_accepts_non_members_granting_tier(
+        self, series_pass: SeriesPass, event: Event, organization: Organization
+    ) -> None:
+        series_pass.purchasable_by = P.NON_MEMBERS
+        series_pass.save()
+        SeriesPassTierLink(
+            series_pass=series_pass, event=event, tier=self._granting_tier(event, organization)
+        ).full_clean()
