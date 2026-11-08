@@ -23,7 +23,6 @@ from events.models import (
     OrganizationMember,
 )
 from events.models.membership_record import MembershipRecordQuerySet
-from events.service.member_register_linking import adopt_unlinked_record
 from questionnaires.models import QuestionnaireSubmission
 
 # ``None`` means no ``record_source`` block is active (records then default to STAFF, or inherit on re-open).
@@ -78,6 +77,10 @@ def open_standard_record(member: OrganizationMember) -> MembershipRecord:
         existing = _open_standard_qs(member.organization_id, member.user_id).select_for_update().first()
         if existing is not None:
             return existing
+        # Lazy: linking imports the notification signals, which reach events.tasks -> day_membership_service ->
+        # this module (import cycle at app load).
+        from events.service.member_register_linking import adopt_unlinked_record
+
         if (adopted := adopt_unlinked_record(member)) is not None:
             return _settle_adopted(adopted, member)
 
