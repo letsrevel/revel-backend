@@ -16,6 +16,7 @@ from events.models import (
     MembershipRecordSource,
     RegisterMatchReason,
 )
+from events.service import member_register_linking as linking
 
 _FULL_NAME_MAX = 255
 
@@ -47,6 +48,8 @@ class MembershipRecordSchema(ModelSchema):
     has_account: bool
     invited_at: AwareDatetime | None = None
     invite_status: MembershipRecordInviteStatus
+    can_invite: bool
+    invite_blocked_reason: str | None = None
     has_duplicate_claim: bool
     merged_into_id: UUID | None = None
     linked_via: MembershipRecordLinkMethod | None = None
@@ -70,6 +73,16 @@ class MembershipRecordSchema(ModelSchema):
     def resolve_invite_status(obj: MembershipRecord) -> MembershipRecordInviteStatus:
         """Not invited, invited (link sent, unclaimed) or linked to an account."""
         return obj.invite_status
+
+    @staticmethod
+    def resolve_can_invite(obj: MembershipRecord) -> bool:
+        """Whether a staff invite would be accepted for this entry."""
+        return linking.invite_blocked_reason(obj) is None
+
+    @staticmethod
+    def resolve_invite_blocked_reason(obj: MembershipRecord) -> str | None:
+        """Why the entry cannot be invited (translated), or null when it can."""
+        return linking.invite_blocked_reason(obj)
 
 
 class MembershipRecordCreateSchema(Schema):

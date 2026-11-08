@@ -7474,6 +7474,12 @@ msgstr "Cette adhésion n'a pas encore commencé. Réessaie le lien une fois qu'
 msgid "This register entry starts in the future; invite the person once it has started."
 msgstr "Cette entrée du registre commence dans le futur ; invite la personne une fois qu'elle aura commencé."
 
+msgid "Only standard register entries can be invited."
+msgstr "Seules les entrées standard du registre peuvent être invitées."
+
+msgid "An ended register entry cannot be invited."
+msgstr "Une entrée de registre terminée ne peut pas être invitée."
+
 msgid "This register entry was just linked to an account; reload it and try again."
 msgstr "Cette entrée du registre vient d'être liée à un compte ; recharge-la et réessaie."
 

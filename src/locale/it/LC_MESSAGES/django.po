@@ -7438,6 +7438,12 @@ msgstr "Questa iscrizione non è ancora iniziata. Riprova con il link quando sar
 msgid "This register entry starts in the future; invite the person once it has started."
 msgstr "Questa voce del registro inizia in futuro; invita la persona quando sarà iniziata."
 
+msgid "Only standard register entries can be invited."
+msgstr "Possono essere invitate solo le voci standard del registro."
+
+msgid "An ended register entry cannot be invited."
+msgstr "Una voce del registro terminata non può essere invitata."
+
 msgid "This register entry was just linked to an account; reload it and try again."
 msgstr "Questa voce del registro è appena stata collegata a un account; ricaricala e riprova."
 

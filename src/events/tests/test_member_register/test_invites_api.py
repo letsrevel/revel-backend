@@ -116,6 +116,68 @@ class TestSendInvite:
         record = make_record(valid_from=start, valid_until=start, ended_reason=MembershipRecord.EndedReason.REVOKED)
         assert owner_client.post(_invite_url(organization, record)).status_code == 400
 
+    def test_temporary_entry_is_400(
+        self, owner_client: Client, organization: Organization, make_record: RecordFactory
+    ) -> None:
+        record = make_record(kind=MembershipRecord.Kind.TEMPORARY)
+
+        with patch(DELAY) as delay:
+            response = owner_client.post(_invite_url(organization, record))
+
+        assert response.status_code == 400
+        delay.assert_not_called()
+        record.refresh_from_db()
+        assert record.invite_token is None
+
+    def test_closed_standard_entry_is_400(
+        self, owner_client: Client, organization: Organization, make_record: RecordFactory
+    ) -> None:
+        record = make_record(
+            valid_from=timezone.now() - timedelta(days=3), valid_until=timezone.now() - timedelta(days=1)
+        )
+
+        with patch(DELAY) as delay:
+            response = owner_client.post(_invite_url(organization, record))
+
+        assert response.status_code == 400
+        delay.assert_not_called()
+        record.refresh_from_db()
+        assert record.invite_token is None
+
+    def test_open_standard_entry_is_invited(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        record = make_record()
+
+        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+            response = owner_client.post(_invite_url(organization, record))
+
+        assert response.status_code == 200
+        record.refresh_from_db()
+        assert record.invite_token is not None
+        delay.assert_called_once_with(str(record.pk))
+
+    def test_resend_to_invited_open_entry_still_works(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        record = make_record(invited_at=timezone.now(), invite_token="old-token")
+
+        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+            response = owner_client.post(_invite_url(organization, record))
+
+        assert response.status_code == 200
+        record.refresh_from_db()
+        assert record.invite_token != "old-token"
+        delay.assert_called_once_with(str(record.pk))
+
     def test_permissions(
         self,
         organization: Organization,
@@ -164,6 +226,50 @@ class TestSendInvite:
         assert by_email["a@example.com"] == "not_invited"
         assert by_email["b@example.com"] == "invited"
         assert by_email["c@example.com"] == "linked"
+
+
+class TestInviteEligibilityFields:
+    def test_list_reports_can_invite_and_blocked_reason(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        claimant: RevelUser,
+    ) -> None:
+        now = timezone.now()
+        survivor = make_record(email="survivor@example.com")
+        make_record(email="open@example.com")
+        make_record(email="linked@example.com", user=claimant)
+        make_record(email="merged@example.com", merged_into=survivor)
+        make_record(email="")
+        make_record(email="temp@example.com", kind=MembershipRecord.Kind.TEMPORARY)
+        make_record(email="closed@example.com", valid_from=now - timedelta(days=3), valid_until=now - timedelta(days=1))
+        make_record(
+            email="revoked@example.com",
+            valid_from=now - timedelta(days=3),
+            valid_until=now - timedelta(days=3),
+            ended_reason=MembershipRecord.EndedReason.REVOKED,
+        )
+        make_record(email="future@example.com", valid_from=now + timedelta(days=5))
+
+        url = reverse("api:list_member_register", kwargs={"slug": organization.slug})
+        results = {r["email"]: r for r in owner_client.get(url).json()["results"]}
+
+        assert results["open@example.com"]["can_invite"] is True
+        assert results["open@example.com"]["invite_blocked_reason"] is None
+        blocked_emails = [
+            "linked@example.com",
+            "merged@example.com",
+            "",
+            "temp@example.com",
+            "closed@example.com",
+            "revoked@example.com",
+            "future@example.com",
+        ]
+        for email in blocked_emails:
+            row = results[email]
+            assert row["can_invite"] is False, email
+            assert row["invite_blocked_reason"], email
 
 
 class TestBulkInvite:
