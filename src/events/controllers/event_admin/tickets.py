@@ -280,13 +280,22 @@ class EventAdminTicketsController(EventAdminBaseController):
     @route.get(
         "/tickets/{ticket_id}",
         url_name="get_ticket",
-        response={200: schema.AdminTicketSchema},
+        response={200: schema.AdminTicketDetailSchema},
         throttle=UserDefaultThrottle(),
     )
     def get_ticket(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
-        """Get a ticket by its ID."""
+        """Get a ticket by its ID.
+
+        Carries the private note about the holder for staff who may check attendees in (the door
+        scanner's confirm dialog); ``null`` for other staff and for OAuth app tokens.
+        """
         event = self.get_one(event_id)
-        return get_object_or_404(models.Ticket.objects.full().with_membership_record(), pk=ticket_id, event=event)
+        tickets: QuerySet[models.Ticket] = models.Ticket.objects.full().with_membership_record()
+        if not controller_uses_app_token(self) and event.organization.has_org_permission(
+            self.user().id, "check_in_attendees"
+        ):
+            tickets = check_in_service.annotate_private_note(tickets, event.organization_id)
+        return get_object_or_404(tickets, pk=ticket_id, event=event)
 
     @route.patch(
         "/tickets/{ticket_id}/guest-name",
