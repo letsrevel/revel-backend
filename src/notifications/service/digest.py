@@ -1,5 +1,6 @@
 """Notification digest service for batching notifications."""
 
+import html
 import typing as t
 from datetime import datetime, timedelta
 
@@ -91,7 +92,11 @@ class NotificationDigest:
             "unsubscribe_link": unsubscribe_link,
         }
 
-        text_body = render_plain_text("notifications/emails/digest.txt", context)
+        # Stored bodies are rendered from the in-app markdown template with autoescape on, so
+        # they hold entities such as ``&amp;``. Undo that for the plain-text part only; the HTML
+        # part keeps the escaped values. Titles are stored raw and need no decoding.
+        text_context = {**context, "notification_groups": _unescape_groups(groups)}
+        text_body = render_plain_text("notifications/emails/digest.txt", text_context)
 
         html_body = render_to_string("notifications/emails/digest.html", context)
 
@@ -164,6 +169,17 @@ class NotificationDigest:
         )
 
         return True
+
+
+def _unescape_groups(groups: list[DigestGroup]) -> list[DigestGroup]:
+    """Return copies of ``groups`` with each stored body's HTML entities decoded (plain-text use)."""
+    return [
+        {
+            **group,
+            "notifications": [{**item, "body": html.unescape(item["body"])} for item in group["notifications"]],
+        }
+        for group in groups
+    ]
 
 
 def _humanize_notification_type(notification_type: str) -> str:
