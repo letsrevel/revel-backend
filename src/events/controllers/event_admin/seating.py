@@ -69,7 +69,7 @@ class EventAdminSeatingController(EventAdminBaseController):
             recipient=recipient,
             guest_name=payload.guest_name,
         )
-        return models.Ticket.objects.full().get(pk=ticket.pk)
+        return models.Ticket.objects.full().with_membership_record().get(pk=ticket.pk)
 
     @route.post(
         "/seating/reseat",
@@ -80,4 +80,4 @@ class EventAdminSeatingController(EventAdminBaseController):
         """Move a PENDING/ACTIVE ticket to another free seat in the same price category."""
         event = self.get_one(event_id)
         ticket = box_office.reseat(event, ticket_id=payload.ticket_id, target_seat_id=payload.target_seat_id)
-        return models.Ticket.objects.full().get(pk=ticket.pk)
+        return models.Ticket.objects.full().with_membership_record().get(pk=ticket.pk)

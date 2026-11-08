@@ -59,6 +59,7 @@ from .ticket_detail import (
     TicketComplianceLineSchema,
     TicketDiscountCodeSchema,
     TicketGuestNameUpdateSchema,
+    TicketMembershipRecordSchema,
     TicketSeriesPassSchema,
     UserTicketSchema,
 )
@@ -135,6 +136,7 @@ __all__ = [
     "TicketComplianceLineSchema",
     "TicketDiscountCodeSchema",
     "TicketGuestNameUpdateSchema",
+    "TicketMembershipRecordSchema",
     "TicketPurchaseItem",
     "TicketRefundContextSchema",
     "TicketRefundSchema",
