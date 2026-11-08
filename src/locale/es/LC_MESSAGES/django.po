@@ -7292,3 +7292,90 @@ msgstr "Los niveles que conceden una membresía no pueden publicarse externament
 #: events/service/announcement_service.py
 msgid "Temporary membership tiers cannot be targeted by announcements."
 msgstr "Los niveles de membresía temporales no pueden ser destinatarios de anuncios."
+
+#, python-format
+msgid "%(member)s was linked to a register entry in %(org)s"
+msgstr "%(member)s se vinculó a una entrada del registro en %(org)s"
+
+#, python-format
+msgid "Register entry linked automatically: %(org)s"
+msgstr "Entrada del registro vinculada automáticamente: %(org)s"
+
+msgid "Register Entry Linked Automatically"
+msgstr "Entrada del registro vinculada automáticamente"
+
+#, python-format
+msgid "%(member)s was linked automatically to the register entry %(record)s in %(org)s because their verified email matched."
+msgstr "%(member)s se vinculó automáticamente a la entrada del registro %(record)s en %(org)s porque su correo electrónico verificado coincidía."
+
+msgid "Member:"
+msgstr "Miembro:"
+
+msgid "Register entry:"
+msgstr "Entrada del registro:"
+
+msgid "If this is wrong, review the entry in the member register."
+msgstr "Si esto es incorrecto, revisa la entrada en el registro de miembros."
+
+msgid "Open Member Register"
+msgstr "Abrir el registro de miembros"
+
+#, python-format
+msgid "%(organization)s invites you to link your membership"
+msgstr "%(organization)s te invita a vincular tu membresía"
+
+#, python-format
+msgid "%(organization_name)s invites you to link your membership"
+msgstr "%(organization_name)s te invita a vincular tu membresía"
+
+#, python-format
+msgid "%(organization_name)s keeps a register of its members and has you on it as %(full_name)s."
+msgstr "%(organization_name)s mantiene un registro de sus miembros y te tiene en él como %(full_name)s."
+
+msgid "A revoked register entry cannot be invited."
+msgstr "No se puede invitar a una entrada del registro revocada."
+
+msgid "If you don't have an account, you can create one through this link with any email address."
+msgstr "Si no tienes una cuenta, puedes crear una con este enlace usando cualquier dirección de correo."
+
+msgid "If you weren't expecting this, you can safely ignore this email."
+msgstr "Si no esperabas esto, puedes ignorar este correo sin problema."
+
+msgid "Invited"
+msgstr "Invitado"
+
+msgid "Link my membership"
+msgstr "Vincular mi membresía"
+
+msgid "Link your entry to a Revel account to manage your membership online:"
+msgstr "Vincula tu entrada a una cuenta de Revel para gestionar tu membresía en línea:"
+
+msgid "Link your membership"
+msgstr "Vincula tu membresía"
+
+msgid "Linked"
+msgstr "Vinculado"
+
+msgid "Not invited"
+msgstr "No invitado"
+
+msgid "This register entry has no email address to invite."
+msgstr "Esta entrada del registro no tiene una dirección de correo a la que enviar la invitación."
+
+msgid "This register entry is already linked to an account."
+msgstr "Esta entrada del registro ya está vinculada a una cuenta."
+
+msgid "You already have a membership in this organization. Its staff can review the duplicate entry in their member register."
+msgstr "Ya tienes una membresía en esta organización. Su equipo puede revisar la entrada duplicada en su registro de miembros."
+
+msgid "This membership hasn't started yet. Try the link again once it has."
+msgstr "Esta membresía aún no ha comenzado. Vuelve a intentar el enlace cuando haya comenzado."
+
+msgid "This register entry starts in the future; invite the person once it has started."
+msgstr "Esta entrada del registro comienza en el futuro; invita a la persona cuando haya comenzado."
+
+msgid "This register entry was just linked to an account; reload it and try again."
+msgstr "Esta entrada del registro acaba de vincularse a una cuenta; recárgala e inténtalo de nuevo."
+
+msgid "You can't join this organization."
+msgstr "No puedes unirte a esta organización."

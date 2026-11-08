@@ -285,6 +285,7 @@ NOTIFICATION_REQUIRED_PERMISSIONS: dict[NotificationType, str] = {
     NotificationType.STAFF_SERIES_PASS_CANCELLED: "manage_tickets",
     NotificationType.INVITATION_REQUEST_CREATED: "invite_to_event",
     NotificationType.MEMBERSHIP_REQUEST_CREATED: "manage_members",
+    NotificationType.STAFF_MEMBER_RECORD_AUTO_LINKED: "manage_members",
     NotificationType.WHITELIST_REQUEST_CREATED: "manage_members",
     NotificationType.ORG_CONTACT_MESSAGE_RECEIVED: "edit_organization",
 }

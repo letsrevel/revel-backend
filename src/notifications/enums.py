@@ -64,6 +64,8 @@ class NotificationType(TextChoices):
     MEMBERSHIP_REQUEST_CREATED = "membership_request_created"  # User requests to join organization
     MEMBERSHIP_REQUEST_APPROVED = "membership_request_approved"
     MEMBERSHIP_REQUEST_REJECTED = "membership_request_rejected"
+    # Staff heads-up: a register entry was linked to an account by verified-email match (#1319)
+    STAFF_MEMBER_RECORD_AUTO_LINKED = "staff_member_record_auto_linked"
 
     # Organization notifications
     ORG_ANNOUNCEMENT = "org_announcement"

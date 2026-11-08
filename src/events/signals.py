@@ -41,6 +41,7 @@ from events.service import (
 )
 from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
 from events.service.follow_service import get_followers_for_new_event_notification
+from events.service.member_register_linking import notify_membership_granted
 from events.service.potluck_service import release_potluck_claims_unless_entitled, unclaim_user_potluck_items
 from events.service.tenant_service import invalidate_tenant_cache, tenant_host_from_origin
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
@@ -50,6 +51,7 @@ from events.tasks import (
     notify_admin_new_organization_discord,
     notify_admin_new_organization_pushover,
 )
+from events.tasks.member_register import auto_link_member_records
 from events.utils import format_event_datetime, get_invitation_message
 from events.utils.frontend_urls import frontend_base_url_for
 from events.utils.reserved_slug_tokens import invalidate_reserved_tokens_cache
@@ -292,6 +294,44 @@ def handle_default_user_pref_save(
     trigger_visibility_flags_for_user(instance.user_id)
 
 
+_LINK_RELEVANT_USER_FIELDS = frozenset({"email", "email_verified", "guest"})
+
+
+@receiver(pre_save, sender=RevelUser)
+def stash_previous_link_state(
+    sender: type[RevelUser], instance: RevelUser, update_fields: t.Iterable[str] | None = None, **kwargs: t.Any
+) -> None:
+    """Remember the old (email, email_verified, guest) so ``post_save`` can tell a link-relevant change (#1319)."""
+    if instance._state.adding or (update_fields is not None and not _LINK_RELEVANT_USER_FIELDS & set(update_fields)):
+        instance._register_link_prev = None  # type: ignore[attr-defined]
+        return
+    instance._register_link_prev = (  # type: ignore[attr-defined]
+        RevelUser.objects.filter(pk=instance.pk).values("email", "email_verified", "guest").first()
+    )
+
+
+@receiver(post_save, sender=RevelUser)
+def auto_link_member_records_on_verified_email(
+    sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: t.Any
+) -> None:
+    """Link register records to a user who now holds a verified email (#1319).
+
+    Fires when the user becomes verified, is created verified (OIDC/social), converts from guest or changes
+    to a different verified email. Guests and unverified emails never link.
+    """
+    if instance.guest or not instance.email_verified or not instance.email:
+        return
+    prev: dict[str, t.Any] | None = getattr(instance, "_register_link_prev", None)
+    if not created:
+        if prev is None:  # save() touched none of the link-relevant fields
+            return
+        if prev["email_verified"] and not prev["guest"] and prev["email"].casefold() == instance.email.casefold():
+            return
+    if not MembershipRecord.objects.unlinked().filter(email__iexact=instance.email).exists():
+        return
+    transaction.on_commit(lambda: auto_link_member_records.delay(str(instance.id)))
+
+
 @receiver(post_save, sender=OrganizationMember)
 def handle_membership_granted(
     sender: type[OrganizationMember], instance: OrganizationMember, created: bool, **kwargs: t.Any
@@ -300,29 +340,7 @@ def handle_membership_granted(
     if not created:
         return
 
-    def send_membership_notification() -> None:
-        frontend_base_url = frontend_base_url_for(instance.organization)
-
-        notification_requested.send(
-            sender=sender,
-            user=instance.user,
-            notification_type=NotificationType.MEMBERSHIP_GRANTED,
-            context={
-                "organization_id": str(instance.organization_id),
-                "organization_name": instance.organization.name,
-                "role": "member",
-                "action": "granted",
-                "frontend_url": f"{frontend_base_url}/org/{instance.organization.slug}",
-            },
-        )
-
-        logger.info(
-            "membership_granted_notification_sent",
-            organization_id=str(instance.organization_id),
-            user_id=str(instance.user_id),
-        )
-
-    transaction.on_commit(send_membership_notification)
+    transaction.on_commit(lambda: notify_membership_granted(instance))
 
 
 @receiver(post_delete, sender=OrganizationMember)

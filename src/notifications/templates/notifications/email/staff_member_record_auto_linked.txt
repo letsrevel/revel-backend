@@ -1,0 +1,13 @@
+{% load i18n %}{% autoescape off %}{% trans "Hello" %} {{ user.display_name }},
+
+{% blocktranslate with member=context.member_display_name record=context.record_full_name org=context.organization_name %}{{ member }} was linked automatically to the register entry {{ record }} in {{ org }} because their verified email matched.{% endblocktranslate %}
+
+{% trans "Member:" %} {{ context.member_display_name }}
+{% trans "Email:" %} {{ context.member_email }}
+{% trans "Register entry:" %} {{ context.record_full_name }}
+
+{% trans "If this is wrong, review the entry in the member register." %}
+
+{% trans "Open Member Register" %}: {{ context.frontend_url }}
+
+{% include "notifications/email/_footer.txt" %}{% endautoescape %}

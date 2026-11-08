@@ -5,6 +5,7 @@ from datetime import datetime
 
 from django.conf import settings
 from django.contrib.gis.db import models
+from django.db.models.functions import Upper
 from django.utils.translation import gettext_lazy as _
 
 from common.models import TimeStampedModel
@@ -37,12 +38,22 @@ class MembershipRecordSource(models.TextChoices):
     BACKFILL = "backfill", _("Backfill")
 
 
+class MembershipRecordInviteStatus(models.TextChoices):
+    NOT_INVITED = "not_invited", _("Not invited")
+    INVITED = "invited", _("Invited")
+    LINKED = "linked", _("Linked")
+
+
 class MembershipRecordQuerySet(models.QuerySet["MembershipRecord"]):
     """Queries over register records."""
 
     def open(self) -> t.Self:
         """Records with no end date."""
         return self.filter(valid_until__isnull=True)
+
+    def unlinked(self) -> t.Self:
+        """Records without an account (they grant nothing)."""
+        return self.filter(user__isnull=True)
 
     def active_on(self, when: datetime) -> t.Self:
         """Non-revoked records covering ``when`` (``valid_from <= when < valid_until``)."""
@@ -84,6 +95,7 @@ class MembershipRecord(TimeStampedModel):
     Kind = MembershipRecordKind
     EndedReason = MembershipRecordEndedReason
     Source = MembershipRecordSource
+    InviteStatus = MembershipRecordInviteStatus
 
     organization = models.ForeignKey("events.Organization", on_delete=models.CASCADE, related_name="membership_records")
     user = models.ForeignKey(
@@ -123,12 +135,22 @@ class MembershipRecord(TimeStampedModel):
         related_name="created_membership_records",
     )
 
+    # Linking (#1319): single-use claim link bound to this record. Never exposed in a schema or admin list.
+    invite_token = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    invited_at = models.DateTimeField(null=True, blank=True)
+    # Set when a claimant already holds an open STANDARD record in the org: staff reconcile it later.
+    duplicate_claimant = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
     objects = MembershipRecordQuerySet.as_manager()
 
     class Meta:
         indexes = [
             models.Index(fields=["organization", "valid_from"]),
             models.Index(fields=["organization", "user"]),
+            # ``email__iexact`` is ``UPPER(email) = UPPER(%s)`` on Postgres: this indexes the auto-link lookups.
+            models.Index(Upper("email"), name="events_mrec_email_upper_idx"),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -147,6 +169,15 @@ class MembershipRecord(TimeStampedModel):
                 name="unique_membership_record_ticket",
             ),
         ]
+
+    @property
+    def invite_status(self) -> MembershipRecordInviteStatus:
+        """Whether the record is linked to an account, invited, or neither."""
+        if self.user_id is not None:
+            return MembershipRecordInviteStatus.LINKED
+        if self.invited_at is not None:
+            return MembershipRecordInviteStatus.INVITED
+        return MembershipRecordInviteStatus.NOT_INVITED
 
     def __str__(self) -> str:
         return f"{self.full_name} @ {self.organization_id} ({self.valid_from:%Y-%m-%d})"

@@ -38,6 +38,17 @@ class AnonDefaultThrottle(DisableableThrottleMixin, AnonRateThrottle):
     rate = "60/min"
 
 
+class MemberRegisterInviteLookupThrottle(DisableableThrottleMixin, AnonRateThrottle):
+    """Register invitation link preview (20 requests/min per client).
+
+    Tokens are 256-bit random, so guessing is infeasible; this is defence in depth on an unauthenticated
+    token lookup.
+    """
+
+    scope = "member_register_invite_lookup"
+    rate = "20/min"
+
+
 class UserDefaultThrottle(DisableableThrottleMixin, UserRateThrottle):
     """Authenticated user default throttle (100 requests/min)."""
 
@@ -136,6 +147,13 @@ class SendAnnouncementThrottle(DisableableThrottleMixin, UserRateThrottle):
 
     scope = "send_announcement"
     rate = "25/day"
+
+
+class MemberRegisterBulkInviteThrottle(DisableableThrottleMixin, UserRateThrottle):
+    """Bulk member-register invitations (5 requests/day): each call can email the whole register."""
+
+    scope = "member_register_bulk_invite"
+    rate = "5/day"
 
 
 class _IPRateThrottle:

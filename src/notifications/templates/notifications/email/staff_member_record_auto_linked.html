@@ -1,0 +1,19 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2>{% trans "Register Entry Linked Automatically" %}</h2>
+
+<p>{% blocktranslate with member=context.member_display_name record=context.record_full_name org=context.organization_name %}{{ member }} was linked automatically to the register entry {{ record }} in {{ org }} because their verified email matched.{% endblocktranslate %}</p>
+
+<div class="card card--info">
+    <div class="info-row"><strong>{% trans "Member:" %}</strong> {{ context.member_display_name }}</div>
+    <div class="info-row"><strong>{% trans "Email:" %}</strong> {{ context.member_email }}</div>
+    <div class="info-row"><strong>{% trans "Register entry:" %}</strong> {{ context.record_full_name }}</div>
+</div>
+
+<p>{% trans "If this is wrong, review the entry in the member register." %}</p>
+
+<center>
+    <a href="{{ context.frontend_url }}" class="button">{% trans "Open Member Register" %}</a>
+</center>
+{% endblock %}
