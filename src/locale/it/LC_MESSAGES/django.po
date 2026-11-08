@@ -7338,8 +7338,8 @@ msgstr "Un livello di biglietto che concede un'iscrizione deve essere limitato a
 msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
 msgstr "I livelli temporanei sono iscrizioni giornaliere concesse dai biglietti; non possono essere mantenuti né richiesti."
 
-msgid "Tiers that grant a membership cannot be listed externally."
-msgstr "I livelli che concedono un'iscrizione non possono essere pubblicati esternamente."
+msgid "Not listed: this tier grants a day membership, which can only be issued through Revel."
+msgstr "Non elencato: questo livello assegna un'iscrizione giornaliera, che può essere emessa solo tramite Revel."
 
 #: events/service/announcement_service.py
 msgid "Temporary membership tiers cannot be targeted by announcements."

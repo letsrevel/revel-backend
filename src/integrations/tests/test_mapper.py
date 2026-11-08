@@ -163,7 +163,7 @@ def test_tier_skip_rules(clean_event: Event) -> None:
     assert codes == {
         "PWYC": IntegrationErrorCode.TIER_VARIABLE_PRICE,
         "Members": IntegrationErrorCode.TIER_MEMBERS_ONLY,
-        "Grants": IntegrationErrorCode.TIER_MEMBERS_ONLY,
+        "Grants": IntegrationErrorCode.TIER_GRANTS_MEMBERSHIP,
         "Seated": IntegrationErrorCode.TIER_SEATED,
         "Door": IntegrationErrorCode.TIER_OFFLINE_PAYMENT,
         "Unlimited": IntegrationErrorCode.TIER_NO_CAPACITY,
@@ -213,8 +213,29 @@ def test_membership_codes_win_over_purchase_restricted(clean_event: Event) -> No
     codes = {e.tier_name: e.code for e in mapped.report if e.scope == "tier"}
     assert codes == {
         "Members": IntegrationErrorCode.TIER_MEMBERS_ONLY,
-        "Grants": IntegrationErrorCode.TIER_MEMBERS_ONLY,
+        "Grants": IntegrationErrorCode.TIER_GRANTS_MEMBERSHIP,
     }
+
+
+def test_public_granting_tier_reports_grants_membership(clean_event: Event) -> None:
+    day = MembershipTier.objects.create(
+        organization=clean_event.organization, name="Day", kind=MembershipTier.Kind.TEMPORARY
+    )
+    _tier(clean_event, "Grants", max_tickets_per_user=1, grants_membership_tier=day)
+    mapped = mapper.map_event(clean_event, remote_paused={}, remote_tier_ids={})
+    assert mapped.tiers == []
+    assert [e.code for e in mapped.report if e.scope == "tier"] == [IntegrationErrorCode.TIER_GRANTS_MEMBERSHIP]
+
+
+def test_members_only_wins_over_grants_membership(clean_event: Event) -> None:
+    mt = MembershipTier.objects.create(organization=clean_event.organization, name="Gold")
+    day = MembershipTier.objects.create(
+        organization=clean_event.organization, name="Day", kind=MembershipTier.Kind.TEMPORARY
+    )
+    both = _tier(clean_event, "Both", max_tickets_per_user=1, grants_membership_tier=day)
+    both.restricted_to_membership_tiers.add(mt)
+    mapped = mapper.map_event(clean_event, remote_paused={}, remote_tier_ids={})
+    assert [e.code for e in mapped.report if e.scope == "tier"] == [IntegrationErrorCode.TIER_MEMBERS_ONLY]
 
 
 def test_unlimited_tier_uses_max_attendees(clean_event: Event) -> None:

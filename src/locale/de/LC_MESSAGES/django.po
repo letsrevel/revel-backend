@@ -7397,8 +7397,8 @@ msgstr "Eine Ticketstufe, die eine Mitgliedschaft vergibt, muss auf ein Ticket p
 msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
 msgstr "Temporäre Stufen sind Tagesmitgliedschaften, die durch Tickets vergeben werden; sie können weder gehalten noch beantragt werden."
 
-msgid "Tiers that grant a membership cannot be listed externally."
-msgstr "Stufen, die eine Mitgliedschaft vergeben, können nicht extern gelistet werden."
+msgid "Not listed: this tier grants a day membership, which can only be issued through Revel."
+msgstr "Nicht gelistet: Diese Stufe vergibt eine Tagesmitgliedschaft, die nur über Revel ausgestellt werden kann."
 
 #: events/service/announcement_service.py
 msgid "Temporary membership tiers cannot be targeted by announcements."

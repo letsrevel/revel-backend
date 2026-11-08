@@ -147,7 +147,9 @@ def _tier_skip_before_currency(tier: TicketTier, event: Event) -> tuple[Integrat
     """Every skip rule that does not depend on the event's chosen currency."""
     if tier.price_type != TicketTier.PriceType.FIXED:
         return IntegrationErrorCode.TIER_VARIABLE_PRICE, _("Pay-what-you-can tiers cannot be listed externally.")
-    # Member-restricted and membership-granting tiers are skipped (same code).
+    # Precedence when several reasons match (first wins): variable price, restricted to membership
+    # tiers (tier_members_only), grants a day membership (tier_grants_membership), non-public
+    # purchasable_by (tier_purchase_restricted), then seated / offline / capacity.
     # `restricted_to_membership_tiers` is prefetched by map_event()'s queryset, so `.exists()`
     # here reuses that prefetch cache (0 queries per tier) — chaining a `.filter()` on it
     # instead would bypass the cache and reintroduce an N+1 across tiers.
@@ -155,7 +157,9 @@ def _tier_skip_before_currency(tier: TicketTier, event: Event) -> tuple[Integrat
         return IntegrationErrorCode.TIER_MEMBERS_ONLY, _("Membership-restricted tiers cannot be listed externally.")
     # A sale on the external platform creates no Revel ticket, so it could never grant the day membership.
     if tier.grants_membership_tier_id:
-        return IntegrationErrorCode.TIER_MEMBERS_ONLY, _("Tiers that grant a membership cannot be listed externally.")
+        return IntegrationErrorCode.TIER_GRANTS_MEMBERSHIP, _(
+            "Not listed: this tier grants a day membership, which can only be issued through Revel."
+        )
     # The platform cannot check membership or invitations, so only tiers anyone may buy are listed (#1332).
     if tier.purchasable_by != TicketTier.PurchasableBy.PUBLIC:
         return IntegrationErrorCode.TIER_PURCHASE_RESTRICTED, _(

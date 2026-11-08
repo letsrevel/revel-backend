@@ -25,6 +25,7 @@ class IntegrationErrorCode(StrEnum):
     EVENT_NO_TICKETS = "event_no_tickets"
     TIER_VARIABLE_PRICE = "tier_variable_price"
     TIER_MEMBERS_ONLY = "tier_members_only"
+    TIER_GRANTS_MEMBERSHIP = "tier_grants_membership"
     TIER_PURCHASE_RESTRICTED = "tier_purchase_restricted"
     TIER_SEATED = "tier_seated"
     TIER_OFFLINE_PAYMENT = "tier_offline_payment"
