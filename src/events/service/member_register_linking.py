@@ -230,22 +230,29 @@ def _dispatch_invite(record_id: UUID) -> None:
     transaction.on_commit(lambda: send_member_register_invite.delay(str(record_id)))
 
 
+def invite_blocked_reason(record: MembershipRecord) -> str | None:
+    """Why ``record`` cannot be invited (translated), or None when it can. Reads fields only, no queries."""
+    if record.user_id is not None:
+        return str(_("This register entry is already linked to an account."))
+    if record.merged_into_id is not None:
+        return str(_("A merged register entry cannot be invited."))
+    if not record.email:
+        return str(_("This register entry has no email address to invite."))
+    if record.ended_reason == MembershipRecord.EndedReason.REVOKED:
+        return str(_("A revoked register entry cannot be invited."))
+    if record.kind != MembershipRecord.Kind.STANDARD:
+        return str(_("Only standard register entries can be invited."))
+    if record.valid_until is not None:
+        return str(_("An ended register entry cannot be invited."))
+    if record.valid_from > timezone.now():
+        return str(_("This register entry starts in the future; invite the person once it has started."))
+    return None
+
+
 def send_invite(record: MembershipRecord) -> MembershipRecord:
     """Send (or resend) the claim link for one record. A resend invalidates the previous link."""
-    if record.user_id is not None:
-        raise HttpError(400, str(_("This register entry is already linked to an account.")))
-    if record.merged_into_id is not None:
-        raise HttpError(400, str(_("A merged register entry cannot be invited.")))
-    if not record.email:
-        raise HttpError(400, str(_("This register entry has no email address to invite.")))
-    if record.ended_reason == MembershipRecord.EndedReason.REVOKED:
-        raise HttpError(400, str(_("A revoked register entry cannot be invited.")))
-    if (
-        record.kind == MembershipRecord.Kind.STANDARD
-        and record.valid_until is None
-        and record.valid_from > timezone.now()
-    ):
-        raise HttpError(400, str(_("This register entry starts in the future; invite the person once it has started.")))
+    if reason := invite_blocked_reason(record):
+        raise HttpError(400, reason)
     record.invite_token = _new_token()
     record.invited_at = timezone.now()
     record.save(update_fields=["invite_token", "invited_at", "updated_at"])

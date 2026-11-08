@@ -7497,6 +7497,12 @@ msgstr "Diese Mitgliedschaft hat noch nicht begonnen. Versuche den Link erneut, 
 msgid "This register entry starts in the future; invite the person once it has started."
 msgstr "Dieser Registereintrag beginnt in der Zukunft; lade die Person ein, sobald er begonnen hat."
 
+msgid "Only standard register entries can be invited."
+msgstr "Nur Standard-Registereinträge können eingeladen werden."
+
+msgid "An ended register entry cannot be invited."
+msgstr "Ein beendeter Registereintrag kann nicht eingeladen werden."
+
 msgid "This register entry was just linked to an account; reload it and try again."
 msgstr "Dieser Registereintrag wurde gerade mit einem Konto verknüpft; lade ihn neu und versuche es erneut."
 
