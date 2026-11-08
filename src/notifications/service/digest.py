@@ -92,9 +92,9 @@ class NotificationDigest:
             "unsubscribe_link": unsubscribe_link,
         }
 
-        # Stored titles/bodies were rendered with autoescape on (they feed the HTML/in-app
-        # channels), so they hold entities such as ``&amp;``. Undo that for the plain-text part
-        # only; the HTML part keeps the escaped values.
+        # Stored bodies are rendered from the in-app markdown template with autoescape on, so
+        # they hold entities such as ``&amp;``. Undo that for the plain-text part only; the HTML
+        # part keeps the escaped values. Titles are stored raw and need no decoding.
         text_context = {**context, "notification_groups": _unescape_groups(groups)}
         text_body = render_plain_text("notifications/emails/digest.txt", text_context)
 
@@ -172,14 +172,11 @@ class NotificationDigest:
 
 
 def _unescape_groups(groups: list[DigestGroup]) -> list[DigestGroup]:
-    """Return copies of ``groups`` with stored title/body HTML entities decoded (plain-text use)."""
+    """Return copies of ``groups`` with each stored body's HTML entities decoded (plain-text use)."""
     return [
         {
             **group,
-            "notifications": [
-                {**item, "title": html.unescape(item["title"]), "body": html.unescape(item["body"])}
-                for item in group["notifications"]
-            ],
+            "notifications": [{**item, "body": html.unescape(item["body"])} for item in group["notifications"]],
         }
         for group in groups
     ]

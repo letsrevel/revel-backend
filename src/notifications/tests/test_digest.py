@@ -270,8 +270,8 @@ class TestNotificationDigest:
         Notification.objects.create(
             user=regular_user,
             notification_type="event_reminder",
-            title="Rock &amp; Roll Night",
-            body="See you at O&#x27;Brien&#x27;s &lt;b&gt;bar&lt;/b&gt;",
+            title="A &copy; B Night",
+            body="Rock &amp; Roll at O&#x27;Brien&#x27;s &lt;b&gt;bar&lt;/b&gt;",
             context={"event_name": "x"},
         )
         digest = NotificationDigest(regular_user, Notification.objects.filter(user=regular_user))
@@ -280,8 +280,8 @@ class TestNotificationDigest:
         _subject, text_body, html_body = digest.build_digest_content()
 
         # Assert
-        assert "Rock & Roll Night" in text_body
-        assert "O'Brien's <b>bar</b>" in text_body
+        assert "A &copy; B Night" in text_body
+        assert "Rock & Roll at O'Brien's <b>bar</b>" in text_body
         assert "&amp;" not in text_body and "&#x27;" not in text_body
         assert "<b>bar</b>" not in html_body
         assert "&lt;b&gt;" in html_body
