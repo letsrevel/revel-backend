@@ -13,7 +13,7 @@ from events import schema
 from events.service import member_register_linking
 from events.service.member_register_linking import LinkOutcome
 
-ClaimErrorCode = t.Literal["already_member", "not_started", "banned"]
+ClaimErrorCode = t.Literal["already_member", "not_started"]
 
 # Failure outcomes as response values, not ``HttpError``: ninja rolls the request transaction back on an
 # exception, which would discard the ``duplicate_claimant`` flag staff need.
@@ -31,9 +31,9 @@ _FAILURES: dict[LinkOutcome, tuple[int, ClaimErrorCode, t.Any]] = {
         "not_started",
         _("This membership hasn't started yet. Try the link again once it has."),
     ),
-    LinkOutcome.BANNED: (403, "banned", _("You can't join this organization.")),
 }
 _NOT_FOUND = _("Invitation not found.")
+_BANNED = _("You can't join this organization.")
 
 
 @api_controller("/member-register-invites", auth=I18nJWTAuth(), tags=["Member Register Invites"])
@@ -63,7 +63,7 @@ class MemberRegisterInvitesController(UserAwareController):
         url_name="claim_member_register_invite",
         response={
             200: schema.MemberRegisterInviteClaimSchema,
-            403: schema.MemberRegisterInviteClaimErrorSchema,
+            403: ErrorDetail,
             404: ErrorDetail,
             409: schema.MemberRegisterInviteClaimErrorSchema,
         },
@@ -76,6 +76,8 @@ class MemberRegisterInvitesController(UserAwareController):
         result = member_register_linking.claim_invite(token, self.user())
         if result is None:
             return 404, ErrorDetail(detail=str(_NOT_FOUND))
+        if result.outcome == LinkOutcome.BANNED:
+            return 403, ErrorDetail(detail=str(_BANNED))
         if result.outcome in _FAILURES:
             status, code, message = _FAILURES[result.outcome]
             return status, schema.MemberRegisterInviteClaimErrorSchema(detail=str(message), code=code)

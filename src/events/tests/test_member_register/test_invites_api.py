@@ -466,8 +466,8 @@ class TestPublicClaim:
         response = _claim(make_client(claimant), "tok")
 
         assert response.status_code == 403
-        assert response.json()["code"] == "banned"
         assert response.json()["detail"]
+        assert "code" not in response.json()
         record.refresh_from_db()
         assert record.user is None
 

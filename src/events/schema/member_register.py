@@ -167,11 +167,11 @@ class MemberRegisterInviteClaimErrorSchema(Schema):
     """A refused claim. Branch on ``code``; ``detail`` is translated and must never be matched on.
 
     ``already_member`` (409): the claimant already has an open standard membership here.
-    ``not_started`` (409): the entry starts in the future. ``banned`` (403): banned or blacklisted.
+    ``not_started`` (409): the entry starts in the future.
     """
 
     detail: str
-    code: t.Literal["already_member", "not_started", "banned"]
+    code: t.Literal["already_member", "not_started"]
 
 
 class MemberRegisterMergeSchema(Schema):
