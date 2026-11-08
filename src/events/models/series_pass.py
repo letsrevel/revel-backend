@@ -151,12 +151,11 @@ class SeriesPassTierLink(TimeStampedModel):
                 # A pass has one fixed price; PWYC per-ticket price semantics don't
                 # compose with materialized pass tickets (nothing is paid per ticket).
                 raise DjangoValidationError({"tier": _("Pay What You Can tiers cannot back a series pass.")})
-            # Only new links or a changed tier: a link that predates #1332 must stay re-saveable (admin inlines re-clean
-            # every row), so existing mismatched links are left as they are.
-            tier_changed = self._state.adding or (
-                SeriesPassTierLink.objects.filter(pk=self.pk).exclude(tier_id=self.tier_id).exists()
-            )
-            if tier_changed and tier_rule_stricter_than_pass(
+            # Only new links or a changed tier/pass: a link that predates #1332 must stay re-saveable (admin inlines
+            # re-clean every row), so existing mismatched links are left as they are.
+            stored = SeriesPassTierLink.objects.filter(pk=self.pk).values_list("tier_id", "series_pass_id").first()
+            link_changed = self._state.adding or (stored is not None and stored != (self.tier_id, self.series_pass_id))
+            if link_changed and tier_rule_stricter_than_pass(
                 self.tier.purchasable_by,
                 self.series_pass.purchasable_by,
                 tier_restricted_to_membership_tiers=self.tier.restricted_to_membership_tiers.exists(),

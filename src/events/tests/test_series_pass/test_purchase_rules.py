@@ -113,6 +113,34 @@ class TestExistingLinksUntouched:
             link.save()
         assert "tier" in exc.value.message_dict
 
+    def test_moving_a_members_tier_link_to_a_public_pass_is_rejected(
+        self, series_pass: SeriesPass, event: Event
+    ) -> None:
+        series_pass.purchasable_by = P.MEMBERS
+        series_pass.save()
+        link = SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=_tier(event, P.MEMBERS))
+        public_pass = SeriesPass.objects.create(
+            event_series=series_pass.event_series,
+            name="Public pass",
+            price=Decimal("36.00"),
+            pro_rata_discount=Decimal("6.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.FREE,
+            purchasable_by=P.PUBLIC,
+        )
+        link.series_pass = public_pass
+        with pytest.raises(ValidationError) as exc:
+            link.save()
+        assert "tier" in exc.value.message_dict
+
+    def test_resaving_an_unchanged_link_on_a_members_pass_is_allowed(
+        self, series_pass: SeriesPass, event: Event
+    ) -> None:
+        series_pass.purchasable_by = P.MEMBERS
+        series_pass.save()
+        link = SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=_tier(event, P.MEMBERS))
+        link.save()
+
 
 @pytest.mark.django_db
 class TestDayMembershipGrantingTiers:
