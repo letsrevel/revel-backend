@@ -79,7 +79,7 @@ class OrganizationAdminMemberRegisterLinkingController(OrganizationAdminBaseCont
     @route.post(
         "/member-register/{record_id}/unlink",
         url_name="unlink_member_register_record",
-        response={200: schema.MembershipRecordSchema, 400: ErrorDetail, 404: ErrorDetail},
+        response={200: schema.MembershipRecordSchema, 400: ErrorDetail, 404: ErrorDetail, 409: ErrorDetail},
     )
     def unlink_member_register_record(self, slug: str, record_id: UUID) -> models.MembershipRecord:
         """Reverse a link or a merge. Reversing the link of an open entry cancels the access it granted."""
