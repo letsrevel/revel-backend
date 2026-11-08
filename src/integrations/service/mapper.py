@@ -133,9 +133,14 @@ def tier_hidden(tier: TicketTier, remote_paused: bool) -> bool:
 
     Read by ``map_event`` on every push and by ``sync_service.set_remote_paused`` on resume, so
     clearing the organizer's remote pause can never un-hide a tier that is unlisted or locally
-    ``sales_paused``.
+    ``sales_paused``, or has become limited to members, invitees or non-members (#1332).
     """
-    return tier.visibility != TicketTier.Visibility.PUBLIC or tier.sales_paused or remote_paused
+    return (
+        tier.visibility != TicketTier.Visibility.PUBLIC
+        or tier.purchasable_by != TicketTier.PurchasableBy.PUBLIC
+        or tier.sales_paused
+        or remote_paused
+    )
 
 
 def _tier_skip_before_currency(tier: TicketTier, event: Event) -> tuple[IntegrationErrorCode, str] | None:
@@ -151,6 +156,11 @@ def _tier_skip_before_currency(tier: TicketTier, event: Event) -> tuple[Integrat
     # A sale on the external platform creates no Revel ticket, so it could never grant the day membership.
     if tier.grants_membership_tier_id:
         return IntegrationErrorCode.TIER_MEMBERS_ONLY, _("Tiers that grant a membership cannot be listed externally.")
+    # The platform cannot check membership or invitations, so only tiers anyone may buy are listed (#1332).
+    if tier.purchasable_by != TicketTier.PurchasableBy.PUBLIC:
+        return IntegrationErrorCode.TIER_PURCHASE_RESTRICTED, _(
+            "Tiers limited to members, invitees or non-members cannot be listed externally."
+        )
     if tier.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE:
         return IntegrationErrorCode.TIER_SEATED, _("Seated tiers cannot be listed externally.")
     if tier.payment_method not in (TicketTier.PaymentMethod.ONLINE, TicketTier.PaymentMethod.FREE):

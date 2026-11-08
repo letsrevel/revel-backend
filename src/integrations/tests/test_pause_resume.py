@@ -193,3 +193,15 @@ def test_resume_keeps_an_unlisted_tier_hidden(pushed: EventLink, fake_provider: 
     sync_service.set_remote_paused(pushed.event, "fake", tier_id=None, paused=False)
 
     assert _hidden(fake_provider, pushed.remote_id) == {"GA": False, "VIP": True}
+
+
+def test_resume_keeps_a_purchase_restricted_tier_hidden(pushed: EventLink, fake_provider: FakeProvider) -> None:
+    """A tier that became members-only after being listed must not be re-exposed by a resume (#1332)."""
+    sync_service.set_remote_paused(pushed.event, "fake", tier_id=None, paused=True)
+    vip = pushed.event.ticket_tiers.get(name="VIP")
+    vip.purchasable_by = TicketTier.PurchasableBy.MEMBERS
+    vip.save(update_fields=["purchasable_by"])
+
+    sync_service.set_remote_paused(pushed.event, "fake", tier_id=None, paused=False)
+
+    assert _hidden(fake_provider, pushed.remote_id) == {"GA": False, "VIP": True}

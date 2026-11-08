@@ -9,6 +9,7 @@ from django.utils.translation import gettext_lazy as _
 
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
+from events.utils.purchase_rules import tier_rule_stricter_than_pass
 
 from .event_series import EventSeries
 from .mixins import VisibilityMixin
@@ -81,13 +82,33 @@ class SeriesPass(TimeStampedModel, VisibilityMixin):
                 {"purchasable_by": _("A pass for non-members only cannot be visible to members only.")}
             )
         if self.pk:
-            old = SeriesPass.objects.filter(pk=self.pk).values("currency", "payment_method").first()
+            old = SeriesPass.objects.filter(pk=self.pk).values("currency", "payment_method", "purchasable_by").first()
             if old is None:
                 return
             # Tier links are validated against the pass currency at link time;
             # changing it afterwards would silently break that contract.
             if self.currency != old["currency"] and self.tier_links.exists():
                 raise DjangoValidationError({"currency": _("Currency cannot be changed once the pass covers events.")})
+            # Only when the rule changes, so existing mismatched links do not block unrelated edits.
+            # Reads the links as stored: an admin submit that also deletes the offending inline row still fails
+            # here (inline deletes run after the parent saves); saving twice works around it.
+            if self.purchasable_by != old["purchasable_by"]:
+                links = self.tier_links.select_related("tier").prefetch_related("tier__restricted_to_membership_tiers")
+                if any(
+                    tier_rule_stricter_than_pass(
+                        link.tier.purchasable_by,
+                        self.purchasable_by,
+                        tier_restricted_to_membership_tiers=bool(link.tier.restricted_to_membership_tiers.all()),
+                    )
+                    for link in links
+                ):
+                    raise DjangoValidationError(
+                        {
+                            "purchasable_by": _(
+                                "A covered tier has a stricter purchase rule; change the tier or unlink it first."
+                            )
+                        }
+                    )
             # Held passes were purchased (and their tickets materialized) under
             # the original payment semantics; switching mid-flight would corrupt
             # confirmation/refund flows for existing holders.
@@ -130,6 +151,18 @@ class SeriesPassTierLink(TimeStampedModel):
                 # A pass has one fixed price; PWYC per-ticket price semantics don't
                 # compose with materialized pass tickets (nothing is paid per ticket).
                 raise DjangoValidationError({"tier": _("Pay What You Can tiers cannot back a series pass.")})
+            # Only new links or a changed tier/pass: a link that predates #1332 must stay re-saveable (admin inlines
+            # re-clean every row), so existing mismatched links are left as they are.
+            stored = SeriesPassTierLink.objects.filter(pk=self.pk).values_list("tier_id", "series_pass_id").first()
+            link_changed = self._state.adding or (stored is not None and stored != (self.tier_id, self.series_pass_id))
+            if link_changed and tier_rule_stricter_than_pass(
+                self.tier.purchasable_by,
+                self.series_pass.purchasable_by,
+                tier_restricted_to_membership_tiers=self.tier.restricted_to_membership_tiers.exists(),
+            ):
+                raise DjangoValidationError(
+                    {"tier": _("This tier's purchase rule is stricter than the pass's, so the pass cannot cover it.")}
+                )
         except ObjectDoesNotExist:
             # A nonexistent tier/event/series id: clean_fields() (run by full_clean()
             # just before clean()) already recorded the FK-existence check as a

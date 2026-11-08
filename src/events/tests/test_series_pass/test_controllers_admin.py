@@ -530,6 +530,63 @@ def test_add_series_pass_tier_links_with_nonexistent_tier_returns_400_not_500(
     assert response.status_code == 400
 
 
+def _members_tier(event: Event) -> TicketTier:
+    return TicketTier.objects.create(
+        event=event,
+        name="Members Tier",
+        price=Decimal("10.00"),
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        purchasable_by=TicketTier.PurchasableBy.MEMBERS,
+    )
+
+
+def test_add_series_pass_tier_links_with_stricter_tier_returns_400(
+    organization_owner_client: Client, series_pass: SeriesPass, event: Event
+) -> None:
+    """A public pass cannot cover a members-only tier (#1332)."""
+    tier = _members_tier(event)
+    url = reverse(
+        "api:add_series_pass_tier_links", kwargs={"series_id": series_pass.event_series_id, "pass_id": series_pass.pk}
+    )
+
+    response = _post_json(organization_owner_client, url, [{"event_id": str(event.id), "tier_id": str(tier.id)}])
+
+    assert response.status_code == 400
+    assert not SeriesPassTierLink.objects.filter(series_pass=series_pass).exists()
+
+
+def test_update_series_pass_widening_rule_over_stricter_linked_tier_returns_400(
+    organization_owner_client: Client, series_pass: SeriesPass, event: Event
+) -> None:
+    tier = _members_tier(event)
+    series_pass.purchasable_by = TicketTier.PurchasableBy.MEMBERS
+    series_pass.save()
+    SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=tier)
+
+    response = _patch_json(
+        organization_owner_client, _update_url(series_pass), {"purchasable_by": TicketTier.PurchasableBy.PUBLIC}
+    )
+
+    assert response.status_code == 400
+    series_pass.refresh_from_db()
+    assert series_pass.purchasable_by == TicketTier.PurchasableBy.MEMBERS
+
+
+def test_update_series_pass_name_with_preexisting_mismatched_link_succeeds(
+    organization_owner_client: Client, series_pass: SeriesPass, event: Event
+) -> None:
+    """Existing mismatched links must not block unrelated edits."""
+    tier = _members_tier(event)
+    SeriesPassTierLink.objects.bulk_create([SeriesPassTierLink(series_pass=series_pass, event=event, tier=tier)])
+
+    response = _patch_json(organization_owner_client, _update_url(series_pass), {"name": "Renamed"})
+
+    assert response.status_code == 200
+    series_pass.refresh_from_db()
+    assert series_pass.name == "Renamed"
+
+
 def test_remove_series_pass_tier_link_without_holders_deletes(
     organization_owner_client: Client, series_pass: SeriesPass, event: Event, ticket_tier: TicketTier
 ) -> None:
