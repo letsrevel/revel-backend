@@ -258,10 +258,15 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         permissions=[RequireScope("org:read"), RequireScope("org:members"), IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
-    def list_membership_tiers(self, slug: str) -> QuerySet[models.MembershipTier]:
-        """List all membership tiers for an organization."""
+    def list_membership_tiers(
+        self, slug: str, kind: t.Annotated[models.MembershipTierKind | None, Query()] = None
+    ) -> QuerySet[models.MembershipTier]:
+        """List membership tiers for an organization, optionally only of one ``kind``."""
         organization = self.get_one(slug)
-        return models.MembershipTier.objects.filter(organization=organization).distinct()
+        qs = models.MembershipTier.objects.filter(organization=organization)
+        if kind is not None:
+            qs = qs.filter(kind=kind)
+        return qs.distinct()
 
     @route.post(
         "/membership-tiers",

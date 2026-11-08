@@ -7374,8 +7374,8 @@ msgstr "Une catégorie de billets qui accorde une adhésion doit être limitée 
 msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
 msgstr "Les niveaux temporaires sont des adhésions à la journée accordées par des billets ; ils ne peuvent être ni détenus ni demandés."
 
-msgid "Tiers that grant a membership cannot be listed externally."
-msgstr "Les catégories qui accordent une adhésion ne peuvent pas être listées en externe."
+msgid "Not listed: this tier grants a day membership, which can only be issued through Revel."
+msgstr "Non listé : ce niveau accorde une adhésion d'un jour, qui ne peut être délivrée que via Revel."
 
 #: events/service/announcement_service.py
 msgid "Temporary membership tiers cannot be targeted by announcements."
