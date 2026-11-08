@@ -2,7 +2,8 @@ import typing as t
 from uuid import UUID
 
 from django.contrib.gis.db import models
-from django.db.models import Prefetch
+from django.db.models import OuterRef, Prefetch, Subquery
+from django.db.models.functions import JSONObject
 
 from .membership import OrganizationMember
 
@@ -76,6 +77,22 @@ class TicketQuerySet(models.QuerySet["Ticket"]):
         """
         return self.filter(status__in=self.model.ATTENDING_STATUSES)
 
+    def with_membership_record(self) -> t.Self:
+        """Annotate ``membership_record_data``: the record this ticket produced, or ``None``.
+
+        ``MembershipRecord.ticket`` has ``related_name="+"``, so there is no reverse accessor to
+        prefetch. One correlated JSON subquery keeps the query count independent of page size.
+        REVOKED records are included (``ended_reason="revoked"``). The ticket FK is unique.
+        """
+        from .membership_record import MembershipRecord
+
+        record = MembershipRecord.objects.filter(ticket=OuterRef("pk")).values(
+            data=JSONObject(
+                id="id", kind="kind", tier_name="tier_name", valid_until="valid_until", ended_reason="ended_reason"
+            )
+        )[:1]
+        return self.annotate(membership_record_data=Subquery(record))
+
     def with_org_membership(self, organization_id: UUID) -> t.Self:
         """Prefetch user's membership for a specific organization."""
         return self.prefetch_related(
@@ -121,6 +138,10 @@ class TicketManager(models.Manager["Ticket"]):
     def attending(self) -> TicketQuerySet:
         """Returns a queryset of attending tickets (ACTIVE or CHECKED_IN; see ``TicketQuerySet.attending``)."""
         return self.get_queryset().attending()
+
+    def with_membership_record(self) -> TicketQuerySet:
+        """Returns a queryset annotated with the membership record each ticket produced."""
+        return self.get_queryset().with_membership_record()
 
     def with_org_membership(self, organization_id: UUID) -> TicketQuerySet:
         """Returns a queryset with org membership prefetched."""

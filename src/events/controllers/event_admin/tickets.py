@@ -246,6 +246,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         qs = (
             models.Ticket.objects.full()
             .with_org_membership(event.organization_id)
+            .with_membership_record()
             .filter(event=event)
             .annotate(invoice_skipped=skipped_fiscal_document_service.invoice_skipped_annotation())
         )
@@ -285,7 +286,7 @@ class EventAdminTicketsController(EventAdminBaseController):
     def get_ticket(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
         """Get a ticket by its ID."""
         event = self.get_one(event_id)
-        return get_object_or_404(models.Ticket.objects.full(), pk=ticket_id, event=event)
+        return get_object_or_404(models.Ticket.objects.full().with_membership_record(), pk=ticket_id, event=event)
 
     @route.patch(
         "/tickets/{ticket_id}/guest-name",

@@ -15,6 +15,7 @@ from events import models
 from events.compliance.enforcement import ticket_fields
 from events.models import (
     DiscountCode,
+    MembershipRecordEndedReason,
     MembershipRecordKind,
     Payment,
     Ticket,
@@ -98,6 +99,21 @@ def _resolve_ticket_series_pass(obj: Ticket) -> TicketSeriesPassSchema | None:
     )
 
 
+class TicketMembershipRecordSchema(Schema):
+    """The membership record a ticket produced (a day membership, or a standard membership it granted).
+
+    Unlike ``CheckInMembershipSchema`` (the door-staff standing), this identifies the register
+    record itself and its end state. REVOKED records are still returned, with
+    ``ended_reason="revoked"``, so clients can render or hide them.
+    """
+
+    id: UUID
+    kind: MembershipRecordKind
+    tier_name: str
+    valid_until: AwareDatetime | None = None
+    ended_reason: MembershipRecordEndedReason | None = None
+
+
 class AdminTicketSchema(ModelSchema):
     """Schema for pending tickets in admin interface.
 
@@ -122,6 +138,9 @@ class AdminTicketSchema(ModelSchema):
     attribution: TicketAttribution | None = None
     # True when a country policy made Revel skip this sale's attendee invoice (#1091).
     invoice_skipped: bool = False
+    # The membership record THIS ticket produced; ``None`` when it produced none. Tier config is not
+    # a proxy for this: grants are not retroactive. Needs ``Ticket.objects.with_membership_record()``.
+    membership_record: TicketMembershipRecordSchema | None = None
 
     class Meta:
         model = Ticket
@@ -145,6 +164,11 @@ class AdminTicketSchema(ModelSchema):
         return memberships[0] if memberships else None
 
     resolve_series_pass: t.ClassVar = staticmethod(_resolve_ticket_series_pass)
+
+    @staticmethod
+    def resolve_membership_record(obj: Ticket) -> dict[str, t.Any] | None:
+        """From the ``with_membership_record()`` annotation."""
+        return t.cast("dict[str, t.Any] | None", obj.membership_record_data)  # type: ignore[attr-defined]
 
     @staticmethod
     def resolve_invoice_skipped(obj: Ticket) -> bool:
