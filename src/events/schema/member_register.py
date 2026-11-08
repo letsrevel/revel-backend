@@ -13,6 +13,7 @@ from events.models import (
     MembershipRecordInviteStatus,
     MembershipRecordKind,
     MembershipRecordSource,
+    RegisterMatchReason,
 )
 
 _FULL_NAME_MAX = 255
@@ -46,6 +47,7 @@ class MembershipRecordSchema(ModelSchema):
     invited_at: AwareDatetime | None = None
     invite_status: MembershipRecordInviteStatus
     has_duplicate_claim: bool
+    merged_into_id: UUID | None = None
 
     class Meta:
         model = MembershipRecord
@@ -143,3 +145,24 @@ class MemberRegisterInviteClaimSchema(Schema):
 
     organization_slug: str
     record_id: UUID
+
+
+class MemberRegisterMergeSchema(Schema):
+    """Merge another entry into this one."""
+
+    absorbed_record_id: UUID
+
+
+class RegisterMatchSchema(Schema):
+    """An unlinked register entry that may be the applicant."""
+
+    record: MembershipRecordSchema
+    reasons: list[RegisterMatchReason]
+
+
+class PossibleDuplicateSchema(Schema):
+    """An unlinked register entry that may be the same person as a linked one."""
+
+    unlinked: MembershipRecordSchema
+    linked: MembershipRecordSchema
+    reasons: list[RegisterMatchReason]

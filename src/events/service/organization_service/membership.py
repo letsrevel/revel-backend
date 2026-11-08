@@ -6,6 +6,7 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import Max, ProtectedError, Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -183,12 +184,64 @@ def _assert_free_grant_allowed(membership_request: models.OrganizationMembership
         )
 
 
+def _assert_link_fits_application(
+    membership_request: models.OrganizationMembershipRequest, link_record: models.MembershipRecord | None
+) -> None:
+    if link_record is not None and membership_request.plan_id is not None:
+        raise HttpError(400, str(_("A paid application cannot be linked to a register entry yet.")))
+
+
+def _link_register_entry_to_applicant(
+    record: models.MembershipRecord, membership_request: models.OrganizationMembershipRequest
+) -> None:
+    """Link ``record`` to the applicant; the access row written next makes the mirror see an open linked record."""
+    applicant = membership_request.user
+    # Member row before record: the same lock order as the register mirror.
+    list(
+        OrganizationMember.objects.select_for_update(of=("self",)).filter(
+            organization_id=membership_request.organization_id, user=applicant
+        )
+    )
+    locked = (
+        models.MembershipRecord.objects.select_for_update(of=("self",))
+        .filter(pk=record.pk, organization_id=membership_request.organization_id)
+        .first()
+    )
+    if locked is None:
+        raise HttpError(400, str(_("This register entry does not belong to the organization.")))
+    if locked.user_id is not None or locked.merged_into_id is not None:
+        raise HttpError(400, str(_("This register entry is already linked or merged.")))
+    if locked.valid_until is not None or locked.kind != models.MembershipRecord.Kind.STANDARD:
+        raise HttpError(400, str(_("Only an open standard register entry can be linked to an application.")))
+    if (
+        models.MembershipRecord.objects.open()
+        .filter(organization_id=locked.organization_id, user=applicant, kind=models.MembershipRecord.Kind.STANDARD)
+        .exists()
+    ):
+        raise HttpError(400, str(_("The applicant already has an open register entry.")))
+    if locked.valid_from > timezone.now():
+        raise HttpError(400, str(_("This register entry starts in the future.")))
+    locked.user = applicant
+    locked.invite_token = None
+    locked.duplicate_claimant = None
+    update_fields = ["user", "invite_token", "duplicate_claimant", "updated_at"]
+    submission = membership_request.questionnaire_submission
+    if submission is not None and locked.questionnaire_submission_id is None:
+        # Same evidence rule as an adopted record (member_register_service._settle_adopted).
+        locked.questionnaire_submission = submission
+        locked.accepted_at = submission.submitted_at or submission.created_at
+        locked.questionnaire_name = submission.questionnaire.name
+        update_fields += ["questionnaire_submission", "accepted_at", "questionnaire_name"]
+    locked.save(update_fields=update_fields)
+
+
 @transaction.atomic
 def approve_membership_request(
     membership_request: models.OrganizationMembershipRequest,
     decided_by: RevelUser,
     tier: MembershipTier | None = None,
     force: bool = False,
+    link_record: models.MembershipRecord | None = None,
 ) -> None:
     """Approve a membership application.
 
@@ -213,6 +266,8 @@ def approve_membership_request(
             comp a paying subscriber or correct a tier; without this the guards
             would make that impossible. Does not bypass the BANNED / blacklist
             refusals — see :func:`_assert_free_grant_allowed`.
+        link_record: An unlinked open STANDARD register entry of the organization to link to the
+            applicant instead of opening a new one (free path only).
     """
     effective_tier = tier or membership_request.tier
     if effective_tier is None:
@@ -222,10 +277,14 @@ def approve_membership_request(
     if membership_request.status != models.OrganizationMembershipRequest.Status.PENDING:
         raise HttpError(400, str(_("Only pending applications can be approved.")))
 
+    _assert_link_fits_application(membership_request, link_record)
+
     membership_request.decided_by = decided_by
 
     if membership_request.plan_id is None:
         _assert_free_grant_allowed(membership_request, force=force)
+        if link_record is not None:
+            _link_register_entry_to_applicant(link_record, membership_request)
         # Free path: complete now.
         membership_request.status = models.OrganizationMembershipRequest.Status.COMPLETED
         update_fields = ["status", "decided_by"]

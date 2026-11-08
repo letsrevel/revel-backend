@@ -7410,3 +7410,60 @@ msgstr "Questa voce del registro è appena stata collegata a un account; ricaric
 
 msgid "You can't join this organization."
 msgstr "Non puoi unirti a questa organizzazione."
+
+msgid "A closed entry can only be attached to an entry linked to an account."
+msgstr "Una voce chiusa può essere allegata solo a una voce collegata a un account."
+
+msgid "A merged register entry cannot be merged again."
+msgstr "Una voce del registro già unita non può essere unita di nuovo."
+
+msgid "A paid application cannot be linked to a register entry yet."
+msgstr "Una candidatura a pagamento non può ancora essere collegata a una voce del registro."
+
+msgid "A register entry cannot be merged into itself."
+msgstr "Una voce del registro non può essere unita a se stessa."
+
+msgid "An open entry can only be merged into another open standard entry."
+msgstr "Una voce aperta può essere unita solo a un'altra voce standard aperta."
+
+msgid "Claim"
+msgstr "Rivendicazione"
+
+msgid "Name"
+msgstr "Nome"
+
+msgid "Only an entry without an account can be merged into another entry."
+msgstr "Solo una voce senza account può essere unita a un'altra voce."
+
+msgid "Only an open standard register entry can be linked to an application."
+msgstr "Solo una voce standard aperta del registro può essere collegata a una candidatura."
+
+msgid "Register entries must belong to the same organization."
+msgstr "Le voci del registro devono appartenere alla stessa organizzazione."
+
+msgid "The applicant already has an open register entry."
+msgstr "Il candidato ha già una voce aperta nel registro."
+
+msgid "This register entry does not belong to the organization."
+msgstr "Questa voce del registro non appartiene all'organizzazione."
+
+msgid "This register entry is already linked or merged."
+msgstr "Questa voce del registro è già collegata o unita."
+
+msgid "This register entry is not linked or merged."
+msgstr "Questa voce del registro non è né collegata né unita."
+
+msgid "Linking a register entry needs a signed-in staff session."
+msgstr "Collegare una voce del registro richiede una sessione di staff con accesso effettuato."
+
+msgid "A merged register entry cannot be invited."
+msgstr "Una voce del registro unita non può essere invitata."
+
+msgid "An entry that has absorbed other entries cannot be merged; unlink them first."
+msgstr "Una voce che ne ha assorbite altre non può essere unita; annulla prima quelle unioni."
+
+msgid "This register entry starts in the future."
+msgstr "Questa voce del registro inizia nel futuro."
+
+msgid "Unlink the entries merged into this one before deleting it."
+msgstr "Annulla l'unione delle voci unite in questa prima di eliminarla."

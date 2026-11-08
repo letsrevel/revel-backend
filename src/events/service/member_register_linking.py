@@ -138,7 +138,8 @@ def link_record(
             or not user.email
             or not MembershipRecord.objects.filter(pk=locked.pk, email__iexact=user.email).exists()
         )
-        if locked.user_id is not None or revoked or stale_token or email_mismatch:
+        merged = locked.merged_into_id is not None  # merged after the caller's selection: it is not linkable
+        if locked.user_id is not None or merged or revoked or stale_token or email_mismatch:
             return LinkResult(LinkOutcome.ALREADY_LINKED, locked)
 
         open_standard = locked.valid_until is None and locked.kind == MembershipRecord.Kind.STANDARD
@@ -170,6 +171,43 @@ def link_record(
         return LinkResult(LinkOutcome.LINKED, locked, member)
 
 
+def adopt_unlinked_record(member: OrganizationMember) -> MembershipRecord | None:
+    """Link the earliest unlinked open STANDARD record that verifiably belongs to the member's account.
+
+    Prevention at the source: called when the register is about to open a *new* STANDARD record for an
+    access row. Only a verified exact email match adopts (never guests, never unverified emails); looser
+    matches are only flagged for staff (see ``member_register_reconciliation``). The access row already
+    exists, so it is left alone: the caller settles tier and evidence. Staff are told, like for B1's auto-link.
+    """
+    user = member.user
+    if user.guest or not user.email_verified or not user.email:
+        return None
+    record = (
+        MembershipRecord.objects.unlinked()
+        .open()
+        .select_for_update(of=("self",))
+        .select_related("organization")
+        .filter(
+            organization_id=member.organization_id,
+            kind=MembershipRecord.Kind.STANDARD,
+            email__iexact=user.email,
+            # A future-dated entry can't back access that starts now (same rule as NOT_STARTED on claims).
+            valid_from__lte=timezone.now(),
+        )
+        .order_by("valid_from", "created_at")
+        .first()
+    )
+    if record is None:
+        return None
+    record.user = user
+    record.invite_token = None
+    record.duplicate_claimant = None
+    record.save(update_fields=["user", "invite_token", "duplicate_claimant", "updated_at"])
+    logger.info("member_register_adopted_at_source", record_id=str(record.pk), user_id=str(user.pk))
+    _notify_staff_of_auto_link(record, user)
+    return record
+
+
 def _new_token() -> str:
     return secrets.token_urlsafe(32)
 
@@ -185,6 +223,8 @@ def send_invite(record: MembershipRecord) -> MembershipRecord:
     """Send (or resend) the claim link for one record. A resend invalidates the previous link."""
     if record.user_id is not None:
         raise HttpError(400, str(_("This register entry is already linked to an account.")))
+    if record.merged_into_id is not None:
+        raise HttpError(400, str(_("A merged register entry cannot be invited.")))
     if not record.email:
         raise HttpError(400, str(_("This register entry has no email address to invite.")))
     if record.ended_reason == MembershipRecord.EndedReason.REVOKED:
