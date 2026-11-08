@@ -16,6 +16,7 @@ from accounts.models import Referral, ReferralPayout, ReferralPayoutStatement, R
 from common.models import SiteSettings
 from common.service.stripe_config import configure_stripe
 from common.tasks import send_email
+from common.utils import render_plain_text
 from events.utils.currency import to_stripe_amount
 
 logger = structlog.get_logger(__name__)
@@ -297,7 +298,7 @@ def _send_payout_statement_email(
         "period_end": payout.period_end.isoformat(),
         "frontend_base_url": site.frontend_base_url,
     }
-    body = render_to_string("accounts/emails/referral_payout_email.txt", email_ctx)
+    body = render_plain_text("accounts/emails/referral_payout_email.txt", email_ctx)
     html_body = render_to_string("accounts/emails/referral_payout_email.html", email_ctx)
 
     send_email(

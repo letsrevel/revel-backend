@@ -11,6 +11,8 @@ from django.core.files.uploadedfile import InMemoryUploadedFile
 from django.db import IntegrityError, models, transaction
 from django.db.models.fields.files import FieldFile
 from django.http import HttpResponse
+from django.template import Context
+from django.template.loader import get_template
 from PIL import Image
 from pydantic import BaseModel
 
@@ -319,3 +321,14 @@ def is_reserved_mailbox(local_part: str) -> bool:
         True if it must not be used as a sender local part on our domains.
     """
     return local_part.lower() in RESERVED_MAILBOX_LOCAL_PARTS
+
+
+def render_plain_text(template_name: str, context: dict[str, t.Any] | None = None) -> str:
+    """Render a plain-text template (email body/subject) with autoescape off.
+
+    ``render_to_string`` HTML-escapes variables, so names such as ``Rock & Roll`` or
+    ``O'Brien`` would reach plain-text email parts as ``&amp;`` / ``&#x27;``. Plain text
+    is not an HTML context; HTML parts keep using ``render_to_string`` and stay escaped.
+    """
+    template = t.cast(t.Any, get_template(template_name)).template  # django backend wrapper -> django.template.Template
+    return str(template.render(Context(context or {}, autoescape=False)))

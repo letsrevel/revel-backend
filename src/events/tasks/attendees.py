@@ -18,6 +18,7 @@ from accounts.models import RevelUser
 from common.keys import decode_jwt, verification_keys
 from common.models import SiteSettings
 from common.tasks import send_email
+from common.utils import render_plain_text
 from events.models import AttendeeVisibilityFlag, Event, EventRSVP, Organization, Ticket
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.service.org_sender import SENDER_ORG_FIELDS, is_white_label_tenant, org_from_address, org_reply_to
@@ -198,7 +199,7 @@ def send_guest_rsvp_confirmation(email: str, token: str, event_name: str, organi
     }
     with translation.override(_guest_language(email)):
         subject = _("Confirm your RSVP to %(event_name)s") % {"event_name": event_name}
-        body = render_to_string("events/emails/guest_rsvp_confirmation_body.txt", ctx)
+        body = render_plain_text("events/emails/guest_rsvp_confirmation_body.txt", ctx)
         html_body = render_to_string("events/emails/guest_rsvp_confirmation_body.html", ctx)
     send_email(
         to=email, subject=subject, body=body, html_body=html_body, **_tenant_sender(org, "guest_rsvp_confirmation")
@@ -235,7 +236,7 @@ def send_guest_ticket_confirmation(
     }
     with translation.override(_guest_language(email)):
         subject = _("Confirm your ticket for %(event_name)s") % {"event_name": event_name}
-        body = render_to_string("events/emails/guest_ticket_confirmation_body.txt", ctx)
+        body = render_plain_text("events/emails/guest_ticket_confirmation_body.txt", ctx)
         html_body = render_to_string("events/emails/guest_ticket_confirmation_body.html", ctx)
     send_email(
         to=email, subject=subject, body=body, html_body=html_body, **_tenant_sender(org, "guest_ticket_confirmation")

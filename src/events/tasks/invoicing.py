@@ -12,6 +12,7 @@ from django.utils.translation import gettext as _
 
 from common.models import SiteSettings
 from common.tasks import send_email
+from common.utils import render_plain_text
 from events.models import Organization
 
 if t.TYPE_CHECKING:
@@ -255,7 +256,7 @@ def send_invoice_email_task(invoice_id: str) -> None:
         "period_end": invoice.period_end.isoformat(),
         "frontend_base_url": site.frontend_base_url,
     }
-    body = render_to_string("events/emails/platform_fee_invoice_email.txt", email_ctx)
+    body = render_plain_text("events/emails/platform_fee_invoice_email.txt", email_ctx)
     html_body = render_to_string("events/emails/platform_fee_invoice_email.html", email_ctx)
 
     send_email(

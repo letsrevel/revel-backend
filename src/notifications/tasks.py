@@ -10,6 +10,7 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.utils import timezone, translation
 
+from common.utils import render_plain_text
 from notifications.enums import DeliveryChannel, DeliveryStatus, NotificationType
 from notifications.models import Notification, NotificationDelivery, NotificationPreference
 from notifications.service.channels.registry import get_channel_instance
@@ -507,7 +508,7 @@ def send_pending_invitation_email(self: t.Any, pending_invitation_id: str) -> No
     }
 
     subject = _("You're invited: %(event_name)s") % {"event_name": event.name}
-    txt_body = render_to_string("notifications/email/pending_invitation.txt", context)
+    txt_body = render_plain_text("notifications/email/pending_invitation.txt", context)
     html_body = render_to_string("notifications/email/pending_invitation.html", context)
 
     send_email(

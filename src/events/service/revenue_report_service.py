@@ -16,6 +16,7 @@ from openpyxl.styles import Alignment
 from common.models import FileExport
 from common.service.export_service import complete_export, fail_export, start_export
 from common.tasks import send_email
+from common.utils import render_plain_text
 from events.models import Organization
 from events.service.export.formatting import LABEL_FONT, auto_fit_columns, sanitize_cell, style_header_row
 from events.service.revenue_aggregation import (
@@ -458,7 +459,7 @@ def deliver_scheduled_revenue_reports(now_utc: datetime) -> int:
                 "snapshot_date": now_utc.astimezone(tz).date(),
                 "frontend_base_url": SiteSettings.get_solo().frontend_base_url,
             }
-            body = render_to_string("emails/revenue_report.txt", report_ctx)
+            body = render_plain_text("emails/revenue_report.txt", report_ctx)
             html_body = render_to_string("emails/revenue_report.html", report_ctx)
             send_email.delay(
                 to=recipients,

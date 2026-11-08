@@ -24,6 +24,7 @@ from django.template.loader import render_to_string
 
 from common.models import SiteSettings
 from common.tasks import send_email
+from common.utils import render_plain_text
 
 logger = structlog.get_logger(__name__)
 
@@ -177,8 +178,8 @@ def send_account_email(
             action_link += ("&" if "?" in action_link else "?") + "return_host=" + quote(return_host, safe="")
         body_context["action_link"] = action_link
 
-    subject = str(render_to_string(f"accounts/emails/{config.template_base}_subject.txt")).strip()
-    body = render_to_string(f"accounts/emails/{config.template_base}_body.txt", body_context)
+    subject = str(render_plain_text(f"accounts/emails/{config.template_base}_subject.txt")).strip()
+    body = render_plain_text(f"accounts/emails/{config.template_base}_body.txt", body_context)
     html_body = render_to_string(f"accounts/emails/{config.template_base}_body.html", body_context)
     send_email(to=to, subject=subject, body=body, html_body=html_body)
 

@@ -19,6 +19,7 @@ from accounts.service.referral_cleanup import cleanup_referral_data
 from common.models import SiteSettings
 from common.signing import generate_signed_url
 from common.tasks import send_email
+from common.utils import render_plain_text
 
 # 7 days in seconds for data export download links. Single source of truth lives
 # in the service, which signs the file URLs *inside* the export for the same
@@ -53,8 +54,8 @@ def _notify_data_export_failed(user: RevelUser, error: str) -> None:
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
 
     # Notify the user that something went wrong
-    subject = str(render_to_string("accounts/emails/data_export_failed_subject.txt"))
-    body = render_to_string("accounts/emails/data_export_failed_body.txt", {"user": user})
+    subject = str(render_plain_text("accounts/emails/data_export_failed_subject.txt"))
+    body = render_plain_text("accounts/emails/data_export_failed_body.txt", {"user": user})
     html_body = render_to_string(
         "accounts/emails/data_export_failed_body.html",
         {"user": user, "frontend_base_url": frontend_base_url},
@@ -62,12 +63,12 @@ def _notify_data_export_failed(user: RevelUser, error: str) -> None:
     send_email(to=user.email, subject=subject, body=body, html_body=html_body)
 
     # Notify admins
-    subject = str(render_to_string("accounts/emails/data_export_failed_admin_subject.txt"))
+    subject = str(render_plain_text("accounts/emails/data_export_failed_admin_subject.txt"))
     admins = RevelUser.objects.filter(Q(is_superuser=True) | Q(is_staff=True))
     admin_count = admins.count()
     logger.info("gdpr_export_admin_notification_sending", user_id=str(user.id), admin_count=admin_count)
     for admin in admins:
-        body = render_to_string(
+        body = render_plain_text(
             "accounts/emails/data_export_failed_admin_body.txt",
             {"user": user, "error_message": data_export.error_message},
         )
@@ -91,7 +92,7 @@ def _notify_user_data_export_ready(data_export: UserDataExport) -> None:
     download_url = settings.BASE_URL.rstrip("/") + signed_path
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     subject = "Your Revel Data Export is Ready"
-    body = render_to_string(
+    body = render_plain_text(
         "accounts/emails/data_export_ready_body.txt", {"download_url": download_url, "user": data_export.user}
     )
     html_body = render_to_string(
