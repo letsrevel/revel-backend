@@ -224,7 +224,9 @@ def _link_register_entry_to_applicant(
     locked.user = applicant
     locked.invite_token = None
     locked.duplicate_claimant = None
-    update_fields = ["user", "invite_token", "duplicate_claimant", "updated_at"]
+    locked.linked_via = models.MembershipRecord.LinkMethod.APPROVAL
+    locked.linked_at = timezone.now()
+    update_fields = ["user", "invite_token", "duplicate_claimant", "linked_via", "linked_at", "updated_at"]
     submission = membership_request.questionnaire_submission
     if submission is not None and locked.questionnaire_submission_id is None:
         # Same evidence rule as an adopted record (member_register_service._settle_adopted).

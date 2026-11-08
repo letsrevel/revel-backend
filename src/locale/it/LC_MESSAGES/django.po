@@ -7390,6 +7390,18 @@ msgstr "Collegato"
 msgid "Not invited"
 msgstr "Non invitato"
 
+msgid "Invitation"
+msgstr "Invito"
+
+msgid "Verified email"
+msgstr "E-mail verificata"
+
+msgid "Application approval"
+msgstr "Approvazione della richiesta"
+
+msgid "Merge"
+msgstr "Unione"
+
 msgid "This register entry has no email address to invite."
 msgstr "Questa voce del registro non ha un indirizzo email a cui inviare l'invito."
 

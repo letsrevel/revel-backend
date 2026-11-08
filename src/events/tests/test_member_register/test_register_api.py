@@ -117,6 +117,20 @@ def test_list_shape_pagination_and_backfill(
     assert item["has_account"] is False
     assert item["tier_id"] == str(tier.pk)
     assert item["user_id"] is None
+    assert item["linked_via"] is None and item["linked_at"] is None
+
+
+def test_list_exposes_link_provenance(owner_client: Client, organization: Organization, tier: MembershipTier) -> None:
+    linked_at = (timezone.now() - timedelta(days=1)).replace(microsecond=0)
+    _rec(
+        organization,
+        tier=tier,
+        linked_via=MembershipRecord.LinkMethod.AUTO_EMAIL,
+        linked_at=linked_at,
+    )
+    item = owner_client.get(_url("list_member_register", organization)).json()["results"][0]
+    assert item["linked_via"] == "auto_email"
+    assert datetime.fromisoformat(item["linked_at"]) == linked_at
 
 
 def test_list_filters(

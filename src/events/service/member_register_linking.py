@@ -22,7 +22,7 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from common.utils import get_or_create_with_race_protection
-from events.models import MembershipRecord, Organization, OrganizationMember
+from events.models import MembershipRecord, MembershipRecordLinkMethod, Organization, OrganizationMember
 from events.service import blacklist_service
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.context_schemas import StaffMemberRecordAutoLinkedContext
@@ -102,7 +102,12 @@ def _make_access_row_agree(
 
 
 def link_record(
-    record: MembershipRecord, user: RevelUser, *, token: str | None = None, require_verified_email: bool = False
+    record: MembershipRecord,
+    user: RevelUser,
+    *,
+    token: str | None = None,
+    require_verified_email: bool = False,
+    via: MembershipRecordLinkMethod = MembershipRecordLinkMethod.INVITE,
 ) -> LinkResult:
     """Link an account-less ``record`` to ``user``, applying the collision rules in order.
 
@@ -163,7 +168,11 @@ def link_record(
         locked.user = user
         locked.invite_token = None
         locked.duplicate_claimant = None
-        locked.save(update_fields=["user", "invite_token", "duplicate_claimant", "updated_at"])
+        locked.linked_via = via
+        locked.linked_at = timezone.now()
+        locked.save(
+            update_fields=["user", "invite_token", "duplicate_claimant", "linked_via", "linked_at", "updated_at"]
+        )
         if open_standard:
             member = _make_access_row_agree(locked, user, member)
         else:
@@ -202,7 +211,9 @@ def adopt_unlinked_record(member: OrganizationMember) -> MembershipRecord | None
     record.user = user
     record.invite_token = None
     record.duplicate_claimant = None
-    record.save(update_fields=["user", "invite_token", "duplicate_claimant", "updated_at"])
+    record.linked_via = MembershipRecord.LinkMethod.AUTO_EMAIL
+    record.linked_at = timezone.now()
+    record.save(update_fields=["user", "invite_token", "duplicate_claimant", "linked_via", "linked_at", "updated_at"])
     logger.info("member_register_adopted_at_source", record_id=str(record.pk), user_id=str(user.pk))
     _notify_staff_of_auto_link(record, user)
     return record
@@ -317,7 +328,7 @@ def auto_link_records_for_user(user_id: UUID) -> list[LinkResult]:
     )
     results: list[LinkResult] = []
     for record in records:
-        result = link_record(record, user, require_verified_email=True)
+        result = link_record(record, user, require_verified_email=True, via=MembershipRecord.LinkMethod.AUTO_EMAIL)
         results.append(result)
         logger.info("member_register_auto_link", record_id=str(record.pk), user_id=str(user.pk), outcome=result.outcome)
         if result.outcome == LinkOutcome.LINKED:

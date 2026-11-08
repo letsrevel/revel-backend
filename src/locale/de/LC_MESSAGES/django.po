@@ -7449,6 +7449,18 @@ msgstr "Verknüpft"
 msgid "Not invited"
 msgstr "Nicht eingeladen"
 
+msgid "Invitation"
+msgstr "Einladung"
+
+msgid "Verified email"
+msgstr "Verifizierte E-Mail-Adresse"
+
+msgid "Application approval"
+msgstr "Genehmigung der Bewerbung"
+
+msgid "Merge"
+msgstr "Zusammenführung"
+
 msgid "This register entry has no email address to invite."
 msgstr "Dieser Registereintrag hat keine E-Mail-Adresse, an die eine Einladung gehen könnte."
 

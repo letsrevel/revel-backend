@@ -32,6 +32,7 @@ from .membership_record import (
     MembershipRecordEndedReason,
     MembershipRecordInviteStatus,
     MembershipRecordKind,
+    MembershipRecordLinkMethod,
     MembershipRecordQuerySet,
     MembershipRecordSource,
     RegisterMatchReason,
@@ -138,6 +139,7 @@ __all__ = [
     "MembershipRecordEndedReason",
     "MembershipRecordInviteStatus",
     "MembershipRecordKind",
+    "MembershipRecordLinkMethod",
     "MembershipRecordSource",
     "RegisterMatchReason",
     # Recurrence

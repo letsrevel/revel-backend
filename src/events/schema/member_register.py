@@ -12,6 +12,7 @@ from events.models import (
     MembershipRecordEndedReason,
     MembershipRecordInviteStatus,
     MembershipRecordKind,
+    MembershipRecordLinkMethod,
     MembershipRecordSource,
     RegisterMatchReason,
 )
@@ -48,6 +49,8 @@ class MembershipRecordSchema(ModelSchema):
     invite_status: MembershipRecordInviteStatus
     has_duplicate_claim: bool
     merged_into_id: UUID | None = None
+    linked_via: MembershipRecordLinkMethod | None = None
+    linked_at: AwareDatetime | None = None
 
     class Meta:
         model = MembershipRecord

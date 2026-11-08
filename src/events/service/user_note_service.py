@@ -24,7 +24,9 @@ from events.models.user_note import USER_NOTE_MAX_LENGTH
 
 def get_note(organization: Organization, user_id: UUID) -> OrganizationUserNote:
     """Return the organization's note about ``user_id`` or raise 404."""
-    return get_object_or_404(OrganizationUserNote, organization=organization, user_id=user_id)
+    return get_object_or_404(
+        OrganizationUserNote.objects.select_related("updated_by"), organization=organization, user_id=user_id
+    )
 
 
 def get_note_body(organization_id: UUID, user_id: UUID) -> str | None:
