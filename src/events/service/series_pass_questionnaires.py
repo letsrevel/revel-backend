@@ -18,6 +18,7 @@ from accounts.models import RevelUser
 from events.models import Event, EventQuestionnaireSubmission, OrganizationQuestionnaire, SeriesPass, SeriesPassTierLink
 from events.service.event_manager import EventUserEligibility, NextStep, Reasons
 from events.service.event_manager.questionnaire_requirements import QuestionnaireRequirementCheck
+from events.service.event_manager.types import SeriesPassQuestionnaireEventSchema
 from events.utils.membership_access import is_eligible_member
 from questionnaires.models import Questionnaire, QuestionnaireSubmission
 
@@ -220,9 +221,14 @@ def check_series_questionnaires(
         owner_or_staff: Pass a value the caller already computed to skip that query.
 
     Returns:
-        The blocking eligibility verdict, or None if the user may proceed.
+        The blocking eligibility verdict, or None if the user may proceed. A missing-questionnaire verdict
+        carries ``questionnaire_events`` (the same routing the quote exposes).
     """
-    return _check(series_pass, user, owner_or_staff)[0]
+    result, routes = _check(series_pass, user, owner_or_staff)
+    if result is not None and routes:
+        entries = [SeriesPassQuestionnaireEventSchema(questionnaire_id=q, event_id=e) for q, e in routes]
+        result = result.model_copy(update={"questionnaire_events": entries})
+    return result
 
 
 def _check(
