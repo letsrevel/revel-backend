@@ -36,6 +36,7 @@ from events.exceptions import (
     InvalidResourceStateError,
     InvalidStripeWebhookSignatureError,
     InvalidZoneSelectionError,
+    MembershipApprovalRefusedError,
     MembershipPolicyManageSubscriptionsOnlyError,
     MembershipTierInUseError,
     NothingToRefundError,
@@ -55,7 +56,7 @@ from events.exceptions import (
     TicketAlreadyCancelledError,
     TooManyItemsError,
 )
-from events.schema import GuestActionErrorSchema, SubscriptionActivationPendingSchema
+from events.schema import GuestActionErrorSchema, MembershipApprovalRefusedSchema, SubscriptionActivationPendingSchema
 from events.service.custom_domain_service import CUSTOM_DOMAIN_NOT_ENABLED_MESSAGE
 from events.service.event_manager import UserIsIneligibleError
 from events.service.membership_manager import MembershipApplicationIneligibleError
@@ -152,12 +153,35 @@ def handle_guest_action_error(request: HttpRequest, exc: Exception | t.Type[Exce
     )
 
 
+def handle_membership_approval_refused_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Render a refused application approval with a machine-readable ``code`` and ``forceable`` flag.
+
+    The frontend cannot key on the translated ``detail``, and needs to know whether
+    a ``force=true`` retry would get past the refusal.
+
+    Args:
+        request: The current HTTP request (unused; required by the handler signature).
+        exc: The raised ``MembershipApprovalRefusedError``.
+
+    Returns:
+        Response: A 400 response shaped like ``MembershipApprovalRefusedSchema``.
+    """
+    error = t.cast(MembershipApprovalRefusedError, exc)
+    return Response(
+        status=400,
+        data=MembershipApprovalRefusedSchema(
+            detail=error.message, code=error.code, forceable=error.forceable
+        ).model_dump(mode="json"),
+    )
+
+
 # Single source of truth for the exception → status mapping.
 HANDLERS: dict[type[Exception], ExceptionHandler] = {
     # Guest refusals the FE renders as CTAs → 400 with a stable ``code`` (#905).
     # MRO covers GuestAccountExistsError and GuestCartTooLargeError.
     GuestActionError: handle_guest_action_error,
     UserIsIneligibleError: handle_user_is_ineligible_error,
+    MembershipApprovalRefusedError: handle_membership_approval_refused_error,
     MembershipApplicationIneligibleError: handle_membership_application_ineligible_error,
     # Checkout already paid, activation webhooks in flight → 409 with a stable
     # ``code`` the frontend keys on (the translated ``detail`` is unmatchable).

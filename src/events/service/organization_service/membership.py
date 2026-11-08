@@ -14,7 +14,13 @@ from accounts.models import RevelUser
 from common.models import SiteSettings
 from common.utils import get_or_create_with_race_protection, update_or_create_with_race_protection
 from events import models
-from events.exceptions import AlreadyMemberError, MembershipTierInUseError, PendingMembershipRequestExistsError
+from events.exceptions import (
+    AlreadyMemberError,
+    MembershipApprovalRefusalCode,
+    MembershipApprovalRefusedError,
+    MembershipTierInUseError,
+    PendingMembershipRequestExistsError,
+)
 from events.models import (
     MembershipSubscription,
     MembershipSubscriptionPlan,
@@ -117,8 +123,9 @@ def _assert_free_grant_allowed(membership_request: models.OrganizationMembership
 
     Raises:
         HttpError: 403 when the user is BANNED or hard-blacklisted (regardless of
-            ``force``); 400 when the user holds a non-terminal subscription, or
-            when their membership is PAUSED.
+            ``force``).
+        MembershipApprovalRefusedError: 400 (forceable) when the user holds a
+            non-terminal subscription, or when their membership is PAUSED.
     """
     is_banned = (
         banned_memberships()
@@ -158,8 +165,8 @@ def _assert_free_grant_allowed(membership_request: models.OrganizationMembership
         .exists()
     )
     if has_subscription:
-        raise HttpError(
-            400,
+        raise MembershipApprovalRefusedError(
+            MembershipApprovalRefusalCode.SUBSCRIPTION_ACTIVE,
             str(
                 _(
                     "This user has an active subscription; approving a free application would "
@@ -173,8 +180,8 @@ def _assert_free_grant_allowed(membership_request: models.OrganizationMembership
         status=OrganizationMember.MembershipStatus.PAUSED,
     ).exists()
     if is_paused:
-        raise HttpError(
-            400,
+        raise MembershipApprovalRefusedError(
+            MembershipApprovalRefusalCode.MEMBERSHIP_PAUSED,
             str(
                 _(
                     "This membership is paused. Resume it instead of approving a free "
@@ -188,7 +195,10 @@ def _assert_link_fits_application(
     membership_request: models.OrganizationMembershipRequest, link_record: models.MembershipRecord | None
 ) -> None:
     if link_record is not None and membership_request.plan_id is not None:
-        raise HttpError(400, str(_("A paid application cannot be linked to a register entry yet.")))
+        raise MembershipApprovalRefusedError(
+            MembershipApprovalRefusalCode.LINK_PAID_APPLICATION,
+            str(_("A paid application cannot be linked to a register entry yet.")),
+        )
 
 
 def _link_register_entry_to_applicant(
@@ -208,19 +218,32 @@ def _link_register_entry_to_applicant(
         .first()
     )
     if locked is None:
-        raise HttpError(400, str(_("This register entry does not belong to the organization.")))
+        raise MembershipApprovalRefusedError(
+            MembershipApprovalRefusalCode.LINK_UNAVAILABLE,
+            str(_("This register entry does not belong to the organization.")),
+        )
     if locked.user_id is not None or locked.merged_into_id is not None:
-        raise HttpError(400, str(_("This register entry is already linked or merged.")))
+        raise MembershipApprovalRefusedError(
+            MembershipApprovalRefusalCode.LINK_UNAVAILABLE, str(_("This register entry is already linked or merged."))
+        )
     if locked.valid_until is not None or locked.kind != models.MembershipRecord.Kind.STANDARD:
-        raise HttpError(400, str(_("Only an open standard register entry can be linked to an application.")))
+        raise MembershipApprovalRefusedError(
+            MembershipApprovalRefusalCode.LINK_UNAVAILABLE,
+            str(_("Only an open standard register entry can be linked to an application.")),
+        )
     if (
         models.MembershipRecord.objects.open()
         .filter(organization_id=locked.organization_id, user=applicant, kind=models.MembershipRecord.Kind.STANDARD)
         .exists()
     ):
-        raise HttpError(400, str(_("The applicant already has an open register entry.")))
+        raise MembershipApprovalRefusedError(
+            MembershipApprovalRefusalCode.APPLICANT_HAS_ENTRY,
+            str(_("The applicant already has an open register entry.")),
+        )
     if locked.valid_from > timezone.now():
-        raise HttpError(400, str(_("This register entry starts in the future.")))
+        raise MembershipApprovalRefusedError(
+            MembershipApprovalRefusalCode.LINK_FUTURE_DATED, str(_("This register entry starts in the future."))
+        )
     locked.user = applicant
     locked.invite_token = None
     locked.duplicate_claimant = None
