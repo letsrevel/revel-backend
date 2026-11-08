@@ -38,6 +38,7 @@ from events.models import (
 from events.models.organization import Organization as OrganizationModel
 from events.service.attendee_invoice_service import einvoice_missing_fields
 from events.service.small_business_scheme_service import live_tiers_charging_vat
+from events.utils import get_organization_timezone
 from events.utils.small_business import SmallBusinessScheme
 from questionnaires.models import QuestionnaireEvaluation
 
@@ -331,7 +332,19 @@ class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin, CustomDom
         return _resolve_public_contact_email(obj)
 
 
+class OrganizationTimezoneMixin(Schema):
+    """Read-only resolved IANA timezone: the org city's zone, else ``settings.TIME_ZONE``."""
+
+    timezone: str
+
+    @staticmethod
+    def resolve_timezone(obj: Organization) -> str:
+        """Resolve with the same helper the member register uses for day filters and exports."""
+        return get_organization_timezone(obj).key
+
+
 class OrganizationRetrieveSchema(
+    OrganizationTimezoneMixin,
     CityRetrieveMixin,
     TaggableSchemaMixin,
     SocialMediaSchemaRetrieveMixin,
@@ -368,6 +381,7 @@ class OrganizationRetrieveSchema(
 
 
 class OrganizationAdminDetailSchema(
+    OrganizationTimezoneMixin,
     CityRetrieveMixin,
     TaggableSchemaMixin,
     SocialMediaSchemaRetrieveMixin,
