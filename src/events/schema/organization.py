@@ -28,6 +28,7 @@ from events.compliance import (
     get_policy,
 )
 from events.compliance.base import ALL_NEXUS
+from events.exceptions import MembershipApprovalRefusalCode
 from events.models import (
     MembershipRequestStatus,
     Organization,
@@ -526,6 +527,20 @@ class OrganizationMembershipRequestRetrieve(ModelSchema):
             "org_questionnaire_id": org_questionnaire.pk,
             "evaluation_status": evaluation.status if evaluation is not None else None,
         }
+
+
+class MembershipApprovalRefusedSchema(Schema):
+    """400 body when approving an application is refused with a stable ``code``.
+
+    ``forceable`` tells the frontend whether retrying with ``force=true`` gets past
+    this refusal (``subscription_active``, ``membership_paused``) or not (every
+    ``link_*`` code and ``applicant_has_entry``). ``detail`` is translated and must
+    never be matched on; renaming a ``code`` value is a breaking change.
+    """
+
+    detail: str
+    code: MembershipApprovalRefusalCode
+    forceable: bool
 
 
 class ApproveMembershipRequestSchema(Schema):

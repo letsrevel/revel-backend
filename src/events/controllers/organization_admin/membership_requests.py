@@ -10,6 +10,7 @@ from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
 from common.authentication import ScopedJWTAuth
+from common.schema import ErrorDetail
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import OrganizationPermission, controller_uses_app_token
@@ -58,7 +59,7 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
     @route.post(
         "/membership-requests/{request_id}/approve",
         url_name="approve_membership_request",
-        response={204: None},
+        response={204: None, 400: schema.MembershipApprovalRefusedSchema | ErrorDetail},
     )
     def approve_membership_request(
         self, slug: str, request_id: UUID, payload: schema.ApproveMembershipRequestSchema
@@ -67,6 +68,11 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
 
         ``tier_id`` may be omitted if the application already carries a tier; when
         given it overrides the tier the applicant selected.
+
+        A refusal with a ``code`` carries ``forceable``: ``true`` means retrying with
+        ``force=true`` gets past it (``subscription_active``, ``membership_paused``);
+        ``false`` means it is refused regardless (``link_paid_application``,
+        ``link_future_dated``, ``link_unavailable``, ``applicant_has_entry``).
         """
         organization = self.get_one(slug)
         membership_request = get_object_or_404(

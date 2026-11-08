@@ -425,8 +425,7 @@ class TestStaffApprovalGuards:
         member_user: RevelUser,
         organization: Organization,
     ) -> None:
-        from ninja.errors import HttpError
-
+        from events.exceptions import MembershipApprovalRefusedError
         from events.service.organization_service import approve_membership_request
 
         MembershipSubscription.objects.create(
@@ -438,7 +437,7 @@ class TestStaffApprovalGuards:
         request = OrganizationMembershipRequest.objects.create(organization=organization, user=member_user)
         free_tier = MembershipTier.objects.get(organization=organization, name="General membership")
 
-        with pytest.raises(HttpError):
+        with pytest.raises(MembershipApprovalRefusedError):
             approve_membership_request(request, organization.owner, free_tier)
 
     def test_force_bypasses_the_guard(

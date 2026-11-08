@@ -222,3 +222,39 @@ class GuestCartTooLargeError(GuestActionError):
 
     code = GuestActionErrorCode.CART_TOO_LARGE
     message = _("Your cart is too large for guest checkout. Please log in or split your purchase.")
+
+
+class MembershipApprovalRefusalCode(str, enum.Enum):
+    """Stable discriminators for staff approval refusals on a membership application.
+
+    The frontend branches on these (the translated ``detail`` is unmatchable) to
+    decide whether to offer a "force approval" retry. Renaming a value is a
+    breaking change; rewording the message is always safe.
+    """
+
+    SUBSCRIPTION_ACTIVE = "subscription_active"
+    MEMBERSHIP_PAUSED = "membership_paused"
+    LINK_PAID_APPLICATION = "link_paid_application"
+    LINK_FUTURE_DATED = "link_future_dated"
+    LINK_UNAVAILABLE = "link_unavailable"
+    APPLICANT_HAS_ENTRY = "applicant_has_entry"
+
+
+#: Refusals a ``force=true`` retry gets past; every other code is refused regardless of ``force``.
+FORCEABLE_APPROVAL_REFUSALS: frozenset[MembershipApprovalRefusalCode] = frozenset(
+    {MembershipApprovalRefusalCode.SUBSCRIPTION_ACTIVE, MembershipApprovalRefusalCode.MEMBERSHIP_PAUSED}
+)
+
+
+class MembershipApprovalRefusedError(Exception):
+    """Raised when approving an application is refused with a machine-readable ``code`` (400).
+
+    Rendered as :class:`events.schema.MembershipApprovalRefusedSchema`.
+    """
+
+    def __init__(self, code: MembershipApprovalRefusalCode, message: str) -> None:
+        """Store the refusal ``code`` and its translated ``message``; ``forceable`` is derived from the code."""
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.forceable = code in FORCEABLE_APPROVAL_REFUSALS
