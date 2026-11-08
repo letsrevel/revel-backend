@@ -264,6 +264,28 @@ class TestNotificationDigest:
         assert len(text_body) > 0
         assert len(html_body) > 0
 
+    def test_text_part_unescapes_stored_entities_html_part_stays_escaped(self, regular_user: RevelUser) -> None:
+        """Stored bodies are autoescaped; the text part must decode them, the HTML part must not (#1345)."""
+        # Arrange
+        Notification.objects.create(
+            user=regular_user,
+            notification_type="event_reminder",
+            title="Rock &amp; Roll Night",
+            body="See you at O&#x27;Brien&#x27;s &lt;b&gt;bar&lt;/b&gt;",
+            context={"event_name": "x"},
+        )
+        digest = NotificationDigest(regular_user, Notification.objects.filter(user=regular_user))
+
+        # Act
+        _subject, text_body, html_body = digest.build_digest_content()
+
+        # Assert
+        assert "Rock & Roll Night" in text_body
+        assert "O'Brien's <b>bar</b>" in text_body
+        assert "&amp;" not in text_body and "&#x27;" not in text_body
+        assert "<b>bar</b>" not in html_body
+        assert "&lt;b&gt;" in html_body
+
 
 class TestBuildNotificationUrl:
     """Test the digest row CTA resolution (#815)."""
