@@ -165,6 +165,7 @@ from .invoice import (
 # Misc schemas
 from .member_register import (
     MemberRegisterBulkInviteResultSchema,
+    MemberRegisterInviteClaimErrorSchema,
     MemberRegisterInviteClaimSchema,
     MemberRegisterInvitePreviewSchema,
     MemberRegisterExportRequestSchema,
@@ -642,6 +643,7 @@ __all__ = [
     "MembershipPaymentSchema",
     "MemberRegisterBulkInviteResultSchema",
     "MemberRegisterExportRequestSchema",
+    "MemberRegisterInviteClaimErrorSchema",
     "MemberRegisterInviteClaimSchema",
     "MemberRegisterInvitePreviewSchema",
     "MembershipRecordCreateSchema",

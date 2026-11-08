@@ -448,6 +448,8 @@ class TestPublicClaim:
         response = _claim(make_client(claimant), "tok")
 
         assert response.status_code == 409
+        assert response.json()["code"] == "already_member"
+        assert response.json()["detail"]
         record.refresh_from_db()
         assert record.user is None and record.duplicate_claimant == claimant
 
@@ -461,9 +463,22 @@ class TestPublicClaim:
         Blacklist.objects.create(organization=organization, user=claimant, created_by=organization_owner_user)
         record = make_record(invite_token="tok")
 
-        assert _claim(make_client(claimant), "tok").status_code == 403
+        response = _claim(make_client(claimant), "tok")
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "banned"
+        assert response.json()["detail"]
         record.refresh_from_db()
         assert record.user is None
+
+    def test_not_started_is_409_with_code(self, make_record: RecordFactory, claimant: RevelUser) -> None:
+        make_record(invite_token="tok", valid_from=timezone.now() + timedelta(days=30))
+
+        response = _claim(make_client(claimant), "tok")
+
+        assert response.status_code == 409
+        assert response.json()["code"] == "not_started"
+        assert response.json()["detail"]
 
     def test_unknown_token_is_404(self, claimant: RevelUser) -> None:
         assert _claim(make_client(claimant), "nope").status_code == 404
