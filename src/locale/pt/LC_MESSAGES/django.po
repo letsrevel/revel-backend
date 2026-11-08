@@ -7370,7 +7370,7 @@ msgid "A merged register entry cannot be invited."
 msgstr "Uma entrada do registo fundida não pode ser convidada."
 
 msgid "An entry that has absorbed other entries cannot be merged; unlink them first."
-msgstr "Uma entrada que absorveu outras entradas não pode ser fundida; desfaça primeiro essas fusões."
+msgstr "Uma entrada que absorveu outras entradas não pode ser fundida; desfaz primeiro essas fusões."
 
 msgid "This register entry starts in the future."
 msgstr "Esta entrada do registo começa no futuro."

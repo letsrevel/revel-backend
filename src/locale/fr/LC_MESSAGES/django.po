@@ -7496,7 +7496,7 @@ msgid "A merged register entry cannot be invited."
 msgstr "Une entrée de registre fusionnée ne peut pas être invitée."
 
 msgid "An entry that has absorbed other entries cannot be merged; unlink them first."
-msgstr "Une entrée qui en a absorbé d'autres ne peut pas être fusionnée ; annulez d'abord ces fusions."
+msgstr "Une entrée qui en a absorbé d'autres ne peut pas être fusionnée ; annule d'abord ces fusions."
 
 msgid "This register entry starts in the future."
 msgstr "Cette entrée de registre commence dans le futur."
