@@ -7256,7 +7256,7 @@ msgid "Register entry:"
 msgstr "Entrada do registo:"
 
 msgid "If this is wrong, review the entry in the member register."
-msgstr "Se isto estiver errado, reveja a entrada no registo de membros."
+msgstr "Se isto estiver errado, revê a entrada no registo de membros."
 
 msgid "Open Member Register"
 msgstr "Abrir o registo de membros"
@@ -7313,10 +7313,10 @@ msgid "This membership hasn't started yet. Try the link again once it has."
 msgstr "Esta inscrição ainda não começou. Tenta o link novamente quando tiver começado."
 
 msgid "This register entry starts in the future; invite the person once it has started."
-msgstr "Esta entrada do registo começa no futuro; convide a pessoa quando tiver começado."
+msgstr "Esta entrada do registo começa no futuro; convida a pessoa quando tiver começado."
 
 msgid "This register entry was just linked to an account; reload it and try again."
-msgstr "Esta entrada do registo acabou de ser associada a uma conta; recarregue-a e tente novamente."
+msgstr "Esta entrada do registo acabou de ser associada a uma conta; recarrega-a e tenta novamente."
 
 msgid "You can't join this organization."
 msgstr "Não podes aderir a esta organização."
