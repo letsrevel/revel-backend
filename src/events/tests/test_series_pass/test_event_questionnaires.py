@@ -27,7 +27,7 @@ from events.models import (
     Ticket,
     TicketTier,
 )
-from events.service.event_manager import NextStep, Reasons
+from events.service.event_manager import EventManager, NextStep, Reasons
 from events.service.series_pass_questionnaires import check_series_questionnaires
 from events.tasks.series_pass import materialize_series_pass_holders
 from questionnaires.models import (
@@ -415,3 +415,41 @@ def test_later_missing_event_past_deadline_downgrades_the_verdict(
     assert verdict is not None
     assert verdict.next_step is None
     assert verdict.reason_code == Reasons.APPLICATION_DEADLINE_PASSED.code
+
+
+def test_checkout_400_routes_every_missing_questionnaire_like_the_quote(
+    free_pass: SeriesPass,
+    organization: Organization,
+    event_series: EventSeries,
+    revel_user: RevelUser,
+    covered: list[Event],
+) -> None:
+    """The checkout 400 carries `questionnaire_events` equal to the quote's; `event_id` is still the first group's."""
+    series_oq = _oq(organization, "Series", series=event_series)
+    oq_b = _oq(organization, "Event B", events=[covered[1]])
+    oq_c = _oq(organization, "Event C", events=[covered[2]])
+
+    quote = _client(revel_user).get(reverse("api:get_series_pass_quote", kwargs={"pass_id": free_pass.id})).json()
+    checkout = _client(revel_user).post(
+        reverse("api:checkout_series_pass", kwargs={"pass_id": free_pass.id}), data=b"", content_type="application/json"
+    )
+
+    assert checkout.status_code == 400
+    body: dict[str, t.Any] = checkout.json()
+    assert body["questionnaires_missing"] == [str(oq.questionnaire_id) for oq in (series_oq, oq_b, oq_c)]
+    assert body["event_id"] == str(covered[0].id)
+    assert body["questionnaire_events"] == quote["questionnaire_events"]
+    assert body["questionnaire_events"] == [
+        {"questionnaire_id": str(series_oq.questionnaire_id), "event_id": str(covered[0].id)},
+        {"questionnaire_id": str(oq_b.questionnaire_id), "event_id": str(covered[1].id)},
+        {"questionnaire_id": str(oq_c.questionnaire_id), "event_id": str(covered[2].id)},
+    ]
+
+
+def test_single_event_eligibility_leaves_questionnaire_events_null(
+    organization: Organization, revel_user: RevelUser, covered: list[Event]
+) -> None:
+    _oq(organization, "Event A", events=[covered[0]])
+    verdict = EventManager(revel_user, covered[0]).check_eligibility()
+    assert verdict.next_step == NextStep.COMPLETE_QUESTIONNAIRE
+    assert verdict.questionnaire_events is None

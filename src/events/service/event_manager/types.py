@@ -7,6 +7,13 @@ from pydantic import AwareDatetime, BaseModel
 from .enums import NextStep, ReasonCode
 
 
+class SeriesPassQuestionnaireEventSchema(BaseModel):
+    """A missing questionnaire and the event whose questionnaire endpoint accepts its submission."""
+
+    questionnaire_id: uuid.UUID
+    event_id: uuid.UUID
+
+
 class EventUserEligibility(BaseModel):
     """Result of an eligibility check for a user on an event."""
 
@@ -28,6 +35,9 @@ class EventUserEligibility(BaseModel):
     # both shapes of GET /my-status carry it (#901). Only the my-status path populates it;
     # everywhere else an eligibility result is returned it stays None.
     event_remaining: int | None = None
+    # Series-pass checkout only (#1175): one entry per missing questionnaire, naming the event whose
+    # questionnaire endpoint accepts it (same shape as the pass quote). ``event_id`` stays the first group's.
+    questionnaire_events: list[SeriesPassQuestionnaireEventSchema] | None = None
 
 
 class UserIsIneligibleError(Exception):

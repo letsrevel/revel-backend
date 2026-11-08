@@ -16,6 +16,7 @@ from events.models.ticket import TicketTier
 from events.schema.attribution import AttributionPayloadMixin
 from events.schema.checkout import BuyerBillingInfoSchema
 from events.schema.ticket import Currencies
+from events.service.event_manager.types import SeriesPassQuestionnaireEventSchema
 
 if t.TYPE_CHECKING:
     from events.service.series_pass_service import TierLinkInput
@@ -53,13 +54,6 @@ class SeriesPassComplianceSchema(Schema):
     """
 
     online_payment: PaymentChannelCapability
-
-
-class SeriesPassQuestionnaireEventSchema(Schema):
-    """A missing questionnaire and the event whose questionnaire endpoint accepts its submission."""
-
-    questionnaire_id: UUID
-    event_id: UUID
 
 
 class SeriesPassQuoteSchema(Schema):
