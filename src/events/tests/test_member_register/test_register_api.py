@@ -1,7 +1,8 @@
 """Tests for the membership register admin API (#1319)."""
 
 import typing as t
-from datetime import timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from django.test.client import Client
@@ -152,21 +153,55 @@ def test_list_filters(
     assert ids(search="bob") == {str(b.pk)}
 
 
-def test_list_active_on(owner_client: Client, organization: Organization, tier: MembershipTier) -> None:
-    now = timezone.now()
-    when = now - timedelta(days=2)
-    open_rec = _rec(organization, name="Open", tier=tier)
+def test_list_active_on_is_a_calendar_day_in_org_timezone(
+    owner_client: Client, ny_organization: Organization, tier: MembershipTier
+) -> None:
+    """A record overlapping the local day is listed; boundaries at local midnight are excluded."""
+    ny = ZoneInfo("America/New_York")
+    day = date(2026, 6, 15)
+    midnight = datetime(2026, 6, 15, tzinfo=ny)
+    next_midnight = midnight + timedelta(days=1)
+    long_ago = midnight - timedelta(days=30)
+    starts_late = _rec(ny_organization, name="Late", tier=tier, valid_from=next_midnight - timedelta(minutes=1))
+    ends_at_midnight = _rec(
+        ny_organization,
+        name="Ended",
+        tier=tier,
+        valid_from=long_ago,
+        valid_until=midnight,
+        ended_reason=Reason.CANCELLED,
+    )
+    starts_next_day = _rec(ny_organization, name="Next", tier=tier, valid_from=next_midnight)
+    ends_after_midnight = _rec(
+        ny_organization,
+        name="Brief",
+        tier=tier,
+        valid_from=long_ago,
+        valid_until=midnight + timedelta(minutes=1),
+        ended_reason=Reason.CANCELLED,
+    )
     revoked = _rec(
-        organization, name="Rev", tier=tier, valid_until=now - timedelta(days=1), ended_reason=Reason.REVOKED
+        ny_organization, name="Rev", tier=tier, valid_from=long_ago, valid_until=None, ended_reason=Reason.REVOKED
     )
-    boundary = _rec(organization, name="Edge", tier=tier, valid_until=when, ended_reason=Reason.CANCELLED)
-    covering = _rec(
-        organization, name="Cov", tier=tier, valid_until=now - timedelta(days=1), ended_reason=Reason.CANCELLED
-    )
-    resp = owner_client.get(_url("list_member_register", organization), {"active_on": when.isoformat()})
+
+    resp = owner_client.get(_url("list_member_register", ny_organization), {"active_on": day.isoformat()})
+
+    assert resp.status_code == 200, resp.content
     got = {i["id"] for i in resp.json()["results"]}
-    assert got == {str(open_rec.pk), str(covering.pk)}
-    assert str(revoked.pk) not in got and str(boundary.pk) not in got
+    assert got == {str(starts_late.pk), str(ends_after_midnight.pk)}
+    assert not {str(ends_at_midnight.pk), str(starts_next_day.pk), str(revoked.pk)} & got
+
+
+def test_list_active_on_invalid_date(owner_client: Client, organization: Organization) -> None:
+    """An impossible date is a client error, not a 500."""
+    resp = owner_client.get(_url("list_member_register", organization), {"active_on": "2026-13-01"})
+    assert 400 <= resp.status_code < 500
+
+
+def test_list_active_on_last_representable_date_is_rejected(owner_client: Client, organization: Organization) -> None:
+    """9999-12-31 has no next day to bound the window: rejected as a client error instead of overflowing."""
+    resp = owner_client.get(_url("list_member_register", organization), {"active_on": "9999-12-31"})
+    assert 400 <= resp.status_code < 500
 
 
 def test_list_permissions_and_isolation(

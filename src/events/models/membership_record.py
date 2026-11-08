@@ -52,6 +52,27 @@ class MembershipRecordQuerySet(models.QuerySet["MembershipRecord"]):
             .filter(models.Q(valid_until__isnull=True) | models.Q(valid_until__gt=when))
         )
 
+    def active_during(self, start: datetime, end: datetime) -> t.Self:
+        """Non-revoked records whose period overlaps the half-open window ``[start, end)``.
+
+        A record overlaps when it starts before ``end`` and has not ended at or before ``start``
+        (``valid_from < end`` and ``valid_until`` is null or ``> start``).
+
+        Args:
+            start: Inclusive start of the window.
+            end: Exclusive end of the window.
+
+        Returns:
+            The filtered queryset.
+        """
+        return (
+            self.exclude(ended_reason=MembershipRecord.EndedReason.REVOKED)
+            .filter(valid_from__lt=end)
+            .filter(models.Q(valid_until__isnull=True) | models.Q(valid_until__gt=start))
+            # A zero-length period (valid_until == valid_from, e.g. an instant tier change) covers no time.
+            .filter(models.Q(valid_until__isnull=True) | models.Q(valid_until__gt=models.F("valid_from")))
+        )
+
 
 class MembershipRecord(TimeStampedModel):
     """One membership period of one person in one organization.
