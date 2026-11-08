@@ -102,4 +102,4 @@ class MembershipRecordEndSchema(Schema):
 class MemberRegisterExportRequestSchema(Schema):
     """Export the register, optionally only the entries active on a calendar day in the organization's timezone."""
 
-    active_on: date | None = None
+    active_on: date | None = Field(None, lt=date.max)  # the next day must exist

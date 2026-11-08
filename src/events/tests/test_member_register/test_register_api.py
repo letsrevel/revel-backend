@@ -198,6 +198,12 @@ def test_list_active_on_invalid_date(owner_client: Client, organization: Organiz
     assert 400 <= resp.status_code < 500
 
 
+def test_list_active_on_last_representable_date_is_rejected(owner_client: Client, organization: Organization) -> None:
+    """9999-12-31 has no next day to bound the window: rejected as a client error instead of overflowing."""
+    resp = owner_client.get(_url("list_member_register", organization), {"active_on": "9999-12-31"})
+    assert 400 <= resp.status_code < 500
+
+
 def test_list_permissions_and_isolation(
     plain_staff_client: Client, outsider_client: Client, organization: Organization, tier: MembershipTier
 ) -> None:

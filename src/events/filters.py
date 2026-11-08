@@ -377,6 +377,7 @@ class MembershipRecordFilterSchema(FilterSchema):
     has_account: bool | None = Field(None, description="True: linked to an account. False: account-less.")
     active_on: datetime.date | None = Field(
         None,
+        lt=datetime.date.max,  # the next day must exist
         description="Only non-revoked entries whose period overlaps this calendar day in the organization's timezone.",
     )
 

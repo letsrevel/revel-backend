@@ -1,7 +1,7 @@
 """Tests for the MembershipRecord register model."""
 
 import typing as t
-from datetime import UTC, date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from django.conf import settings
@@ -137,6 +137,27 @@ def test_day_bounds_org_timezone(ny_organization: Organization) -> None:
     assert end.utcoffset() == timedelta(hours=-4)
     assert (start.hour, end.hour, end.day) == (0, 0, 16)
     assert end.astimezone(UTC) - start.astimezone(UTC) == timedelta(hours=24)
+
+
+@pytest.mark.parametrize(
+    ("day", "start_utc", "hours"),
+    [
+        # Havana springs forward at local midnight (00:00 -> 01:00): the day starts at the jump.
+        (date(2026, 3, 8), datetime(2026, 3, 8, 5, tzinfo=UTC), 23),
+        # Havana falls back at 01:00 -> 00:00: midnight happens twice; the day starts at the first one.
+        (date(2026, 11, 1), datetime(2026, 11, 1, 4, tzinfo=UTC), 25),
+    ],
+)
+def test_day_bounds_when_midnight_is_skipped_or_repeated(
+    ny_organization: Organization, day: date, start_utc: datetime, hours: int
+) -> None:
+    """fold=0 on a nonexistent/ambiguous local midnight maps to the first instant of the local day (PEP 495)."""
+    assert ny_organization.city is not None
+    ny_organization.city.timezone = "America/Havana"
+    ny_organization.city.save(update_fields=["timezone"])
+    start, end = get_organization_day_bounds(ny_organization, day)
+    assert start.astimezone(UTC) == start_utc
+    assert end.astimezone(UTC) - start.astimezone(UTC) == timedelta(hours=hours)
 
 
 def test_day_bounds_dst_spring_forward(ny_organization: Organization) -> None:

@@ -95,6 +95,19 @@ def test_endpoint_requires_manage_members(organization: Organization, organizati
     task.delay.assert_not_called()
 
 
+def test_endpoint_rejects_last_representable_date(
+    organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """9999-12-31 can't bound a day window: 4xx at the schema, no export row, no task."""
+    url = reverse("api:export_member_register", kwargs={"slug": organization.slug})
+    with patch("events.tasks.generate_member_register_export_task") as task:
+        r = _client(organization_owner_user).post(
+            url, data={"active_on": "9999-12-31"}, content_type="application/json"
+        )
+    assert 400 <= r.status_code < 500
+    task.delay.assert_not_called()
+
+
 def test_workbook_all_records(organization: Organization, organization_owner_user: RevelUser) -> None:
     now = timezone.now()
     _rec(organization, "Ann", email="ann@example.com")
