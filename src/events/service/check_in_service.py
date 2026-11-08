@@ -12,7 +12,7 @@ from decimal import Decimal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from django.db.models import OuterRef, Subquery
+from django.db.models import OuterRef, QuerySet, Subquery
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import formats, timezone
@@ -110,6 +110,21 @@ def _pending_check_in_allowed(ticket: Ticket) -> bool:
     return ticket.tier.payment_method == TicketTier.PaymentMethod.OFFLINE
 
 
+def annotate_private_note(ticket_qs: QuerySet[Ticket], organization_id: UUID) -> QuerySet[Ticket]:
+    """Annotate tickets with the organization's private note about the holder (``private_note``).
+
+    Read-only for door staff; a subquery, so no extra round trip. Callers decide who may read it:
+    never OAuth app tokens, and only staff with ``check_in_attendees``.
+    """
+    return ticket_qs.annotate(
+        private_note=Subquery(
+            OrganizationUserNote.objects.filter(organization_id=organization_id, user_id=OuterRef("user_id")).values(
+                "body"
+            )[:1]
+        )
+    )
+
+
 def check_in_ticket(
     event: Event,
     ticket_id: UUID,
@@ -150,15 +165,8 @@ def check_in_ticket(
         "seat",
         "sector",
     ).prefetch_related("tier__restricted_to_membership_tiers", "tier__excluded_membership_tiers")
-    # Read-only for door staff (``CheckInResponseSchema.private_note``); a subquery, so no extra round trip.
     if include_note:
-        ticket_qs = ticket_qs.annotate(
-            private_note=Subquery(
-                OrganizationUserNote.objects.filter(
-                    organization_id=event.organization_id, user_id=OuterRef("user_id")
-                ).values("body")[:1]
-            )
-        )
+        ticket_qs = annotate_private_note(ticket_qs, event.organization_id)
     ticket = get_object_or_404(ticket_qs, pk=ticket_id, event=event)
 
     # Check if ticket status is valid for check-in

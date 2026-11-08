@@ -151,3 +151,24 @@ def test_notes_endpoints_refuse_app_tokens(
     ):
         assert response.status_code == 401, response.content
     assert OrganizationUserNote.objects.get(user=noted_member.user).body == NOTE
+
+
+def test_ticket_detail_app_token_gets_no_note(
+    open_event: Event,
+    noted_member: OrganizationMember,
+    organization: Organization,
+    oauth_app: OAuthApplication,
+    session_client: Client,
+) -> None:
+    tier = TicketTier.objects.create(
+        event=open_event, name="Free", price=Decimal("0"), payment_method=TicketTier.PaymentMethod.FREE
+    )
+    ticket = Ticket.objects.create(
+        event=open_event, user=noted_member.user, tier=tier, guest_name="G", status=Ticket.TicketStatus.ACTIVE
+    )
+    path = f"/api/event-admin/{open_event.id}/tickets/{ticket.id}"
+    app = _app_client(organization.owner, oauth_app, "org:read org:tickets org:checkin").get(path)
+    assert app.status_code == 200, app.content
+    assert app.json()["private_note"] is None
+    assert NOTE not in app.content.decode()
+    assert session_client.get(path).json()["private_note"] == NOTE

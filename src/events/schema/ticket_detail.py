@@ -178,6 +178,17 @@ class AdminTicketSchema(ModelSchema):
         return ticket_invoice_skipped(obj)
 
 
+class AdminTicketDetailSchema(AdminTicketSchema):
+    """Single-ticket admin view, as the door scanner's confirm dialog reads it.
+
+    Adds the organization's private note about the holder. Same visibility as
+    ``CheckInResponseSchema.private_note``: staff with ``check_in_attendees`` and the owner, never
+    OAuth app tokens; ``null`` for everyone else. Only ``GET .../tickets/{ticket_id}`` returns it.
+    """
+
+    private_note: str | None = None
+
+
 class TicketAttributionBucketSchema(Schema):
     """One row of the organizer's attribution breakdown (#922).
 

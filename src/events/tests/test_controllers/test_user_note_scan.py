@@ -177,6 +177,7 @@ class TestVerifyEndpoint:
 # a staff-only endpoint; member- or attendee-facing reuse of these schemas would leak the note.
 PRIVATE_NOTE_STAFF_OPERATIONS = {
     ("post", "/api/event-admin/{event_id}/tickets/{code}/check-in"),
+    ("get", "/api/event-admin/{event_id}/tickets/{ticket_id}"),
     ("get", "/api/organization-admin/{slug}/members/verify/{code}"),
     ("get", "/api/organization-admin/{slug}/members"),
     ("put", "/api/organization-admin/{slug}/members/{user_id}"),
