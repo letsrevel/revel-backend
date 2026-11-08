@@ -1,9 +1,10 @@
 """Plain-text email parts must not HTML-escape names (#1340); HTML parts must keep escaping."""
 
 import typing as t
+from pathlib import Path
 
 import pytest
-from django.template import Context, Template
+from django.template.loader import render_to_string
 
 from accounts.models import RevelUser
 from common.utils import render_plain_text
@@ -61,7 +62,12 @@ def test_html_part_still_escapes(event_open_notification: Notification) -> None:
     assert "&lt;b&gt;Night&lt;/b&gt;" in html
 
 
-def test_render_plain_text_helper() -> None:
-    """The helper disables autoescape; a plain Template stays escaped."""
-    assert Template("{{ x }}").render(Context({"x": ORG})) == "Rock &amp; Roll"
-    assert render_plain_text("notifications/email/_footer.txt", {"x": ORG}) is not None
+def test_render_plain_text_helper(tmp_path: Path, settings: t.Any) -> None:
+    """The helper renders variables literally; render_to_string escapes the same template."""
+    (tmp_path / "t.txt").write_text("Hi {{ x }}")
+    settings.TEMPLATES = [
+        {**settings.TEMPLATES[0], "DIRS": [str(tmp_path), *settings.TEMPLATES[0].get("DIRS", [])]},
+    ]
+
+    assert render_plain_text("t.txt", {"x": ORG}) == "Hi Rock & Roll"
+    assert render_to_string("t.txt", {"x": ORG}) == "Hi Rock &amp; Roll"
