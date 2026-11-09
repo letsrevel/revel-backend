@@ -51,3 +51,32 @@ class OrganizationAdminUserNotesController(OrganizationAdminBaseController):
         """Delete the private note about a user."""
         user_note_service.delete_note(self.get_one(slug), user_id)
         return 204, None
+
+    @route.get(
+        "/member-register/{record_id}/note",
+        url_name="get_member_register_record_note",
+        response=schema.UserNoteSchema,
+        throttle=UserDefaultThrottle(),
+    )
+    def get_record_note(self, slug: str, record_id: UUID) -> models.OrganizationUserNote:
+        """Get the private note of a register entry (the account's note once linked; 404 if none)."""
+        return user_note_service.get_record_note(self.get_one(slug), record_id)
+
+    @route.put(
+        "/member-register/{record_id}/note",
+        url_name="upsert_member_register_record_note",
+        response=schema.UserNoteSchema,
+    )
+    def upsert_record_note(
+        self, slug: str, record_id: UUID, payload: schema.UserNoteUpsertSchema
+    ) -> models.OrganizationUserNote:
+        """Create or replace the private note of a register entry (the account's note once linked)."""
+        return user_note_service.upsert_record_note(self.get_one(slug), record_id, payload.body, self.user())
+
+    @route.delete(
+        "/member-register/{record_id}/note", url_name="delete_member_register_record_note", response={204: None}
+    )
+    def delete_record_note(self, slug: str, record_id: UUID) -> tuple[int, None]:
+        """Delete the private note of a register entry (the account's note once linked)."""
+        user_note_service.delete_record_note(self.get_one(slug), record_id)
+        return 204, None

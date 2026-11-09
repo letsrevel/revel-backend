@@ -373,8 +373,14 @@ class MembershipRecordFilterSchema(FilterSchema):
 
     kind: MembershipRecordKind | None = Field(None, description="Standard or temporary membership.")
     tier_id: UUID | None = Field(None, description="Only entries of this tier.")
+    user_id: UUID | None = Field(None, description="Only this account's entries (all periods, standard and temporary).")
     is_open: bool | None = Field(None, description="True: no end date. False: has an end date.")
     has_account: bool | None = Field(None, description="True: linked to an account. False: account-less.")
+    ended: bool | None = Field(
+        None,
+        description="True: ended (end date reached, or revoked). False: not ended (open, or ends later). "
+        "Either value excludes merged entries.",
+    )
     active_on: datetime.date | None = Field(
         None,
         lt=datetime.date.max,  # the next day must exist
@@ -391,6 +397,10 @@ class MembershipRecordFilterSchema(FilterSchema):
 
     def filter_active_on(self, active_on: datetime.date | None) -> Q:
         """No-op: the controller applies ``active_on`` (it needs the organization's timezone)."""
+        return Q()
+
+    def filter_ended(self, ended: bool | None) -> Q:
+        """No-op: the controller applies ``ended`` (it needs one ``now`` per request)."""
         return Q()
 
 

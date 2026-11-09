@@ -7478,3 +7478,16 @@ msgstr "Esta entrada del registro comienza en el futuro."
 
 msgid "Unlink the entries merged into this one before deleting it."
 msgstr "Deshaz primero la fusión de las entradas fusionadas en esta antes de eliminarla."
+
+msgid "A merged register entry has no note of its own; edit the note on the entry it was merged into."
+msgstr "Una entrada de registro fusionada no tiene nota propia; edita la nota de la entrada en la que se fusionó."
+
+#, python-brace-format
+msgid "— From register entry ({date}) —"
+msgstr "— De la entrada de registro ({date}) —"
+
+msgid "[truncated]"
+msgstr "[truncado]"
+
+msgid "The register entry belongs to another organization."
+msgstr "La entrada de registro pertenece a otra organización."

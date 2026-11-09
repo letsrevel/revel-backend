@@ -7509,3 +7509,16 @@ msgstr "Questa voce del registro inizia nel futuro."
 
 msgid "Unlink the entries merged into this one before deleting it."
 msgstr "Annulla l'unione delle voci unite in questa prima di eliminarla."
+
+msgid "A merged register entry has no note of its own; edit the note on the entry it was merged into."
+msgstr "Una voce di registro unita non ha una nota propria; modifica la nota della voce in cui è stata unita."
+
+#, python-brace-format
+msgid "— From register entry ({date}) —"
+msgstr "— Dalla voce di registro ({date}) —"
+
+msgid "[truncated]"
+msgstr "[troncato]"
+
+msgid "The register entry belongs to another organization."
+msgstr "La voce di registro appartiene a un'altra organizzazione."
