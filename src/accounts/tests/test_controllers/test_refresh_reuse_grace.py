@@ -4,7 +4,9 @@ True concurrency is serialized by the user-row lock plus the atomic ``cache.add`
 sequential behaviour that follows from it.
 """
 
+import time
 import typing as t
+from datetime import timedelta
 from unittest.mock import patch
 
 import jwt
@@ -13,11 +15,16 @@ import pytest
 from django.core.cache import cache
 from django.test.client import Client
 from django.urls import reverse
+from django.utils import timezone
 from ninja_jwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.jwt import blacklist_user_tokens
 from accounts.models import RevelUser
+from accounts.service import account as account_service
+from accounts.service import global_ban_service
+from events.models import Organization, OrganizationDomain
+from events.service import custom_domain_service
 
 pytestmark = pytest.mark.django_db
 
@@ -85,16 +92,9 @@ def test_reuse_within_grace_issues_a_new_pair_once(client: Client, user: RevelUs
     again = _refresh(client, r1)
     assert again.status_code == 401
     assert again.json()["code"] == "token_not_valid"
+    assert again.json()["detail"] == "Token is blacklisted"
     _ok(client, r3)
     _ok(client, r2)  # the original successor is not invalidated by the grace
-
-
-def test_back_to_back_double_reuse(client: Client, user: RevelUser) -> None:
-    r1 = _login(user)
-    _ok(client, r1)
-    r3 = _ok(client, r1)["refresh"]
-    assert _refresh(client, r1).status_code == 401
-    _ok(client, r3)
 
 
 def test_reuse_after_grace_expired_is_rejected(client: Client, user: RevelUser) -> None:
@@ -187,3 +187,69 @@ def test_rejected_reuse_has_no_db_side_effects(client: Client, user: RevelUser) 
     before = _rows()
     assert _refresh(client, r1).status_code == 401
     assert _rows() == before
+
+
+def test_password_reset_kills_rotated_sessions_and_grace(client: Client, user: RevelUser) -> None:
+    r1 = _login(user)
+    r2 = _ok(client, r1)["refresh"]
+    account_service.reset_password(account_service.create_password_reset_token(user), "a-Strong-password-123!")
+    assert _refresh(client, r1).status_code == 401
+    assert _refresh(client, r2).status_code == 401
+
+
+def test_global_ban_kills_rotated_sessions_and_grace(client: Client, user: RevelUser) -> None:
+    r1 = _login(user)
+    r2 = _ok(client, r1)["refresh"]
+    global_ban_service.deactivate_user_for_ban(user, "test")
+    user.refresh_from_db()
+    assert not user.is_active
+    assert _refresh(client, r1).status_code == 401
+    assert _refresh(client, r2).status_code == 401
+
+
+def test_logout_with_an_expired_token_is_401(client: Client, user: RevelUser) -> None:
+    token = RefreshToken.for_user(user)
+    token.set_exp(from_time=timezone.now() - timedelta(days=60), lifetime=timedelta(days=1))
+    assert _post(client, "token_logout", str(token)).status_code == 401
+
+
+def test_token_rotated_before_the_deploy_still_rotates_and_gets_grace(client: Client, user: RevelUser) -> None:
+    """A legacy token has no ``sid`` and (if rotated pre-deploy) no outstanding row of its own."""
+    token = RefreshToken.for_user(user)
+    r1 = str(token)
+    OutstandingToken.objects.filter(jti=_jti(r1)).delete()
+
+    r2 = _ok(client, r1)["refresh"]
+    r3 = _ok(client, r1)["refresh"]  # grace: lineage is live through the new user-owned row
+    assert r3 != r2
+    assert _refresh(client, r1).status_code == 401
+
+
+# --- Tenant-bound session ---
+
+HOST = "events.example.com"
+
+
+@pytest.fixture
+def domain(user: RevelUser) -> OrganizationDomain:
+    org = Organization.objects.create(name="Tenant Org", slug="tenant-org", owner=user, custom_domain_enabled=True)
+    row = OrganizationDomain.objects.create(organization=org, hostname=HOST, cloudflare_hostname_id="cf-1")
+    custom_domain_service.activate_domain(row)
+    OrganizationDomain.objects.filter(pk=row.pk).update(verified_at=timezone.now() - timedelta(hours=1))
+    cache.clear()
+    return row
+
+
+def test_tenant_revoke_gives_no_grace(client: Client, user: RevelUser, domain: OrganizationDomain) -> None:
+    token = RefreshToken.for_user(user)
+    token.payload.update({"tenant_host": HOST, "tenant_session_iat": int(time.time()) - 1800})
+    r1 = str(token)
+    r2 = _ok(client, r1)["refresh"]
+
+    custom_domain_service.remove_domain(domain)
+    cache.clear()  # what the on_commit invalidation does in production
+    cache.set(f"refresh_rotated:{_jti(r1)}", 1, timeout=30)  # the marker is still inside its window
+
+    assert _refresh(client, r1).status_code == 401
+    assert _is_blacklisted(r1)
+    assert _refresh(client, r2).status_code == 401

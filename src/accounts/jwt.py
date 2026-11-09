@@ -177,7 +177,8 @@ def blacklist_user_tokens(user: t.Any) -> int:
     count = 0
     with transaction.atomic():
         # The user-row lock serializes this with refresh rotation/logout, so no token is minted behind our back.
-        type(user).objects.select_for_update().filter(pk=user.pk).first()
+        # NO KEY UPDATE self-excludes but, unlike FOR UPDATE, does not block FK inserts referencing the user.
+        type(user).objects.select_for_update(no_key=True).filter(pk=user.pk).first()
         outstanding = OutstandingToken.objects.filter(user=user).exclude(blacklistedtoken__isnull=False)
         for token in outstanding:
             BlacklistedToken.objects.get_or_create(token=token)

@@ -50,7 +50,9 @@ def _verify(raw: str) -> _RefreshIgnoringBlacklist:
 
 
 def _lock_user(user_id: t.Any) -> RevelUser | None:
-    return RevelUser.objects.select_for_update().filter(pk=user_id).first()
+    # NO KEY UPDATE still excludes other lockers of the same mode (each other), but unlike FOR UPDATE it does
+    # not block inserts of rows holding a foreign key to the user.
+    return RevelUser.objects.select_for_update(no_key=True).filter(pk=user_id).first()
 
 
 def _lineage_id(payload: t.Mapping[str, t.Any]) -> str:
@@ -144,7 +146,7 @@ def _rotate_locked(token: _RefreshIgnoringBlacklist) -> TokenRefreshOutputSchema
         try:
             cache.set(f"refresh_rotated:{jti}", 1, timeout=grace)
         except Exception:
-            logger.warning("refresh_rotation_marker_failed", user_id=str(token[_USER_ID]), jti=jti)
+            logger.warning("refresh_rotation_marker_failed", user_id=str(token[_USER_ID]), jti=jti, exc_info=True)
     return _issue(token, user, sid)
 
 
@@ -156,7 +158,8 @@ def rotate(raw_refresh: str) -> TokenRefreshOutputSchema:
     """
     token = _verify(raw_refresh)
     if not tenant_session.is_tenant_session_valid(token.payload, check_reactivation=True):
-        # Blacklist in its own transaction so the write survives the raise below.
+        # Under ATOMIC_REQUESTS this is a savepoint. The write survives the raise below because ninja turns
+        # InvalidToken into a 401 response, so the request transaction still commits.
         with transaction.atomic():
             _blacklist(token)
         raise InvalidToken
