@@ -125,5 +125,8 @@ def test_merged_into_other_org_or_unknown_gives_empty_page(
         merged_into=survivor,
         valid_from=timezone.now() - timedelta(days=6),
     )
+    # Local records exist, so an ignored ``merged_into`` would return them.
+    local = make_record(full_name="local-survivor", email="ls@example.com")
+    make_record(full_name="local-absorbed", email="la@example.com", merged_into=local)
     assert _names(owner_client, organization, merged_into=str(survivor.pk)) == set()
     assert _names(owner_client, organization, merged_into=str(uuid.uuid4())) == set()
