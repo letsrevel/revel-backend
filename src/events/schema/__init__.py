@@ -176,6 +176,7 @@ from .member_register import (
     MemberRegisterMergeSchema,
     PossibleDuplicateSchema,
     RegisterMatchSchema,
+    RegisterSubscriptionSummarySchema,
 )
 from .misc import (
     AdditionalResourceCreateSchema,
@@ -655,6 +656,7 @@ __all__ = [
     "MemberRegisterMergeSchema",
     "PossibleDuplicateSchema",
     "RegisterMatchSchema",
+    "RegisterSubscriptionSummarySchema",
     "MembershipTierAdminSchema",
     "MembershipTierCreateSchema",
     "MembershipTierMinimalSchema",

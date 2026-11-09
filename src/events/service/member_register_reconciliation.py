@@ -68,6 +68,7 @@ def register_matches_for_request(request: OrganizationMembershipRequest) -> list
         MembershipRecord.objects.unlinked()
         .open()
         .with_note_flag()
+        .with_access_state()
         .select_related("tier")
         .filter(organization_id=request.organization_id, kind=MembershipRecord.Kind.STANDARD)
         .order_by("valid_from", "created_at")
@@ -93,6 +94,7 @@ def possible_duplicates(organization: Organization) -> list[PossibleDuplicate]:
     unlinked = list(
         MembershipRecord.objects.unlinked()
         .with_note_flag()
+        .with_access_state()
         .select_related("tier")
         .filter(organization=organization)
         .order_by("valid_from", "created_at")
@@ -101,6 +103,7 @@ def possible_duplicates(organization: Organization) -> list[PossibleDuplicate]:
         MembershipRecord.objects.open()
         .unmerged()
         .with_note_flag()
+        .with_access_state()
         .select_related("tier", "user")
         .filter(organization=organization, kind=MembershipRecord.Kind.STANDARD, user__isnull=False)
         .order_by("valid_from", "created_at")

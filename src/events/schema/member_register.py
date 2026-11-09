@@ -14,6 +14,8 @@ from events.models import (
     MembershipRecordKind,
     MembershipRecordLinkMethod,
     MembershipRecordSource,
+    MembershipSubscription,
+    OrganizationMember,
     RegisterMatchReason,
 )
 from events.service import member_register_linking as linking
@@ -29,6 +31,19 @@ def _clean_full_name(value: str | None) -> str | None:
     if not value:
         raise ValueError("Name cannot be blank.")
     return value
+
+
+class RegisterSubscriptionSummarySchema(Schema):
+    """The linked account's live subscription, as shown on a register row."""
+
+    status: MembershipSubscription.SubscriptionStatus
+    plan_name: str
+    current_period_end: AwareDatetime | None = None
+    cancel_at_period_end: bool
+
+
+def _shows_access_state(obj: MembershipRecord) -> bool:
+    return obj.user_id is not None and obj.valid_until is None and obj.kind == MembershipRecord.Kind.STANDARD
 
 
 class MembershipRecordSchema(ModelSchema):
@@ -55,6 +70,8 @@ class MembershipRecordSchema(ModelSchema):
     linked_via: MembershipRecordLinkMethod | None = None
     linked_at: AwareDatetime | None = None
     has_note: bool
+    member_status: OrganizationMember.MembershipStatus | None = None
+    subscription: RegisterSubscriptionSummarySchema | None = None
 
     class Meta:
         model = MembershipRecord
@@ -73,6 +90,47 @@ class MembershipRecordSchema(ModelSchema):
     def resolve_has_account(obj: MembershipRecord) -> bool:
         """Whether the person still has an account."""
         return obj.user_id is not None
+
+    @staticmethod
+    def resolve_member_status(obj: MembershipRecord) -> OrganizationMember.MembershipStatus | None:
+        """The account's access-row status; only for linked, open, standard entries."""
+        if not _shows_access_state(obj):
+            return None
+        if hasattr(obj, "access_member_status"):
+            return obj.access_member_status  # type: ignore[no-any-return]
+        status = OrganizationMember.objects.filter(organization_id=obj.organization_id, user_id=obj.user_id)
+        return status.values_list("status", flat=True).first()  # type: ignore[return-value]
+
+    @staticmethod
+    def resolve_subscription(obj: MembershipRecord) -> RegisterSubscriptionSummarySchema | None:
+        """The account's non-terminal subscription; only for linked, open, standard entries."""
+        if not _shows_access_state(obj):
+            return None
+        if hasattr(obj, "access_sub_status"):
+            annotated = t.cast(t.Any, obj)  # queryset annotations from ``with_access_state``
+            if annotated.access_sub_status is None:
+                return None
+            return RegisterSubscriptionSummarySchema(
+                status=MembershipSubscription.SubscriptionStatus(annotated.access_sub_status),
+                plan_name=annotated.access_sub_plan_name,
+                current_period_end=annotated.access_sub_period_end,
+                cancel_at_period_end=annotated.access_sub_cancel_at_period_end,
+            )
+        sub = (
+            MembershipSubscription.objects.select_related("plan")
+            .filter(organization_id=obj.organization_id, user_id=obj.user_id)
+            .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+            .order_by("-created_at")
+            .first()
+        )
+        if sub is None:
+            return None
+        return RegisterSubscriptionSummarySchema(
+            status=MembershipSubscription.SubscriptionStatus(sub.status),
+            plan_name=sub.plan.name,
+            current_period_end=sub.current_period_end,
+            cancel_at_period_end=sub.cancel_at_period_end,
+        )
 
     @staticmethod
     def resolve_has_duplicate_claim(obj: MembershipRecord) -> bool:

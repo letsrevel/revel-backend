@@ -373,6 +373,7 @@ class MembershipRecordFilterSchema(FilterSchema):
 
     kind: MembershipRecordKind | None = Field(None, description="Standard or temporary membership.")
     tier_id: UUID | None = Field(None, description="Only entries of this tier.")
+    user_id: UUID | None = Field(None, description="Only this account's entries (all periods, standard and temporary).")
     is_open: bool | None = Field(None, description="True: no end date. False: has an end date.")
     has_account: bool | None = Field(None, description="True: linked to an account. False: account-less.")
     active_on: datetime.date | None = Field(

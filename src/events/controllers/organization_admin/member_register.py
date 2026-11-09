@@ -57,7 +57,7 @@ class OrganizationAdminMemberRegisterController(OrganizationAdminBaseController)
         """List register entries, newest first."""
         organization = self.get_one(slug)
         qs = models.MembershipRecord.objects.filter(organization=organization).select_related("tier")
-        qs = qs.with_note_flag()
+        qs = qs.with_note_flag().with_access_state()
         qs = params.filter(qs)
         if params.active_on is not None:
             qs = qs.active_during(*get_organization_day_bounds(organization, params.active_on))

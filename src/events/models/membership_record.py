@@ -92,6 +92,29 @@ class MembershipRecordQuerySet(models.QuerySet["MembershipRecord"]):
             )
         )
 
+    def with_access_state(self) -> t.Self:
+        """Annotate the linked account's access row status and non-terminal subscription (``access_*``)."""
+        from events.models.membership import OrganizationMember  # lazy, like ``with_note_flag``
+        from events.models.subscription import MembershipSubscription
+
+        member = OrganizationMember.objects.filter(
+            organization_id=models.OuterRef("organization_id"), user_id=models.OuterRef("user_id")
+        )
+        sub = (
+            MembershipSubscription.objects.filter(
+                organization_id=models.OuterRef("organization_id"), user_id=models.OuterRef("user_id")
+            )
+            .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+            .order_by("-created_at")
+        )
+        return self.annotate(
+            access_member_status=models.Subquery(member.values("status")[:1]),
+            access_sub_status=models.Subquery(sub.values("status")[:1]),
+            access_sub_plan_name=models.Subquery(sub.values("plan__name")[:1]),
+            access_sub_period_end=models.Subquery(sub.values("current_period_end")[:1]),
+            access_sub_cancel_at_period_end=models.Subquery(sub.values("cancel_at_period_end")[:1]),
+        )
+
     def unmerged(self) -> t.Self:
         """Records that were not merged into a survivor."""
         return self.filter(merged_into__isnull=True)
