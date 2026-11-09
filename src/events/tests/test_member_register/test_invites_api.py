@@ -253,7 +253,7 @@ class TestInviteEligibilityFields:
         make_record(email="future@example.com", valid_from=now + timedelta(days=5))
 
         url = reverse("api:list_member_register", kwargs={"slug": organization.slug})
-        results = {r["email"]: r for r in owner_client.get(url).json()["results"]}
+        results = {r["email"]: r for r in owner_client.get(url, {"include_merged": "true"}).json()["results"]}
 
         assert results["open@example.com"]["can_invite"] is True
         assert results["open@example.com"]["invite_blocked_reason"] is None

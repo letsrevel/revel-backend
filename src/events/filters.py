@@ -27,6 +27,7 @@ from events.models import (
     TicketTier,
     WhitelistRequest,
 )
+from events.models.membership_record import MembershipRecordQuerySet
 from events.models.skipped_fiscal_document import SkippedFiscalDocumentKind, SkippedFiscalDocumentReason
 from events.utils.membership_access import visible_member_org_ids
 from questionnaires.models import QuestionnaireEvaluation
@@ -373,7 +374,16 @@ class MembershipRecordFilterSchema(FilterSchema):
 
     kind: MembershipRecordKind | None = Field(None, description="Standard or temporary membership.")
     tier_id: UUID | None = Field(None, description="Only entries of this tier.")
-    user_id: UUID | None = Field(None, description="Only this account's entries (all periods, standard and temporary).")
+    user_id: UUID | None = Field(
+        None,
+        description="Only this account's entries (all periods, standard and temporary). "
+        "With `include_merged=true`, also the entries merged into this account's entries.",
+    )
+    include_merged: bool = Field(
+        False,
+        description="False (default): hide entries absorbed by a merge, so rows are distinct people. "
+        "True: include them.",
+    )
     is_open: bool | None = Field(None, description="True: no end date. False: has an end date.")
     has_account: bool | None = Field(None, description="True: linked to an account. False: account-less.")
     ended: bool | None = Field(
@@ -402,6 +412,28 @@ class MembershipRecordFilterSchema(FilterSchema):
     def filter_ended(self, ended: bool | None) -> Q:
         """No-op: the controller applies ``ended`` (it needs one ``now`` per request)."""
         return Q()
+
+    def filter_user_id(self, user_id: UUID | None) -> Q:
+        """No-op: applied together with ``include_merged`` by :meth:`filter_scope`."""
+        return Q()
+
+    def filter_include_merged(self, include_merged: bool) -> Q:
+        """No-op: applied together with ``user_id`` by :meth:`filter_scope`."""
+        return Q()
+
+    def filter_scope(self, qs: MembershipRecordQuerySet) -> MembershipRecordQuerySet:
+        """Apply ``user_id`` and ``include_merged``.
+
+        Absorbed OPEN entries have no user; only ``merged_into`` points at the survivor, so with
+        ``include_merged`` a user's scope is their own entries plus those merged into them (merges
+        never chain: a survivor cannot itself be absorbed).
+        """
+        if self.include_merged:
+            if self.user_id is None:
+                return qs
+            return qs.filter(Q(user_id=self.user_id) | Q(merged_into__user_id=self.user_id))
+        qs = qs.unmerged()
+        return qs if self.user_id is None else qs.filter(user_id=self.user_id)
 
 
 class InvitationRequestFilterSchema(FilterSchema):
