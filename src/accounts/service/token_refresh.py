@@ -127,8 +127,7 @@ def _grace_allows(user: RevelUser, jti: str, sid: str) -> bool:
         return False
 
 
-def _rotate_locked(token: _RefreshIgnoringBlacklist) -> TokenRefreshOutputSchema:
-    user = _lock_user(token[_USER_ID])
+def _rotate_locked(token: _RefreshIgnoringBlacklist, user: RevelUser | None) -> TokenRefreshOutputSchema:
     jti = token[_JTI]
     sid = _lineage_id(token.payload)
     rejection = InvalidToken(str(_("Token is blacklisted")))
@@ -157,14 +156,17 @@ def rotate(raw_refresh: str) -> TokenRefreshOutputSchema:
         InvalidToken: The token is invalid, expired, revoked, or reused outside the grace (401).
     """
     token = _verify(raw_refresh)
-    if not tenant_session.is_tenant_session_valid(token.payload, check_reactivation=True):
-        # Under ATOMIC_REQUESTS this is a savepoint. The write survives the raise below because ninja turns
-        # InvalidToken into a 401 response, so the request transaction still commits.
-        with transaction.atomic():
-            _blacklist(token)
-        raise InvalidToken
     with transaction.atomic():
-        return _rotate_locked(token)
+        user = _lock_user(token[_USER_ID])
+        # Checked after the lock wait, right before issuing, so a domain removed while this request queued
+        # behind another refresh is seen (the lock wait is the only non-trivial gap).
+        if tenant_session.is_tenant_session_valid(token.payload, check_reactivation=True):
+            return _rotate_locked(token, user)
+        # Dead tenant session: blacklist without raising inside the block, so the write is kept. Under
+        # ATOMIC_REQUESTS this is a savepoint; ninja turns InvalidToken into a 401 response and the request
+        # transaction still commits.
+        _blacklist(token)
+    raise InvalidToken
 
 
 def logout(raw_refresh: str) -> None:
