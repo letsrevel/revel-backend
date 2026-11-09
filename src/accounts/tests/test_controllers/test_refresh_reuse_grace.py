@@ -1,10 +1,11 @@
 """Refresh-token rotation: recording, single-use reuse grace and lineage logout (through the HTTP endpoints).
 
-True concurrency is serialized by the user-row lock plus the atomic ``cache.add``; these tests pin the
-sequential behaviour that follows from it.
+Concurrency is serialized by the user-row lock plus the atomic ``cache.add``;
+``test_concurrent_reuse_is_granted_once`` races two real requests to pin it.
 """
 
 import contextlib
+import threading
 import time
 import typing as t
 from datetime import timedelta
@@ -14,6 +15,7 @@ import jwt
 import orjson
 import pytest
 from django.core.cache import cache
+from django.db import connection
 from django.test.client import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -263,3 +265,34 @@ def test_tenant_revoke_gives_no_grace(client: Client, user: RevelUser, domain: O
     assert _refresh(client, r1).status_code == 401
     assert _is_blacklisted(r1)
     assert _refresh(client, r2).status_code == 401
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_reuse_is_granted_once(user: RevelUser) -> None:
+    """Two simultaneous replays of a rotated token: exactly one gets the grace.
+
+    ``transaction=True`` because each thread needs its own committed view of the DB: under the
+    default wrapping transaction the threads could not see the rotation, and the user-row lock
+    would never be contended.
+    """
+    r1 = _login(user)
+    _ok(Client(), r1)
+    barrier = threading.Barrier(2)
+    statuses: list[int] = []
+
+    def replay() -> None:
+        try:
+            barrier.wait(timeout=10)
+            statuses.append(_refresh(Client(), r1).status_code)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=replay) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert sorted(statuses) == [200, 401]
+    live = OutstandingToken.objects.filter(user=user, blacklistedtoken__isnull=True)
+    assert live.count() == 2  # the original successor R2 plus the one grace-issued R3
