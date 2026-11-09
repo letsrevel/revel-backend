@@ -4,10 +4,11 @@ True concurrency is serialized by the user-row lock plus the atomic ``cache.add`
 sequential behaviour that follows from it.
 """
 
+import contextlib
 import time
 import typing as t
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import jwt
 import orjson
@@ -158,20 +159,29 @@ def test_inactive_user_gets_no_grace(client: Client, user: RevelUser) -> None:
     assert _refresh(client, r1).status_code == 401
 
 
+@contextlib.contextmanager
+def _cache_failing(method: str) -> t.Iterator[None]:
+    """Make one cache method raise for the refresh service only (the throttles share the real cache)."""
+    fake = MagicMock(wraps=cache)
+    getattr(fake, method).side_effect = RuntimeError("redis down")
+    with patch("accounts.service.token_refresh.cache", fake):
+        yield
+
+
 def test_cache_errors_reject_reuse_but_never_break_refresh(client: Client, user: RevelUser) -> None:
     r1 = _login(user)
-    with patch("django.core.cache.cache.set", side_effect=RuntimeError("redis down")):
+    with _cache_failing("set"):
         r2 = _ok(client, r1)["refresh"]
     # No marker was written, so the reuse is rejected.
     assert _refresh(client, r1).status_code == 401
 
     r3 = _login(user)
     _ok(client, r3)
-    with patch("django.core.cache.cache.get", side_effect=RuntimeError("redis down")):
+    with _cache_failing("get"):
         assert _refresh(client, r3).status_code == 401
     r4 = _login(user)
     _ok(client, r4)
-    with patch("django.core.cache.cache.add", side_effect=RuntimeError("redis down")):
+    with _cache_failing("add"):
         assert _refresh(client, r4).status_code == 401
     _ok(client, r2)
 
