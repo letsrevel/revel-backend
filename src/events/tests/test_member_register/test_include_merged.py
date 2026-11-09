@@ -109,6 +109,19 @@ def test_merged_into_combines_with_kind(
     assert _names(owner_client, organization, merged_into=str(survivor.pk), kind="temporary") == set()
 
 
+@pytest.mark.parametrize("include_merged", ["true", "false"])
+def test_merged_into_combines_with_user_id(
+    owner_client: Client,
+    organization: Organization,
+    merged: dict[str, MembershipRecord],
+    claimant: RevelUser,
+    include_merged: str,
+) -> None:
+    params = {"merged_into": str(merged["survivor"].pk), "include_merged": include_merged}
+    assert _names(owner_client, organization, user_id=str(claimant.pk), **params) == {"absorbed"}
+    assert _names(owner_client, organization, user_id=str(organization.owner_id), **params) == set()
+
+
 def test_merged_into_other_org_or_unknown_gives_empty_page(
     owner_client: Client, organization: Organization, make_record: RecordFactory, django_user_model: type[RevelUser]
 ) -> None:

@@ -221,6 +221,9 @@ class MemberRegisterExportRequestSchema(Schema):
     """Export the register, optionally only the entries active on a calendar day in the organization's timezone."""
 
     active_on: date | None = Field(None, lt=date.max)  # the next day must exist
+    include_merged: bool = Field(
+        False, description="Include entries absorbed by a merge (default: hidden). Ignored with `active_on`."
+    )
 
 
 class MemberRegisterBulkInviteResultSchema(Schema):
