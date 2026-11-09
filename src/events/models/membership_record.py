@@ -76,6 +76,11 @@ class MembershipRecordQuerySet(models.QuerySet["MembershipRecord"]):
         """Records without an account (they grant nothing) that were not merged into another record."""
         return self.filter(user__isnull=True, merged_into__isnull=True)
 
+    def ended(self, now: datetime, ended: bool) -> t.Self:
+        """Unmerged entries that have (``ended=True``) or have not ended at ``now``; revoked entries count as ended."""
+        over = models.Q(valid_until__lte=now) | models.Q(ended_reason=MembershipRecord.EndedReason.REVOKED)
+        return self.unmerged().filter(over if ended else ~over)
+
     def with_note_flag(self) -> t.Self:
         """Annotate ``note_exists``: a linked entry shows its user's note, an unlinked one its own."""
         from events.models.user_note import OrganizationUserNote  # lazy: user_note references this model by label

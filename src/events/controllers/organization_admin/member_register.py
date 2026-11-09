@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from ninja import Query
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
@@ -61,6 +62,8 @@ class OrganizationAdminMemberRegisterController(OrganizationAdminBaseController)
         qs = params.filter(qs)
         if params.active_on is not None:
             qs = qs.active_during(*get_organization_day_bounds(organization, params.active_on))
+        if params.ended is not None:
+            qs = qs.ended(timezone.now(), params.ended)
         return qs.order_by("-valid_from", "-created_at")
 
     @route.post(

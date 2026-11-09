@@ -4,6 +4,7 @@ import typing as t
 from datetime import date
 from uuid import UUID
 
+from django.utils import timezone
 from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime, EmailStr, Field, field_validator
 
@@ -70,6 +71,7 @@ class MembershipRecordSchema(ModelSchema):
     linked_via: MembershipRecordLinkMethod | None = None
     linked_at: AwareDatetime | None = None
     has_note: bool
+    is_current: bool
     member_status: OrganizationMember.MembershipStatus | None = None
     subscription: RegisterSubscriptionSummarySchema | None = None
 
@@ -130,6 +132,17 @@ class MembershipRecordSchema(ModelSchema):
             plan_name=sub.plan.name,
             current_period_end=sub.current_period_end,
             cancel_at_period_end=sub.cancel_at_period_end,
+        )
+
+    @staticmethod
+    def resolve_is_current(obj: MembershipRecord) -> bool:
+        """Whether the entry covers the present moment (not revoked, not merged, started, not yet ended)."""
+        now = timezone.now()
+        return (
+            obj.ended_reason != MembershipRecord.EndedReason.REVOKED
+            and obj.merged_into_id is None
+            and obj.valid_from <= now
+            and (obj.valid_until is None or now < obj.valid_until)
         )
 
     @staticmethod
