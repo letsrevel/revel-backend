@@ -263,8 +263,9 @@ def test_tenant_revoke_gives_no_grace(client: Client, user: RevelUser, domain: O
     cache.set(f"refresh_rotated:{_jti(r1)}", 1, timeout=30)  # the marker is still inside its window
 
     assert _refresh(client, r1).status_code == 401
-    assert _is_blacklisted(r1)
+    assert not _is_blacklisted(r2)
     assert _refresh(client, r2).status_code == 401
+    assert _is_blacklisted(r2)  # the dead-tenant branch blacklists the presented token
 
 
 @pytest.mark.django_db(transaction=True)
