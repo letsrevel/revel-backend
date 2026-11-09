@@ -324,7 +324,8 @@ def test_platform_refresh_is_unaffected_without_any_domain(client: Client, user:
     assert _blacklisted(token)  # normal rotation
 
 
-def test_invalid_refresh_tokens_keep_the_stock_error(client: Client, user: RevelUser) -> None:
+def test_invalid_refresh_tokens_keep_the_stock_error(client: Client, user: RevelUser, settings: t.Any) -> None:
+    settings.REFRESH_TOKEN_REUSE_GRACE_SECONDS = 0  # reuse within the grace is covered in test_refresh_reuse_grace
     assert _refresh(client, "garbage").status_code == 401
     spent = RefreshToken.for_user(user)
     assert _refresh(client, str(spent)).status_code == 200
