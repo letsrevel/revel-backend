@@ -240,15 +240,18 @@ def test_include_merged_flag_stored_by_start_and_endpoint(
     assert FileExport.objects.get(pk=r.json()["id"]).parameters["include_merged"] is True
 
 
+@pytest.mark.parametrize("include_merged", [None, True])
 def test_day_filtered_export_excludes_absorbed_record(
-    organization: Organization, organization_owner_user: RevelUser
+    organization: Organization, organization_owner_user: RevelUser, include_merged: bool | None
 ) -> None:
     """A fixed day well inside both records' periods keeps the test independent of the clock and timezone."""
     start = datetime(2026, 6, 1, tzinfo=UTC)
     survivor = _rec(organization, "Survivor", valid_from=start)
     _rec(organization, "Absorbed", merged_into=survivor, valid_from=start)
-    export = _export(organization, organization_owner_user, active_on=date(2026, 6, 15), include_merged=True)
+    export = _export(organization, organization_owner_user, active_on=date(2026, 6, 15), include_merged=include_merged)
 
     generate_member_register_export(export.id)
 
-    assert {r[0] for r in _rows(export, "Register")[1:]} == {"Survivor"}
+    rows = _rows(export, "Register")
+    assert {r[0] for r in rows[1:]} == {"Survivor"}
+    assert ("Merged Into" in rows[0]) == bool(include_merged)
