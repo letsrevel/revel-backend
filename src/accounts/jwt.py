@@ -174,11 +174,14 @@ def blacklist_user_tokens(user: t.Any) -> int:
         separately rather than folded in here — they are a different kind of credential with a
         different lifetime, and callers reading this number mean sessions.
     """
-    outstanding = OutstandingToken.objects.filter(user=user).exclude(blacklistedtoken__isnull=False)
     count = 0
-    for token in outstanding:
-        BlacklistedToken.objects.get_or_create(token=token)
-        count += 1
+    with transaction.atomic():
+        # The user-row lock serializes this with refresh rotation/logout, so no token is minted behind our back.
+        type(user).objects.select_for_update().filter(pk=user.pk).first()
+        outstanding = OutstandingToken.objects.filter(user=user).exclude(blacklistedtoken__isnull=False)
+        for token in outstanding:
+            BlacklistedToken.objects.get_or_create(token=token)
+            count += 1
     if count:
         logger.info("user_tokens_blacklisted", user_id=str(user.id), count=count)
 

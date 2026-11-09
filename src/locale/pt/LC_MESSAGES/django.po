@@ -229,6 +229,9 @@ msgstr ""
 msgid "Token is blacklisted."
 msgstr "O token está na lista negra."
 
+msgid "Token is blacklisted"
+msgstr "O token está na lista negra"
+
 msgid "Referral codes use 3 to 20 letters, digits, dashes or underscores."
 msgstr ""
 "Os códigos de referência usam de 3 a 20 letras, dígitos, hífens ou "

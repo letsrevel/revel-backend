@@ -28,7 +28,6 @@ Validity of a tenant session is checked against live state, in two tiers:
 import time
 import typing as t
 
-from ninja_jwt.exceptions import InvalidToken, TokenError
 from ninja_jwt.schema import TokenObtainPairOutputSchema
 from ninja_jwt.tokens import RefreshToken
 
@@ -85,22 +84,3 @@ def is_tenant_session_valid(payload: t.Mapping[str, t.Any], *, check_reactivatio
         .first()
     )
     return verified_at is not None and issued >= int(verified_at.timestamp())
-
-
-def revoke_refresh_if_tenant_session_invalid(raw_refresh: str) -> None:
-    """Refuse a refresh token whose tenant session is no longer valid, blacklisting it.
-
-    A token that does not decode (expired, forged, already blacklisted) is left to the stock refresh
-    flow, which answers it as it always did.
-
-    Raises:
-        InvalidToken: The session is revoked (401, the shape ninja_jwt uses for any invalid token).
-    """
-    try:
-        refresh = RefreshToken(raw_refresh)
-    except TokenError:
-        return
-    if is_tenant_session_valid(refresh.payload, check_reactivation=True):
-        return
-    refresh.blacklist()
-    raise InvalidToken
