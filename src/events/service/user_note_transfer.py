@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils.translation import gettext_lazy as _
 
+from common.sanitizers import sanitize_markdown
 from events.models import MembershipRecord, OrganizationUserNote
 from events.models.user_note import USER_NOTE_MAX_LENGTH
 from events.utils import get_organization_timezone
@@ -17,32 +18,55 @@ logger = structlog.get_logger(__name__)
 _TRUNCATED_MARKER = "…"
 
 
+def _fits(candidate: str) -> bool:
+    """What the next PUT would measure: the cap applies to the unescaped, sanitized text."""
+    return len(html.unescape(sanitize_markdown(candidate))) <= USER_NOTE_MAX_LENGTH
+
+
 def _merged_text(
     target: OrganizationUserNote, source: OrganizationUserNote, record: MembershipRecord
 ) -> tuple[str, bool, bool]:
-    """Target text, a dated separator and the entry's text, capped. Returns (text, truncated, dropped).
+    """Target body, a dated separator and the entry's body, capped. Returns (text, truncated, dropped).
 
-    The target's own text is never cut; when even the separator and the truncation marker do not fit, the
-    entry's text is dropped entirely (``dropped``).
+    Built from the stored (already sanitized) bodies so the target's text is kept byte-identical. When the
+    whole does not fit, the entry's part is cut (never inside an HTML entity), the marker appended and the
+    result re-sanitized and re-measured; if no fitting text still carrying the marker is found, the entry's text
+    is dropped and the target stays as it was (``dropped``).
     """
-    target_text = html.unescape(target.body)
-    record_text = html.unescape(source.body)
     local_date = source.updated_at.astimezone(get_organization_timezone(record.organization)).date()
     head = "\n\n" + str(_("— From register entry ({date}) —")).format(date=local_date.isoformat()) + "\n\n"
-    appended = head + record_text
-    if len(target_text) + len(appended) <= USER_NOTE_MAX_LENGTH:
-        return target_text + appended, False, False
-    suffix = f"{_TRUNCATED_MARKER} {str(_('[truncated]'))}"
-    room = USER_NOTE_MAX_LENGTH - len(target_text) - len(suffix)
-    if room < len(head):
-        return target_text, True, True
-    return target_text + appended[:room] + suffix, True, False
+    full = target.body + head + source.body
+    if _fits(full):
+        return full, False, False
+    marker = f"{_TRUNCATED_MARKER} {str(_('[truncated]'))}"
+    cut = USER_NOTE_MAX_LENGTH - len(html.unescape(target.body)) - len(head) - len(marker)
+    cut = min(cut, len(source.body))
+    for _attempt in range(20):
+        if cut < 0:
+            break
+        piece = source.body[:cut]
+        amp = piece.rfind("&")
+        if amp != -1 and ";" not in piece[amp:]:
+            piece = piece[:amp]
+        lt = piece.rfind("<")  # stored bodies only keep real tags as "<": never leave one half-written
+        if lt > piece.rfind(">"):
+            piece = piece[:lt]
+        candidate = target.body + head + piece + marker
+        sanitized = sanitize_markdown(candidate)
+        if marker in sanitized and sanitized.startswith(target.body):
+            excess = len(html.unescape(sanitized)) - USER_NOTE_MAX_LENGTH
+            if excess <= 0:
+                return candidate, True, False
+            cut -= max(excess, 1)
+        else:
+            cut -= 1
+    return target.body, True, True
 
 
 def _merge_into(target: OrganizationUserNote, source: OrganizationUserNote, record: MembershipRecord) -> None:
     """Append ``source`` to ``target`` and delete ``source``; the later editor/stamp of the two wins."""
     text, truncated, dropped = _merged_text(target, source, record)
-    latest = source if source.updated_at > target.updated_at else target
+    latest = target if dropped or source.updated_at <= target.updated_at else source
     latest_at = latest.updated_at
     target.body = text
     target.updated_by_id = latest.updated_by_id
@@ -79,6 +103,7 @@ def transfer_record_note(
         .order_by("pk")
         .first()
     )
+    note_id = source.pk
     if target is None:
         try:
             with transaction.atomic():
@@ -90,8 +115,14 @@ def transfer_record_note(
             return
         except IntegrityError, ValidationError:
             # A concurrent PUT created the target note meanwhile: merge into it instead.
-            source = OrganizationUserNote.objects.select_for_update(of=("self",)).get(pk=source.pk)
-            target = OrganizationUserNote.objects.select_for_update(of=("self",)).get(
-                organization_id=record.organization_id, **target_filter
+            source = OrganizationUserNote.objects.select_for_update(of=("self",)).filter(pk=source.pk).first()
+            target = (
+                OrganizationUserNote.objects.select_for_update(of=("self",))
+                .filter(organization_id=record.organization_id, **target_filter)
+                .first()
             )
+            if source is None or target is None:
+                # The failure was something else: a note must never make the link fail.
+                logger.warning("organizer_note_transfer_failed", record_id=str(record.pk), note_id=str(note_id))
+                return
     _merge_into(target, source, record)

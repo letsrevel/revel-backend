@@ -66,8 +66,8 @@ class MembershipRecordSchema(ModelSchema):
         annotated = getattr(obj, "note_exists", None)
         if annotated is not None:
             return bool(annotated)
-        fresh = MembershipRecord.objects.with_note_flag().get(pk=obj.pk)
-        return bool(fresh.note_exists)  # type: ignore[attr-defined]  # queryset annotation
+        flag = MembershipRecord.objects.filter(pk=obj.pk).with_note_flag().values_list("note_exists", flat=True).first()  # type: ignore[misc]  # queryset annotation
+        return bool(flag)
 
     @staticmethod
     def resolve_has_account(obj: MembershipRecord) -> bool:

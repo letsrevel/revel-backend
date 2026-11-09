@@ -16,7 +16,14 @@ class OrganizationUserNoteAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ign
 
     list_display = ["__str__", "organization_link", "user", "record", "updated_by", "updated_at"]
     list_select_related = ["organization", "user", "record", "updated_by"]
-    search_fields = ["organization__name", "organization__slug", "user__email", "user__username"]
+    search_fields = [
+        "organization__name",
+        "organization__slug",
+        "user__email",
+        "user__username",
+        "record__full_name",
+        "record__email",
+    ]
     autocomplete_fields = ["organization", "user", "record"]
     readonly_fields = ["created_at", "updated_at", "updated_by"]
 

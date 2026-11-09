@@ -120,6 +120,15 @@ def _upsert(
     return note
 
 
+def _lock_record(organization: Organization, record_id: UUID) -> MembershipRecord:
+    record = (
+        MembershipRecord.objects.select_for_update(of=("self",)).filter(pk=record_id, organization=organization).first()
+    )
+    if record is None:
+        raise Http404
+    return record
+
+
 def upsert_record_note(
     organization: Organization, record_id: UUID, body: str, updated_by: RevelUser
 ) -> OrganizationUserNote:
@@ -135,9 +144,8 @@ def upsert_record_note(
     body = body.strip()
     _check_length(body)
     _check_not_empty(body)
-    get_object_or_404(MembershipRecord, pk=record_id, organization=organization)
     with transaction.atomic():
-        record = MembershipRecord.objects.select_for_update(of=("self",)).get(pk=record_id)
+        record = _lock_record(organization, record_id)
         if record.merged_into_id is not None:
             raise HttpError(
                 400,
@@ -158,4 +166,6 @@ def upsert_record_note(
 
 def delete_record_note(organization: Organization, record_id: UUID) -> None:
     """Delete the note of a register entry (the user's note when linked); 404 if none."""
-    get_record_note(organization, record_id).delete()
+    with transaction.atomic():
+        _lock_record(organization, record_id)
+        get_record_note(organization, record_id).delete()

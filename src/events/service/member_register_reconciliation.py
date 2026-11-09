@@ -67,6 +67,7 @@ def register_matches_for_request(request: OrganizationMembershipRequest) -> list
     records = (
         MembershipRecord.objects.unlinked()
         .open()
+        .with_note_flag()
         .select_related("tier")
         .filter(organization_id=request.organization_id, kind=MembershipRecord.Kind.STANDARD)
         .order_by("valid_from", "created_at")
