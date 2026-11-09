@@ -60,38 +60,8 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         setattr(member, "private_note", note)
         return member
 
-    # ---- Members ----
-
-    @route.get(
-        "/members",
-        url_name="list_organization_members",
-        response=PaginatedResponseSchema[schema.OrganizationMemberSchema],
-        # ``org:members`` ("Manage members and subscriptions"), not the ``org:read`` baseline:
-        # ``IsOrganizationStaff`` binds ``is_staff``, which is not a ``PermissionKey``, so
-        # ``scope_allows`` never runs and ``RequireScope`` is the only scope gate on a response
-        # nesting every member's email, phone number, real name, pronouns and live subscription.
-        # ``GET /staff`` already resolves to ``org:members`` through ``manage_members`` (R-123).
-        # The ``org:read`` baseline stays alongside it, as on every other organizer route.
-        permissions=[RequireScope("org:read"), RequireScope("org:members"), IsOrganizationStaff()],
-        throttle=UserDefaultThrottle(),
-    )
-    @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(
-        Searching,
-        search_fields=["user__username", "user__email", "user__first_name", "user__last_name", "user__preferred_name"],
-    )
-    def list_members(
-        self,
-        slug: str,
-        params: t.Annotated[filters.MembershipFilterSchema, Query(...)],
-    ) -> QuerySet[models.OrganizationMember]:
-        """List all members of an organization.
-
-        Each row inlines the member's non-terminal subscription in this organization (if
-        any) so the ban/remove confirmation dialogs can warn that the action cancels it
-        and stops billing. Prefetched (subscription + annotated plan) to keep it O(1).
-        """
-        organization = self.get_one(slug)
+    def _members_queryset(self, organization: models.Organization) -> QuerySet[models.OrganizationMember]:
+        """Members of ``organization`` with the subscription (and, if permitted, note) prefetches."""
         active_subscriptions = (
             models.MembershipSubscription.objects.filter(organization=organization)
             .exclude(status__in=models.MembershipSubscription.TERMINAL_STATUSES)
@@ -140,7 +110,57 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
                     to_attr="_org_private_notes",
                 )
             )
+        return qs
+
+    # ---- Members ----
+
+    @route.get(
+        "/members",
+        url_name="list_organization_members",
+        response=PaginatedResponseSchema[schema.OrganizationMemberSchema],
+        # ``org:members`` ("Manage members and subscriptions"), not the ``org:read`` baseline:
+        # ``IsOrganizationStaff`` binds ``is_staff``, which is not a ``PermissionKey``, so
+        # ``scope_allows`` never runs and ``RequireScope`` is the only scope gate on a response
+        # nesting every member's email, phone number, real name, pronouns and live subscription.
+        # ``GET /staff`` already resolves to ``org:members`` through ``manage_members`` (R-123).
+        # The ``org:read`` baseline stays alongside it, as on every other organizer route.
+        permissions=[RequireScope("org:read"), RequireScope("org:members"), IsOrganizationStaff()],
+        throttle=UserDefaultThrottle(),
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(
+        Searching,
+        search_fields=["user__username", "user__email", "user__first_name", "user__last_name", "user__preferred_name"],
+    )
+    def list_members(
+        self,
+        slug: str,
+        params: t.Annotated[filters.MembershipFilterSchema, Query(...)],
+    ) -> QuerySet[models.OrganizationMember]:
+        """List all members of an organization.
+
+        Each row inlines the member's non-terminal subscription in this organization (if
+        any) so the ban/remove confirmation dialogs can warn that the action cancels it
+        and stops billing. Prefetched (subscription + annotated plan) to keep it O(1).
+        """
+        organization = self.get_one(slug)
+        qs = self._members_queryset(organization)
         return params.filter(qs).distinct()
+
+    @route.get(
+        "/members/{user_id}",
+        url_name="get_organization_member",
+        response=schema.OrganizationMemberSchema,
+        permissions=[RequireScope("org:read"), RequireScope("org:members"), IsOrganizationStaff()],
+        throttle=UserDefaultThrottle(),
+    )
+    def get_member(self, slug: str, user_id: UUID) -> models.OrganizationMember:
+        """Get one member's access row in this organization, whatever its status.
+
+        Same shape, permissions and ``private_note`` gating as a row of the members list.
+        """
+        organization = self.get_one(slug)
+        return get_object_or_404(self._members_queryset(organization), user_id=user_id)
 
     @route.get(
         "/members/verify/{code}",

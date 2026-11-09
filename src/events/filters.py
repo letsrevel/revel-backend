@@ -384,6 +384,12 @@ class MembershipRecordFilterSchema(FilterSchema):
         description="False (default): hide entries absorbed by a merge, so rows are distinct people. "
         "True: include them.",
     )
+    merged_into: UUID | None = Field(
+        None,
+        description="Only the entries merged into this register entry (the survivor's id). Implies "
+        "`include_merged`; use it for account-less survivors, which `user_id` cannot reach. "
+        "An unknown id, or another organization's entry, gives an empty page.",
+    )
     is_open: bool | None = Field(None, description="True: no end date. False: has an end date.")
     has_account: bool | None = Field(None, description="True: linked to an account. False: account-less.")
     ended: bool | None = Field(
@@ -421,14 +427,20 @@ class MembershipRecordFilterSchema(FilterSchema):
         """No-op: applied together with ``user_id`` by :meth:`filter_scope`."""
         return Q()
 
+    def filter_merged_into(self, merged_into: UUID | None) -> Q:
+        """No-op: applied by :meth:`filter_scope`."""
+        return Q()
+
     def filter_scope(self, qs: MembershipRecordQuerySet) -> MembershipRecordQuerySet:
-        """Apply ``user_id`` and ``include_merged``.
+        """Apply ``user_id``, ``include_merged`` and ``merged_into``.
 
         Absorbed OPEN entries have no user; only ``merged_into`` points at the survivor, so with
         ``include_merged`` a user's scope is their own entries plus those merged into them (merges
         never chain: a survivor cannot itself be absorbed).
         """
-        if self.include_merged:
+        if self.merged_into is not None:
+            qs = qs.filter(merged_into_id=self.merged_into)
+        if self.include_merged or self.merged_into is not None:
             if self.user_id is None:
                 return qs
             return qs.filter(Q(user_id=self.user_id) | Q(merged_into__user_id=self.user_id))

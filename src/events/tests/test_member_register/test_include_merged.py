@@ -1,5 +1,6 @@
 """The ``include_merged`` register filter (merged entries are hidden by default)."""
 
+import uuid
 from datetime import timedelta
 
 import pytest
@@ -83,3 +84,46 @@ def test_combines_with_kind_and_is_open(
     assert closed == {"absorbed-closed"}
     assert _names(owner_client, organization, is_open="false") == set()
     assert _names(owner_client, organization, include_merged="true", kind="temporary") == set()
+
+
+# ---- merged_into ----
+
+
+def test_merged_into_lists_absorbed_of_unlinked_survivor(
+    owner_client: Client, organization: Organization, make_record: RecordFactory
+) -> None:
+    survivor = make_record(full_name="survivor", email="s@example.com")
+    make_record(full_name="absorbed", email="a@example.com", merged_into=survivor)
+    other_survivor = make_record(full_name="other-survivor", email="os@example.com")
+    make_record(full_name="other-absorbed", email="oa@example.com", merged_into=other_survivor)
+    assert _names(owner_client, organization, merged_into=str(survivor.pk)) == {"absorbed"}
+
+
+def test_merged_into_combines_with_kind(
+    owner_client: Client, organization: Organization, make_record: RecordFactory
+) -> None:
+    survivor = make_record(full_name="survivor", email="s@example.com")
+    make_record(full_name="absorbed", email="a@example.com", merged_into=survivor)
+    standard = _names(owner_client, organization, merged_into=str(survivor.pk), kind="standard")
+    assert standard == {"absorbed"}
+    assert _names(owner_client, organization, merged_into=str(survivor.pk), kind="temporary") == set()
+
+
+def test_merged_into_other_org_or_unknown_gives_empty_page(
+    owner_client: Client, organization: Organization, make_record: RecordFactory, django_user_model: type[RevelUser]
+) -> None:
+    owner2 = django_user_model.objects.create_user(username="o2", email="o2@example.com", password="pw")
+    other_org = Organization.objects.create(name="Other", slug="other-org", owner=owner2)
+    source = MembershipRecord.Source.MANUAL
+    survivor = MembershipRecord.objects.create(
+        organization=other_org, full_name="x", source=source, valid_from=timezone.now() - timedelta(days=5)
+    )
+    MembershipRecord.objects.create(
+        organization=other_org,
+        full_name="y",
+        source=source,
+        merged_into=survivor,
+        valid_from=timezone.now() - timedelta(days=6),
+    )
+    assert _names(owner_client, organization, merged_into=str(survivor.pk)) == set()
+    assert _names(owner_client, organization, merged_into=str(uuid.uuid4())) == set()
