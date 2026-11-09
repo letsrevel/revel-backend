@@ -76,6 +76,22 @@ class MembershipRecordQuerySet(models.QuerySet["MembershipRecord"]):
         """Records without an account (they grant nothing) that were not merged into another record."""
         return self.filter(user__isnull=True, merged_into__isnull=True)
 
+    def with_note_flag(self) -> t.Self:
+        """Annotate ``note_exists``: a linked entry shows its user's note, an unlinked one its own."""
+        from events.models.user_note import OrganizationUserNote  # lazy: user_note references this model by label
+
+        user_note = OrganizationUserNote.objects.filter(
+            organization_id=models.OuterRef("organization_id"), user_id=models.OuterRef("user_id")
+        )
+        record_note = OrganizationUserNote.objects.filter(record_id=models.OuterRef("pk"))
+        return self.annotate(
+            note_exists=models.Case(
+                models.When(user__isnull=False, then=models.Exists(user_note)),
+                default=models.Exists(record_note),
+                output_field=models.BooleanField(),
+            )
+        )
+
     def unmerged(self) -> t.Self:
         """Records that were not merged into a survivor."""
         return self.filter(merged_into__isnull=True)

@@ -31,6 +31,7 @@ from events.models import (
     OrganizationStaff,
     PermissionsSchema,
 )
+from events.service.user_note_transfer import transfer_record_note
 from events.utils.frontend_urls import frontend_base_url_for
 from events.utils.membership_access import banned_memberships
 
@@ -258,6 +259,7 @@ def _link_register_entry_to_applicant(
         locked.questionnaire_name = submission.questionnaire.name
         update_fields += ["questionnaire_submission", "accepted_at", "questionnaire_name"]
     locked.save(update_fields=update_fields)
+    transfer_record_note(locked, to_user_id=applicant.pk)
 
 
 @transaction.atomic

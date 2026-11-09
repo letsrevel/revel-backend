@@ -23,6 +23,7 @@ from events.models import (
     OrganizationMembershipRequest,
     RegisterMatchReason,
 )
+from events.service.user_note_transfer import transfer_record_note
 from events.utils.membership_access import visible_memberships
 from events.utils.name_matching import normalize_name_for_matching
 
@@ -90,6 +91,7 @@ def possible_duplicates(organization: Organization) -> list[PossibleDuplicate]:
     # upgrade path is a SQL join on lower(email) / a normalized-name column.
     unlinked = list(
         MembershipRecord.objects.unlinked()
+        .with_note_flag()
         .select_related("tier")
         .filter(organization=organization)
         .order_by("valid_from", "created_at")
@@ -97,6 +99,7 @@ def possible_duplicates(organization: Organization) -> list[PossibleDuplicate]:
     linked = list(
         MembershipRecord.objects.open()
         .unmerged()
+        .with_note_flag()
         .select_related("tier", "user")
         .filter(organization=organization, kind=MembershipRecord.Kind.STANDARD, user__isnull=False)
         .order_by("valid_from", "created_at")
@@ -203,6 +206,10 @@ def merge_records(survivor: MembershipRecord, absorbed: MembershipRecord) -> Mem
             survivor.valid_from = min(survivor.valid_from, absorbed.valid_from)
             # The survivor's own duplicate claim (if any) concerns another claimant: keep it for staff.
             survivor.save(update_fields=["valid_from", "updated_at"])
+            if survivor.user_id is not None:
+                transfer_record_note(absorbed, to_user_id=survivor.user_id)
+            else:
+                transfer_record_note(absorbed, to_record=survivor)
         else:
             if survivor.user_id is None:
                 raise HttpError(400, str(_("A closed entry can only be attached to an entry linked to an account.")))
@@ -214,6 +221,7 @@ def merge_records(survivor: MembershipRecord, absorbed: MembershipRecord) -> Mem
             absorbed.save(
                 update_fields=["user", "invite_token", "duplicate_claimant", "linked_via", "linked_at", "updated_at"]
             )
+            transfer_record_note(absorbed, to_user_id=survivor.user_id)
         logger.info("member_register_merged", survivor_id=str(survivor.pk), absorbed_id=str(absorbed.pk))
         return survivor
 

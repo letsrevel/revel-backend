@@ -184,6 +184,8 @@ PRIVATE_NOTE_STAFF_OPERATIONS = {
     ("post", "/api/organization-admin/{slug}/members/{user_id}"),
     ("get", "/api/organization-admin/{slug}/users/{user_id}/note"),
     ("put", "/api/organization-admin/{slug}/users/{user_id}/note"),
+    ("get", "/api/organization-admin/{slug}/member-register/{record_id}/note"),
+    ("put", "/api/organization-admin/{slug}/member-register/{record_id}/note"),
 }
 
 

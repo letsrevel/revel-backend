@@ -24,6 +24,7 @@ from accounts.models import RevelUser
 from common.utils import get_or_create_with_race_protection
 from events.models import MembershipRecord, MembershipRecordLinkMethod, Organization, OrganizationMember
 from events.service import blacklist_service
+from events.service.user_note_transfer import transfer_record_note
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.context_schemas import StaffMemberRecordAutoLinkedContext
 from notifications.enums import NotificationType
@@ -173,6 +174,7 @@ def link_record(
         locked.save(
             update_fields=["user", "invite_token", "duplicate_claimant", "linked_via", "linked_at", "updated_at"]
         )
+        transfer_record_note(locked, to_user_id=user.pk)
         if open_standard:
             member = _make_access_row_agree(locked, user, member)
         else:
@@ -214,6 +216,7 @@ def adopt_unlinked_record(member: OrganizationMember) -> MembershipRecord | None
     record.linked_via = MembershipRecord.LinkMethod.AUTO_EMAIL
     record.linked_at = timezone.now()
     record.save(update_fields=["user", "invite_token", "duplicate_claimant", "linked_via", "linked_at", "updated_at"])
+    transfer_record_note(record, to_user_id=user.pk)
     logger.info("member_register_adopted_at_source", record_id=str(record.pk), user_id=str(user.pk))
     _notify_staff_of_auto_link(record, user)
     return record

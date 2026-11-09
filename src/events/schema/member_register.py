@@ -54,10 +54,20 @@ class MembershipRecordSchema(ModelSchema):
     merged_into_id: UUID | None = None
     linked_via: MembershipRecordLinkMethod | None = None
     linked_at: AwareDatetime | None = None
+    has_note: bool
 
     class Meta:
         model = MembershipRecord
         fields = ["id", "full_name", "email", "tier_name", "questionnaire_name"]
+
+    @staticmethod
+    def resolve_has_note(obj: MembershipRecord) -> bool:
+        """Whether staff keep a private note on this entry (annotated in lists, one query otherwise)."""
+        annotated = getattr(obj, "note_exists", None)
+        if annotated is not None:
+            return bool(annotated)
+        fresh = MembershipRecord.objects.with_note_flag().get(pk=obj.pk)
+        return bool(fresh.note_exists)  # type: ignore[attr-defined]  # queryset annotation
 
     @staticmethod
     def resolve_has_account(obj: MembershipRecord) -> bool:
