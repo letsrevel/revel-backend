@@ -101,16 +101,24 @@ def _issue(source: RefreshToken, user: RevelUser | None, sid: str) -> TokenRefre
     return TokenRefreshOutputSchema.model_construct(refresh=str(source), access=str(source.access_token))
 
 
-def _grace_allows(user: RevelUser | None, jti: str, sid: str) -> bool:
-    """Whether a reused (already rotated) token may be exchanged once more. Has no side effects on denial."""
+def _grace_allows(user: RevelUser, jti: str, sid: str) -> bool:
+    """Whether a reused (already rotated) token may be exchanged once more. Has no side effects on denial.
+
+    Only rotation writes the ``refresh_rotated`` marker, so a token blacklisted any other way never
+    qualifies; a lineage with no live token left (logout, password reset, ban) never qualifies either.
+    A cache failure fails strict: the reuse is rejected, never a 500.
+    """
     grace: int = settings.REFRESH_TOKEN_REUSE_GRACE_SECONDS
-    if grace <= 0 or user is None or not user.is_active:
+    if grace <= 0 or not user.is_active:
         return False
     try:
-        if not cache.get(f"refresh_rotated:{jti}"):
-            return False
-        if not _lineage_live_jtis(user, sid):
-            return False
+        rotated = cache.get(f"refresh_rotated:{jti}")
+    except Exception:
+        logger.warning("refresh_grace_cache_unavailable", user_id=str(user.id), jti=jti, exc_info=True)
+        return False
+    if not rotated or not _lineage_live_jtis(user, sid):
+        return False
+    try:
         return bool(cache.add(f"refresh_grace_used:{jti}", 1, timeout=grace))
     except Exception:
         logger.warning("refresh_grace_cache_unavailable", user_id=str(user.id), jti=jti, exc_info=True)
@@ -124,9 +132,8 @@ def _rotate_locked(token: _RefreshIgnoringBlacklist) -> TokenRefreshOutputSchema
     rejection = InvalidToken(str(_("Token is blacklisted")))
 
     if BlacklistedToken.objects.filter(token__jti=jti).exists():
-        if not _grace_allows(user, jti, sid):
+        if user is None or not _grace_allows(user, jti, sid):
             raise rejection
-        assert user is not None  # noqa: S101 - _grace_allows guarantees it
         logger.info("refresh_token_reuse_grace_used", user_id=str(user.id), jti=jti)
         return _issue(token, user, sid)
 
