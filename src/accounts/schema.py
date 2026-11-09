@@ -129,6 +129,10 @@ class TempToken(Schema):
     type: t.Literal["otp"] = "otp"
 
 
+class LogoutSchema(Schema):
+    refresh: str
+
+
 class TempTokenWithTOTP(Schema):
     token: str
     otp: str = Field(..., description="The one-time password to verify.", max_length=6)

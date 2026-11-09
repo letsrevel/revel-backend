@@ -22,7 +22,7 @@ from accounts.exceptions import OIDCLoginError
 from accounts.service import auth as auth_service
 from accounts.service import impersonation as impersonation_service
 from accounts.service import oidc as oidc_service
-from accounts.service import tenant_session
+from accounts.service import tenant_session, token_refresh
 from common.throttling import AuthThrottle
 from events.service.tenant_service import tenant_host_from_origin
 from revel.oidc_config import KEY_PATTERN
@@ -81,12 +81,20 @@ class AuthController(TokenObtainPairController):
         operation_id="token_refresh",
     )
     def refresh_token(self, refresh_token: TokenRefreshInputSchema) -> t.Any:  # noqa: D102 - keeps ninja_jwt's OpenAPI entry
-        # Same route as ninja_jwt's, plus: a refresh token bound to a tenant host is refused (and
-        # blacklisted) once that host no longer resolves to an active domain. Rotation itself is
-        # untouched, so the claims are carried forward by the stock flow. No docstring on purpose:
-        # it would become the OpenAPI description, which must stay identical to ninja_jwt's.
-        tenant_session.revoke_refresh_if_tenant_session_invalid(refresh_token.refresh)
-        return refresh_token.to_response_schema()  # type: ignore[no-untyped-call]
+        # Same route as ninja_jwt's, but rotation lives in the service: it records the rotated token against
+        # the user, allows a short single-use reuse grace, and refuses (and blacklists) a token bound to a dead
+        # tenant host. No docstring on purpose: it would become the OpenAPI description, which must stay
+        # identical to ninja_jwt's.
+        return token_refresh.rotate(refresh_token.refresh)
+
+    @route.post("/logout", response={204: None}, url_name="token_logout", operation_id="token_logout")
+    def logout(self, payload: schema.LogoutSchema) -> tuple[int, None]:
+        """Log out: revoke the refresh token and every token rotated from the same login.
+
+        Other sessions are untouched. 401 if the token is invalid or expired.
+        """
+        token_refresh.logout(payload.refresh)
+        return 204, None
 
     @route.get("/oidc/{provider}/start", include_in_schema=False, url_name="oidc_start", response=None)
     def oidc_start(

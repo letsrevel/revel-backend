@@ -236,6 +236,9 @@ msgstr ""
 msgid "Token is blacklisted."
 msgstr "Le jeton est sur la liste noire."
 
+msgid "Token is blacklisted"
+msgstr "Le jeton est sur la liste noire"
+
 msgid "Referral codes use 3 to 20 letters, digits, dashes or underscores."
 msgstr ""
 "Les codes de parrainage utilisent 3 à 20 lettres, chiffres, tirets ou "

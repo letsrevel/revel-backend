@@ -16,6 +16,9 @@ NINJA_JWT = {
     "SIGNING_KEY": SECRET_KEY,
     "AUDIENCE": JWT_AUDIENCE,
 }
+# A just-rotated refresh token may be exchanged once more within this window (lost responses, two tabs
+# racing). 0 disables the grace.
+REFRESH_TOKEN_REUSE_GRACE_SECONDS = config("REFRESH_TOKEN_REUSE_GRACE_SECONDS", default=30, cast=int)
 VERIFY_TOKEN_LIFETIME = timedelta(minutes=config("VERIFY_TOKEN_LIFETIME_MINUTES", default=15, cast=int))
 # Effectively non-expiring (~10 years): List-Unsubscribe headers and footer links must keep
 # working for as long as the mail sits in a mailbox. Kept finite so `exp` stays required.
