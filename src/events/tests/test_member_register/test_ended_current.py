@@ -54,10 +54,11 @@ def test_ended_false_keeps_null_ended_reason(owner_client: Client, organization:
     assert _names(owner_client, organization, ended="false") == {"open", "day-future-end"}
 
 
-def test_without_ended_merged_entries_still_listed(
+def test_without_ended_merged_entries_listed_only_when_included(
     owner_client: Client, organization: Organization, data: None
 ) -> None:
-    assert {"merged-open", "merged-closed"} <= _names(owner_client, organization)
+    assert not {"merged-open", "merged-closed"} & _names(owner_client, organization)
+    assert {"merged-open", "merged-closed"} <= _names(owner_client, organization, include_merged="true")
 
 
 def test_ended_combines_with_kind(owner_client: Client, organization: Organization, data: None) -> None:
