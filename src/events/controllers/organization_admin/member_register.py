@@ -77,7 +77,7 @@ class OrganizationAdminMemberRegisterController(OrganizationAdminBaseController)
     ) -> tuple[int, FileExport]:
         """Start an xlsx export of the register; poll ``GET /exports/{id}`` for the file."""
         organization = self.get_one(slug)
-        return 202, start_member_register_export(organization, self.user(), payload.active_on)
+        return 202, start_member_register_export(organization, self.user(), payload.active_on, payload.include_merged)
 
     @route.get(
         "/member-register/{record_id}",

@@ -21,7 +21,7 @@ logger = structlog.get_logger(__name__)
 
 
 def start_member_register_export(
-    organization: Organization, requested_by: RevelUser, active_on: date | None
+    organization: Organization, requested_by: RevelUser, active_on: date | None, include_merged: bool = False
 ) -> FileExport:
     """Create a ``FileExport`` for the member register and dispatch the export task.
 
@@ -29,7 +29,8 @@ def start_member_register_export(
         organization: The organization whose register is exported.
         requested_by: The user requesting the export.
         active_on: If given, only records overlapping this calendar day in the
-            organization's timezone are exported.
+            organization's timezone are exported (merged entries are always excluded then).
+        include_merged: Include entries absorbed by a merge (adds a ``Merged Into`` column).
 
     Returns:
         The newly-created ``FileExport`` in PENDING state.
@@ -39,7 +40,11 @@ def start_member_register_export(
     export = FileExport.objects.create(
         requested_by=requested_by,
         export_type=FileExport.ExportType.MEMBER_REGISTER,
-        parameters={"org_id": str(organization.id), "active_on": active_on.isoformat() if active_on else None},
+        parameters={
+            "org_id": str(organization.id),
+            "active_on": active_on.isoformat() if active_on else None,
+            "include_merged": include_merged,
+        },
     )
     # Dispatch after commit so the worker can SELECT the FileExport row.
     transaction.on_commit(lambda: generate_member_register_export_task.delay(str(export.id)))
@@ -70,7 +75,12 @@ def _build_workbook(export: FileExport) -> bytes:
     raw_active_on = export.parameters.get("active_on")
     day = date.fromisoformat(raw_active_on) if raw_active_on else None
 
+    # ``.get``: rows created by an older web process (rolling deploy) carry no flag.
+    include_merged = bool(export.parameters.get("include_merged", False))
+
     qs = MembershipRecord.objects.filter(organization=organization).select_related("tier")
+    if not include_merged:
+        qs = qs.unmerged()
     if day is not None:
         qs = qs.active_during(*get_organization_day_bounds(organization, day))
     records = list(qs.order_by("valid_from", "created_at"))
@@ -92,7 +102,7 @@ def _build_workbook(export: FileExport) -> bytes:
         ws.append(row)
     style_summary_sheet(ws)
 
-    _write_register_sheet(wb, records)
+    _write_register_sheet(wb, records, include_merged)
 
     buf = BytesIO()
     wb.save(buf)
@@ -102,7 +112,7 @@ def _build_workbook(export: FileExport) -> bytes:
     return file_bytes
 
 
-def _write_register_sheet(wb: Workbook, records: list[MembershipRecord]) -> None:
+def _write_register_sheet(wb: Workbook, records: list[MembershipRecord], include_merged: bool) -> None:
     """Populate the Register sheet; enum labels are rendered in English."""
     ws = wb.create_sheet("Register")
     ws.append(
@@ -120,7 +130,7 @@ def _write_register_sheet(wb: Workbook, records: list[MembershipRecord]) -> None
             "Questionnaire",
             "Accepted At",
             "Created At",
-            "Merged Into",
+            *(["Merged Into"] if include_merged else []),
         ]
     )
     with translation.override("en"):
@@ -140,7 +150,7 @@ def _write_register_sheet(wb: Workbook, records: list[MembershipRecord]) -> None
                     sanitize_cell(r.questionnaire_name or ""),
                     r.accepted_at.isoformat() if r.accepted_at else "",
                     r.created_at.isoformat(),
-                    str(r.merged_into_id) if r.merged_into_id else "",
+                    *([str(r.merged_into_id) if r.merged_into_id else ""] if include_merged else []),
                 ]
             )
     style_header_row(ws)

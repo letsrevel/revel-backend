@@ -37,12 +37,19 @@ def _rec(organization: Organization, name: str, **kw: t.Any) -> MembershipRecord
     return MembershipRecord.objects.create(organization=organization, full_name=name, tier_name="Gold", **kw)
 
 
-def _export(organization: Organization, user: RevelUser, active_on: t.Any = None) -> FileExport:
+def _export(
+    organization: Organization, user: RevelUser, active_on: t.Any = None, include_merged: bool | None = None
+) -> FileExport:
     """Create a pending member-register export row."""
     return FileExport.objects.create(
         requested_by=user,
         export_type=FileExport.ExportType.MEMBER_REGISTER,
-        parameters={"org_id": str(organization.id), "active_on": active_on.isoformat() if active_on else None},
+        parameters={
+            "org_id": str(organization.id),
+            "active_on": active_on.isoformat() if active_on else None,
+            # ``None`` omits the key, as an old web process would.
+            **({} if include_merged is None else {"include_merged": include_merged}),
+        },
     )
 
 
@@ -66,7 +73,7 @@ def test_endpoint_dispatches_task(
     export = FileExport.objects.get(pk=r.json()["id"])
     assert export.export_type == FileExport.ExportType.MEMBER_REGISTER
     assert export.requested_by == organization_owner_user
-    assert export.parameters == {"org_id": str(organization.id), "active_on": None}
+    assert export.parameters == {"org_id": str(organization.id), "active_on": None, "include_merged": False}
     task.delay.assert_called_once_with(str(export.id))
 
 
@@ -186,12 +193,30 @@ def test_failure_marks_failed(organization: Organization, organization_owner_use
     assert export.error_message is not None and export.error_message.startswith("Export failed:")
 
 
-def test_merged_record_is_marked_and_not_counted_open(
+def test_default_export_omits_absorbed_record_and_counts_match(
     organization: Organization, organization_owner_user: RevelUser
 ) -> None:
     survivor = _rec(organization, "Survivor")
-    absorbed = _rec(organization, "Absorbed", merged_into=survivor)
-    export = _export(organization, organization_owner_user)
+    _rec(organization, "Absorbed", merged_into=survivor)
+    export = _export(organization, organization_owner_user)  # no flag stored: old-payload default
+
+    generate_member_register_export(export.id)
+
+    summary = dict(_rows(export, "Summary"))
+    assert summary["Total records"] == 1
+    assert summary["Open records"] == 1
+    assert summary["Standard"] == 1
+    rows = _rows(export, "Register")
+    assert [r[0] for r in rows[1:]] == ["Survivor"]
+    assert "Merged Into" not in rows[0]
+
+
+def test_include_merged_export_lists_absorbed_with_survivor_id(
+    organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    survivor = _rec(organization, "Survivor")
+    _rec(organization, "Absorbed", merged_into=survivor)
+    export = _export(organization, organization_owner_user, include_merged=True)
 
     generate_member_register_export(export.id)
 
@@ -203,18 +228,30 @@ def test_merged_record_is_marked_and_not_counted_open(
     by_name = {r[0]: r for r in rows[1:]}
     assert by_name["Absorbed"][-1] == str(survivor.pk)
     assert by_name["Survivor"][-1] in ("", None)
-    assert absorbed.merged_into_id == survivor.pk
 
 
-def test_day_filtered_export_excludes_absorbed_record(
+def test_include_merged_flag_stored_by_start_and_endpoint(
     organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    url = reverse("api:export_member_register", kwargs={"slug": organization.slug})
+    with patch("events.tasks.generate_member_register_export_task"):
+        r = _client(organization_owner_user).post(url, data={"include_merged": True}, content_type="application/json")
+    assert r.status_code == 202
+    assert FileExport.objects.get(pk=r.json()["id"]).parameters["include_merged"] is True
+
+
+@pytest.mark.parametrize("include_merged", [None, True])
+def test_day_filtered_export_excludes_absorbed_record(
+    organization: Organization, organization_owner_user: RevelUser, include_merged: bool | None
 ) -> None:
     """A fixed day well inside both records' periods keeps the test independent of the clock and timezone."""
     start = datetime(2026, 6, 1, tzinfo=UTC)
     survivor = _rec(organization, "Survivor", valid_from=start)
     _rec(organization, "Absorbed", merged_into=survivor, valid_from=start)
-    export = _export(organization, organization_owner_user, active_on=date(2026, 6, 15))
+    export = _export(organization, organization_owner_user, active_on=date(2026, 6, 15), include_merged=include_merged)
 
     generate_member_register_export(export.id)
 
-    assert {r[0] for r in _rows(export, "Register")[1:]} == {"Survivor"}
+    rows = _rows(export, "Register")
+    assert {r[0] for r in rows[1:]} == {"Survivor"}
+    assert ("Merged Into" in rows[0]) == bool(include_merged)
