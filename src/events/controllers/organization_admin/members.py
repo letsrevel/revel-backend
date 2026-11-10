@@ -197,7 +197,11 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     @route.put(
         "/members/{user_id}",
         url_name="update_organization_member",
-        response=schema.OrganizationMemberSchema,
+        response={
+            200: schema.OrganizationMemberSchema,
+            404: ErrorDetail,
+            409: schema.SubscriptionPlanChangeRefusedSchema,
+        },
     )
     def update_member(
         self, slug: str, user_id: UUID, payload: schema.OrganizationMemberUpdateSchema
@@ -209,7 +213,9 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         - Assign or change membership tier
         - Remove tier assignment by setting tier_id to null
 
-        The tier must belong to the same organization as the membership.
+        The tier must belong to the same organization as the membership. While the member
+        has a live subscription the tier follows its plan: a tier change (or clearing) that
+        differs from the plan's tier is refused with 409 ``tier_follows_subscription``.
         """
         organization = self.get_one(slug)
         member = get_object_or_404(

@@ -785,6 +785,10 @@ class OrganizationMemberSchema(Schema):
     status: OrganizationMember.MembershipStatus
     tier: MembershipTierSchema | None = None
     subscription: SubscriptionSchema | None = None
+    # True while a live subscription exists: the tier then follows its plan, so manual tier
+    # edits are refused (409 ``tier_follows_subscription``) — change the subscription's plan.
+    tier_locked_by_subscription: bool = False
+    subscription_id: UUID | None = None
     # Staff-only: the organizer's private note about this person (never on member-facing schemas).
     private_note: str | None = None
 
@@ -795,6 +799,17 @@ class OrganizationMemberSchema(Schema):
             return t.cast(str | None, obj.private_note)
         notes = getattr(obj.user, "_org_private_notes", None)
         return notes[0].body if notes else None
+
+    @staticmethod
+    def resolve_tier_locked_by_subscription(obj: OrganizationMember) -> bool:
+        """True when the member has a live subscription (tier follows its plan)."""
+        return OrganizationMemberSchema.resolve_subscription(obj) is not None
+
+    @staticmethod
+    def resolve_subscription_id(obj: OrganizationMember) -> UUID | None:
+        """Return the live subscription's id, else ``None``."""
+        sub = OrganizationMemberSchema.resolve_subscription(obj)
+        return sub.id if sub else None
 
     @staticmethod
     def resolve_subscription(obj: OrganizationMember) -> MembershipSubscription | None:

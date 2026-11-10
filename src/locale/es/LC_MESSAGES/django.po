@@ -7515,3 +7515,9 @@ msgstr "Anulado"
 
 msgid "initial_payment_occurred_at requires initial_payment_amount."
 msgstr "initial_payment_occurred_at requiere initial_payment_amount."
+
+msgid "Online subscriptions change plan from the member's side; staff cannot change them."
+msgstr "Las suscripciones en línea cambian de plan desde el lado del miembro; el equipo no puede cambiarlas."
+
+msgid "This member's tier follows their subscription plan. Change the subscription's plan instead."
+msgstr "El nivel de este miembro sigue el plan de su suscripción. Cambia en su lugar el plan de la suscripción."

@@ -341,6 +341,7 @@ from .series_pass import (
 )
 
 # Subscription schemas
+from .subscription_plan_change import SubscriptionPlanChangeRefusedSchema
 from .subscription import (
     BillingPortalRequestSchema,
     BillingPortalSessionSchema,
@@ -710,6 +711,7 @@ __all__ = [
     "OrganizationTokenUpdateSchema",
     "PWYCCheckoutPayloadSchema",
     "MembershipPaymentEditRefusedSchema",
+    "SubscriptionPlanChangeRefusedSchema",
     "MembershipPaymentUpdateSchema",
     "MembershipPaymentVoidSchema",
     "PaymentRecordSchema",

@@ -485,6 +485,41 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         return subscription_uncancel.uncancel_subscription(subscription, staff=True)
 
     @route.post(
+        "/subscriptions/{sub_id}/change-plan",
+        url_name="staff_change_subscription_plan",
+        # 409 carries a stable ``code``; 400 covers the plan's "sold out" cap.
+        response={
+            200: schema.SubscriptionSchema,
+            400: ErrorDetail,
+            404: ErrorDetail,
+            409: schema.SubscriptionPlanChangeRefusedSchema,
+        },
+    )
+    def staff_change_subscription_plan(
+        self, slug: str, sub_id: UUID, payload: schema.ChangePlanRequestSchema
+    ) -> models.MembershipSubscription:
+        """Move an OFFLINE or FREE subscription onto another plan of this organization.
+
+        Immediate, fee-free swap; the member's tier follows the new plan and no
+        notification is sent. Cross-tier eligibility gates are skipped (staff can assign
+        any tier). Refusals are 409 with a stable ``code`` (``plan_change_online``,
+        ``subscription_terminal``, ``subscription_paused``, ``plan_unchanged``,
+        ``plan_archived``, ``plan_payment_method_mismatch``, ``plan_currency_mismatch``).
+        """
+        organization = self.get_one(slug)
+        subscription = get_object_or_404(
+            models.MembershipSubscription.objects.select_related("plan", "plan__tier", "user"),
+            pk=sub_id,
+            organization=organization,
+        )
+        new_plan = get_object_or_404(
+            models.MembershipSubscriptionPlan.objects.select_related("tier"),
+            pk=payload.plan_id,
+            tier__organization=organization,
+        )
+        return subscription_lifecycle.staff_change_plan(subscription, new_plan)
+
+    @route.post(
         "/subscriptions/{sub_id}/pause",
         url_name="pause_subscription",
         response={200: schema.SubscriptionSchema, 400: ErrorDetail, 404: ErrorDetail, 502: ErrorDetail},
