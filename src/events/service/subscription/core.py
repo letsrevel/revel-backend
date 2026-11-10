@@ -47,16 +47,26 @@ class InitialPayment:
     currency: str
     recorded_by: RevelUser
     notes: str = ""
+    occurred_at: datetime.datetime | None = None
 
 
 def _validate_occurred_at(
     subscription: MembershipSubscription,
     occurred_at: datetime.datetime,
     now: datetime.datetime,
+    *,
+    future_only: bool = False,
 ) -> None:
-    """Reject occurred_at values that don't belong to the subscription's timeline."""
+    """Reject occurred_at values that don't belong to the subscription's timeline.
+
+    ``future_only`` is for the first payment of a just-created subscription, which
+    may legitimately predate the row (a member who paid in person last month):
+    only the "not in the future" rule applies to it.
+    """
     if occurred_at > now:
         raise HttpError(400, str(_("occurred_at cannot be in the future.")))
+    if future_only:
+        return
     if occurred_at < subscription.created_at:
         raise HttpError(400, str(_("occurred_at cannot predate the subscription.")))
     if subscription.current_period_start and occurred_at < subscription.current_period_start:
@@ -72,6 +82,43 @@ def _validate_occurred_at(
         raise HttpError(
             400,
             str(_("occurred_at cannot predate the lapsed period end of the subscription.")),
+        )
+
+
+def _payment_period(
+    plan: MembershipSubscriptionPlan,
+    previous_end: datetime.datetime | None,
+    anchor: datetime.datetime,
+    *,
+    advance: bool,
+) -> tuple[datetime.datetime, datetime.datetime | None, datetime.datetime]:
+    """Compute the period a payment covers when it follows a period ending at ``previous_end``.
+
+    Returns ``(period_start, period_end, row_period_end)``: ``period_end`` is what the
+    subscription's ``current_period_end`` becomes (``None`` = LIFETIME) and
+    ``row_period_end`` is the NOT NULL value stored on the ledger row. Only a
+    SUCCEEDED (``advance``) payment chains onto ``previous_end``.
+    """
+    period_start = previous_end if (advance and previous_end and previous_end > anchor) else anchor
+    # ``None`` here means LIFETIME: the subscription's period never ends. The
+    # ledger row still needs a non-null ``period_end``, so a lifetime payment is
+    # recorded as the point event it is (period_end == period_start) while the
+    # subscription's own ``current_period_end`` stays NULL.
+    period_end = calculate_period_end(period_start, plan) if advance else previous_end
+    row_period_end = period_end if period_end is not None else (period_start if advance else anchor)
+    return period_start, period_end, row_period_end
+
+
+def _refuse_lapsed_period(period_end: datetime.datetime | None, now: datetime.datetime) -> None:
+    """Refuse a dated SUCCEEDED payment whose resulting period already ended.
+
+    Otherwise the subscription would be left ACTIVE with an already-lapsed period
+    (callers checking only ``status`` would grant access until the expiry beat).
+    """
+    if period_end is not None and period_end < now:
+        raise HttpError(
+            400,
+            str(_("Backfilled payment would produce an already-lapsed billing period; use a more recent occurred_at.")),
         )
 
 
@@ -168,6 +215,8 @@ def create_subscription(
             currency=initial_payment.currency,
             recorded_by=initial_payment.recorded_by,
             notes=initial_payment.notes,
+            occurred_at=initial_payment.occurred_at,
+            is_initial=True,
         )
         # record_payment mutates a freshly-locked instance; refresh ours so
         # callers see the advanced period and ACTIVE status without a manual
@@ -188,6 +237,7 @@ def record_payment(
     status: str = MembershipPayment.PaymentStatus.SUCCEEDED,
     occurred_at: datetime.datetime | None = None,
     dispatch_renewal_notification: bool = True,
+    is_initial: bool = False,
 ) -> MembershipPayment:
     """Record a payment and advance the subscription's billing period.
 
@@ -205,6 +255,9 @@ def record_payment(
     the caller will handle the notification itself (e.g. the H1 revival flow)
     or when the payment is the *first* payment of a new subscription (prior
     status was PENDING — handled automatically by the gate below).
+
+    ``is_initial`` is passed only by :func:`create_subscription` for the first
+    payment of a just-created subscription; see :func:`_validate_occurred_at`.
 
     On a **LIFETIME** plan there is no period to advance: the subscription's
     ``current_period_end`` stays NULL forever (that NULL is what keeps the
@@ -234,30 +287,17 @@ def record_payment(
     now = timezone.now()
 
     if occurred_at is not None:
-        _validate_occurred_at(subscription, occurred_at, now)
+        _validate_occurred_at(subscription, occurred_at, now, future_only=is_initial)
 
     anchor = occurred_at or now
 
     advance = status == MembershipPayment.PaymentStatus.SUCCEEDED
-    period_start = (
-        subscription.current_period_end
-        if (advance and subscription.current_period_end and subscription.current_period_end > anchor)
-        else anchor
+    period_start, period_end, row_period_end = _payment_period(
+        plan, subscription.current_period_end, anchor, advance=advance
     )
-    # ``None`` here means LIFETIME: the subscription's period never ends. The
-    # ledger row still needs a non-null ``period_end``, so a lifetime payment is
-    # recorded as the point event it is (period_end == period_start) while the
-    # subscription's own ``current_period_end`` stays NULL.
-    period_end = calculate_period_end(period_start, plan) if advance else subscription.current_period_end
-    row_period_end = period_end if period_end is not None else (period_start if advance else anchor)
 
-    if advance and period_end is not None and occurred_at is not None and period_end < now:
-        # Refuse backfills that would leave the subscription ACTIVE with an already-lapsed
-        # period (callers checking only ``status`` would grant access until the expiry beat).
-        raise HttpError(
-            400,
-            str(_("Backfilled payment would produce an already-lapsed billing period; use a more recent occurred_at.")),
-        )
+    if advance and occurred_at is not None:
+        _refuse_lapsed_period(period_end, now)
 
     payment = MembershipPayment.objects.create(
         subscription=subscription,

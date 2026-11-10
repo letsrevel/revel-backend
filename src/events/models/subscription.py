@@ -353,6 +353,24 @@ class MembershipSubscription(TimeStampedModel):
         return None
 
 
+class MembershipPaymentStatus(models.TextChoices):
+    """Status of a membership payment.
+
+    Module-level with a distinct class name for the same reason as
+    :class:`SubscriptionPaymentMethod`: now that it carries ``VOIDED`` it no longer
+    matches the ticket ``Payment.PaymentStatus``, and ninja dedupes OpenAPI
+    components by bare class name. Code keeps using ``MembershipPayment.PaymentStatus``.
+    ``VOIDED`` is a staff-voided manual payment (entered by mistake): it never counts
+    as money (every aggregate filters on positive statuses) and lists hide it by default.
+    """
+
+    PENDING = "pending", _("Pending")
+    SUCCEEDED = "succeeded", _("Succeeded")
+    FAILED = "failed", _("Failed")
+    REFUNDED = "refunded", _("Refunded")
+    VOIDED = "voided", _("Voided")
+
+
 class MembershipPayment(TimeStampedModel):
     """A single payment recorded against a :class:`MembershipSubscription`.
 
@@ -360,11 +378,7 @@ class MembershipPayment(TimeStampedModel):
     reserved for Phase 2 Stripe payloads (invoice / payment_intent JSON).
     """
 
-    class PaymentStatus(models.TextChoices):
-        PENDING = "pending", _("Pending")
-        SUCCEEDED = "succeeded", _("Succeeded")
-        FAILED = "failed", _("Failed")
-        REFUNDED = "refunded", _("Refunded")
+    PaymentStatus = MembershipPaymentStatus
 
     subscription = models.ForeignKey(
         MembershipSubscription,

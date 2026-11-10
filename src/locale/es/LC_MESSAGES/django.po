@@ -7494,3 +7494,24 @@ msgstr "La entrada de registro pertenece a otra organización."
 
 msgid "Use either active_on or active_at, not both."
 msgstr "Utilice active_on o active_at, pero no ambos."
+
+msgid "Online payments are managed through Stripe and cannot be edited here."
+msgstr "Los pagos en línea se gestionan a través de Stripe y no se pueden editar aquí."
+
+msgid "Only the subscription's latest payment can have its status or date changed, or be voided."
+msgstr "Solo el último pago de la suscripción puede cambiar de estado o fecha, o anularse."
+
+msgid "Refunded payments cannot be edited."
+msgstr "Los pagos reembolsados no se pueden editar."
+
+msgid "The status and date of a payment on a cancelled or expired subscription cannot be changed."
+msgstr "El estado y la fecha de un pago en una suscripción cancelada o vencida no se pueden cambiar."
+
+msgid "This payment has been voided."
+msgstr "Este pago ha sido anulado."
+
+msgid "Voided"
+msgstr "Anulado"
+
+msgid "initial_payment_occurred_at requires initial_payment_amount."
+msgstr "initial_payment_occurred_at requiere initial_payment_amount."

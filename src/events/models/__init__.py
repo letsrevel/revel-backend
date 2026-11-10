@@ -71,6 +71,7 @@ from .subscription import (
     MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
+    MembershipPaymentStatus,
     SubscriptionPaymentMethod,
 )
 from .ticket import (
@@ -135,6 +136,7 @@ __all__ = [
     "MembershipPayment",
     "MembershipSubscription",
     "MembershipSubscriptionPlan",
+    "MembershipPaymentStatus",
     "SubscriptionPaymentMethod",
     "MembershipRecordEndedReason",
     "MembershipRecordInviteStatus",
