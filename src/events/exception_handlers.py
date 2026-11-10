@@ -37,6 +37,7 @@ from events.exceptions import (
     InvalidStripeWebhookSignatureError,
     InvalidZoneSelectionError,
     MembershipApprovalRefusedError,
+    MembershipPaymentEditRefusedError,
     MembershipPolicyManageSubscriptionsOnlyError,
     MembershipTierInUseError,
     NothingToRefundError,
@@ -56,7 +57,12 @@ from events.exceptions import (
     TicketAlreadyCancelledError,
     TooManyItemsError,
 )
-from events.schema import GuestActionErrorSchema, MembershipApprovalRefusedSchema, SubscriptionActivationPendingSchema
+from events.schema import (
+    GuestActionErrorSchema,
+    MembershipApprovalRefusedSchema,
+    MembershipPaymentEditRefusedSchema,
+    SubscriptionActivationPendingSchema,
+)
 from events.service.custom_domain_service import CUSTOM_DOMAIN_NOT_ENABLED_MESSAGE
 from events.service.event_manager import UserIsIneligibleError
 from events.service.membership_manager import MembershipApplicationIneligibleError
@@ -175,6 +181,26 @@ def handle_membership_approval_refused_error(request: HttpRequest, exc: Exceptio
     )
 
 
+def handle_membership_payment_edit_refused_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Render a refused payment edit/void with a machine-readable ``code``.
+
+    The frontend cannot key on the translated ``detail``, so it branches on ``code``
+    to explain why the action is unavailable.
+
+    Args:
+        request: The current HTTP request (unused; required by the handler signature).
+        exc: The raised ``MembershipPaymentEditRefusedError``.
+
+    Returns:
+        Response: A 409 response shaped like ``MembershipPaymentEditRefusedSchema``.
+    """
+    error = t.cast(MembershipPaymentEditRefusedError, exc)
+    return Response(
+        status=409,
+        data=MembershipPaymentEditRefusedSchema(detail=error.message, code=error.code).model_dump(mode="json"),
+    )
+
+
 # Single source of truth for the exception → status mapping.
 HANDLERS: dict[type[Exception], ExceptionHandler] = {
     # Guest refusals the FE renders as CTAs → 400 with a stable ``code`` (#905).
@@ -183,6 +209,7 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     UserIsIneligibleError: handle_user_is_ineligible_error,
     MembershipApprovalRefusedError: handle_membership_approval_refused_error,
     MembershipApplicationIneligibleError: handle_membership_application_ineligible_error,
+    MembershipPaymentEditRefusedError: handle_membership_payment_edit_refused_error,
     # Checkout already paid, activation webhooks in flight → 409 with a stable
     # ``code`` the frontend keys on (the translated ``detail`` is unmatchable).
     SubscriptionActivationPendingError: handle_subscription_activation_pending_error,

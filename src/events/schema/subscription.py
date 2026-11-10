@@ -6,11 +6,13 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
-from pydantic import AwareDatetime, Field, HttpUrl, model_validator
+from pydantic import AwareDatetime, Field, HttpUrl, field_validator, model_validator
 
 from accounts.schema import MemberUserSchema
+from events.exceptions import MembershipPaymentEditRefusalCode
 from events.models import (
     MembershipPayment,
+    MembershipPaymentStatus,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
@@ -21,11 +23,21 @@ from events.service.membership_manager.resolvers import (
     resolve_membership_questionnaire,
     resolve_requires_membership_approval,
 )
+from events.utils.membership_payment_rules import payment_edit_flags
 from events.utils.subscription_plan_rules import validate_plan_shape
 
 from .mixins import get_image_field_url
 from .organization import MembershipTierSchema
 from .ticket import Currencies
+
+#: Statuses staff may set by hand; REFUNDED and VOIDED have dedicated flows.
+EDITABLE_PAYMENT_STATUSES: frozenset[str] = frozenset(
+    {
+        MembershipPayment.PaymentStatus.PENDING,
+        MembershipPayment.PaymentStatus.SUCCEEDED,
+        MembershipPayment.PaymentStatus.FAILED,
+    }
+)
 
 
 class PlanSchema(ModelSchema):
@@ -291,6 +303,13 @@ class SubscriptionCreateSchema(Schema):
     initial_payment_amount: Decimal | None = Field(None, ge=Decimal("0"))
     initial_payment_currency: Currencies | None = None
     initial_payment_notes: str = ""
+    initial_payment_occurred_at: AwareDatetime | None = Field(
+        None,
+        description=(
+            "Backdate the initial payment (e.g. a member who paid in person last month). Anchors the first "
+            "billing period; may predate the subscription but not the future. Requires initial_payment_amount."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_initial_payment(self) -> "SubscriptionCreateSchema":
@@ -316,7 +335,7 @@ class PaymentRecordSchema(Schema):
 
     amount: Decimal = Field(..., ge=Decimal("0"))
     currency: Currencies
-    status: MembershipPayment.PaymentStatus = MembershipPayment.PaymentStatus.SUCCEEDED
+    status: MembershipPaymentStatus = MembershipPayment.PaymentStatus.SUCCEEDED
     notes: str = ""
     occurred_at: AwareDatetime | None = Field(
         None,
@@ -325,6 +344,55 @@ class PaymentRecordSchema(Schema):
             "defaults to now when omitted."
         ),
     )
+
+
+class MembershipPaymentUpdateSchema(Schema):
+    """Partial update of a manual (OFFLINE) membership payment.
+
+    Currency is deliberately not editable. ``status`` and ``occurred_at`` change the
+    subscription's billing period, so they are only accepted on the subscription's
+    latest payment; ``amount`` and ``notes`` can be edited on any eligible row.
+    """
+
+    amount: Decimal | None = Field(None, ge=Decimal("0"))
+    status: MembershipPaymentStatus | None = Field(
+        None, description="Only pending, succeeded or failed may be set (refunds/voids have their own routes)."
+    )
+    occurred_at: AwareDatetime | None = None
+    notes: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _status_is_settable(cls, value: MembershipPaymentStatus | None) -> MembershipPaymentStatus | None:
+        """Reject refunded/voided: those transitions have dedicated endpoints."""
+        if value is not None and value not in EDITABLE_PAYMENT_STATUSES:
+            raise ValueError("status must be one of: pending, succeeded, failed.")
+        return value
+
+    @model_validator(mode="after")
+    def _no_explicit_nulls(self) -> "MembershipPaymentUpdateSchema":
+        """Reject explicit ``null`` for fields that cannot be cleared."""
+        for field in self.model_fields_set:
+            if getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null.")
+        return self
+
+
+class MembershipPaymentVoidSchema(Schema):
+    """Optional reason appended to the voided payment's notes."""
+
+    notes: str = ""
+
+
+class MembershipPaymentEditRefusedSchema(Schema):
+    """409 body for a refused payment edit/void, carrying a stable ``code``.
+
+    ``detail`` is translated and must never be matched on; the frontend branches on
+    ``code``. Renaming a code value is a breaking change; rewording ``detail`` is safe.
+    """
+
+    detail: str
+    code: MembershipPaymentEditRefusalCode
 
 
 class RefundSchema(Schema):
@@ -354,13 +422,15 @@ class MembershipPaymentSchema(ModelSchema):
     """
 
     subscription_id: UUID
-    status: MembershipPayment.PaymentStatus
+    status: MembershipPaymentStatus
     period_start: AwareDatetime
     period_end: AwareDatetime
     occurred_at: AwareDatetime | None = None
     recorded_by_id: UUID | None = None
     recorded_by_name: str | None = None
     stripe_dashboard_url: str | None = None
+    can_edit: bool
+    can_void: bool
 
     class Meta:
         model = MembershipPayment
@@ -393,6 +463,16 @@ class MembershipPaymentSchema(ModelSchema):
         return obj.stripe_dashboard_url()
 
     @staticmethod
+    def resolve_can_edit(obj: MembershipPayment) -> bool:
+        """Whether amount/notes can be edited (manual, offline, not refunded, not voided)."""
+        return payment_edit_flags(obj)[0]
+
+    @staticmethod
+    def resolve_can_void(obj: MembershipPayment) -> bool:
+        """Whether the payment can be voided; also gates status/date edits (latest row, live subscription)."""
+        return payment_edit_flags(obj)[1]
+
+    @staticmethod
     def resolve_recorded_by_id(obj: MembershipPayment) -> UUID | None:
         """Return the recorder's user ID."""
         return obj.recorded_by_id
@@ -414,7 +494,7 @@ class MyMembershipPaymentSchema(ModelSchema):
     no staff ``notes`` / ``recorded_by`` — those are organizer-facing.
     """
 
-    status: MembershipPayment.PaymentStatus
+    status: MembershipPaymentStatus
     period_start: AwareDatetime
     period_end: AwareDatetime
 
