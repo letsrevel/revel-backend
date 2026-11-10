@@ -260,7 +260,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     @route.post(
         "/members/{user_id}",
         url_name="create_organization_member",
-        response={201: schema.OrganizationMemberSchema},
+        response={201: schema.OrganizationMemberSchema, 400: schema.AlreadyMemberErrorSchema | ErrorDetail},
     )
     def add_member(
         self, slug: str, user_id: UUID, payload: schema.MemberAddSchema

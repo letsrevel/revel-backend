@@ -191,6 +191,7 @@ from .mixins import (
 
 # Organization schemas
 from .organization import (
+    AlreadyMemberErrorSchema,
     ApproveMembershipRequestSchema,
     ComplianceNoticeSchema,
     MemberAddSchema,
@@ -506,6 +507,7 @@ __all__ = [
     "AffectedTierSchema",
     "AggregatedDietaryPreferenceSchema",
     "AggregatedDietaryRestrictionSchema",
+    "AlreadyMemberErrorSchema",
     "AnnouncementCreateSchema",
     "AnnouncementListSchema",
     "AnnouncementPublicSchema",

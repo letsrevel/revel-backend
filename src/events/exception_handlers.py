@@ -59,6 +59,7 @@ from events.exceptions import (
     TooManyItemsError,
 )
 from events.schema import (
+    AlreadyMemberErrorSchema,
     GuestActionErrorSchema,
     MembershipApprovalRefusedSchema,
     MembershipPaymentEditRefusedSchema,
@@ -220,6 +221,24 @@ def handle_subscription_plan_change_refused_error(request: HttpRequest, exc: Exc
     )
 
 
+def handle_already_member_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Render an already-a-member refusal with a machine-readable ``code``.
+
+    Args:
+        request: The current HTTP request (unused; required by the handler signature).
+        exc: The raised ``AlreadyMemberError``.
+
+    Returns:
+        Response: A 400 response shaped like ``AlreadyMemberErrorSchema``.
+    """
+    return Response(
+        status=400,
+        data=AlreadyMemberErrorSchema(
+            detail=str(_("You are already a member of this organization.")), code="already_member"
+        ).model_dump(mode="json"),
+    )
+
+
 # Single source of truth for the exception → status mapping.
 HANDLERS: dict[type[Exception], ExceptionHandler] = {
     # Guest refusals the FE renders as CTAs → 400 with a stable ``code`` (#905).
@@ -234,7 +253,8 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     # ``code`` the frontend keys on (the translated ``detail`` is unmatchable).
     SubscriptionActivationPendingError: handle_subscription_activation_pending_error,
     TooManyItemsError: make_static_handler(400, _("You have created too many items.")),
-    AlreadyMemberError: make_static_handler(400, _("You are already a member of this organization.")),
+    # Typed ``already_member`` code for the frontend (same ``detail`` as before).
+    AlreadyMemberError: handle_already_member_error,
     PendingMembershipRequestExistsError: make_static_handler(
         400, _("You have a pending membership request for this organization.")
     ),
