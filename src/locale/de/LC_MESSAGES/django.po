@@ -7605,3 +7605,9 @@ msgstr "Storniert"
 
 msgid "initial_payment_occurred_at requires initial_payment_amount."
 msgstr "initial_payment_occurred_at erfordert initial_payment_amount."
+
+msgid "Online subscriptions change plan from the member's side; staff cannot change them."
+msgstr "Online-Abonnements wechseln den Tarif von Seiten des Mitglieds; das Team kann sie nicht ändern."
+
+msgid "This member's tier follows their subscription plan. Change the subscription's plan instead."
+msgstr "Die Stufe dieses Mitglieds folgt dem Tarif seines Abonnements. Ändere stattdessen den Tarif des Abonnements."

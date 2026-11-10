@@ -54,6 +54,7 @@ from events.exceptions import (
     StripeNotConnectedError,
     StripeRefundFailed,
     SubscriptionActivationPendingError,
+    SubscriptionPlanChangeRefusedError,
     TicketAlreadyCancelledError,
     TooManyItemsError,
 )
@@ -62,6 +63,7 @@ from events.schema import (
     MembershipApprovalRefusedSchema,
     MembershipPaymentEditRefusedSchema,
     SubscriptionActivationPendingSchema,
+    SubscriptionPlanChangeRefusedSchema,
 )
 from events.service.custom_domain_service import CUSTOM_DOMAIN_NOT_ENABLED_MESSAGE
 from events.service.event_manager import UserIsIneligibleError
@@ -201,6 +203,23 @@ def handle_membership_payment_edit_refused_error(request: HttpRequest, exc: Exce
     )
 
 
+def handle_subscription_plan_change_refused_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Render a refused staff plan change / manual tier edit with a machine-readable ``code``.
+
+    Args:
+        request: The current HTTP request (unused; required by the handler signature).
+        exc: The raised ``SubscriptionPlanChangeRefusedError``.
+
+    Returns:
+        Response: A 409 response shaped like ``SubscriptionPlanChangeRefusedSchema``.
+    """
+    error = t.cast(SubscriptionPlanChangeRefusedError, exc)
+    return Response(
+        status=409,
+        data=SubscriptionPlanChangeRefusedSchema(detail=error.message, code=error.code).model_dump(mode="json"),
+    )
+
+
 # Single source of truth for the exception → status mapping.
 HANDLERS: dict[type[Exception], ExceptionHandler] = {
     # Guest refusals the FE renders as CTAs → 400 with a stable ``code`` (#905).
@@ -210,6 +229,7 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     MembershipApprovalRefusedError: handle_membership_approval_refused_error,
     MembershipApplicationIneligibleError: handle_membership_application_ineligible_error,
     MembershipPaymentEditRefusedError: handle_membership_payment_edit_refused_error,
+    SubscriptionPlanChangeRefusedError: handle_subscription_plan_change_refused_error,
     # Checkout already paid, activation webhooks in flight → 409 with a stable
     # ``code`` the frontend keys on (the translated ``detail`` is unmatchable).
     SubscriptionActivationPendingError: handle_subscription_activation_pending_error,
