@@ -7461,4 +7461,4 @@ msgid "Online subscriptions change plan from the member's side; staff cannot cha
 msgstr "As assinaturas online mudam de plano pelo lado do membro; a equipa não as pode alterar."
 
 msgid "This member's tier follows their subscription plan. Change the subscription's plan instead."
-msgstr "O nível deste membro segue o plano da sua assinatura. Altere antes o plano da assinatura."
+msgstr "O nível de adesão deste membro segue o plano da sua assinatura. Altere antes o plano da assinatura."
