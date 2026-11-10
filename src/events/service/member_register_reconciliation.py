@@ -235,6 +235,7 @@ def unlink_record(record: MembershipRecord) -> MembershipRecord:
             others = list(
                 MembershipRecord.objects.filter(merged_into=survivor)
                 .exclude(pk=current.pk)
+                .exclude(merge_prior_valid_from=None)  # only legacy merges moved the start
                 .values_list("valid_from", flat=True)
             )
             # ponytail: legacy branch for merges made under the old earliest-start rule. Remove it and the
