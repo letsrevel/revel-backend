@@ -156,6 +156,13 @@ class MemberRegisterBulkInviteThrottle(DisableableThrottleMixin, UserRateThrottl
     rate = "5/day"
 
 
+class OrgUserLookupThrottle(DisableableThrottleMixin, UserRateThrottle):
+    """Org-admin user lookup by exact email (30 requests/hour per user): an account-existence oracle."""
+
+    scope = "org_user_lookup"
+    rate = "30/hour"
+
+
 class _IPRateThrottle:
     """Key every caller by client IP, authenticated or not.
 

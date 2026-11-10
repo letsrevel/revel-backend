@@ -444,6 +444,7 @@ from .ticket import (
 )
 
 # User note schemas
+from .org_user_lookup import OrgUserLookupNotFoundSchema, OrgUserLookupSchema
 from .user_note import UserNoteSchema, UserNoteUpsertSchema
 
 # Venue schemas
@@ -810,6 +811,8 @@ __all__ = [
     "TierUnsellableZoneSchema",
     "UnsellableZoneTierSchema",
     "UpdateAttendeeInvoiceSchema",
+    "OrgUserLookupNotFoundSchema",
+    "OrgUserLookupSchema",
     "UserNoteSchema",
     "UserNoteUpsertSchema",
     "UserRSVPSchema",
