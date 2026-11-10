@@ -19,6 +19,7 @@ from .tokens import OrganizationAdminTokensController
 from .recurring_events import OrganizationAdminRecurringEventsController
 from .subscriptions import OrganizationAdminSubscriptionsController
 from .tickets import OrganizationAdminTicketsController
+from .user_lookup import OrganizationAdminUserLookupController
 from .user_notes import OrganizationAdminUserNotesController
 from .vat import OrganizationAdminVATController
 from .venues import OrganizationAdminVenuesController
@@ -43,6 +44,7 @@ ORGANIZATION_ADMIN_CONTROLLERS: list[type] = [
     OrganizationAdminTicketsController,
     OrganizationAdminCustomDomainController,
     OrganizationAdminUserNotesController,
+    OrganizationAdminUserLookupController,
     # Before the register controller: its ``/member-register/{record_id}`` would otherwise swallow the
     # literal ``/member-register/invite-all`` (Django picks the first matching path, then 405s the method).
     OrganizationAdminMemberRegisterLinkingController,
@@ -67,6 +69,7 @@ __all__ = [
     "OrganizationAdminRevenueController",
     "ORGANIZATION_ADMIN_CONTROLLERS",
     "OrganizationAdminTicketsController",
+    "OrganizationAdminUserLookupController",
     "OrganizationAdminUserNotesController",
     "OrganizationAdminMemberRegisterController",
     "OrganizationAdminMemberRegisterLinkingController",
