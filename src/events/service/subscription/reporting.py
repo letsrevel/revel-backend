@@ -13,10 +13,12 @@ from django.utils import timezone
 
 from events.models import (
     MembershipPayment,
+    MembershipPaymentStatus,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     Organization,
 )
+from events.utils.membership_payment_rules import with_latest_payment_id
 
 
 class StatusBreakdown(t.TypedDict):
@@ -171,8 +173,9 @@ def get_organization_metrics(organization: Organization) -> SubscriptionMetrics:
 def organization_payments(
     organization: Organization,
     *,
-    status: MembershipPayment.PaymentStatus | None = None,
+    status: MembershipPaymentStatus | None = None,
     plan_id: UUID | None = None,
+    include_voided: bool = False,
 ) -> QuerySet[MembershipPayment]:
     """Org-wide membership payment ledger, newest first.
 
@@ -182,19 +185,23 @@ def organization_payments(
 
     Args:
         organization: The organization whose ledger to read.
-        status: Optional :class:`MembershipPayment.PaymentStatus` filter.
+        status: Optional :class:`MembershipPaymentStatus` filter.
         plan_id: Optional plan filter (the plan the subscription is billed on).
+        include_voided: Keep VOIDED rows. They are hidden by default unless ``status``
+            asks for them explicitly.
 
     Returns:
         A ``QuerySet`` of :class:`MembershipPayment`, newest first.
     """
-    qs = (
+    qs = with_latest_payment_id(
         MembershipPayment.objects.filter(subscription__organization=organization)
         .select_related("subscription", "subscription__user", "subscription__plan", "recorded_by")
         .order_by("-created_at", "-id")
     )
     if status is not None:
         qs = qs.filter(status=status)
+    elif not include_voided:
+        qs = qs.exclude(status=MembershipPayment.PaymentStatus.VOIDED)
     if plan_id is not None:
         qs = qs.filter(subscription__plan_id=plan_id)
     return qs

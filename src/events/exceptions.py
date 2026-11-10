@@ -258,3 +258,61 @@ class MembershipApprovalRefusedError(Exception):
         self.code = code
         self.message = message
         self.forceable = code in FORCEABLE_APPROVAL_REFUSALS
+
+
+class MembershipPaymentEditRefusalCode(str, enum.Enum):
+    """Stable discriminators for refused edits/voids of a manual membership payment (409).
+
+    The frontend branches on these (the translated ``detail`` is unmatchable) to
+    explain why the action is unavailable. Renaming a value is a breaking change;
+    rewording the message is always safe.
+    """
+
+    PAYMENT_ONLINE = "payment_online"
+    PAYMENT_REFUNDED = "payment_refunded"
+    PAYMENT_VOIDED = "payment_voided"
+    PAYMENT_NOT_LATEST = "payment_not_latest"
+    SUBSCRIPTION_TERMINAL = "subscription_terminal"
+
+
+class MembershipPaymentEditRefusedError(Exception):
+    """Raised when editing or voiding a membership payment is refused (409) with a ``code``.
+
+    Rendered as :class:`events.schema.MembershipPaymentEditRefusedSchema`.
+    """
+
+    def __init__(self, code: MembershipPaymentEditRefusalCode, message: str) -> None:
+        """Store the refusal ``code`` and its translated ``message``."""
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+class SubscriptionPlanChangeRefusalCode(str, enum.Enum):
+    """Stable discriminators for refused staff plan changes / tier edits on a subscribed member (409).
+
+    The frontend branches on these (the translated ``detail`` is unmatchable).
+    Renaming a value is a breaking change; rewording the message is always safe.
+    """
+
+    TIER_FOLLOWS_SUBSCRIPTION = "tier_follows_subscription"
+    PLAN_CHANGE_ONLINE = "plan_change_online"
+    SUBSCRIPTION_TERMINAL = "subscription_terminal"
+    SUBSCRIPTION_PAUSED = "subscription_paused"
+    PLAN_UNCHANGED = "plan_unchanged"
+    PLAN_ARCHIVED = "plan_archived"
+    PLAN_PAYMENT_METHOD_MISMATCH = "plan_payment_method_mismatch"
+    PLAN_CURRENCY_MISMATCH = "plan_currency_mismatch"
+
+
+class SubscriptionPlanChangeRefusedError(Exception):
+    """Raised when a staff plan change or a manual tier edit is refused (409) with a ``code``.
+
+    Rendered as :class:`events.schema.SubscriptionPlanChangeRefusedSchema`.
+    """
+
+    def __init__(self, code: SubscriptionPlanChangeRefusalCode, message: str) -> None:
+        """Store the refusal ``code`` and its translated ``message``."""
+        super().__init__(message)
+        self.code = code
+        self.message = message

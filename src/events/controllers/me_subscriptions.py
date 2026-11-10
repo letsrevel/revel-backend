@@ -124,10 +124,14 @@ class MeSubscriptionsController(UserAwareController):
         and both ONLINE and OFFLINE plans — an offline member has no Stripe
         portal, so this is their only record of what they were charged.
         """
-        return MembershipPayment.objects.filter(
-            subscription__user=self.user(),
-            subscription__organization_id=org_id,
-        ).order_by("-created_at", "-id")
+        return (
+            MembershipPayment.objects.filter(
+                subscription__user=self.user(),
+                subscription__organization_id=org_id,
+            )
+            .exclude(status=MembershipPayment.PaymentStatus.VOIDED)
+            .order_by("-created_at", "-id")
+        )
 
     @route.post(
         "/organizations/{org_id}/subscribe",

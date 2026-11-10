@@ -20,6 +20,8 @@ from events.exceptions import (
     MembershipApprovalRefusedError,
     MembershipTierInUseError,
     PendingMembershipRequestExistsError,
+    SubscriptionPlanChangeRefusalCode,
+    SubscriptionPlanChangeRefusedError,
 )
 from events.models import (
     MembershipSubscription,
@@ -488,6 +490,28 @@ def _mirror_status_to_subscriptions(member: OrganizationMember, status: Organiza
         subscription_lifecycle.pause_subscription(subscription)
 
 
+def _ensure_tier_not_locked_by_subscription(member: OrganizationMember, tier: MembershipTier | None) -> None:
+    """Refuse a manual tier change that would diverge from a live subscription's plan tier.
+
+    The tier follows the plan (``sync_member_from_subscription``), so staff change the
+    subscription's plan instead. Setting the tier to exactly the plan's tier is allowed.
+
+    Raises:
+        SubscriptionPlanChangeRefusedError: (409) a live subscription's plan tier differs from ``tier``.
+    """
+    plan_tier_id = (
+        MembershipSubscription.objects.filter(user_id=member.user_id, organization_id=member.organization_id)
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .values_list("plan__tier_id", flat=True)
+        .first()
+    )
+    if plan_tier_id is not None and (tier is None or tier.pk != plan_tier_id):
+        raise SubscriptionPlanChangeRefusedError(
+            SubscriptionPlanChangeRefusalCode.TIER_FOLLOWS_SUBSCRIPTION,
+            str(_("This member's tier follows their subscription plan. Change the subscription's plan instead.")),
+        )
+
+
 @transaction.atomic
 def update_member(
     member: OrganizationMember,
@@ -521,6 +545,9 @@ def update_member(
     Returns:
         Updated OrganizationMember instance
     """
+    if clear_tier or tier is not None:
+        _ensure_tier_not_locked_by_subscription(member, tier)
+
     updated_fields = []
 
     if status is not None:

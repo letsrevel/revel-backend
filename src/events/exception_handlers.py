@@ -37,6 +37,7 @@ from events.exceptions import (
     InvalidStripeWebhookSignatureError,
     InvalidZoneSelectionError,
     MembershipApprovalRefusedError,
+    MembershipPaymentEditRefusedError,
     MembershipPolicyManageSubscriptionsOnlyError,
     MembershipTierInUseError,
     NothingToRefundError,
@@ -53,6 +54,7 @@ from events.exceptions import (
     StripeNotConnectedError,
     StripeRefundFailed,
     SubscriptionActivationPendingError,
+    SubscriptionPlanChangeRefusedError,
     TicketAlreadyCancelledError,
     TooManyItemsError,
 )
@@ -60,7 +62,9 @@ from events.schema import (
     AlreadyMemberErrorSchema,
     GuestActionErrorSchema,
     MembershipApprovalRefusedSchema,
+    MembershipPaymentEditRefusedSchema,
     SubscriptionActivationPendingSchema,
+    SubscriptionPlanChangeRefusedSchema,
 )
 from events.service.custom_domain_service import CUSTOM_DOMAIN_NOT_ENABLED_MESSAGE
 from events.service.event_manager import UserIsIneligibleError
@@ -180,6 +184,43 @@ def handle_membership_approval_refused_error(request: HttpRequest, exc: Exceptio
     )
 
 
+def handle_membership_payment_edit_refused_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Render a refused payment edit/void with a machine-readable ``code``.
+
+    The frontend cannot key on the translated ``detail``, so it branches on ``code``
+    to explain why the action is unavailable.
+
+    Args:
+        request: The current HTTP request (unused; required by the handler signature).
+        exc: The raised ``MembershipPaymentEditRefusedError``.
+
+    Returns:
+        Response: A 409 response shaped like ``MembershipPaymentEditRefusedSchema``.
+    """
+    error = t.cast(MembershipPaymentEditRefusedError, exc)
+    return Response(
+        status=409,
+        data=MembershipPaymentEditRefusedSchema(detail=error.message, code=error.code).model_dump(mode="json"),
+    )
+
+
+def handle_subscription_plan_change_refused_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Render a refused staff plan change / manual tier edit with a machine-readable ``code``.
+
+    Args:
+        request: The current HTTP request (unused; required by the handler signature).
+        exc: The raised ``SubscriptionPlanChangeRefusedError``.
+
+    Returns:
+        Response: A 409 response shaped like ``SubscriptionPlanChangeRefusedSchema``.
+    """
+    error = t.cast(SubscriptionPlanChangeRefusedError, exc)
+    return Response(
+        status=409,
+        data=SubscriptionPlanChangeRefusedSchema(detail=error.message, code=error.code).model_dump(mode="json"),
+    )
+
+
 def handle_already_member_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
     """Render an already-a-member refusal with a machine-readable ``code``.
 
@@ -206,6 +247,8 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     UserIsIneligibleError: handle_user_is_ineligible_error,
     MembershipApprovalRefusedError: handle_membership_approval_refused_error,
     MembershipApplicationIneligibleError: handle_membership_application_ineligible_error,
+    MembershipPaymentEditRefusedError: handle_membership_payment_edit_refused_error,
+    SubscriptionPlanChangeRefusedError: handle_subscription_plan_change_refused_error,
     # Checkout already paid, activation webhooks in flight → 409 with a stable
     # ``code`` the frontend keys on (the translated ``detail`` is unmatchable).
     SubscriptionActivationPendingError: handle_subscription_activation_pending_error,

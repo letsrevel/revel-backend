@@ -24,7 +24,11 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.exceptions import SubscriptionActivationPendingError
+from events.exceptions import (
+    SubscriptionActivationPendingError,
+    SubscriptionPlanChangeRefusalCode,
+    SubscriptionPlanChangeRefusedError,
+)
 from events.models import (
     MembershipSubscription,
     MembershipSubscriptionPlan,
@@ -600,6 +604,7 @@ def change_plan(
     new_plan: MembershipSubscriptionPlan,
     *,
     enforce_sales_status: bool = True,
+    enforce_eligibility: bool = True,
 ) -> MembershipSubscription:
     """Switch ``subscription`` to ``new_plan``.
 
@@ -620,9 +625,11 @@ def change_plan(
     stack against the destination tier (``ensure_tier_change_allowed``) —
     otherwise a member could hop from an ungated tier onto a gated one without
     ever passing its questionnaire or approval. Same-tier swaps are not
-    re-gated.
+    re-gated. ``enforce_eligibility=False`` (staff callers, who can assign any tier
+    directly) skips that gate.
     """
-    ensure_tier_change_allowed(subscription, new_plan)
+    if enforce_eligibility:
+        ensure_tier_change_allowed(subscription, new_plan)
     subscription = (
         MembershipSubscription.objects.select_for_update(of=("self",))
         .select_related("plan", "plan__tier", "organization", "user")
@@ -644,6 +651,63 @@ def change_plan(
     subscription.pending_plan = None
     subscription.save(update_fields=["plan", "pending_plan", "updated_at"])
     return subscription
+
+
+def _plan_change_refusal(
+    subscription: MembershipSubscription, new_plan: MembershipSubscriptionPlan
+) -> SubscriptionPlanChangeRefusedError | None:
+    """First reason staff cannot move ``subscription`` onto ``new_plan``, as a coded error."""
+    code = SubscriptionPlanChangeRefusalCode
+    current = subscription.plan
+    if current.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+        message = _("Online subscriptions change plan from the member's side; staff cannot change them.")
+        return SubscriptionPlanChangeRefusedError(code.PLAN_CHANGE_ONLINE, str(message))
+    if subscription.is_terminal:
+        message = _("Cannot change the plan on a terminated subscription.")
+        return SubscriptionPlanChangeRefusedError(code.SUBSCRIPTION_TERMINAL, str(message))
+    if subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED:
+        message = _("Resume the subscription before changing its plan.")
+        return SubscriptionPlanChangeRefusedError(code.SUBSCRIPTION_PAUSED, str(message))
+    if current.pk == new_plan.pk:
+        return SubscriptionPlanChangeRefusedError(
+            code.PLAN_UNCHANGED, str(_("This subscription is already on that plan."))
+        )
+    if not new_plan.is_active:
+        message = _("This plan is archived and no longer accepts new subscriptions.")
+        return SubscriptionPlanChangeRefusedError(code.PLAN_ARCHIVED, str(message))
+    if new_plan.payment_method != current.payment_method:
+        message = _("Cannot switch between plans with different payment methods. Cancel and subscribe again instead.")
+        return SubscriptionPlanChangeRefusedError(code.PLAN_PAYMENT_METHOD_MISMATCH, str(message))
+    if new_plan.currency.upper() != current.currency.upper():
+        message = _("New plan must use the same currency as the current plan.")
+        return SubscriptionPlanChangeRefusedError(code.PLAN_CURRENCY_MISMATCH, str(message))
+    return None
+
+
+@transaction.atomic
+def staff_change_plan(
+    subscription: MembershipSubscription, new_plan: MembershipSubscriptionPlan
+) -> MembershipSubscription:
+    """Move a local (OFFLINE / FREE) subscription onto ``new_plan`` on staff's authority.
+
+    Pre-checks every refusal as a coded 409 (``SubscriptionPlanChangeRefusedError``)
+    before delegating to :func:`change_plan`, which therefore never hits its own 400s
+    for these cases. Staff skip the sales-status pause and the cross-tier eligibility
+    gates (they can assign any tier directly); the plan's subscription cap still
+    applies (400 "sold out"). The member's tier follows via
+    ``sync_member_from_subscription``. ``new_plan`` must already be org-scoped by the caller.
+
+    Raises:
+        SubscriptionPlanChangeRefusedError: (409) see :class:`SubscriptionPlanChangeRefusalCode`.
+    """
+    locked = (
+        MembershipSubscription.objects.select_for_update(of=("self",))
+        .select_related("plan", "plan__tier", "organization", "user")
+        .get(pk=subscription.pk)
+    )
+    if (refusal := _plan_change_refusal(locked, new_plan)) is not None:
+        raise refusal
+    return change_plan(locked, new_plan, enforce_sales_status=False, enforce_eligibility=False)
 
 
 # Plan CRUD and price migration live in :mod:`events.service.subscription.plans`;

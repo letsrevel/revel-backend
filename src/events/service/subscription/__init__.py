@@ -31,6 +31,7 @@ from events.service.subscription.lifecycle import (
     revive_subscription,
 )
 from events.service.subscription.notifications import last_paid_amounts
+from events.service.subscription.payment_edits import update_payment, void_payment
 from events.service.subscription.plans import (
     MigrationError,
     MigrationResult,
@@ -159,6 +160,8 @@ __all__ = [
     "subscription_period_epochs",
     "sync_subscription_from_stripe",
     "uncancel_subscription",
+    "update_payment",
     "update_plan",
     "update_subscription_price",
+    "void_payment",
 ]

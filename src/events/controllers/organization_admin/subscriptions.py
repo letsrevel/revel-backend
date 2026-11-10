@@ -7,7 +7,7 @@ from django.db import transaction
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
-from ninja import Query
+from ninja import Body, Query
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
@@ -20,11 +20,13 @@ from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import OrganizationPermission
 from events.service.subscription import lifecycle as subscription_lifecycle
+from events.service.subscription import payment_edits as subscription_payment_edits
 from events.service.subscription import plans as subscription_plans
 from events.service.subscription import refunds as subscription_refunds
 from events.service.subscription import reporting as subscription_reporting
 from events.service.subscription import uncancel as subscription_uncancel
 from events.service.subscription.lifecycle import InitialPayment
+from events.utils.membership_payment_rules import with_latest_payment_id
 from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
@@ -335,6 +337,11 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
                 400,
                 str(_("FREE plans cost nothing, so no initial payment can be recorded against them.")),
             )
+        if payload.initial_payment_occurred_at is not None and payload.initial_payment_amount is None:
+            raise HttpError(
+                400,
+                str(_("initial_payment_occurred_at requires initial_payment_amount.")),
+            )
         user = get_object_or_404(RevelUser, pk=payload.user_id)
 
         initial: InitialPayment | None = None
@@ -347,6 +354,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
                 currency=payload.initial_payment_currency,
                 recorded_by=self.user(),
                 notes=payload.initial_payment_notes,
+                occurred_at=payload.initial_payment_occurred_at,
             )
 
         subscription = subscription_lifecycle.create_subscription(plan, user, initial_payment=initial)
@@ -359,15 +367,23 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_subscription_payments(self, slug: str, sub_id: UUID) -> QuerySet[models.MembershipPayment]:
-        """List payments recorded against a subscription, newest first."""
+    def list_subscription_payments(
+        self,
+        slug: str,
+        sub_id: UUID,
+        include_voided: t.Annotated[bool, Query(description="Also list voided payments.")] = False,
+    ) -> QuerySet[models.MembershipPayment]:
+        """List payments recorded against a subscription, newest first (voided ones hidden by default)."""
         organization = self.get_one(slug)
         subscription = get_object_or_404(models.MembershipSubscription, pk=sub_id, organization=organization)
-        return (
+        qs = with_latest_payment_id(
             models.MembershipPayment.objects.filter(subscription=subscription)
-            .select_related("recorded_by")
+            .select_related("recorded_by", "subscription", "subscription__plan")
             .order_by("-created_at", "-id")
         )
+        if not include_voided:
+            qs = qs.exclude(status=models.MembershipPayment.PaymentStatus.VOIDED)
+        return qs
 
     @route.post(
         "/subscriptions/{sub_id}/payments",
@@ -467,6 +483,41 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
             organization=organization,
         )
         return subscription_uncancel.uncancel_subscription(subscription, staff=True)
+
+    @route.post(
+        "/subscriptions/{sub_id}/change-plan",
+        url_name="staff_change_subscription_plan",
+        # 409 carries a stable ``code``; 400 covers the plan's "sold out" cap.
+        response={
+            200: schema.SubscriptionSchema,
+            400: ErrorDetail,
+            404: ErrorDetail,
+            409: schema.SubscriptionPlanChangeRefusedSchema,
+        },
+    )
+    def staff_change_subscription_plan(
+        self, slug: str, sub_id: UUID, payload: schema.ChangePlanRequestSchema
+    ) -> models.MembershipSubscription:
+        """Move an OFFLINE or FREE subscription onto another plan of this organization.
+
+        Immediate, fee-free swap; the member's tier follows the new plan and no
+        notification is sent. Cross-tier eligibility gates are skipped (staff can assign
+        any tier). Refusals are 409 with a stable ``code`` (``plan_change_online``,
+        ``subscription_terminal``, ``subscription_paused``, ``plan_unchanged``,
+        ``plan_archived``, ``plan_payment_method_mismatch``, ``plan_currency_mismatch``).
+        """
+        organization = self.get_one(slug)
+        subscription = get_object_or_404(
+            models.MembershipSubscription.objects.select_related("plan", "plan__tier", "user"),
+            pk=sub_id,
+            organization=organization,
+        )
+        new_plan = get_object_or_404(
+            models.MembershipSubscriptionPlan.objects.select_related("tier"),
+            pk=payload.plan_id,
+            tier__organization=organization,
+        )
+        return subscription_lifecycle.staff_change_plan(subscription, new_plan)
 
     @route.post(
         "/subscriptions/{sub_id}/pause",
@@ -579,12 +630,18 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     def list_organization_subscription_payments(
         self,
         slug: str,
-        status: t.Annotated[models.MembershipPayment.PaymentStatus | None, Query(None)] = None,
+        status: t.Annotated[models.MembershipPaymentStatus | None, Query(None)] = None,
         plan_id: t.Annotated[UUID | None, Query(None)] = None,
+        include_voided: t.Annotated[bool, Query(description="Also list voided payments.")] = False,
     ) -> QuerySet[models.MembershipPayment]:
-        """Org-wide membership payment ledger, newest first — the reconciliation surface."""
+        """Org-wide membership payment ledger, newest first — the reconciliation surface.
+
+        Voided payments are hidden unless ``include_voided`` is set or ``status=voided``.
+        """
         organization = self.get_one(slug)
-        return subscription_reporting.organization_payments(organization, status=status, plan_id=plan_id)
+        return subscription_reporting.organization_payments(
+            organization, status=status, plan_id=plan_id, include_voided=include_voided
+        )
 
     @route.post(
         "/payments/{payment_id}/refund",
@@ -622,3 +679,69 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
                 ),
             )
         return subscription_refunds.refund_payment(payment, recorded_by=self.user(), notes=payload.notes)
+
+    def _get_payment(self, slug: str, payment_id: UUID) -> models.MembershipPayment:
+        """Fetch an org payment with the relations the edit rules and schema read."""
+        organization = self.get_one(slug)
+        return get_object_or_404(
+            models.MembershipPayment.objects.select_related("subscription", "subscription__plan", "recorded_by"),
+            pk=payment_id,
+            subscription__organization=organization,
+        )
+
+    @route.patch(
+        "/payments/{payment_id}",
+        url_name="update_subscription_payment",
+        response={
+            200: schema.MembershipPaymentSchema,
+            400: ValidationErrorResponse | ErrorDetail,
+            404: ErrorDetail,
+            409: schema.MembershipPaymentEditRefusedSchema,
+        },
+    )
+    def update_subscription_payment(
+        self,
+        slug: str,
+        payment_id: UUID,
+        payload: schema.MembershipPaymentUpdateSchema,
+    ) -> models.MembershipPayment:
+        """Correct a manually recorded payment (amount, notes, status, date).
+
+        Only OFFLINE, never-refunded, non-voided payments qualify. Changing ``status``
+        or ``occurred_at`` is further limited to the subscription's latest payment on
+        a live subscription, and recomputes the billing period. No notification is
+        sent. Refusals are 409 with a stable ``code`` (``payment_online``,
+        ``payment_refunded``, ``payment_voided``, ``payment_not_latest``,
+        ``subscription_terminal``).
+        """
+        payment = self._get_payment(slug, payment_id)
+        changes = t.cast(
+            subscription_payment_edits.PaymentChanges,
+            payload.model_dump(exclude_unset=True),
+        )
+        return subscription_payment_edits.update_payment(payment, changes=changes, recorded_by=self.user())
+
+    @route.post(
+        "/payments/{payment_id}/void",
+        url_name="void_subscription_payment",
+        response={
+            200: schema.MembershipPaymentSchema,
+            404: ErrorDetail,
+            409: schema.MembershipPaymentEditRefusedSchema,
+        },
+    )
+    def void_subscription_payment(
+        self,
+        slug: str,
+        payment_id: UUID,
+        payload: t.Annotated[schema.MembershipPaymentVoidSchema | None, Body(None)] = None,
+    ) -> models.MembershipPayment:
+        """Void a payment entered by mistake and roll the subscription's period back.
+
+        Same eligibility as a status/date edit; the optional ``notes`` reason is
+        appended to the payment's notes. Membership access is untouched.
+        """
+        payment = self._get_payment(slug, payment_id)
+        return subscription_payment_edits.void_payment(
+            payment, recorded_by=self.user(), notes=payload.notes if payload else ""
+        )

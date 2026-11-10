@@ -7432,3 +7432,33 @@ msgstr "[truncado]"
 
 msgid "The register entry belongs to another organization."
 msgstr "A entrada do registo pertence a outra organização."
+
+msgid "Use either active_on or active_at, not both."
+msgstr "Utilize active_on ou active_at, não ambos."
+
+msgid "Online payments are managed through Stripe and cannot be edited here."
+msgstr "Os pagamentos online são geridos através do Stripe e não podem ser editados aqui."
+
+msgid "Only the subscription's latest payment can have its status or date changed, or be voided."
+msgstr "Apenas o último pagamento da subscrição pode ter o estado ou a data alterados, ou ser anulado."
+
+msgid "Refunded payments cannot be edited."
+msgstr "Os pagamentos reembolsados não podem ser editados."
+
+msgid "The status and date of a payment on a cancelled or expired subscription cannot be changed."
+msgstr "O estado e a data de um pagamento numa subscrição cancelada ou expirada não podem ser alterados."
+
+msgid "This payment has been voided."
+msgstr "Este pagamento foi anulado."
+
+msgid "Voided"
+msgstr "Anulado"
+
+msgid "initial_payment_occurred_at requires initial_payment_amount."
+msgstr "initial_payment_occurred_at requer initial_payment_amount."
+
+msgid "Online subscriptions change plan from the member's side; staff cannot change them."
+msgstr "As assinaturas online mudam de plano pelo lado do membro; a equipa não as pode alterar."
+
+msgid "This member's tier follows their subscription plan. Change the subscription's plan instead."
+msgstr "O nível de adesão deste membro segue o plano da sua assinatura. Altere antes o plano da assinatura."
