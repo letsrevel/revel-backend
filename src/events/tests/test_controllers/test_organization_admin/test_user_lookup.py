@@ -100,6 +100,17 @@ class TestMatching:
         assert response.status_code == 404
         assert response.json() == NOT_FOUND
 
+    def test_ambiguous_email_is_a_non_match(
+        self, organization_owner_client: Client, organization: Organization, target: RevelUser
+    ) -> None:
+        # ``email`` is not unique at the DB level; never pick one of two accounts arbitrarily.
+        RevelUser.objects.create_user(username="dup", email=EMAIL.upper(), password="x", email_verified=True)
+
+        response = _lookup(organization_owner_client, organization)
+
+        assert response.status_code == 404
+        assert response.json() == NOT_FOUND
+
     def test_invalid_email_is_422(self, organization_owner_client: Client, organization: Organization) -> None:
         assert _lookup(organization_owner_client, organization, "not-an-email").status_code == 422
         assert organization_owner_client.get(_url(organization)).status_code == 422

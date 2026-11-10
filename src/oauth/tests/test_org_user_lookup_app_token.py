@@ -22,5 +22,5 @@ def test_app_token_cannot_reach_user_lookup(
     for scopes in ("org:read org:members", " ".join(sorted(SCOPES))):
         client = Client(HTTP_AUTHORIZATION=f"Bearer {make_access_token(organization.owner, oauth_app, scopes)}")
         response = client.get(url, {"email": "target@example.com"})
-        assert response.status_code in (401, 403)
+        assert response.status_code == 401, response.status_code
         assert str(target.pk) not in response.content.decode()

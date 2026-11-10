@@ -21,7 +21,6 @@ from .base import OrganizationAdminBaseController
     # Session-only (no RequireScope): an account-existence oracle that no OAuth scope's consent label promises.
     auth=I18nJWTAuth(),
     tags=["Organization Admin"],
-    throttle=OrgUserLookupThrottle(),
     permissions=[OrganizationPermission("manage_members")],
 )
 class OrganizationAdminUserLookupController(OrganizationAdminBaseController):
@@ -31,6 +30,7 @@ class OrganizationAdminUserLookupController(OrganizationAdminBaseController):
         "/users/lookup",
         url_name="lookup_organization_user",
         response={200: schema.OrgUserLookupSchema, 404: schema.OrgUserLookupNotFoundSchema},
+        throttle=OrgUserLookupThrottle(),
     )
     def lookup_user(
         self, slug: str, email: t.Annotated[EmailStr, Query(...)]
