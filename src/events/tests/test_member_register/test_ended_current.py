@@ -1,6 +1,6 @@
 """The ``ended`` register filter and the ``is_current`` flag."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -10,12 +10,14 @@ from django.utils import timezone
 
 from events.models import MembershipRecord, Organization
 from events.schema.member_register import MembershipRecordSchema
+from events.utils import get_organization_day_bounds
 
 from .conftest import RecordFactory
 
 pytestmark = pytest.mark.django_db
 
 DAY = timedelta(days=1)
+HOUR = timedelta(hours=1)
 
 
 def _names(client: Client, organization: Organization, **params: str) -> set[str]:
@@ -91,3 +93,37 @@ class TestIsCurrent:
             "results"
         ][0]
         assert row["is_current"] is True
+
+
+class TestActiveAt:
+    def test_instant_filter_versus_calendar_day(
+        self, owner_client: Client, organization: Organization, make_record: RecordFactory
+    ) -> None:
+        # Deterministic: a fixed day in the organization's timezone, probed at 02:00 local after a 01:00 end.
+        day = date(2026, 6, 15)
+        day_start, _day_end = get_organization_day_bounds(organization, day)
+        probe = day_start + 2 * HOUR
+        make_record(full_name="open", valid_from=day_start - 5 * DAY)
+        make_record(full_name="ended-hour-ago", valid_from=day_start - 5 * DAY, valid_until=day_start + HOUR)
+        make_record(full_name="future", valid_from=probe + HOUR)
+        make_record(
+            full_name="revoked",
+            valid_from=day_start - 5 * DAY,
+            valid_until=probe + 5 * DAY,
+            ended_reason=MembershipRecord.EndedReason.REVOKED,
+        )
+        survivor = make_record(full_name="survivor", valid_from=day_start - 20 * DAY, valid_until=day_start - DAY)
+        make_record(full_name="merged", valid_from=day_start - 5 * DAY, merged_into=survivor)
+
+        assert _names(owner_client, organization, active_at=probe.isoformat()) == {"open"}
+        # The calendar-day filter still includes the entry that ended earlier that day.
+        assert _names(owner_client, organization, active_on=day.isoformat()) == {"open", "ended-hour-ago", "future"}
+
+    def test_both_params_is_400(self, owner_client: Client, organization: Organization) -> None:
+        response = owner_client.get(
+            reverse("api:list_member_register", kwargs={"slug": organization.slug}),
+            {"active_on": "2026-06-15", "active_at": timezone.now().isoformat()},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Use either active_on or active_at, not both."

@@ -6,7 +6,9 @@ from uuid import UUID
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from ninja import Query
+from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
@@ -56,12 +58,16 @@ class OrganizationAdminMemberRegisterController(OrganizationAdminBaseController)
         params: t.Annotated[filters.MembershipRecordFilterSchema, Query(...)],
     ) -> QuerySet[models.MembershipRecord]:
         """List register entries, newest first."""
+        if params.active_on is not None and params.active_at is not None:
+            raise HttpError(400, str(_("Use either active_on or active_at, not both.")))
         organization = self.get_one(slug)
         qs = models.MembershipRecord.objects.filter(organization=organization).select_related("tier")
         qs = qs.with_note_flag().with_access_state()
         qs = params.filter_scope(params.filter(qs))
         if params.active_on is not None:
             qs = qs.active_during(*get_organization_day_bounds(organization, params.active_on))
+        if params.active_at is not None:
+            qs = qs.active_on(params.active_at)
         if params.ended is not None:
             qs = qs.ended(timezone.now(), params.ended)
         return qs.order_by("-valid_from", "-created_at")

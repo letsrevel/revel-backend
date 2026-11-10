@@ -7491,3 +7491,6 @@ msgstr "[truncado]"
 
 msgid "The register entry belongs to another organization."
 msgstr "La entrada de registro pertenece a otra organización."
+
+msgid "Use either active_on or active_at, not both."
+msgstr "Utilice active_on o active_at, pero no ambos."

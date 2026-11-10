@@ -403,6 +403,13 @@ class MembershipRecordFilterSchema(FilterSchema):
         description="Only non-revoked entries whose period overlaps this calendar day in the organization's timezone.",
     )
 
+    active_at: AwareDatetime | None = Field(
+        None,
+        description="Only non-revoked, unmerged entries covering this exact instant "
+        "(`valid_from <= active_at < valid_until`, or open). Unlike `active_on` it is not rounded to a calendar day. "
+        "Cannot be combined with `active_on`.",
+    )
+
     def filter_is_open(self, is_open: bool | None) -> Q:
         """Open entries have no end date."""
         return Q() if is_open is None else Q(valid_until__isnull=is_open)
@@ -413,6 +420,10 @@ class MembershipRecordFilterSchema(FilterSchema):
 
     def filter_active_on(self, active_on: datetime.date | None) -> Q:
         """No-op: the controller applies ``active_on`` (it needs the organization's timezone)."""
+        return Q()
+
+    def filter_active_at(self, active_at: AwareDatetime | None) -> Q:
+        """No-op: the controller applies ``active_at`` (it is mutually exclusive with ``active_on``)."""
         return Q()
 
     def filter_ended(self, ended: bool | None) -> Q:
