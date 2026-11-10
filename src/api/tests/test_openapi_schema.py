@@ -134,6 +134,7 @@ RESPONSE_MESSAGE_ERROR_ALLOWLIST = {(path, "400") for path in RESPONSE_MESSAGE_4
 
 #: Every component a 400 is allowed to resolve to.
 KNOWN_400_COMPONENTS = {
+    "AlreadyMemberErrorSchema",
     "AuthorizationErrorResponse",
     "ErrorDetail",
     "EventUserEligibility",

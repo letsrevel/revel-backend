@@ -1,12 +1,14 @@
 """Tests for organization admin member and membership tier endpoints."""
 
 import uuid
+from unittest.mock import patch
 
 import orjson
 import pytest
 from django.db.models import Max
 from django.test.client import Client
 from django.urls import reverse
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.models import (
@@ -105,6 +107,27 @@ class TestManageMembersAndStaff:
         payload = {"tier_id": str(tier.id)}
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
         assert response.status_code == 400
+        assert response.json() == {
+            "detail": "You are already a member of this organization.",
+            "code": "already_member",
+        }
+
+    def test_add_member_other_400_has_no_code(
+        self, organization_owner_client: Client, organization: Organization, nonmember_user: RevelUser
+    ) -> None:
+        """Any 400 other than AlreadyMemberError on this route carries no ``code``."""
+        tier = MembershipTier.objects.create(organization=organization, name="Bronze")
+        url = reverse(
+            "api:create_organization_member", kwargs={"slug": organization.slug, "user_id": nonmember_user.id}
+        )
+        payload = {"tier_id": str(tier.id)}
+        with patch(
+            "events.controllers.organization_admin.members.organization_service.add_member",
+            side_effect=HttpError(400, "Some other refusal."),
+        ):
+            response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 400
+        assert response.json() == {"detail": "Some other refusal."}
 
     def test_add_member_with_invalid_tier(
         self, organization_owner_client: Client, organization: Organization, nonmember_user: RevelUser

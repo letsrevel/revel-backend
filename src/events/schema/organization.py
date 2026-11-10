@@ -529,6 +529,17 @@ class OrganizationMembershipRequestRetrieve(ModelSchema):
         }
 
 
+class AlreadyMemberErrorSchema(Schema):
+    """400 body when the target user is already a member of the organization.
+
+    ``detail`` is translated and must never be matched on; ``code`` is the stable
+    machine-readable discriminator. Renaming the ``code`` value is a breaking change.
+    """
+
+    detail: str
+    code: t.Literal["already_member"]
+
+
 class MembershipApprovalRefusedSchema(Schema):
     """400 body when approving an application is refused with a stable ``code``.
 
