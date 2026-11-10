@@ -204,6 +204,15 @@ class TestUpdatePayment:
     ) -> None:
         assert _patch(organization_owner_client, organization, sub.payments.get(), body).status_code == 422
 
+    def test_record_payment_refuses_voided_status(
+        self, organization_owner_client: Client, organization: Organization, sub: MembershipSubscription
+    ) -> None:
+        url = reverse("api:record_subscription_payment", kwargs={"slug": organization.slug, "sub_id": sub.id})
+        body = {"amount": "10.00", "currency": sub.plan.currency, "status": "voided"}
+        resp = organization_owner_client.post(url, body, content_type="application/json")
+        assert resp.status_code == 422
+        assert sub.payments.count() == 1
+
     def test_status_to_failed_rolls_back_to_previous_row(
         self,
         organization_owner_client: Client,

@@ -345,6 +345,14 @@ class PaymentRecordSchema(Schema):
         ),
     )
 
+    @field_validator("status")
+    @classmethod
+    def _status_not_voided(cls, value: MembershipPaymentStatus) -> MembershipPaymentStatus:
+        """Reject ``voided``: voiding is a transition with its own endpoint, never a recorded state."""
+        if value == MembershipPayment.PaymentStatus.VOIDED:
+            raise ValueError("status cannot be voided; use the void endpoint.")
+        return value
+
 
 class MembershipPaymentUpdateSchema(Schema):
     """Partial update of a manual (OFFLINE) membership payment.
