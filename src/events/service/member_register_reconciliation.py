@@ -163,8 +163,9 @@ def _lock_records(*pks: UUID | None) -> dict[UUID, MembershipRecord]:
 def merge_records(survivor: MembershipRecord, absorbed: MembershipRecord) -> MembershipRecord:
     """Merge the account-less ``absorbed`` entry into ``survivor`` (same org, distinct, neither merged).
 
-    Open STANDARD absorbed: the survivor (open STANDARD too) keeps its tier and snapshot and takes the earliest
-    ``valid_from``; the absorbed entry is kept for audit (``merged_into``) and counts nowhere. Closed or TEMPORARY
+    Open STANDARD absorbed: the survivor (open STANDARD too) keeps its tier, snapshot and its own
+    ``valid_from`` (a merge never moves it); the absorbed entry keeps its own dates, is kept for audit
+    (``merged_into``) and counts nowhere. Closed or TEMPORARY
     absorbed: it is just attached to the survivor's account. Anything else is a 400.
     """
     if survivor.pk == absorbed.pk:
@@ -187,29 +188,12 @@ def merge_records(survivor: MembershipRecord, absorbed: MembershipRecord) -> Mem
         if _is_open_standard(absorbed):
             if not _is_open_standard(survivor):
                 raise HttpError(400, str(_("An open entry can only be merged into another open standard entry.")))
-            # Every entry absorbed by one survivor stores the survivor's *own* start (from before its first
-            # merge), so any unlink order can recompute the start from what is still merged.
-            own_start = (
-                survivor.absorbed_records.exclude(merge_prior_valid_from=None)
-                .values_list("merge_prior_valid_from", flat=True)
-                .first()
-            )
-            absorbed.merge_prior_valid_from = own_start or survivor.valid_from
             absorbed.merged_into = survivor
             absorbed.invite_token = None
             absorbed.duplicate_claimant = None
-            absorbed.save(
-                update_fields=[
-                    "merge_prior_valid_from",
-                    "merged_into",
-                    "invite_token",
-                    "duplicate_claimant",
-                    "updated_at",
-                ]
-            )
-            survivor.valid_from = min(survivor.valid_from, absorbed.valid_from)
-            # The survivor's own duplicate claim (if any) concerns another claimant: keep it for staff.
-            survivor.save(update_fields=["valid_from", "updated_at"])
+            absorbed.save(update_fields=["merged_into", "invite_token", "duplicate_claimant", "updated_at"])
+            # The survivor is untouched: it keeps its own start, and its own duplicate claim (if any) concerns
+            # another claimant, so it stays for staff.
             if survivor.user_id is not None:
                 transfer_record_note(absorbed, to_user_id=survivor.user_id)
             else:
@@ -233,7 +217,8 @@ def merge_records(survivor: MembershipRecord, absorbed: MembershipRecord) -> Mem
 def unlink_record(record: MembershipRecord) -> MembershipRecord:
     """Reverse a merge or a link.
 
-    Merged: the survivor's ``valid_from`` is restored and the entry is a plain unlinked entry again. Linked and
+    Merged: the entry is a plain unlinked entry again; the survivor's ``valid_from`` is left alone (merges no longer
+    move it), except for legacy merges that recorded ``merge_prior_valid_from``, which restore it. Linked and
     open STANDARD: the entry loses its account and the account's ACTIVE/PAUSED access row is CANCELLED (a reversed
     link takes away the membership it granted). Linked and closed/TEMPORARY: only the account is removed.
     """
@@ -252,6 +237,9 @@ def unlink_record(record: MembershipRecord) -> MembershipRecord:
                 .exclude(pk=current.pk)
                 .values_list("valid_from", flat=True)
             )
+            # ponytail: legacy branch for merges made under the old earliest-start rule. Remove it and the
+            # ``merge_prior_valid_from`` field once no row has it set (dropping the column needs its own
+            # two-step rolling-deploy change).
             # Recompute only while the survivor's start is still the merge-derived one (its own start or the
             # earliest absorbed start); a start staff moved since is theirs to keep.
             own_start = current.merge_prior_valid_from

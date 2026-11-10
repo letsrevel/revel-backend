@@ -60,7 +60,7 @@ def survivor(
 
 
 class TestMerge:
-    def test_open_into_open_takes_earliest_start_and_keeps_survivor_tier(
+    def test_open_into_open_keeps_survivor_start_and_tier(
         self,
         owner_client: Client,
         organization: Organization,
@@ -69,13 +69,13 @@ class TestMerge:
     ) -> None:
         other_tier = MembershipTier.objects.create(organization=organization, name="Other")
         original_from = survivor.valid_from
-        earliest = timezone.now() - 40 * DAY
+        earlier = timezone.now() - 40 * DAY
         absorbed = make_record(
             full_name="Dup",
             email="dup@example.com",
             tier=other_tier,
             tier_name="Other",
-            valid_from=earliest,
+            valid_from=earlier,
             duplicate_claimant=survivor.user,
         )
         absorbed.invite_token = "tok"
@@ -87,11 +87,12 @@ class TestMerge:
         assert response.json()["id"] == str(survivor.pk)
         survivor.refresh_from_db()
         absorbed = MembershipRecord.objects.get(pk=absorbed.pk)
-        assert survivor.valid_from == earliest
+        assert survivor.valid_from == original_from
         assert survivor.tier_id != other_tier.pk
         assert survivor.user_id is not None
         assert absorbed.merged_into == survivor
-        assert absorbed.merge_prior_valid_from == original_from
+        assert absorbed.valid_from == earlier
+        assert absorbed.merge_prior_valid_from is None
         assert absorbed.invite_token is None and absorbed.duplicate_claimant is None and absorbed.user is None
 
     def test_survivor_keeps_its_earlier_start(
@@ -213,7 +214,7 @@ class TestUnlink:
         assert absorbed.merged_into is None and absorbed.merge_prior_valid_from is None and absorbed.user is None
         assert response.json()["merged_into_id"] is None
 
-    def test_two_merges_unlinked_lifo(
+    def test_two_merges_never_move_the_start_in_any_unlink_order(
         self, owner_client: Client, organization: Organization, survivor: MembershipRecord, make_record: RecordFactory
     ) -> None:
         original_from = survivor.valid_from
@@ -222,29 +223,11 @@ class TestUnlink:
         _merge(owner_client, organization, survivor, first)
         _merge(owner_client, organization, survivor, second)
         survivor.refresh_from_db()
-        assert survivor.valid_from == second.valid_from
-
-        owner_client.post(_unlink_url(organization, second))
-        survivor.refresh_from_db()
-        assert survivor.valid_from == first.valid_from
+        assert survivor.valid_from == original_from
 
         owner_client.post(_unlink_url(organization, first))
         survivor.refresh_from_db()
         assert survivor.valid_from == original_from
-
-    def test_two_merges_unlinked_in_merge_order(
-        self, owner_client: Client, organization: Organization, survivor: MembershipRecord, make_record: RecordFactory
-    ) -> None:
-        """Non-LIFO: unlinking the older merge first still ends with the survivor's own start."""
-        original_from = survivor.valid_from
-        first = make_record(valid_from=timezone.now() - 20 * DAY)
-        second = make_record(valid_from=timezone.now() - 40 * DAY)
-        _merge(owner_client, organization, survivor, first)
-        _merge(owner_client, organization, survivor, second)
-
-        owner_client.post(_unlink_url(organization, first))
-        survivor.refresh_from_db()
-        assert survivor.valid_from == second.valid_from
 
         owner_client.post(_unlink_url(organization, second))
         survivor.refresh_from_db()
@@ -263,20 +246,40 @@ class TestUnlink:
         survivor.refresh_from_db()
         assert survivor.valid_from == edited
 
-    def test_unmerge_never_pushes_an_ended_survivor_past_its_end(
+    def test_legacy_merge_restores_the_prior_start(
         self, owner_client: Client, organization: Organization, survivor: MembershipRecord, make_record: RecordFactory
     ) -> None:
-        MembershipRecord.objects.filter(pk=survivor.pk).update(valid_from=timezone.now() + 5 * DAY)
+        """Rows merged under the old earliest-start rule carry ``merge_prior_valid_from``; unlink restores it."""
+        original_from = survivor.valid_from
         absorbed = make_record(valid_from=timezone.now() - 40 * DAY)
-        assert _merge(owner_client, organization, survivor, absorbed).status_code == 200
+        MembershipRecord.objects.filter(pk=absorbed.pk).update(
+            merged_into=survivor, merge_prior_valid_from=original_from
+        )
+        MembershipRecord.objects.filter(pk=survivor.pk).update(valid_from=absorbed.valid_from)
+
+        assert owner_client.post(_unlink_url(organization, absorbed)).status_code == 200
+
+        survivor.refresh_from_db()
+        absorbed.refresh_from_db()
+        assert survivor.valid_from == original_from
+        assert absorbed.merged_into is None and absorbed.merge_prior_valid_from is None
+
+    def test_legacy_restore_never_pushes_an_ended_survivor_past_its_end(
+        self, owner_client: Client, organization: Organization, survivor: MembershipRecord, make_record: RecordFactory
+    ) -> None:
+        absorbed = make_record(valid_from=timezone.now() - 40 * DAY)
         ended = timezone.now() - DAY
+        MembershipRecord.objects.filter(pk=absorbed.pk).update(
+            merged_into=survivor, merge_prior_valid_from=timezone.now() + 5 * DAY
+        )
         MembershipRecord.objects.filter(pk=survivor.pk).update(
-            valid_until=ended, ended_reason=MembershipRecord.EndedReason.CANCELLED
+            valid_from=absorbed.valid_from,
+            valid_until=ended,
+            ended_reason=MembershipRecord.EndedReason.CANCELLED,
         )
 
-        response = owner_client.post(_unlink_url(organization, absorbed))
+        assert owner_client.post(_unlink_url(organization, absorbed)).status_code == 200
 
-        assert response.status_code == 200, response.content
         survivor.refresh_from_db()
         assert survivor.valid_from <= survivor.valid_until  # type: ignore[operator]
 

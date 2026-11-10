@@ -7581,3 +7581,6 @@ msgstr "[gekürzt]"
 
 msgid "The register entry belongs to another organization."
 msgstr "Der Registereintrag gehört zu einer anderen Organisation."
+
+msgid "Use either active_on or active_at, not both."
+msgstr "Verwenden Sie entweder active_on oder active_at, nicht beides."
