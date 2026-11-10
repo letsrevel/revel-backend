@@ -321,7 +321,11 @@ deleting and regenerating:
    there is no need to roll back (the schema is identical). Remove the stale
    `django_migrations` rows for the now-deleted files with
    `manage.py migrate <app> --prune`. Any other machine that had applied them does the
-   same after pulling.
+   same after pulling. **Only if it had applied the whole pre-squash chain**: a DB that ran
+   the base migration but not the later ones sees the regenerated base as applied and never
+   gets the missing columns, and pruning does not add them. Check the old head is applied
+   (`showmigrations <app>`) *before* pruning; if not, finish the old chain on the previous
+   code first (or roll the app back below the base and re-migrate after pulling).
 
 ## `oauth.0001` `run_before` (a documented hand edit)
 
