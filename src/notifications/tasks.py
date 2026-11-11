@@ -461,8 +461,10 @@ def send_pending_invitation_email(self: t.Any, pending_invitation_id: str) -> No
     and sends a direct email with event details and a signup link.
     """
     from django.template.loader import render_to_string
+    from django.utils import translation
     from django.utils.translation import gettext as _
 
+    from accounts.utils.language import recipient_language
     from common.models import SiteSettings
     from common.tasks import send_email
     from events.models import PendingEventInvitation
@@ -494,22 +496,24 @@ def send_pending_invitation_email(self: t.Any, pending_invitation_id: str) -> No
     frontend_base_url = site_settings.frontend_base_url
     opt_out_token = generate_email_opt_out_token(pending.email, organization_id=org.id)
 
-    context = {
-        "event_name": event.name,
-        "invitation_message": pending.custom_message or "",
-        "event_start_formatted": format_event_datetime(event.start, event),
-        "event_end_formatted": format_event_datetime(event.end, event),
-        # No account yet: apply the anonymous address policy
-        "event_location": get_event_location_for_user(event, AnonymousUser())[0],
-        "organization_name": event.organization.name,
-        "signup_url": f"{frontend_base_url}/auth/register",
-        "frontend_base_url": frontend_base_url,
-        "opt_out_link": f"{frontend_base_url}/unsubscribe?token={opt_out_token}",
-    }
+    # Celery workers have no active language; a guest row with this address may carry one.
+    with translation.override(recipient_language(pending.email)):
+        context = {
+            "event_name": event.name,
+            "invitation_message": pending.custom_message or "",
+            "event_start_formatted": format_event_datetime(event.start, event),
+            "event_end_formatted": format_event_datetime(event.end, event),
+            # No account yet: apply the anonymous address policy
+            "event_location": get_event_location_for_user(event, AnonymousUser())[0],
+            "organization_name": event.organization.name,
+            "signup_url": f"{frontend_base_url}/auth/register",
+            "frontend_base_url": frontend_base_url,
+            "opt_out_link": f"{frontend_base_url}/unsubscribe?token={opt_out_token}",
+        }
 
-    subject = _("You're invited: %(event_name)s") % {"event_name": event.name}
-    txt_body = render_plain_text("notifications/email/pending_invitation.txt", context)
-    html_body = render_to_string("notifications/email/pending_invitation.html", context)
+        subject = _("You're invited: %(event_name)s") % {"event_name": event.name}
+        txt_body = render_plain_text("notifications/email/pending_invitation.txt", context)
+        html_body = render_to_string("notifications/email/pending_invitation.html", context)
 
     send_email(
         to=pending.email,

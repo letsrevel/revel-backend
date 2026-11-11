@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import structlog
 from celery import shared_task
 from django.template.loader import render_to_string
-from django.utils import timezone
+from django.utils import timezone, translation
 
 from accounts.models import EmailVerificationReminderTracking, RevelUser
 from accounts.service.referral_cleanup import cleanup_referral_data
@@ -86,22 +86,24 @@ def _send_reminder_email(user: RevelUser, reminder_type: str) -> None:
     verification_link = site_settings.frontend_base_url + f"/login/confirm-email?token={verification_token}"
     deletion_link = site_settings.frontend_base_url + f"/account/confirm-deletion?token={deletion_token}"
 
-    if reminder_type == "final_warning":
-        subject = render_plain_text("accounts/emails/email_verification_final_warning_subject.txt").strip()
-        template_base = "accounts/emails/email_verification_final_warning"
-    else:
-        subject = render_plain_text("accounts/emails/email_verification_reminder_subject.txt").strip()
-        template_base = "accounts/emails/email_verification_reminder"
+    # Celery workers have no active language: render in the recipient's.
+    with translation.override(user.language):
+        if reminder_type == "final_warning":
+            subject = render_plain_text("accounts/emails/email_verification_final_warning_subject.txt").strip()
+            template_base = "accounts/emails/email_verification_final_warning"
+        else:
+            subject = render_plain_text("accounts/emails/email_verification_reminder_subject.txt").strip()
+            template_base = "accounts/emails/email_verification_reminder"
 
-    context = {
-        "frontend_base_url": site_settings.frontend_base_url,
-        "verification_link": verification_link,
-        "deletion_link": deletion_link,
-        "user": user,
-    }
+        context = {
+            "frontend_base_url": site_settings.frontend_base_url,
+            "verification_link": verification_link,
+            "deletion_link": deletion_link,
+            "user": user,
+        }
 
-    body = render_plain_text(f"{template_base}_body.txt", context)
-    html_body = render_to_string(f"{template_base}_body.html", context)
+        body = render_plain_text(f"{template_base}_body.txt", context)
+        html_body = render_to_string(f"{template_base}_body.html", context)
 
     callback_data = {
         "module": "accounts.tasks",
@@ -131,16 +133,18 @@ def _send_deactivation_email(user: RevelUser) -> None:
     verification_link = site_settings.frontend_base_url + f"/login/confirm-email?token={verification_token}"
     deletion_link = site_settings.frontend_base_url + f"/account/confirm-deletion?token={deletion_token}"
 
-    subject = render_plain_text("accounts/emails/account_deactivated_subject.txt").strip()
-    context = {
-        "frontend_base_url": site_settings.frontend_base_url,
-        "verification_link": verification_link,
-        "deletion_link": deletion_link,
-        "user": user,
-    }
+    # Celery workers have no active language: render in the recipient's.
+    with translation.override(user.language):
+        subject = render_plain_text("accounts/emails/account_deactivated_subject.txt").strip()
+        context = {
+            "frontend_base_url": site_settings.frontend_base_url,
+            "verification_link": verification_link,
+            "deletion_link": deletion_link,
+            "user": user,
+        }
 
-    body = render_plain_text("accounts/emails/account_deactivated_body.txt", context)
-    html_body = render_to_string("accounts/emails/account_deactivated_body.html", context)
+        body = render_plain_text("accounts/emails/account_deactivated_body.txt", context)
+        html_body = render_to_string("accounts/emails/account_deactivated_body.html", context)
 
     callback_data = {
         "module": "accounts.tasks",

@@ -20,7 +20,9 @@ from django.db import transaction
 from django.db.models import Q
 from django.template.loader import render_to_string
 from django.urls import reverse
-from django.utils import timezone
+from django.utils import timezone, translation
+from django.utils.functional import Promise
+from django.utils.translation import gettext_lazy as _
 
 from accounts.models import RevelUser
 from common.models import EmailLog, FileExport, FileUploadAudit, QuarantinedFile, SiteSettings
@@ -379,11 +381,11 @@ def notify_malware_detected(
 
         # Notify uploader
         if uploader:
-            _notify_user_about_malware(uploader, "Malware detected in your upload")
+            _notify_user_about_malware(uploader, _("Malware detected in your upload"))
 
         # Notify organization owner (if different from uploader)
         if organization_owner and organization_owner != uploader:
-            _notify_user_about_malware(organization_owner, "Malware detected in organization-related upload")
+            _notify_user_about_malware(organization_owner, _("Malware detected in organization-related upload"))
 
         # Notify superusers and staff
         _notify_superusers_about_malware(
@@ -399,11 +401,13 @@ def notify_malware_detected(
         audit.save(update_fields=["notified"])
 
 
-def _notify_user_about_malware(user: RevelUser, subject: str) -> None:
-    """Send malware notification email to a user."""
+def _notify_user_about_malware(user: RevelUser, subject: "str | Promise") -> None:
+    """Send malware notification email to a user, in the user's language (workers have no active one)."""
     context = {"user": user, "frontend_base_url": SiteSettings.get_solo().frontend_base_url}
-    txt_body = render_plain_text("common/emails/malware_detected_user.txt", context)
-    html_body = render_to_string("common/emails/malware_detected_user.html", context)
+    with translation.override(user.language):
+        subject = str(subject)
+        txt_body = render_plain_text("common/emails/malware_detected_user.txt", context)
+        html_body = render_to_string("common/emails/malware_detected_user.html", context)
 
     send_email.delay(
         to=user.email,

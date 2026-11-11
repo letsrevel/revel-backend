@@ -7541,3 +7541,225 @@ msgstr "solo las personas invitadas y quienes son miembros"
 #: src/events/models/ticket.py
 msgid "Non-members only"
 msgstr "solo quienes no son miembros"
+
+msgid "Your Revel Data Export is Ready"
+msgstr "Tu exportación de datos de Revel está lista"
+
+msgid "Malware detected in your upload"
+msgstr "Se ha detectado malware en tu archivo subido"
+
+msgid "Malware detected in organization-related upload"
+msgstr "Se ha detectado malware en un archivo subido de tu organización"
+
+msgid "Not set"
+msgstr "Sin definir"
+
+msgid "Changed"
+msgstr "Modificado"
+
+msgid "Ticket created"
+msgstr "Entrada creada"
+
+msgid "Ticket updated"
+msgstr "Entrada actualizada"
+
+msgid "Ticket cancelled"
+msgstr "Entrada cancelada"
+
+msgid "Ticket refunded"
+msgstr "Entrada reembolsada"
+
+msgid "Ticket checked in"
+msgstr "Entrada validada"
+
+msgid "Payment confirmation"
+msgstr "Confirmación de pago"
+
+msgid "Unmatched refund"
+msgstr "Reembolso sin asociar"
+
+msgid "Ticket sold"
+msgstr "Entrada vendida"
+
+msgid "Ticket cancelled by attendee"
+msgstr "Entrada cancelada por la persona asistente"
+
+msgid "Ticket refunded to attendee"
+msgstr "Entrada reembolsada a la persona asistente"
+
+msgid "Payment disputed"
+msgstr "Pago disputado"
+
+msgid "Event open"
+msgstr "Evento abierto"
+
+msgid "Event updated"
+msgstr "Evento actualizado"
+
+msgid "Event cancelled"
+msgstr "Evento cancelado"
+
+msgid "Event reminder"
+msgstr "Recordatorio de evento"
+
+msgid "Event refund summary"
+msgstr "Resumen de reembolsos del evento"
+
+msgid "RSVP confirmation"
+msgstr "Confirmación de asistencia"
+
+msgid "RSVP updated"
+msgstr "Respuesta de asistencia actualizada"
+
+msgid "RSVP cancelled"
+msgstr "Respuesta de asistencia cancelada"
+
+msgid "Potluck item added"
+msgstr "Aportación al potluck añadida"
+
+msgid "Potluck item added and claimed"
+msgstr "Aportación al potluck añadida y asumida"
+
+msgid "Potluck item updated"
+msgstr "Aportación al potluck actualizada"
+
+msgid "Potluck item claimed"
+msgstr "Aportación al potluck asumida"
+
+msgid "Potluck item unclaimed"
+msgstr "Aportación al potluck liberada"
+
+msgid "Potluck item removed"
+msgstr "Aportación al potluck eliminada"
+
+msgid "Questionnaire submitted"
+msgstr "Cuestionario enviado"
+
+msgid "Questionnaire result"
+msgstr "Resultado del cuestionario"
+
+msgid "Invitation received"
+msgstr "Invitación recibida"
+
+msgid "Invitation request"
+msgstr "Solicitud de invitación"
+
+msgid "Membership granted"
+msgstr "Membresía concedida"
+
+msgid "Membership promoted"
+msgstr "Membresía ascendida"
+
+msgid "Membership removed"
+msgstr "Membresía eliminada"
+
+msgid "Membership card updated"
+msgstr "Tarjeta de membresía actualizada"
+
+msgid "Membership request"
+msgstr "Solicitud de membresía"
+
+msgid "Membership request approved"
+msgstr "Solicitud de membresía aprobada"
+
+msgid "Membership request rejected"
+msgstr "Solicitud de membresía rechazada"
+
+msgid "Member record linked"
+msgstr "Registro de miembro vinculado"
+
+msgid "Organization announcement"
+msgstr "Anuncio de la organización"
+
+msgid "Contact message received"
+msgstr "Mensaje de contacto recibido"
+
+msgid "Organization setup reminder"
+msgstr "Recordatorio de configuración de la organización"
+
+msgid "Custom domain active"
+msgstr "Dominio personalizado activo"
+
+msgid "Custom domain failed"
+msgstr "Fallo en el dominio personalizado"
+
+msgid "Skipped fiscal documents"
+msgstr "Documentos fiscales omitidos"
+
+msgid "Waitlist spot available"
+msgstr "Plaza disponible en la lista de espera"
+
+msgid "Whitelist request"
+msgstr "Solicitud de lista blanca"
+
+msgid "Whitelist request approved"
+msgstr "Solicitud de lista blanca aprobada"
+
+msgid "Whitelist request rejected"
+msgstr "Solicitud de lista blanca rechazada"
+
+msgid "Account banned"
+msgstr "Cuenta suspendida"
+
+msgid "Platform announcement"
+msgstr "Anuncio de la plataforma"
+
+msgid "New organization follower"
+msgstr "Nuevo seguimiento de la organización"
+
+msgid "New series follower"
+msgstr "Nuevo seguimiento de la serie"
+
+msgid "New event from an organization you follow"
+msgstr "Nuevo evento de una organización que sigues"
+
+msgid "New event in a series you follow"
+msgstr "Nuevo evento en una serie que sigues"
+
+msgid "Series events generated"
+msgstr "Eventos de la serie generados"
+
+msgid "Series pass purchased"
+msgstr "Abono de serie comprado"
+
+msgid "Series pass extended"
+msgstr "Abono de serie ampliado"
+
+msgid "Series pass cancelled"
+msgstr "Abono de serie cancelado"
+
+msgid "Series pass sold"
+msgstr "Abono de serie vendido"
+
+msgid "Series pass cancelled by holder"
+msgstr "Abono de serie cancelado por la persona titular"
+
+msgid "Subscription renewed"
+msgstr "Suscripción renovada"
+
+msgid "Subscription payment failed"
+msgstr "Pago de la suscripción fallido"
+
+msgid "Subscription expired"
+msgstr "Suscripción caducada"
+
+msgid "Subscription cancellation confirmed"
+msgstr "Cancelación de la suscripción confirmada"
+
+msgid "Subscription renewal reminder"
+msgstr "Recordatorio de renovación de la suscripción"
+
+msgid "Subscription price change"
+msgstr "Cambio de precio de la suscripción"
+
+msgid "Subscription revival link"
+msgstr "Enlace para reactivar la suscripción"
+
+msgid "Start"
+msgstr "Inicio"
+
+msgid "End"
+msgstr "Fin"
+
+msgid "City"
+msgstr "Ciudad"

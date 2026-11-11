@@ -33,15 +33,20 @@ from common.testing import (
 logger = structlog.get_logger(__name__)
 
 
-def _email_context_kwargs(return_host: str | None, *, return_url: str | None = None) -> dict[str, t.Any]:
+def _email_context_kwargs(
+    return_host: str | None, *, return_url: str | None = None, language: str | None = None
+) -> dict[str, t.Any]:
     """Task kwargs carrying the optional link hints inside the ``context`` dict.
 
     ``return_host`` (white-label, #1156) joins ``return_url`` in the same ``context`` dict; it is never
     a task kwarg of its own. A worker that predates #1156 accepts the message, ignores the unknown
     key and sends the email without the hint. Empty without any hint, so those messages keep their
-    exact pre-existing shape.
+    exact pre-existing shape. ``language`` (the recipient's) rides along the same way so the worker
+    renders the email in it.
     """
     context: dict[str, str] = {}
+    if language:
+        context["language"] = language
     if return_url is not None:
         context["return_url"] = return_url
     if return_host:
@@ -63,7 +68,10 @@ def _send_activation_email_for_guest(user: RevelUser, *, return_host: str | None
     # is no read-after-commit race and the email must be sent despite the
     # rollback. See register_user.
     tasks.send_account_email.delay(
-        tasks.AccountEmail.ACTIVATION, user.email, token=token, **_email_context_kwargs(return_host)
+        tasks.AccountEmail.ACTIVATION,
+        user.email,
+        token=token,
+        **_email_context_kwargs(return_host, language=user.language),
     )
     logger.info("account_activation_email_sent", user_id=str(user.id), email=user.email)
 
@@ -220,7 +228,7 @@ def send_verification_email_for_user(
             tasks.AccountEmail.VERIFICATION,
             user.email,
             token=token,
-            **_email_context_kwargs(return_host, return_url=return_url),
+            **_email_context_kwargs(return_host, return_url=return_url, language=user.language),
         )
 
     if defer:
@@ -337,7 +345,10 @@ def request_password_reset(email: str, *, return_host: str | None = None) -> str
     token = create_password_reset_token(user)
     transaction.on_commit(
         lambda: tasks.send_account_email.delay(
-            tasks.AccountEmail.PASSWORD_RESET, user.email, token=token, **_email_context_kwargs(return_host)
+            tasks.AccountEmail.PASSWORD_RESET,
+            user.email,
+            token=token,
+            **_email_context_kwargs(return_host, language=user.language),
         )
     )
     logger.info("password_reset_email_sent", user_id=str(user.id), email=email)
@@ -358,7 +369,10 @@ def request_account_deletion(user: RevelUser, *, return_host: str | None = None)
     token = create_deletion_token(user)
     transaction.on_commit(
         lambda: tasks.send_account_email.delay(
-            tasks.AccountEmail.DELETION, user.email, token=token, **_email_context_kwargs(return_host)
+            tasks.AccountEmail.DELETION,
+            user.email,
+            token=token,
+            **_email_context_kwargs(return_host, language=user.language),
         )
     )
     return token
@@ -531,12 +545,17 @@ def request_email_change(user: RevelUser, new_email: str, password: str, *, retu
     token = create_email_change_token(user, new_email)
     transaction.on_commit(
         lambda: tasks.send_account_email.delay(
-            tasks.AccountEmail.CHANGE_CONFIRMATION, new_email, token=token, **_email_context_kwargs(return_host)
+            tasks.AccountEmail.CHANGE_CONFIRMATION,
+            new_email,
+            token=token,
+            **_email_context_kwargs(return_host, language=user.language),
         )
     )
     transaction.on_commit(
         lambda: tasks.send_account_email.delay(
-            tasks.AccountEmail.CHANGE_NOTICE, user.email, context={"masked_new_email": _mask_email(new_email)}
+            tasks.AccountEmail.CHANGE_NOTICE,
+            user.email,
+            context={"masked_new_email": _mask_email(new_email), "language": user.language},
         )
     )
     logger.info("email_change_email_sent", user_id=str(user.id), new_email=new_email)
@@ -604,7 +623,7 @@ def confirm_email_change(token: str) -> RevelUser:
         logger.warning("email_change_confirm_race_loss", user_id=str(user.id), new_email=new_email)
         raise HttpError(400, str(_("This email is already in use.")))
 
-    _change_completed_context = {"old_email": old_email, "new_email": new_email}
+    _change_completed_context = {"old_email": old_email, "new_email": new_email, "language": user.language}
     transaction.on_commit(
         lambda: tasks.send_account_email.delay(
             tasks.AccountEmail.CHANGE_COMPLETED_OLD, old_email, context=_change_completed_context

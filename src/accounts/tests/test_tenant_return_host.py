@@ -259,7 +259,7 @@ def test_password_reset_dispatch_carries_the_hint_in_context(user: RevelUser) ->
         token = account_service.request_password_reset(user.email, return_host=HOST)
 
     mock_delay.assert_called_once_with(
-        AccountEmail.PASSWORD_RESET, user.email, token=token, context={"return_host": HOST}
+        AccountEmail.PASSWORD_RESET, user.email, token=token, context={"language": user.language, "return_host": HOST}
     )
 
 
@@ -273,5 +273,5 @@ def test_verification_dispatch_merges_return_url_and_hint_in_context(user: Revel
         AccountEmail.VERIFICATION,
         user.email,
         token=token,
-        context={"return_url": "/oauth/authorize?client_id=x", "return_host": HOST},
+        context={"language": user.language, "return_url": "/oauth/authorize?client_id=x", "return_host": HOST},
     )

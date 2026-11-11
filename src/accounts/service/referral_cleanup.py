@@ -32,6 +32,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.template.loader import render_to_string
+from django.utils import translation
 
 from accounts.exceptions import ReferralPayoutInFlightError
 from accounts.models import (
@@ -287,8 +288,10 @@ def _notify_admins_of_forfeiture(user: RevelUser, summary: ReferralForfeitureSum
         "currency": summary.currency,
         "frontend_base_url": SiteSettings.get_solo().frontend_base_url,
     }
-    subject = str(render_plain_text("accounts/emails/referral_forfeiture_admin_subject.txt", context)).strip()
-    body = render_plain_text("accounts/emails/referral_forfeiture_admin_body.txt", context)
-    html_body = render_to_string("accounts/emails/referral_forfeiture_admin_body.html", context)
     for admin in admins:
+        # Celery workers have no active language: render per admin.
+        with translation.override(admin.language):
+            subject = str(render_plain_text("accounts/emails/referral_forfeiture_admin_subject.txt", context)).strip()
+            body = render_plain_text("accounts/emails/referral_forfeiture_admin_body.txt", context)
+            html_body = render_to_string("accounts/emails/referral_forfeiture_admin_body.html", context)
         send_email(to=admin.email, subject=subject, body=body, html_body=html_body)

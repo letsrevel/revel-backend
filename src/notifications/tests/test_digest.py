@@ -4,10 +4,10 @@ from datetime import time, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from django.utils import timezone, translation
+from django.utils import timezone
 
 from accounts.models import RevelUser
-from notifications.enums import DeliveryChannel, DeliveryStatus
+from notifications.enums import DeliveryChannel, DeliveryStatus, NotificationType
 from notifications.models import Notification, NotificationDelivery, NotificationPreference
 from notifications.service import digest
 from notifications.service.digest import (
@@ -233,11 +233,11 @@ class TestNotificationDigest:
     ) -> None:
         """Subject uses each locale's own plural form, not an English 's' suffix."""
         # Arrange
+        regular_user.language = language
         digest = NotificationDigest(regular_user, Notification.objects.filter(user=regular_user))
 
-        # Act
-        with translation.override(language):
-            subject, _text_body, _html_body = digest.build_digest_content()
+        # Act: no override here; the digest renders in the recipient's language itself
+        subject, _text_body, _html_body = digest.build_digest_content()
 
         # Assert
         assert subject == expected
@@ -257,8 +257,8 @@ class TestNotificationDigest:
         # Assert
         assert "3 new notification" in subject
         # The group heading uses the human-readable type label, not the raw enum value
-        assert "Event Reminder" in text_body
-        assert "Event Reminder" in html_body
+        assert str(NotificationType.EVENT_REMINDER.label) in text_body
+        assert str(NotificationType.EVENT_REMINDER.label) in html_body
         # Each row carries a CTA link derived from the notification context
         assert "https://example.com/events/test-0" in text_body
         assert len(text_body) > 0

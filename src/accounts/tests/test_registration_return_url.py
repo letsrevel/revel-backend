@@ -92,7 +92,10 @@ def test_verification_link_carries_encoded_return_url(
 
     # Carried in the pre-existing ``context`` kwarg so not-yet-upgraded workers accept the message.
     mock_delay.assert_called_once_with(
-        AccountEmail.VERIFICATION, user.email, token=token, context={"return_url": _OAUTH_RETURN_URL}
+        AccountEmail.VERIFICATION,
+        user.email,
+        token=token,
+        context={"language": user.language, "return_url": _OAUTH_RETURN_URL},
     )
 
     link = _sent_link(mock_send)
@@ -117,7 +120,9 @@ def test_verification_link_unchanged_without_return_url(
     assert "returnUrl" not in link
     assert link == f"{SiteSettings.get_solo().frontend_base_url}/login/confirm-email?token={token}"
     # The dispatched message keeps its exact pre-return_url shape.
-    mock_delay.assert_called_once_with(AccountEmail.VERIFICATION, user.email, token=token)
+    mock_delay.assert_called_once_with(
+        AccountEmail.VERIFICATION, user.email, token=token, context={"language": user.language}
+    )
 
 
 @patch("accounts.tasks.email.send_email")
