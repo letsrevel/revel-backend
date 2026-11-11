@@ -64,7 +64,7 @@ msgid "Optional. Included in the invite email."
 msgstr "Opcional. Incluído no e-mail de convite."
 
 msgid "enrolled"
-msgstr "inscrito"
+msgstr "com inscrição"
 
 msgid "Yes"
 msgstr "Sim"
@@ -79,13 +79,13 @@ msgid "Application"
 msgstr "Candidatura"
 
 msgid "Enrolled"
-msgstr "Inscrito"
+msgstr "Com inscrição"
 
 msgid "email sent."
 msgstr "e-mail enviado."
 
 msgid "enrolled immediately (account exists)."
-msgstr "inscrito imediatamente (a conta já existe)."
+msgstr "inscrição imediata (a conta já existe)."
 
 msgid "existing code {} kept; the typed code was ignored."
 msgstr "código existente {} mantido; o código introduzido foi ignorado."
@@ -277,13 +277,13 @@ msgstr ""
 "caráter especial (!@#$%%^&*(),.?\":{}|<>)."
 
 msgid "A user with this email already exists."
-msgstr "Já existe um utilizador com este e-mail."
+msgstr "Já existe uma conta com este e-mail."
 
 msgid "Invalid verification token."
 msgstr "Token de verificação inválido."
 
 msgid "A user with this email no longer exists."
-msgstr "Já não existe um utilizador com este e-mail."
+msgstr "Já não existe uma conta com este e-mail."
 
 msgid "Set a password before changing your email."
 msgstr "Define uma palavra-passe antes de alterares o teu e-mail."
@@ -303,10 +303,7 @@ msgstr "Esta ligação para alterar o e-mail já não é válida. Pede uma nova.
 msgid ""
 "You cannot delete your account while you own organizations. Please contact "
 "support to transfer ownership or delete the organizations first."
-msgstr ""
-"Não podes eliminar a tua conta enquanto fores proprietário de organizações. "
-"Contacta o suporte para transferir a propriedade ou elimina primeiro as "
-"organizações."
+msgstr "Não podes eliminar a tua conta enquanto fores a pessoa proprietária de organizações. Contacta o suporte para transferir a propriedade ou elimina primeiro as organizações."
 
 msgid "Token has expired."
 msgstr "O token expirou."
@@ -325,7 +322,7 @@ msgid "Registration is not available."
 msgstr "O registo não está disponível."
 
 msgid "Only superusers can impersonate users."
-msgstr "Apenas os superusers podem personificar utilizadores."
+msgstr "Apenas os superusers podem personificar contas."
 
 msgid "Cannot impersonate yourself."
 msgstr "Não podes personificar-te a ti mesmo."
@@ -337,7 +334,7 @@ msgid "Cannot impersonate staff members."
 msgstr "Não podes personificar membros do staff."
 
 msgid "Cannot impersonate inactive users."
-msgstr "Não podes personificar utilizadores inativos."
+msgstr "Não podes personificar contas inativas."
 
 msgid "Impersonation not allowed."
 msgstr "A representação de identidade não é permitida."
@@ -399,7 +396,7 @@ msgid "If you didn't request this, you can safely ignore this email."
 msgstr "Se não solicitaste isto, podes ignorar este e-mail em segurança."
 
 msgid "Thank you,<br>The Revel Team"
-msgstr "Obrigado,<br>A equipa Revel"
+msgstr "Agradecemos,<br>A equipa Revel"
 
 msgid "Activate your account."
 msgstr "Ativa a tua conta."
@@ -407,9 +404,7 @@ msgstr "Ativa a tua conta."
 msgid ""
 "Thank you,\n"
 "The Revel Team"
-msgstr ""
-"Obrigado,\n"
-"A equipa Revel"
+msgstr "Agradecemos,\nA equipa Revel"
 
 msgid "Activate your account"
 msgstr "Ativa a tua conta"
@@ -489,7 +484,7 @@ msgid "Data Export Failed — Admin Notice"
 msgstr "Falha na exportação de dados — Aviso para administradores"
 
 msgid "A user data export has failed."
-msgstr "A exportação de dados de um utilizador falhou."
+msgstr "A exportação de dados de uma conta falhou."
 
 msgid "User:"
 msgstr "Utilizador:"
@@ -532,14 +527,12 @@ msgid "We apologize for any inconvenience."
 msgstr "Pedimos desculpa pelo incómodo."
 
 msgid "Thanks,<br>The Revel Team"
-msgstr "Obrigado,<br>A equipa Revel"
+msgstr "Agradecemos,<br>A equipa Revel"
 
 msgid ""
 "Thanks,\n"
 "The Revel Team"
-msgstr ""
-"Obrigado,\n"
-"A equipa Revel"
+msgstr "Agradecemos,\nA equipa Revel"
 
 msgid "Your Revel Data Export has Failed"
 msgstr "A exportação dos teus dados Revel falhou"
@@ -809,9 +802,7 @@ msgstr "Candidatura recebida"
 #, python-format
 msgid ""
 "Thanks for applying to the Revel referral program with the code \"%(code)s\"."
-msgstr ""
-"Obrigado por se candidatar ao programa de indicação da Revel com o código "
-"\"%(code)s\"."
+msgstr "Agradecemos a tua candidatura ao programa de indicação da Revel com o código \"%(code)s\"."
 
 msgid ""
 "We review every application by hand and will email you once we have decided."
@@ -823,34 +814,29 @@ msgid "We received your referral program application"
 msgstr "Recebemos a sua candidatura ao programa de indicação"
 
 msgid "Welcome aboard"
-msgstr "Bem-vindo(a) a bordo"
+msgstr "Damos-te as boas-vindas"
 
 #, python-format
 msgid ""
 "You are now part of the Revel referral program. Your referral code is "
 "\"%(code)s\" and you earn %(revenue_share_percent)s%% of the platform fees "
 "from organizations you bring to Revel."
-msgstr ""
-"Agora você faz parte do programa de indicação da Revel. Seu código de "
-"indicação é \"%(code)s\" e você ganha %(revenue_share_percent)s%% das taxas "
-"da plataforma das organizações que você trouxer para a Revel."
+msgstr "Fazes agora parte do programa de indicação da Revel. O teu código de indicação é \"%(code)s\" e ganhas %(revenue_share_percent)s%% das taxas da plataforma das organizações que trouxeres para a Revel."
 
 msgid "Open my referral page"
-msgstr "Abrir minha página de indicação"
+msgstr "Abrir a minha página de indicação"
 
 msgid "Manage your code and payouts here:"
-msgstr "Gerencie seu código e seus pagamentos aqui:"
+msgstr "Gere aqui o teu código e os teus pagamentos:"
 
 msgid "Welcome to the Revel referral program"
-msgstr "Bem-vindo(a) ao programa de indicação da Revel"
+msgstr "Damos-te as boas-vindas ao programa de indicação da Revel"
 
 msgid "Referral Payouts Forfeited — Admin Notice"
 msgstr "Pagamentos de referência perdidos — Aviso para administradores"
 
 msgid "A user deleted their account and forfeited unpaid referral payouts."
-msgstr ""
-"Um utilizador eliminou a sua conta e perdeu pagamentos de referência por "
-"liquidar."
+msgstr "Uma pessoa eliminou a sua conta e perdeu pagamentos de referência por liquidar."
 
 msgid "Forfeited:"
 msgstr "Perdidos:"
@@ -884,30 +870,26 @@ msgstr ""
 "Pagamentos de referência perdidos na sequência da eliminação de uma conta"
 
 msgid "You're invited"
-msgstr "Você foi convidado(a)"
+msgstr "Recebeste um convite"
 
 #, python-format
 msgid ""
 "You have been invited to join the Revel referral program. Your referral code "
 "is \"%(code)s\" and you will earn %(revenue_share_percent)s%% of the "
 "platform fees from organizations you bring to Revel."
-msgstr ""
-"Você foi convidado(a) a participar do programa de indicação da Revel. Seu "
-"código de indicação é \"%(code)s\" e você ganhará "
-"%(revenue_share_percent)s%% das taxas da plataforma das organizações que "
-"você trouxer para a Revel."
+msgstr "Recebeste um convite para participar no programa de indicação da Revel. O teu código de indicação é \"%(code)s\" e ganharás %(revenue_share_percent)s%% das taxas da plataforma das organizações que trouxeres para a Revel."
 
 msgid "Note from the team:"
-msgstr "Recado da equipe:"
+msgstr "Nota da equipa:"
 
 msgid "Create your account with this email address to activate it:"
-msgstr "Crie sua conta com este endereço de e-mail para ativá-la:"
+msgstr "Cria a tua conta com este endereço de e-mail para a ativares:"
 
 msgid "Create my account"
-msgstr "Criar minha conta"
+msgstr "Criar a minha conta"
 
 msgid "You're invited to the Revel referral program"
-msgstr "Você foi convidado(a) para o programa de indicação da Revel"
+msgstr "Recebeste um convite para o programa de indicação da Revel"
 
 #, python-format
 msgid "Referral payout statement %(document_number)s"
@@ -931,14 +913,12 @@ msgstr ""
 "Este é um documento de pagamento automático. Guarda-o para os teus registos."
 
 msgid "Your application"
-msgstr "Sua candidatura"
+msgstr "A tua candidatura"
 
 msgid ""
 "Thank you for your interest in the Revel referral program. We are not able "
 "to accept your application at this time."
-msgstr ""
-"Obrigado pelo seu interesse no programa de indicação da Revel. No momento "
-"não podemos aceitar a sua candidatura."
+msgstr "Agradecemos o interesse no programa de indicação da Revel. De momento não podemos aceitar a tua candidatura."
 
 msgid "About your referral program application"
 msgstr "Sobre a sua candidatura ao programa de indicação"
@@ -954,7 +934,7 @@ msgstr "Utilizadores"
 
 #, python-format
 msgid "You are about to impersonate the user \"%(username)s\"."
-msgstr "Estás prestes a personificar o utilizador \"%(username)s\"."
+msgstr "Estás prestes a personificar a conta \"%(username)s\"."
 
 msgid "User Details"
 msgstr "Detalhes do utilizador"
@@ -997,11 +977,7 @@ msgid ""
 "If an account with this email exists it is enrolled immediately and told by "
 "email. Otherwise an invite email with a sign-up link goes out, and the code "
 "is activated when they register with this address."
-msgstr ""
-"Se já existir uma conta com este e-mail, ela é inscrita imediatamente e "
-"avisada por e-mail. Caso contrário, um e-mail de convite com um link de "
-"cadastro é enviado, e o código é ativado quando a pessoa se cadastrar com "
-"este endereço."
+msgstr "Se já existir uma conta com este e-mail, é inscrita imediatamente e a pessoa é avisada por e-mail. Caso contrário, é enviado um e-mail de convite com um link de registo, e o código é ativado quando a pessoa se registar com este endereço."
 
 msgid "Send invite"
 msgstr "Enviar convite"
@@ -1040,7 +1016,7 @@ msgid "Authentication credentials were not provided."
 msgstr "Não foram fornecidas credenciais de autenticação."
 
 msgid "You cannot use this endpoint while authenticated."
-msgstr "Não podes usar este endpoint enquanto estiveres autenticado."
+msgstr "Não podes usar este endpoint com a sessão iniciada."
 
 msgid "File is not a valid image."
 msgstr "O ficheiro não é uma imagem válida."
@@ -1067,7 +1043,7 @@ msgid "Malware Detected - Admin Alert"
 msgstr "Malware detetado - Alerta para administradores"
 
 msgid "Dear Administrator,"
-msgstr "Caro administrador,"
+msgstr "Olá, equipa de administração,"
 
 msgid "Malware has been detected in a file upload:"
 msgstr "Foi detetado malware num ficheiro carregado:"
@@ -1109,7 +1085,7 @@ msgid "Malware Detected"
 msgstr "Malware detetado"
 
 msgid "Dear"
-msgstr "Caro(a)"
+msgstr "Olá"
 
 msgid ""
 "We detected malware in a file you recently uploaded. For security reasons, "
@@ -1138,33 +1114,21 @@ msgid ""
 "Revel can't issue invoices to your attendees in {country}. The law there "
 "requires invoices to go through {system}, and Revel isn't connected to it "
 "yet. Please issue invoices from your own invoicing software."
-msgstr ""
-"A Revel não pode emitir faturas aos teus participantes neste país "
-"({country}). A lei aí exige que as faturas passem por {system}, e a Revel "
-"ainda não está ligada a esse sistema. Emite as faturas no teu próprio "
-"software de faturação."
+msgstr "A Revel não pode emitir faturas às tuas pessoas participantes neste país ({country}). A lei aí exige que as faturas passem por {system}, e a Revel ainda não está ligada a esse sistema. Emite as faturas no teu próprio software de faturação."
 
 #, python-brace-format
 msgid ""
 "Invoices to customers with a {country} VAT ID must be sent as e-invoices "
 "through {system}. Revel won't create those. Issue this one from your "
 "e-invoicing software; invoices to everyone else work as usual."
-msgstr ""
-"As faturas a clientes com número de IVA deste país ({country}) têm de ser "
-"enviadas como faturas eletrónicas através de {system}. A Revel não as cria. "
-"Emite esta no teu software de faturação eletrónica; as faturas a todos os "
-"outros funcionam como habitualmente."
+msgstr "As faturas a quem tem número de IVA deste país ({country}) têm de ser enviadas como faturas eletrónicas através de {system}. A Revel não as cria. Emite esta no teu software de faturação eletrónica; as faturas a todas as outras pessoas funcionam como habitualmente."
 
 #, python-brace-format
 msgid ""
 "Invoices to business customers of organizers in {country} must be issued "
 "through {system}. Revel won't create those. Issue this one from your "
 "e-invoicing software; invoices to consumers work as usual."
-msgstr ""
-"As faturas a clientes empresariais de organizadores deste país ({country}) "
-"têm de ser emitidas através de {system}. A Revel não as cria. Emite esta no "
-"teu software de faturação eletrónica; as faturas a particulares funcionam "
-"como habitualmente."
+msgstr "As faturas a empresas clientes de organizações deste país ({country}) têm de ser emitidas através de {system}. A Revel não as cria. Emite esta no teu software de faturação eletrónica; as faturas a particulares funcionam como habitualmente."
 
 #, python-brace-format
 msgid ""
@@ -1186,7 +1150,7 @@ msgid "Free"
 msgstr "Gratuito"
 
 msgid "Organizer"
-msgstr "Organizador"
+msgstr "Organização"
 
 msgid "Tax ID"
 msgstr "NIF"
@@ -1225,24 +1189,14 @@ msgid ""
 "Spain, because it can't meet Spain's invoicing-software rules (Verifactu), "
 "which start applying in 2027. If you use attendee invoicing, set up your own "
 "invoicing software before then."
-msgstr ""
-"A partir de 1 de janeiro de 2027, a Revel deixa de emitir faturas aos "
-"participantes para organizadores em Espanha, porque não consegue cumprir as "
-"regras espanholas sobre software de faturação (Verifactu), que começam a "
-"aplicar-se em 2027. Se usas a faturação aos participantes, prepara o teu "
-"próprio software de faturação antes dessa data."
+msgstr "A partir de 1 de janeiro de 2027, a Revel deixa de emitir faturas às pessoas participantes para organizações em Espanha, porque não consegue cumprir as regras espanholas sobre software de faturação (Verifactu), que começam a aplicar-se em 2027. Se usas a faturação às pessoas participantes, prepara o teu próprio software de faturação antes dessa data."
 
 msgid ""
 "From 1 January 2027, Revel stops issuing attendee invoices for organizers in "
 "Spain, Navarre included. Navarre is bringing in its own invoicing-software "
 "rules (NaTicket), and Revel won't be connected to them. If you use attendee "
 "invoicing, set up your own invoicing software before then."
-msgstr ""
-"A partir de 1 de janeiro de 2027, a Revel deixa de emitir faturas aos "
-"participantes para organizadores em Espanha, incluindo Navarra. Navarra está "
-"a introduzir as suas próprias regras sobre software de faturação (NaTicket), "
-"e a Revel não estará ligada a elas. Se usas a faturação aos participantes, "
-"prepara o teu próprio software de faturação antes dessa data."
+msgstr "A partir de 1 de janeiro de 2027, a Revel deixa de emitir faturas às pessoas participantes para organizações em Espanha, incluindo Navarra. Navarra está a introduzir as suas próprias regras sobre software de faturação (NaTicket), e a Revel não estará ligada a elas. Se usas a faturação às pessoas participantes, prepara o teu próprio software de faturação antes dessa data."
 
 #, python-brace-format
 msgid ""
@@ -1250,11 +1204,7 @@ msgid ""
 "included. Navarre is bringing in its own invoicing-software rules "
 "({system}), and Revel isn't connected to them. Please issue invoices from "
 "your own invoicing software."
-msgstr ""
-"A Revel não emite faturas aos participantes para organizadores em Espanha, "
-"incluindo Navarra. Navarra está a introduzir as suas próprias regras sobre "
-"software de faturação ({system}), e a Revel não está ligada a elas. Emite as "
-"faturas a partir do teu próprio software de faturação."
+msgstr "A Revel não emite faturas às pessoas participantes para organizações em Espanha, incluindo Navarra. Navarra está a introduzir as suas próprias regras sobre software de faturação ({system}), e a Revel não está ligada a elas. Emite as faturas a partir do teu próprio software de faturação."
 
 #, python-brace-format
 msgid ""
@@ -1262,11 +1212,7 @@ msgid ""
 "there requires invoices to go through {system} (Batuz in Bizkaia), and Revel "
 "isn't connected to it. Please issue invoices from your own TicketBAI-"
 "compliant invoicing software."
-msgstr ""
-"A Revel não pode emitir faturas aos teus participantes no País Basco. Aí a "
-"lei exige que as faturas passem pelo {system} (Batuz na Biscaia), e a Revel "
-"não está ligada a ele. Emite as faturas a partir do teu próprio software de "
-"faturação compatível com TicketBAI."
+msgstr "A Revel não pode emitir faturas às tuas pessoas participantes no País Basco. Aí a lei exige que as faturas passem pelo {system} (Batuz na Biscaia), e a Revel não está ligada a ele. Emite as faturas a partir do teu próprio software de faturação compatível com TicketBAI."
 
 msgid ""
 "Revel can't issue attendee invoices where Greek rules apply: receipts and "
@@ -1277,28 +1223,14 @@ msgid ""
 "since 2 March 2026 if your 2023 gross revenue was over €1 million, otherwise"
 " from 2 November 2026 (with a phase-in until 31 January 2027 if you file the"
 " declaration in time)."
-msgstr ""
-"A Revel não pode emitir faturas aos participantes onde se aplicam as regras "
-"gregas: os recibos e as faturas têm de ser transmitidos ao myDATA da AADE. "
-"Se tens de emitir documentos gregos, emite-os no teu próprio software, "
-"através de um fornecedor certificado de faturação eletrónica ou com as "
-"ferramentas gratuitas da AADE (timologio, myDATAapp). As faturas a empresas "
-"gregas têm de ser faturas eletrónicas emitidas através de um fornecedor ou "
-"das ferramentas da AADE: desde 2 de março de 2026 se os teus rendimentos "
-"brutos de 2023 ultrapassaram 1 milhão de euros; caso contrário, a partir de "
-"2 de novembro de 2026 (com um período de transição até 31 de janeiro de 2027"
-" se entregares a declaração a tempo)."
+msgstr "A Revel não pode emitir faturas às pessoas participantes onde se aplicam as regras gregas: os recibos e as faturas têm de ser transmitidos ao myDATA da AADE. Se tens de emitir documentos gregos, emite-os no teu próprio software, através de um fornecedor certificado de faturação eletrónica ou com as ferramentas gratuitas da AADE (timologio, myDATAapp). As faturas a empresas gregas têm de ser faturas eletrónicas emitidas através de um fornecedor ou das ferramentas da AADE: desde 2 de março de 2026 se os teus rendimentos brutos de 2023 ultrapassaram 1 milhão de euros; caso contrário, a partir de 2 de novembro de 2026 (com um período de transição até 31 de janeiro de 2027 se entregares a declaração a tempo)."
 
 msgid ""
 "Revel can't issue your attendee invoices. In Croatia, invoices to consumers "
 "must be fiscalized in real time with the Tax Administration (Porezna "
 "uprava). If this applies to you, issue and fiscalize them from your own "
 "software."
-msgstr ""
-"A Revel não pode emitir as faturas aos teus participantes. Na Croácia, as "
-"faturas a consumidores têm de ser comunicadas em tempo real à Administração "
-"Fiscal (Porezna uprava) para fiscalização. Se isto se aplica a ti, emite-as "
-"e comunica-as a partir do teu próprio software."
+msgstr "A Revel não pode emitir as faturas às tuas pessoas participantes. Na Croácia, as faturas a consumidores têm de ser comunicadas em tempo real à Administração Fiscal (Porezna uprava) para fiscalização. Se isto se aplica a ti, emite-as e comunica-as a partir do teu próprio software."
 
 msgid "the Tax Administration's fiscalization system"
 msgstr "um sistema de fiscalização da Administração Fiscal"
@@ -1309,21 +1241,12 @@ msgid ""
 "If this applies to you, issue a receipt (nyugta) or invoice for every paid "
 "sale from your own system. Since 1 September 2026, data on receipts not "
 "issued by an online or e-cash register must also be reported to NAV."
-msgstr ""
-"A Revel não pode emitir faturas aos participantes onde se aplicam as regras "
-"húngaras: as faturas emitidas por software de faturação têm de ser "
-"comunicadas ao NAV Online Számla em tempo real. Se isto se aplica a ti, "
-"emite no teu próprio sistema um recibo (nyugta) ou uma fatura para cada "
-"venda paga. Desde 1 de setembro de 2026, os dados dos recibos não emitidos "
-"por uma caixa registadora online ou eletrónica também têm de ser comunicados"
-" à NAV."
+msgstr "A Revel não pode emitir faturas às pessoas participantes onde se aplicam as regras húngaras: as faturas emitidas por software de faturação têm de ser comunicadas ao NAV Online Számla em tempo real. Se isto se aplica a ti, emite no teu próprio sistema um recibo (nyugta) ou uma fatura para cada venda paga. Desde 1 de setembro de 2026, os dados dos recibos não emitidos por uma caixa registadora online ou eletrónica também têm de ser comunicados à NAV."
 
 msgid ""
 "Reservation only: this isn't a fiscal access ticket (titolo d'accesso). The "
 "organizer issues it."
-msgstr ""
-"Apenas reserva: este não é um bilhete fiscal de acesso (titolo d'accesso). O "
-"bilhete fiscal é emitido pelo organizador."
+msgstr "Apenas reserva: este não é um bilhete fiscal de acesso (titolo d'accesso). O bilhete fiscal é emitido pela organização."
 
 msgid "a ticketing system approved by the Agenzia delle Entrate"
 msgstr "um sistema de bilhética aprovado pela Agenzia delle Entrate"
@@ -1354,14 +1277,7 @@ msgid ""
 "usually does), as cash payments. If you must issue invoices, issue a "
 "FURS-verified invoice for every paid sale from your own software, even with "
 "attendee invoicing turned off."
-msgstr ""
-"A Revel não pode emitir faturas aos participantes onde se aplicam as regras "
-"eslovenas: as faturas pagas com cartão ou online têm de ser verificadas "
-"junto da FURS em tempo real. A FURS trata como pagamentos em numerário os "
-"pagamentos com cartão e os pagamentos online que te são transferidos em "
-"lotes (como a Stripe costuma fazer). Se tens de emitir faturas, emite no teu "
-"próprio software uma fatura verificada pela FURS para cada venda paga, mesmo "
-"com a faturação aos participantes desativada."
+msgstr "A Revel não pode emitir faturas às pessoas participantes onde se aplicam as regras eslovenas: as faturas pagas com cartão ou online têm de ser verificadas junto da FURS em tempo real. A FURS trata como pagamentos em numerário os pagamentos com cartão e os pagamentos online que te são transferidos em lotes (como a Stripe costuma fazer). Se tens de emitir faturas, emite no teu próprio software uma fatura verificada pela FURS para cada venda paga, mesmo com a faturação às pessoas participantes desativada."
 
 msgid "FURS invoice verification"
 msgstr "verificação de faturas da FURS"
@@ -1505,11 +1421,10 @@ msgid "Token does not match this organization."
 msgstr "O token não corresponde a esta organização."
 
 msgid "Only the organization owner can create staff members."
-msgstr "Apenas o proprietário da organização pode criar membros do staff."
+msgstr "Só quem é proprietário da organização pode criar membros do staff."
 
 msgid "Only the organization owner can change staff permissions."
-msgstr ""
-"Apenas o proprietário da organização pode alterar as permissões do staff."
+msgstr "Só quem é proprietário da organização pode alterar as permissões do staff."
 
 msgid "Series has no template event."
 msgstr "A série não tem evento modelo."
@@ -1553,10 +1468,10 @@ msgid "Invoice PDF could not be generated."
 msgstr "Não foi possível gerar o PDF da fatura."
 
 msgid "You must be the owner of this organization."
-msgstr "Tens de ser proprietário/a desta organização."
+msgstr "Tens de ser proprietário da organização para fazer isto."
 
 msgid "You must be the owner or a staff member of this organization."
-msgstr "Tens de ser proprietário/a ou membro do staff desta organização."
+msgstr "Tens de ser proprietário da organização ou fazer parte do staff dela."
 
 msgid "Ticket sales are paused."
 msgstr "A venda de bilhetes está pausada."
@@ -1617,9 +1532,7 @@ msgstr "Já existe uma conta com este e-mail. Inicia sessão."
 msgid ""
 "Your cart is too large for guest checkout. Please log in or split your "
 "purchase."
-msgstr ""
-"O teu carrinho é demasiado grande para a compra como convidado. Inicia "
-"sessão ou divide a tua compra."
+msgstr "O teu carrinho é demasiado grande para a compra sem conta. Inicia sessão ou divide a compra."
 
 msgid "Draft"
 msgstr "Rascunho"
@@ -1637,7 +1550,7 @@ msgid "Event end"
 msgstr "Fim do evento"
 
 msgid "Event attendees"
-msgstr "Participantes do evento"
+msgstr "Pessoas participantes no evento"
 
 msgid "All members"
 msgstr "Todos os membros"
@@ -1658,8 +1571,7 @@ msgid "Target only organization staff members"
 msgstr "Enviar apenas aos membros do staff da organização"
 
 msgid "Allow new attendees/members to see this announcement after it was sent"
-msgstr ""
-"Permitir que novos participantes/membros vejam este anúncio depois de enviado"
+msgstr "Permitir que quem se junte depois (participantes e membros) veja este anúncio depois de enviado"
 
 msgid ""
 "Absolute time to send a scheduled announcement (mutually exclusive with "
@@ -1679,9 +1591,7 @@ msgstr ""
 msgid ""
 "Re-deliver to attendees who join after this announcement was first sent "
 "(event announcements only)."
-msgstr ""
-"Reenviar aos participantes que se juntem depois do primeiro envio deste "
-"anúncio (apenas anúncios de evento)."
+msgstr "Reenviar a quem se juntar depois do primeiro envio deste anúncio (apenas anúncios de evento)."
 
 msgid "Relative scheduling requires both an anchor and an offset."
 msgstr "O agendamento relativo requer uma âncora e um desvio."
@@ -1808,14 +1718,13 @@ msgid "At-the-door payment is not supported for series passes."
 msgstr "O pagamento no local não é suportado para passes de série."
 
 msgid "Series passes cannot be invitation-restricted."
-msgstr "Os passes de série não podem ser restritos a convidados."
+msgstr "Os passes de série não podem ser restritos a pessoas convidadas."
 
 msgid "Currency cannot be changed once the pass covers events."
 msgstr "A moeda não pode ser alterada depois de o passe cobrir eventos."
 
 msgid "Payment method cannot be changed while the pass has holders."
-msgstr ""
-"O método de pagamento não pode ser alterado enquanto o passe tiver titulares."
+msgstr "O método de pagamento não pode ser alterado enquanto o passe tiver pessoas titulares."
 
 msgid "Tier must belong to the covered event."
 msgstr "O tipo de bilhete tem de pertencer ao evento coberto."
@@ -1845,9 +1754,7 @@ msgstr ""
 msgid ""
 "A covered tier has a stricter purchase rule; change the tier or unlink it "
 "first."
-msgstr ""
-"Um tipo de bilhete coberto tem uma regra de compra mais restritiva; altere "
-"primeiro esse tipo de bilhete ou desvincule-o."
+msgstr "Um tipo de bilhete coberto tem uma regra de compra mais restritiva; altera primeiro esse tipo de bilhete ou desvincula-o."
 
 msgid "Online (Stripe)"
 msgstr "Online (Stripe)"
@@ -2037,7 +1944,7 @@ msgid "Standing"
 msgstr "Lugares em pé"
 
 msgid "Address visible to invited guests only"
-msgstr "Morada visível apenas para os convidados"
+msgstr "Morada visível apenas para as pessoas convidadas"
 
 msgid "Address visible to organization members only"
 msgstr "Morada visível apenas para os membros da organização"
@@ -2046,7 +1953,7 @@ msgid "Address visible to staff only"
 msgstr "Morada visível apenas para o staff"
 
 msgid "Address visible to attendees only"
-msgstr "Morada visível apenas para os participantes"
+msgstr "Morada visível apenas para quem participa"
 
 msgid ""
 "This member holds multiple tickets for this event. Scan the specific ticket "
@@ -2233,7 +2140,7 @@ msgid "One or more selected seats are no longer available."
 msgstr "Um ou mais lugares selecionados já não estão disponíveis."
 
 msgid "One or more selected seats are held by another buyer."
-msgstr "Um ou mais lugares selecionados estão reservados por outro comprador."
+msgstr "Um ou mais lugares selecionados estão reservados por outra pessoa compradora."
 
 msgid "Not enough accessible seats available — please contact the organizer."
 msgstr ""
@@ -2261,13 +2168,13 @@ msgstr ""
 "nome."
 
 msgid "This user is already blacklisted."
-msgstr "Este utilizador já está na lista negra."
+msgstr "Esta conta já está na lista negra."
 
 msgid "An entry with this email already exists."
 msgstr "Já existe uma entrada com este e-mail."
 
 msgid "User not found."
-msgstr "Utilizador não encontrado."
+msgstr "Conta não encontrada."
 
 #, python-brace-format
 msgid "Check-in for {tier} is not open yet. It will open at {opens_at}."
@@ -2585,7 +2492,7 @@ msgid "This event does not accept invitation requests."
 msgstr "Este evento não aceita pedidos de convite."
 
 msgid "You are already invited to this event."
-msgstr "Já estás convidado para este evento."
+msgstr "Já recebeste um convite para este evento."
 
 msgid "You have already requested an invitation to this event."
 msgstr "Já pediste um convite para este evento."
@@ -2688,9 +2595,7 @@ msgstr ""
 msgid ""
 "You already own an organization. Only one organization per user as owner is "
 "allowed."
-msgstr ""
-"Já és proprietário de uma organização. Só é permitida uma organização por "
-"utilizador como proprietário."
+msgstr "Já és proprietário de uma organização. Só é permitida uma organização por conta como proprietário."
 
 msgid ""
 "Cannot delete a tier that has membership applications. They are part of the "
@@ -2715,25 +2620,18 @@ msgstr "Não tens autorização para pedir adesão a esta organização."
 msgid ""
 "This user is banned from the organization. Lift the ban from the members "
 "list before approving an application."
-msgstr ""
-"Este utilizador está banido da organização. Levanta o banimento na lista de "
-"membros antes de aprovares um pedido."
+msgstr "Esta conta está banida da organização. Levanta o banimento na lista de membros antes de aprovares um pedido."
 
 msgid ""
 "This user is blacklisted from the organization. Remove them from the "
 "blacklist before approving an application."
-msgstr ""
-"Este utilizador está na lista negra da organização. Remove-o da lista negra "
-"antes de aprovares um pedido."
+msgstr "Esta conta está na lista negra da organização. Remove-a da lista negra antes de aprovares um pedido."
 
 msgid ""
 "This user has an active subscription; approving a free application would "
 "overwrite their paid membership. Cancel the subscription first, or force the "
 "approval."
-msgstr ""
-"Este utilizador tem uma subscrição ativa; aprovar um pedido gratuito "
-"sobrescreveria a sua adesão paga. Cancela primeiro a subscrição ou força a "
-"aprovação."
+msgstr "Esta conta tem uma subscrição ativa; aprovar um pedido gratuito sobrescreveria a adesão paga. Cancela primeiro a subscrição ou força a aprovação."
 
 msgid ""
 "This membership is paused. Resume it instead of approving a free "
@@ -2755,7 +2653,7 @@ msgid "Only pending applications can be rejected."
 msgstr "Só é possível rejeitar pedidos pendentes."
 
 msgid "User is already a member of this organization."
-msgstr "O utilizador já é membro desta organização."
+msgstr "Esta conta já é membro desta organização."
 
 msgid ""
 "The membership questionnaire must belong to this organization and be of type "
@@ -2770,12 +2668,10 @@ msgstr ""
 "organização."
 
 msgid "User is already a staff member of this organization."
-msgstr "O utilizador já é membro do staff desta organização."
+msgstr "Esta conta já faz parte do staff desta organização."
 
 msgid "Only the organization owner can manage staff-granting tokens."
-msgstr ""
-"Só quem é proprietário da organização pode gerir tokens que concedem o "
-"estatuto de staff."
+msgstr "Só quem é proprietário da organização pode gerir tokens que concedem o estatuto de staff."
 
 msgid "At least one of grants_membership or grants_staff_status must be True."
 msgstr ""
@@ -2838,7 +2734,7 @@ msgid "This seat is blocked for this event."
 msgstr "Este lugar está bloqueado para este evento."
 
 msgid "This seat is currently held by another buyer."
-msgstr "Este lugar está atualmente reservado por outro comprador."
+msgstr "Este lugar está atualmente reservado por outra pessoa compradora."
 
 msgid "Only pending or active tickets can be reseated."
 msgstr "Só os bilhetes pendentes ou ativos podem ser mudados de lugar."
@@ -2863,7 +2759,7 @@ msgid "The target seat is blocked for this event."
 msgstr "O lugar de destino está bloqueado para este evento."
 
 msgid "The target seat is currently held by another buyer."
-msgstr "O lugar de destino está atualmente reservado por outro comprador."
+msgstr "O lugar de destino está atualmente reservado por outra pessoa compradora."
 
 msgid "A zone can only be selected on a best-available ticket tier."
 msgstr ""
@@ -2945,10 +2841,10 @@ msgid "Event does not belong to this series."
 msgstr "O evento não pertence a esta série."
 
 msgid "You do not have permission to refund tickets."
-msgstr "Não tem permissão para reembolsar bilhetes."
+msgstr "Não tens permissão para reembolsar bilhetes."
 
 msgid "You do not have permission to link series passes."
-msgstr "Não tem permissão para associar passes de série."
+msgstr "Não tens permissão para associar passes de série."
 
 #, python-format
 msgid "Event '%s' is not open."
@@ -2982,19 +2878,14 @@ msgstr ""
 "O evento '%s' já está abrangido por este passe através de um tipo diferente."
 
 msgid "Cannot delete a series pass with active or pending holders."
-msgstr ""
-"Não é possível eliminar um passe de série com titulares ativos ou pendentes."
+msgstr "Não é possível eliminar um passe de série com pessoas titulares ativas ou pendentes."
 
 msgid "Cannot delete a series pass with historical holder records."
-msgstr ""
-"Não é possível eliminar um passe de série com registos históricos de "
-"titulares."
+msgstr "Não é possível eliminar um passe de série com registos históricos de pessoas titulares."
 
 msgid ""
 "Cannot remove coverage from a series pass with active or pending holders."
-msgstr ""
-"Não é possível remover a cobertura de um passe de série com titulares ativos "
-"ou pendentes."
+msgstr "Não é possível remover a cobertura de um passe de série com pessoas titulares ativas ou pendentes."
 
 msgid "This series pass is not paid offline."
 msgstr "Este passe de série não é pago offline."
@@ -3029,13 +2920,13 @@ msgid "This plan is archived and no longer accepts new subscriptions."
 msgstr "Este plano está arquivado e já não aceita novas subscrições."
 
 msgid "This user is banned from the organization."
-msgstr "Este utilizador está banido da organização."
+msgstr "Esta conta está banida da organização."
 
 msgid "This user is blacklisted from the organization."
-msgstr "Este utilizador está na lista negra da organização."
+msgstr "Esta conta está na lista negra da organização."
 
 msgid "This user already has an active subscription in this organization."
-msgstr "Este utilizador já tem uma subscrição ativa nesta organização."
+msgstr "Esta conta já tem uma subscrição ativa nesta organização."
 
 msgid ""
 "Cannot record a payment against a cancelled or expired subscription. Create "
@@ -3539,9 +3430,7 @@ msgstr ""
 "externamente."
 
 msgid "Set a quantity on the tier or a maximum attendance on the event."
-msgstr ""
-"Define uma quantidade para o tipo de bilhete ou um número máximo de "
-"participantes para o evento."
+msgstr "Define uma quantidade para o tipo de bilhete ou um limite de participação para o evento."
 
 msgid "The platform allows one currency per event; this tier uses another."
 msgstr ""
@@ -3633,7 +3522,7 @@ msgid "Visible to other organization members"
 msgstr "Visível para os outros membros da organização"
 
 msgid "Visible to other invitees at the same event"
-msgstr "Visível para os outros convidados do mesmo evento"
+msgstr "Visível para as outras pessoas convidadas do mesmo evento"
 
 msgid "Visible to both"
 msgstr "Visível para ambos"
@@ -3657,7 +3546,7 @@ msgid "Email provider"
 msgstr "Fornecedor de e-mail"
 
 msgid "Recipient"
-msgstr "Destinatário"
+msgstr "Para"
 
 msgid "Read more..."
 msgstr "Ler mais..."
@@ -3715,7 +3604,7 @@ msgstr "%(follower)s começou a seguir %(org)s"
 
 #, python-format
 msgid "New follower - %(org)s"
-msgstr "Novo seguidor - %(org)s"
+msgstr "Nova pessoa seguidora - %(org)s"
 
 #, python-format
 msgid "%(follower)s started following %(series)s"
@@ -3723,7 +3612,7 @@ msgstr "%(follower)s começou a seguir %(series)s"
 
 #, python-format
 msgid "New follower - %(series)s"
-msgstr "Novo seguidor - %(series)s"
+msgstr "Nova pessoa seguidora - %(series)s"
 
 #, python-format
 msgid "%(org)s created %(event)s"
@@ -4215,10 +4104,10 @@ msgid "URL"
 msgstr "URL"
 
 msgid "Include guest users"
-msgstr "Incluir utilizadores convidados"
+msgstr "Incluir contas de convidados"
 
 msgid "Organization owners only"
-msgstr "Apenas proprietários de organizações"
+msgstr "Apenas quem é proprietário de organizações"
 
 msgid "Warning"
 msgstr "Aviso"
@@ -4226,10 +4115,7 @@ msgstr "Aviso"
 msgid ""
 "This will send a notification to all matching active users via all enabled "
 "channels (in-app, email, Telegram). This action cannot be undone."
-msgstr ""
-"Isto enviará uma notificação a todos os utilizadores ativos correspondentes "
-"através de todos os canais ativados (na aplicação, e-mail, Telegram). Esta "
-"ação não pode ser anulada."
+msgstr "Isto enviará uma notificação a todas as contas ativas correspondentes através de todos os canais ativados (na aplicação, e-mail, Telegram). Esta ação não pode ser anulada."
 
 msgid "Manage notification preferences:"
 msgstr "Gerir preferências de notificação:"
@@ -4388,7 +4274,7 @@ msgstr ""
 "<strong>%(follower)s</strong> começou a seguir <strong>%(series)s</strong>."
 
 msgid "Follower Details"
-msgstr "Detalhes do seguidor"
+msgstr "Detalhes da pessoa seguidora"
 
 msgid "Name:"
 msgstr "Nome:"
@@ -4404,7 +4290,7 @@ msgid "%(follower)s started following %(series)s."
 msgstr "%(follower)s começou a seguir %(series)s."
 
 msgid "Follower Details:"
-msgstr "Detalhes do seguidor:"
+msgstr "Detalhes da pessoa seguidora:"
 
 #, python-format
 msgid "Important update about <strong>%(event)s</strong>"
@@ -4474,9 +4360,7 @@ msgstr "…e mais %(more)s."
 msgid ""
 "The organization owner sees the full list with buyer details under Billing; "
 "the ticket list flags these sales."
-msgstr ""
-"O proprietário da organização vê a lista completa com os dados dos "
-"compradores em Faturação; a lista de bilhetes assinala estas vendas."
+msgstr "Quem é proprietário da organização vê a lista completa com os dados de quem comprou em Faturação; a lista de bilhetes assinala estas vendas."
 
 msgid "Open the documents to issue yourself"
 msgstr "Abrir os documentos a emitir por ti"
@@ -4673,9 +4557,7 @@ msgstr ""
 msgid ""
 "If it's still happening, pick up where you left off and publish it when it's "
 "ready. If plans changed, you can delete the draft or ignore this email."
-msgstr ""
-"Se ainda vai acontecer, continua de onde paraste e publica-o quando estiver "
-"pronto. Se os planos mudaram, podes apagar o rascunho ou ignorar este e-mail."
+msgstr "Se ainda vai acontecer, continua de onde paraste e publica-o quando estiver pronto. Se os planos mudaram, podes apagar o rascunho ou ignorar este e-mail."
 
 msgid "Open the draft"
 msgstr "Abrir o rascunho"
@@ -4767,8 +4649,7 @@ msgstr "%(follower)s começou a seguir %(org)s."
 #, python-format
 msgid ""
 "Thank you! Your payment for <strong>%(event)s</strong> has been confirmed. 🎉"
-msgstr ""
-"Obrigado! O teu pagamento para <strong>%(event)s</strong> foi confirmado. 🎉"
+msgstr "Agradecemos! O teu pagamento para <strong>%(event)s</strong> foi confirmado. 🎉"
 
 msgid "Payment Details"
 msgstr "Detalhes do pagamento"
@@ -4794,7 +4675,7 @@ msgstr ""
 
 #, python-format
 msgid "Thank you! Your payment for %(event)s has been confirmed. 🎉"
-msgstr "Obrigado! O teu pagamento para %(event)s foi confirmado. 🎉"
+msgstr "Agradecemos! O teu pagamento para %(event)s foi confirmado. 🎉"
 
 msgid "Payment Details:"
 msgstr "Detalhes do pagamento:"
@@ -4809,7 +4690,7 @@ msgid "Sign Up & Accept"
 msgstr "Registar e aceitar"
 
 msgid "Don't want invitations from Revel organizers?"
-msgstr "Não queres receber convites de organizadores da Revel?"
+msgstr "Não queres receber convites de organizações na Revel?"
 
 msgid "Stop these emails"
 msgstr "Deixar de receber estes e-mails"
@@ -4818,9 +4699,7 @@ msgid "Sign up to accept this invitation:"
 msgstr "Regista-te para aceitar este convite:"
 
 msgid "Don't want invitations from Revel organizers? Stop these emails:"
-msgstr ""
-"Não queres receber convites de organizadores da Revel? Deixa de receber "
-"estes e-mails:"
+msgstr "Não queres receber convites de organizações na Revel? Deixa de receber estes e-mails:"
 
 #, python-format
 msgid ""
@@ -5020,15 +4899,12 @@ msgstr "Importante:"
 msgid ""
 "Approval does not mean you are registered. Please secure your ticket to "
 "confirm your attendance."
-msgstr ""
-"A aprovação não significa que estejas inscrito. Garante o teu bilhete para "
-"confirmar a tua presença."
+msgstr "A aprovação não garante a tua inscrição. Garante o teu bilhete para confirmar a tua presença."
 
 msgid ""
 "Approval does not mean you are registered. Please RSVP to confirm your "
 "attendance."
-msgstr ""
-"A aprovação não significa que estejas inscrito. Confirma a tua presença."
+msgstr "A aprovação não garante a tua inscrição. Confirma a tua presença."
 
 msgid "Get Ticket"
 msgstr "Obter bilhete"
@@ -5180,7 +5056,7 @@ msgid "Your Response"
 msgstr "A tua resposta"
 
 msgid "Guests:"
-msgstr "Convidados:"
+msgstr "Pessoas convidadas:"
 
 msgid "Dietary restrictions:"
 msgstr "Restrições alimentares:"
@@ -5384,7 +5260,7 @@ msgstr ""
 "cancelado."
 
 msgid "Holder:"
-msgstr "Titular:"
+msgstr "Pessoa titular:"
 
 #, python-format
 msgid ""
@@ -5444,7 +5320,7 @@ msgstr ""
 "cancelado."
 
 msgid "Ticket Holder"
-msgstr "Titular do bilhete"
+msgstr "Pessoa titular do bilhete"
 
 msgid "Cancelled Ticket"
 msgstr "Bilhete cancelado"
@@ -5473,7 +5349,7 @@ msgid "%(holder)s's ticket for %(event)s has been cancelled."
 msgstr "O bilhete de %(holder)s para %(event)s foi cancelado."
 
 msgid "Ticket Holder:"
-msgstr "Titular do bilhete:"
+msgstr "Pessoa titular do bilhete:"
 
 msgid "Cancelled Ticket:"
 msgstr "Bilhete cancelado:"
@@ -5961,9 +5837,7 @@ msgstr "Analisar pedido"
 msgid ""
 "This user matched entries in your blacklist and is requesting verification "
 "to access your organization."
-msgstr ""
-"Este utilizador corresponde a entradas na tua blacklist e está a pedir "
-"verificação para aceder à tua organização."
+msgstr "Esta conta corresponde a entradas na tua blacklist e está a pedir verificação para aceder à tua organização."
 
 #, python-format
 msgid "%(name)s has requested verification for %(org)s."
@@ -6075,19 +5949,15 @@ msgstr "Ver as tuas organizações, eventos e configurações"
 msgid ""
 "Create, edit and delete events and event series, send invitations, and see "
 "attendee lists"
-msgstr ""
-"Criar, editar e eliminar eventos e séries de eventos, enviar convites e ver "
-"as listas de participantes"
+msgstr "Criar, editar e eliminar eventos e séries de eventos, enviar convites e ver as listas de participantes"
 
 msgid ""
 "Manage ticket tiers, tickets, discount codes and seating, issue refunds, and "
 "see attendee details and revenue"
-msgstr ""
-"Gerir tipos de bilhete, bilhetes, códigos de desconto e lugares, emitir "
-"reembolsos e ver os dados dos participantes e as receitas"
+msgstr "Gerir tipos de bilhete, bilhetes, códigos de desconto e lugares, emitir reembolsos e ver os dados de quem participa e as receitas"
 
 msgid "Check attendees in"
-msgstr "Registar a entrada dos participantes"
+msgstr "Registar a entrada de quem participa"
 
 msgid ""
 "Manage members, subscriptions and membership payments, including refunds, "
@@ -6173,7 +6043,7 @@ msgstr ""
 "UNLISTED."
 
 msgid "Only the organization owner can perform this action."
-msgstr "Só o/a proprietário/a da organização pode realizar esta ação."
+msgstr "Só quem é proprietário da organização pode realizar esta ação."
 
 msgid "Unknown event {} or it does not belong to this organization."
 msgstr "Evento {} desconhecido ou não pertence a esta organização."
@@ -6418,10 +6288,10 @@ msgid "Payments"
 msgstr "Pagamentos"
 
 msgid "Attendee Invoices"
-msgstr "Faturas de participantes"
+msgstr "Faturas às pessoas participantes"
 
 msgid "Attendee Credit Notes"
-msgstr "Notas de crédito de participantes"
+msgstr "Notas de crédito às pessoas participantes"
 
 msgid "Platform Fee Invoices"
 msgstr "Faturas de comissões da plataforma"
@@ -6460,7 +6330,7 @@ msgid "Preferences"
 msgstr "Preferências"
 
 msgid "Attendee Visibility"
-msgstr "Visibilidade dos participantes"
+msgstr "Visibilidade das pessoas participantes"
 
 msgid "Questionnaires"
 msgstr "Questionários"
@@ -6514,7 +6384,7 @@ msgid "Telegram"
 msgstr "Telegram"
 
 msgid "Telegram Users"
-msgstr "Utilizadores do Telegram"
+msgstr "Contas do Telegram"
 
 msgid "System"
 msgstr "Sistema"
@@ -6743,10 +6613,7 @@ msgid ""
 "Revel no longer serves your organization on this domain, and everyone who "
 "was signed in on it was signed out. Your organization is still available "
 "at its Revel address."
-msgstr ""
-"O Revel já não serve a tua organização neste domínio, e todas as pessoas "
-"que tinham sessão iniciada nele foram desligadas. A tua organização "
-"continua disponível no respetivo endereço do Revel."
+msgstr "O Revel já não serve a tua organização neste domínio, e todas as pessoas que tinham sessão iniciada nele foram desligadas. A tua organização continua disponível no respetivo endereço do Revel."
 
 msgid ""
 "Revel could not verify this domain, so it does not serve your "
@@ -6777,11 +6644,11 @@ msgstr "Abrir as definições do domínio personalizado"
 
 #: events/service/event_questionnaire_service.py
 msgid "This questionnaire is the organization's default membership questionnaire. Unset it before changing its type."
-msgstr "Este questionário é o questionário de adesão predefinido da organização. Remova-o como predefinido antes de alterar o seu tipo."
+msgstr "Este questionário é o questionário de adesão predefinido da organização. Remove-o como predefinido antes de alterares o seu tipo."
 
 #: events/service/event_questionnaire_service.py
 msgid "This questionnaire is used by one or more membership tiers. Remove it from those tiers before changing its type."
-msgstr "Este questionário é usado por um ou mais níveis de adesão. Remova-o desses níveis antes de alterar o seu tipo."
+msgstr "Este questionário é usado por um ou mais níveis de adesão. Remove-o desses níveis antes de alterares o seu tipo."
 
 #: events/utils/__init__.py
 msgctxt "datetime format"
@@ -6818,7 +6685,7 @@ msgstr "PREÇO"
 
 #: wallet/apple/generator.py
 msgid "GUEST"
-msgstr "CONVIDADO"
+msgstr "PARTICIPANTE"
 
 #: wallet/apple/generator.py
 msgid "TIER"
@@ -6834,7 +6701,7 @@ msgstr "ID do bilhete"
 
 #: wallet/apple/generator.py
 msgid "Guest"
-msgstr "Convidado"
+msgstr "Participante"
 
 #: wallet/apple/generator.py
 msgid "Venue"
@@ -6878,7 +6745,7 @@ msgstr "Passe de série"
 
 #: wallet/apple/generator.py
 msgid "Refunds will be processed according to the organizer's refund policy."
-msgstr "Os reembolsos serão processados de acordo com a política de reembolso do organizador."
+msgstr "Os reembolsos serão processados de acordo com a política de reembolso da organização."
 
 #: wallet/apple/formatting.py
 msgctxt "wallet compact datetime format"
@@ -6945,9 +6812,7 @@ msgstr "Provas a enviar até:"
 msgid ""
 "Disputes are answered in your Stripe Dashboard. Submit your evidence before"
 " the deadline above."
-msgstr ""
-"As disputas são respondidas no seu painel do Stripe. Envie as suas provas "
-"antes do prazo indicado acima."
+msgstr "As disputas são respondidas no teu painel do Stripe. Envia as tuas provas antes do prazo indicado acima."
 
 msgid "Disputes"
 msgstr "Disputas"
@@ -6962,7 +6827,7 @@ msgid "Credit not processed"
 msgstr "Crédito não processado"
 
 msgid "Customer initiated"
-msgstr "Iniciado pelo cliente"
+msgstr "Iniciado a pedido de quem comprou"
 
 msgid "Debit not authorized"
 msgstr "Débito não autorizado"
@@ -7019,26 +6884,24 @@ msgid "Won"
 msgstr "Ganha"
 
 msgid "Convert guest to full account"
-msgstr "Converter convidado em conta completa"
+msgstr "Converter conta de convidado em conta completa"
 
 #, python-format
 msgid "Converted %d guest to a full account."
 msgid_plural "Converted %d guests to full accounts."
-msgstr[0] "%d convidado convertido em conta completa."
-msgstr[1] "%d convidados convertidos em contas completas."
+msgstr[0] "%d conta de convidado convertida em conta completa."
+msgstr[1] "%d contas de convidado convertidas em contas completas."
 
 #, python-format
 msgid "Skipped %d globally banned guest."
 msgid_plural "Skipped %d globally banned guests."
-msgstr[0] "%d convidado com bloqueio global ignorado."
-msgstr[1] "%d convidados com bloqueio global ignorados."
+msgstr[0] "%d conta de convidado com bloqueio global ignorada."
+msgstr[1] "%d contas de convidado com bloqueio global ignoradas."
 
 msgid ""
 "An organizer under a small-business scheme can't issue a reverse-charge "
 "invoice."
-msgstr ""
-"Um organizador abrangido por um regime de pequena empresa não pode emitir "
-"uma fatura com autoliquidação."
+msgstr "Uma organização abrangida por um regime de pequena empresa não pode emitir uma fatura com autoliquidação."
 
 msgid ""
 "The small-business scheme you declared applies to organizations established "
@@ -7060,69 +6923,47 @@ msgstr "Isso não parece um {label} válido para {country}."
 msgid ""
 "An organizer under a small-business scheme charges no VAT: set the default "
 "VAT rate to 0%."
-msgstr ""
-"Um organizador abrangido por um regime de pequena empresa não cobra IVA: "
-"defina a taxa de IVA predefinida para 0%."
+msgstr "Uma organização abrangida por um regime de pequena empresa não cobra IVA: define a taxa de IVA predefinida para 0%."
 
 msgid ""
 "Some ticket tiers still charge VAT. Set them to 0% before declaring a "
 "small-business scheme."
-msgstr ""
-"Algumas categorias de bilhetes ainda cobram IVA. Defina-as para 0% antes de "
-"declarar um regime de pequena empresa."
+msgstr "Alguns tipos de bilhete ainda cobram IVA. Define-os para 0% antes de declarares um regime de pequena empresa."
 
 msgid ""
 "An organizer under a small-business scheme charges no VAT: the tier's VAT "
 "rate must be 0%."
-msgstr ""
-"Um organizador abrangido por um regime de pequena empresa não cobra IVA: a "
-"taxa de IVA da categoria deve ser 0%."
+msgstr "Uma organização abrangida por um regime de pequena empresa não cobra IVA: a taxa de IVA do tipo de bilhete deve ser 0%."
 
 msgid ""
 "Revel can't invoice admission to an event held in {country} on behalf of an "
 "organizer under the {home} small-business scheme: admission is taxed where "
 "the event takes place, outside the scheme. Issue this one from your own "
 "invoicing software."
-msgstr ""
-"A Revel não pode faturar a entrada num evento realizado em {country} em nome "
-"de um organizador abrangido pelo regime de pequena empresa ({home}): a "
-"entrada é tributada onde o evento se realiza, fora do regime. Emita esta "
-"fatura a partir do seu próprio software de faturação."
+msgstr "A Revel não pode faturar a entrada num evento realizado em {country} em nome de uma organização abrangida pelo regime de pequena empresa ({home}): a entrada é tributada onde o evento se realiza, fora do regime. Emite esta fatura a partir do seu próprio software de faturação."
 
 msgid ""
 "Revel can't invoice a customer in {country} for a virtual event on behalf of "
 "an organizer under the {home} small-business scheme: that sale is taxed "
 "where the customer is, outside the scheme. Issue this one from your own "
 "invoicing software."
-msgstr ""
-"A Revel não pode faturar um cliente em {country} por um evento virtual em "
-"nome de um organizador abrangido pelo regime de pequena empresa ({home}): "
-"essa venda é tributada no país do cliente, fora do regime. Emita esta fatura "
-"a partir do seu próprio software de faturação."
+msgstr "A Revel não pode faturar uma pessoa cliente em {country} por um evento virtual em nome de uma organização abrangida pelo regime de pequena empresa ({home}): essa venda é tributada no país de quem compra, fora do regime. Emite esta fatura a partir do seu próprio software de faturação."
 
 msgid ""
 "Revel can't issue this invoice: the organization's tax identity is "
 "incomplete. Add a VIES-validated VAT ID, or complete the small-business "
 "scheme declaration, and issue this one from your own invoicing software."
-msgstr ""
-"A Revel não pode emitir esta fatura: a identidade fiscal da organização está "
-"incompleta. Adicione um número de IVA validado no VIES, ou complete a "
-"declaração do regime de pequena empresa, e emita esta fatura a partir do seu "
-"próprio software de faturação."
+msgstr "A Revel não pode emitir esta fatura: a identidade fiscal da organização está incompleta. Adiciona um número de IVA validado no VIES, ou completa a declaração do regime de pequena empresa, e emite esta fatura a partir do teu próprio software de faturação."
 
 msgid ""
 "This change would stop attendee invoicing: {details}. Turn invoicing off "
 "first."
-msgstr ""
-"Esta alteração interromperia a faturação aos participantes: {details}. "
-"Desative primeiro a faturação."
+msgstr "Esta alteração interromperia a faturação às pessoas participantes: {details}. Desativa primeiro a faturação."
 
 msgid ""
 "An organizer under a small-business scheme charges no VAT: set the VAT of "
 "every line to 0."
-msgstr ""
-"Um organizador abrangido por um regime de pequena empresa não cobra IVA: "
-"defina o IVA de cada linha para 0."
+msgstr "Uma organização abrangida por um regime de pequena empresa não cobra IVA: define o IVA de cada linha para 0."
 
 msgid "Invalid line amounts: {details}"
 msgstr "Montantes de linha inválidos: {details}"
@@ -7194,28 +7035,28 @@ msgid "The end date cannot be before the start date."
 msgstr "A data de fim não pode ser anterior à data de início."
 
 msgid "The tier of a linked membership is changed through member management."
-msgstr "O nível de uma associação vinculada é alterado na gestão de membros."
+msgstr "O nível de uma adesão vinculada é alterado na gestão de membros."
 
 msgid "End a linked membership with the end action instead."
-msgstr "Encerre uma associação vinculada com a ação de encerrar."
+msgstr "Encerra antes uma adesão vinculada com a ação de encerrar."
 
 msgid "A linked membership cannot be reopened from the register."
-msgstr "Uma associação vinculada não pode ser reaberta a partir do registo."
+msgstr "Uma adesão vinculada não pode ser reaberta a partir do registo."
 
 msgid "This membership has already ended."
-msgstr "Esta associação já foi encerrada."
+msgstr "Esta adesão já foi encerrada."
 
 msgid "Reason must be 'cancelled' or 'removed'."
 msgstr "O motivo deve ser 'cancelled' ou 'removed'."
 
 msgid "A linked membership cannot be ended in the future; end it now or change the member's status."
-msgstr "Uma associação vinculada não pode ser encerrada no futuro; encerre-a agora ou altere o estado do membro."
+msgstr "Uma adesão vinculada não pode ser encerrada no futuro; encerra-a agora ou altera o estado do membro."
 
 msgid "Remove the member from the organization before deleting their open register entry."
-msgstr "Remova o membro da organização antes de eliminar a sua entrada aberta no registo."
+msgstr "Remove o membro da organização antes de eliminares a sua entrada aberta no registo."
 
 msgid "A linked membership cannot start in the future."
-msgstr "Uma associação vinculada não pode começar no futuro."
+msgstr "Uma adesão vinculada não pode começar no futuro."
 
 msgid "A temporary tier cannot have a membership questionnaire or an approval requirement."
 msgstr "Um nível temporário não pode ter um questionário de adesão nem exigência de aprovação."
@@ -7224,7 +7065,7 @@ msgid "A temporary tier cannot be held as a membership."
 msgstr "Um nível temporário não pode ser mantido como adesão."
 
 msgid "A temporary tier cannot have subscription plans."
-msgstr "Um nível temporário não pode ter planos de assinatura."
+msgstr "Um nível temporário não pode ter planos de subscrição."
 
 msgid "A temporary tier cannot be granted by a token."
 msgstr "Um nível temporário não pode ser concedido por um token."
@@ -7260,7 +7101,7 @@ msgstr "Os níveis de adesão temporários não podem ser destinatários de anú
 
 #, python-format
 msgid "%(member)s was linked to a register entry in %(org)s"
-msgstr "%(member)s foi vinculado a uma entrada do registo em %(org)s"
+msgstr "Foi feita a vinculação de %(member)s a uma entrada do registo em %(org)s"
 
 #, python-format
 msgid "Register entry linked automatically: %(org)s"
@@ -7271,7 +7112,7 @@ msgstr "Entrada do registo vinculada automaticamente"
 
 #, python-format
 msgid "%(member)s was linked automatically to the register entry %(record)s in %(org)s because their verified email matched."
-msgstr "%(member)s foi vinculado automaticamente à entrada do registo %(record)s em %(org)s porque o e-mail verificado coincidia."
+msgstr "Foi feita a vinculação automática de %(member)s à entrada do registo %(record)s em %(org)s porque o e-mail verificado coincidia."
 
 msgid "Member:"
 msgstr "Membro:"
@@ -7287,11 +7128,11 @@ msgstr "Abrir o registo de membros"
 
 #, python-format
 msgid "%(organization)s invites you to link your membership"
-msgstr "%(organization)s convida-te a associar a tua inscrição"
+msgstr "%(organization)s convida-te a vincular a tua adesão"
 
 #, python-format
 msgid "%(organization_name)s invites you to link your membership"
-msgstr "%(organization_name)s convida-te a associar a tua inscrição"
+msgstr "%(organization_name)s convida-te a vincular a tua adesão"
 
 #, python-format
 msgid "%(organization_name)s keeps a register of its members and has you on it as %(full_name)s."
@@ -7307,22 +7148,22 @@ msgid "If you weren't expecting this, you can safely ignore this email."
 msgstr "Se não estavas à espera disto, podes ignorar este e-mail."
 
 msgid "Invited"
-msgstr "Convidado"
+msgstr "Convidada"
 
 msgid "Link my membership"
-msgstr "Associar a minha inscrição"
+msgstr "Vincular a minha adesão"
 
 msgid "Link your entry to a Revel account to manage your membership online:"
-msgstr "Associa a tua entrada a uma conta Revel para gerires a tua inscrição online:"
+msgstr "Vincula a tua entrada a uma conta Revel para gerires a tua adesão online:"
 
 msgid "Link your membership"
-msgstr "Associa a tua inscrição"
+msgstr "Vincula a tua adesão"
 
 msgid "Linked"
-msgstr "Associado"
+msgstr "Vinculada"
 
 msgid "Not invited"
-msgstr "Não convidado"
+msgstr "Não convidada"
 
 msgid "Invitation"
 msgstr "Convite"
@@ -7340,13 +7181,13 @@ msgid "This register entry has no email address to invite."
 msgstr "Esta entrada do registo não tem um endereço de e-mail para onde enviar o convite."
 
 msgid "This register entry is already linked to an account."
-msgstr "Esta entrada do registo já está associada a uma conta."
+msgstr "Esta entrada do registo já está vinculada a uma conta."
 
 msgid "You already have a membership in this organization. Its staff can review the duplicate entry in their member register."
-msgstr "Já tens uma inscrição nesta organização. A equipa pode rever a entrada duplicada no seu registo de membros."
+msgstr "Já tens uma adesão nesta organização. A equipa pode rever a entrada duplicada no seu registo de membros."
 
 msgid "This membership hasn't started yet. Try the link again once it has."
-msgstr "Esta inscrição ainda não começou. Tenta o link novamente quando tiver começado."
+msgstr "Esta adesão ainda não começou. Tenta o link novamente quando tiver começado."
 
 msgid "This register entry starts in the future; invite the person once it has started."
 msgstr "Esta entrada do registo começa no futuro; convida a pessoa quando tiver começado."
@@ -7355,22 +7196,22 @@ msgid "Only standard register entries can be invited."
 msgstr "Só é possível convidar entradas padrão do registo."
 
 msgid "An ended register entry cannot be invited."
-msgstr "Não é possível convidar uma entrada do registo terminada."
+msgstr "Não é possível convidar uma entrada do registo encerrada."
 
 msgid "This register entry was just linked to an account; reload it and try again."
-msgstr "Esta entrada do registo acabou de ser associada a uma conta; recarrega-a e tenta novamente."
+msgstr "Esta entrada do registo acabou de ser vinculada a uma conta; recarrega-a e tenta novamente."
 
 msgid "You can't join this organization."
 msgstr "Não podes aderir a esta organização."
 
 msgid "A closed entry can only be attached to an entry linked to an account."
-msgstr "Uma entrada encerrada só pode ser anexada a uma entrada associada a uma conta."
+msgstr "Uma entrada encerrada só pode ser anexada a uma entrada vinculada a uma conta."
 
 msgid "A merged register entry cannot be merged again."
 msgstr "Uma entrada do registo já fundida não pode ser fundida novamente."
 
 msgid "A paid application cannot be linked to a register entry yet."
-msgstr "Uma candidatura paga ainda não pode ser associada a uma entrada do registo."
+msgstr "Uma candidatura paga ainda não pode ser vinculada a uma entrada do registo."
 
 msgid "A register entry cannot be merged into itself."
 msgstr "Uma entrada do registo não pode ser fundida consigo mesma."
@@ -7388,25 +7229,25 @@ msgid "Only an entry without an account can be merged into another entry."
 msgstr "Só uma entrada sem conta pode ser fundida com outra entrada."
 
 msgid "Only an open standard register entry can be linked to an application."
-msgstr "Só uma entrada padrão aberta do registo pode ser associada a uma candidatura."
+msgstr "Só uma entrada padrão aberta do registo pode ser vinculada a uma candidatura."
 
 msgid "Register entries must belong to the same organization."
 msgstr "As entradas do registo têm de pertencer à mesma organização."
 
 msgid "The applicant already has an open register entry."
-msgstr "O candidato já tem uma entrada aberta no registo."
+msgstr "A pessoa candidata já tem uma entrada aberta no registo."
 
 msgid "This register entry does not belong to the organization."
 msgstr "Esta entrada do registo não pertence à organização."
 
 msgid "This register entry is already linked or merged."
-msgstr "Esta entrada do registo já está associada ou fundida."
+msgstr "Esta entrada do registo já está vinculada ou fundida."
 
 msgid "This register entry is not linked or merged."
-msgstr "Esta entrada do registo não está associada nem fundida."
+msgstr "Esta entrada do registo não está vinculada nem fundida."
 
 msgid "Linking a register entry needs a signed-in staff session."
-msgstr "Associar uma entrada do registo requer uma sessão iniciada de um membro da equipa."
+msgstr "Vincular uma entrada do registo requer uma sessão iniciada de um membro da equipa."
 
 msgid "A merged register entry cannot be invited."
 msgstr "Uma entrada do registo fundida não pode ser convidada."
@@ -7434,7 +7275,7 @@ msgid "The register entry belongs to another organization."
 msgstr "A entrada do registo pertence a outra organização."
 
 msgid "Use either active_on or active_at, not both."
-msgstr "Utilize active_on ou active_at, não ambos."
+msgstr "Usa active_on ou active_at, não ambos."
 
 msgid "Online payments are managed through Stripe and cannot be edited here."
 msgstr "Os pagamentos online são geridos através do Stripe e não podem ser editados aqui."
@@ -7458,7 +7299,27 @@ msgid "initial_payment_occurred_at requires initial_payment_amount."
 msgstr "initial_payment_occurred_at requer initial_payment_amount."
 
 msgid "Online subscriptions change plan from the member's side; staff cannot change them."
-msgstr "As assinaturas online mudam de plano pelo lado do membro; a equipa não as pode alterar."
+msgstr "As subscrições online mudam de plano pelo lado do membro; a equipa não as pode alterar."
 
 msgid "This member's tier follows their subscription plan. Change the subscription's plan instead."
-msgstr "O nível de adesão deste membro segue o plano da sua assinatura. Altere antes o plano da assinatura."
+msgstr "O nível de adesão deste membro segue o plano da sua subscrição. Altera antes o plano da subscrição."
+
+#: src/events/models/ticket.py
+msgid "General public"
+msgstr "o público em geral"
+
+#: src/events/models/ticket.py
+msgid "Members only"
+msgstr "apenas membros"
+
+#: src/events/models/ticket.py
+msgid "Invitees only"
+msgstr "apenas pessoas convidadas"
+
+#: src/events/models/ticket.py
+msgid "Invited and Members only"
+msgstr "apenas pessoas convidadas e membros"
+
+#: src/events/models/ticket.py
+msgid "Non-members only"
+msgstr "apenas quem não é membro"

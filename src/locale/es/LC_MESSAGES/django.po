@@ -26,10 +26,10 @@ msgid "Request Information"
 msgstr "Información de la solicitud"
 
 msgid "Admin"
-msgstr "Administrador"
+msgstr "Administración"
 
 msgid "Target User"
-msgstr "Usuario objetivo"
+msgstr "Cuenta objetivo"
 
 msgid "Status"
 msgstr "Estado"
@@ -64,7 +64,7 @@ msgid "Optional. Included in the invite email."
 msgstr "Opcional. Se incluye en el correo de invitación."
 
 msgid "enrolled"
-msgstr "inscrito"
+msgstr "inscripción realizada"
 
 msgid "Yes"
 msgstr "Sí"
@@ -79,13 +79,13 @@ msgid "Application"
 msgstr "Solicitud"
 
 msgid "Enrolled"
-msgstr "Inscrito"
+msgstr "Inscripción realizada"
 
 msgid "email sent."
 msgstr "correo enviado."
 
 msgid "enrolled immediately (account exists)."
-msgstr "inscrito de inmediato (la cuenta ya existe)."
+msgstr "inscripción inmediata (la cuenta ya existe)."
 
 msgid "existing code {} kept; the typed code was ignored."
 msgstr "se mantuvo el código existente {}; el código introducido se ignoró."
@@ -120,30 +120,30 @@ msgstr "Invitar al programa de referidos"
 #, python-format
 msgid "Verification email sent to %d user."
 msgid_plural "Verification emails sent to %d users."
-msgstr[0] "Correo de verificación enviado a %d usuario."
-msgstr[1] "Correos de verificación enviados a %d usuarios."
+msgstr[0] "Correo de verificación enviado a %d persona usuaria."
+msgstr[1] "Correos de verificación enviados a %d personas usuarias."
 
 #, python-format
 msgid "Skipped %d user (already verified)."
 msgid_plural "Skipped %d users (already verified)."
-msgstr[0] "%d usuario omitido (ya verificado)."
-msgstr[1] "%d usuarios omitidos (ya verificados)."
+msgstr[0] "%d persona usuaria omitida (ya verificada)."
+msgstr[1] "%d personas usuarias omitidas (ya verificadas)."
 
 #, python-format
 msgid "Password reset email sent to %d user."
 msgid_plural "Password reset emails sent to %d users."
-msgstr[0] "Correo de restablecimiento de contraseña enviado a %d usuario."
-msgstr[1] "Correos de restablecimiento de contraseña enviados a %d usuarios."
+msgstr[0] "Correo de restablecimiento de contraseña enviado a %d persona usuaria."
+msgstr[1] "Correos de restablecimiento de contraseña enviados a %d personas usuarias."
 
 #, python-format
 msgid "Skipped %d user (Google SSO or not found)."
 msgid_plural "Skipped %d users (Google SSO or not found)."
-msgstr[0] "%d usuario omitido (SSO de Google o no encontrado)."
-msgstr[1] "%d usuarios omitidos (SSO de Google o no encontrados)."
+msgstr[0] "%d persona usuaria omitida (SSO de Google o no encontrada)."
+msgstr[1] "%d personas usuarias omitidas (SSO de Google o no encontradas)."
 
 msgid "Ban selected users (global ban by email)"
 msgstr ""
-"Bloquear usuarios seleccionados (bloqueo global por correo electrónico)"
+"Bloquear personas usuarias seleccionadas (bloqueo global por correo electrónico)"
 
 msgid "Violation of terms of service"
 msgstr "Violación de los términos del servicio"
@@ -151,20 +151,20 @@ msgstr "Violación de los términos del servicio"
 #, python-format
 msgid "Banned %d user."
 msgid_plural "Banned %d users."
-msgstr[0] "%d usuario bloqueado."
-msgstr[1] "%d usuarios bloqueados."
+msgstr[0] "%d persona usuaria bloqueada."
+msgstr[1] "%d personas usuarias bloqueadas."
 
 #, python-format
 msgid "Skipped %d user (staff/superuser or already banned)."
 msgid_plural "Skipped %d users (staff/superuser or already banned)."
-msgstr[0] "%d usuario omitido (staff/superusuario o ya bloqueado)."
-msgstr[1] "%d usuarios omitidos (staff/superusuario o ya bloqueados)."
+msgstr[0] "%d persona usuaria omitida (staff/superusuario o ya bloqueada)."
+msgstr[1] "%d personas usuarias omitidas (staff/superusuario o ya bloqueadas)."
 
 msgid "Impersonate User"
-msgstr "Suplantar usuario"
+msgstr "Suplantar cuenta de usuario"
 
 msgid "organization owner"
-msgstr "propietario de la organización"
+msgstr "propiedad de la organización"
 
 msgid "Your data export has been initiated."
 msgstr "Se ha iniciado la exportación de tus datos."
@@ -280,13 +280,13 @@ msgstr ""
 "especial (!@#$%%^&*(),.?\":{}|<>)."
 
 msgid "A user with this email already exists."
-msgstr "Ya existe un usuario con este correo electrónico."
+msgstr "Ya existe una cuenta con este correo electrónico."
 
 msgid "Invalid verification token."
 msgstr "Token de verificación no válido."
 
 msgid "A user with this email no longer exists."
-msgstr "Ya no existe ningún usuario con este correo electrónico."
+msgstr "Ya no existe ninguna cuenta con este correo electrónico."
 
 msgid "Set a password before changing your email."
 msgstr "Establece una contraseña antes de cambiar tu correo electrónico."
@@ -309,7 +309,7 @@ msgid ""
 "You cannot delete your account while you own organizations. Please contact "
 "support to transfer ownership or delete the organizations first."
 msgstr ""
-"No puedes eliminar tu cuenta mientras seas propietario de organizaciones. "
+"No puedes eliminar tu cuenta mientras tengas la propiedad de organizaciones. "
 "Ponte en contacto con soporte para transferir la propiedad o elimina primero "
 "las organizaciones."
 
@@ -330,19 +330,19 @@ msgid "Registration is not available."
 msgstr "El registro no está disponible."
 
 msgid "Only superusers can impersonate users."
-msgstr "Solo los superusuarios pueden suplantar a otros usuarios."
+msgstr "Solo las cuentas de superusuario pueden suplantar otras cuentas."
 
 msgid "Cannot impersonate yourself."
-msgstr "No puedes suplantarte a ti mismo."
+msgstr "No puedes suplantar tu propia cuenta."
 
 msgid "Cannot impersonate other superusers."
-msgstr "No puedes suplantar a otros superusuarios."
+msgstr "No puedes suplantar otras cuentas de superusuario."
 
 msgid "Cannot impersonate staff members."
-msgstr "No puedes suplantar a miembros del staff."
+msgstr "No puedes suplantar cuentas del staff."
 
 msgid "Cannot impersonate inactive users."
-msgstr "No puedes suplantar a usuarios inactivos."
+msgstr "No puedes suplantar cuentas inactivas."
 
 msgid "Impersonation not allowed."
 msgstr "La suplantación de identidad no está permitida."
@@ -501,7 +501,7 @@ msgid "A user data export has failed."
 msgstr "Ha fallado una exportación de datos de usuario."
 
 msgid "User:"
-msgstr "Usuario:"
+msgstr "Cuenta de usuario:"
 
 msgid "Error:"
 msgstr "Error:"
@@ -511,7 +511,7 @@ msgstr "Por favor, investiga este problema lo antes posible."
 
 #, python-format
 msgid "User: %(user.email)s"
-msgstr "Usuario: %(user.email)s"
+msgstr "Cuenta de usuario: %(user.email)s"
 
 #, python-format
 msgid "Error: %(error_message)s"
@@ -853,14 +853,14 @@ msgid "Manage your code and payouts here:"
 msgstr "Gestiona tu código y tus pagos aquí:"
 
 msgid "Welcome to the Revel referral program"
-msgstr "Bienvenido al programa de referidos de Revel"
+msgstr "Te damos la bienvenida al programa de referidos de Revel"
 
 msgid "Referral Payouts Forfeited — Admin Notice"
 msgstr "Pagos de referidos perdidos — Aviso para administradores"
 
 msgid "A user deleted their account and forfeited unpaid referral payouts."
 msgstr ""
-"Un usuario ha eliminado su cuenta y ha perdido pagos de referidos pendientes."
+"Una persona usuaria ha eliminado su cuenta y ha perdido pagos de referidos pendientes."
 
 msgid "Forfeited:"
 msgstr "Perdidos:"
@@ -878,7 +878,7 @@ msgstr ""
 
 #, python-format
 msgid "User: %(user_email)s (%(user_id)s)"
-msgstr "Usuario: %(user_email)s (%(user_id)s)"
+msgstr "Cuenta de usuario: %(user_email)s (%(user_id)s)"
 
 #, python-format
 msgid "Forfeited: %(unpaid_count)s payout(s), %(unpaid_total)s %(currency)s"
@@ -892,7 +892,7 @@ msgid "Referral payouts forfeited by an account deletion"
 msgstr "Pagos de referidos perdidos por la eliminación de una cuenta"
 
 msgid "You're invited"
-msgstr "Estás invitado"
+msgstr "Tienes una invitación"
 
 #, python-format
 msgid ""
@@ -900,7 +900,7 @@ msgid ""
 "is \"%(code)s\" and you will earn %(revenue_share_percent)s%% of the "
 "platform fees from organizations you bring to Revel."
 msgstr ""
-"Has sido invitado a unirte al programa de referidos de Revel. Tu código de "
+"Has recibido una invitación para unirte al programa de referidos de Revel. Tu código de "
 "referido es \"%(code)s\" y ganarás el %(revenue_share_percent)s%% de las "
 "comisiones de la plataforma de las organizaciones que traigas a Revel."
 
@@ -1048,7 +1048,7 @@ msgid "Authentication credentials were not provided."
 msgstr "No se han proporcionado credenciales de autenticación."
 
 msgid "You cannot use this endpoint while authenticated."
-msgstr "No puedes usar este endpoint mientras estás autenticado."
+msgstr "No puedes usar este endpoint con una sesión autenticada."
 
 msgid "File is not a valid image."
 msgstr "El archivo no es una imagen válida."
@@ -1075,7 +1075,7 @@ msgid "Malware Detected - Admin Alert"
 msgstr "Malware detectado - Alerta para administradores"
 
 msgid "Dear Administrator,"
-msgstr "Estimado administrador,"
+msgstr "Hola, equipo de administración:"
 
 msgid "Malware has been detected in a file upload:"
 msgstr "Se ha detectado malware en un archivo subido:"
@@ -1194,7 +1194,7 @@ msgid "Free"
 msgstr "Gratis"
 
 msgid "Organizer"
-msgstr "Organizador"
+msgstr "Organización"
 
 msgid "Tax ID"
 msgstr "NIF-IVA"
@@ -1558,10 +1558,10 @@ msgid "Invoice PDF could not be generated."
 msgstr "No se ha podido generar el PDF de la factura."
 
 msgid "You must be the owner of this organization."
-msgstr "Debes ser propietario/a de esta organización."
+msgstr "Debes ser la persona propietaria de esta organización."
 
 msgid "You must be the owner or a staff member of this organization."
-msgstr "Debes ser propietario/a o miembro del staff de esta organización."
+msgstr "Debes ser la persona propietaria o parte del staff de esta organización."
 
 msgid "Ticket sales are paused."
 msgstr "La venta de entradas está pausada."
@@ -1623,7 +1623,7 @@ msgid ""
 "Your cart is too large for guest checkout. Please log in or split your "
 "purchase."
 msgstr ""
-"Tu carrito es demasiado grande para la compra como invitado. Inicia sesión o "
+"Tu carrito es demasiado grande para comprar sin cuenta. Inicia sesión o "
 "divide tu compra."
 
 msgid "Draft"
@@ -1660,11 +1660,11 @@ msgid "Target members of specific membership tiers"
 msgstr "Enviar a los miembros de niveles de membresía específicos"
 
 msgid "Target only organization staff members"
-msgstr "Enviar solo a los miembros del staff de la organización"
+msgstr "Enviar solo al staff de la organización"
 
 msgid "Allow new attendees/members to see this announcement after it was sent"
 msgstr ""
-"Permitir que los nuevos asistentes/miembros vean este anuncio después de su "
+"Permitir que las personas asistentes o miembros nuevas vean este anuncio después de su "
 "envío"
 
 msgid ""
@@ -1685,7 +1685,7 @@ msgid ""
 "Re-deliver to attendees who join after this announcement was first sent "
 "(event announcements only)."
 msgstr ""
-"Reenviar a los asistentes que se apunten después del primer envío de este "
+"Reenviar a las personas asistentes que se apunten después del primer envío de este "
 "anuncio (solo para anuncios de evento)."
 
 msgid "Relative scheduling requires both an anchor and an offset."
@@ -1747,7 +1747,7 @@ msgid ""
 "Days after subscription expiry during which a member can revive in place. "
 "Set to 0 to disable revival entirely."
 msgstr ""
-"Días tras la caducidad de la suscripción durante los cuales un miembro puede "
+"Días tras la caducidad de la suscripción durante los cuales una persona miembro puede "
 "reactivarla directamente. Ponlo a 0 para desactivar por completo la "
 "reactivación."
 
@@ -1828,7 +1828,7 @@ msgstr "La moneda no se puede cambiar una vez que el pase cubre eventos."
 
 msgid "Payment method cannot be changed while the pass has holders."
 msgstr ""
-"El método de pago no se puede cambiar mientras el pase tenga titulares."
+"El método de pago no se puede cambiar mientras el pase tenga personas titulares."
 
 msgid "Tier must belong to the covered event."
 msgstr "El tipo de entrada debe pertenecer al evento cubierto."
@@ -2019,12 +2019,12 @@ msgstr "Se necesita un sector para la asignación del mejor asiento disponible."
 
 msgid "A sector is required for user-choice seat assignment."
 msgstr ""
-"Se necesita un sector para la asignación de asiento elegido por el usuario."
+"Se necesita un sector para la asignación de asiento elegido por cada persona."
 
 msgid ""
 "User-choice seat assignment requires a seated sector, not a standing one."
 msgstr ""
-"La asignación de asiento elegido por el usuario requiere un sector con "
+"La asignación de asiento elegido por cada persona requiere un sector con "
 "asientos, no uno de pie."
 
 msgid ""
@@ -2061,23 +2061,23 @@ msgid "Address visible to invited guests only"
 msgstr "Dirección visible solo para las personas invitadas"
 
 msgid "Address visible to organization members only"
-msgstr "Dirección visible solo para los miembros de la organización"
+msgstr "Dirección visible solo para quienes son miembros de la organización"
 
 msgid "Address visible to staff only"
 msgstr "Dirección visible solo para el staff"
 
 msgid "Address visible to attendees only"
-msgstr "Dirección visible solo para los asistentes"
+msgstr "Dirección visible solo para quienes asisten"
 
 msgid ""
 "This member holds multiple tickets for this event. Scan the specific ticket "
 "QR."
 msgstr ""
-"Este miembro tiene varias entradas para este evento. Escanea el código QR de "
+"Esta persona tiene varias entradas para este evento. Escanea el código QR de "
 "la entrada específica."
 
 msgid "This member has no ticket for this event."
-msgstr "Este miembro no tiene ninguna entrada para este evento."
+msgstr "Esta persona no tiene ninguna entrada para este evento."
 
 msgid "Event not found or does not belong to this organization"
 msgstr "Evento no encontrado o no pertenece a esta organización"
@@ -2392,7 +2392,7 @@ msgstr ""
 "Este código de descuento no se aplica a ningún tipo de entrada de tu carrito."
 
 msgid "Only members are allowed."
-msgstr "Solo se permite la participación a los miembros."
+msgstr "Solo se permite la participación a quienes son miembros."
 
 msgid "Your membership is not active."
 msgstr "Tu membresía no está activa."
@@ -2700,7 +2700,7 @@ msgid ""
 "Only staff who can manage subscriptions can change the membership "
 "subscription policy."
 msgstr ""
-"Solo los miembros del staff que pueden gestionar suscripciones pueden "
+"Solo quienes forman parte del staff y pueden gestionar suscripciones pueden "
 "cambiar la política de suscripción de las membresías."
 
 #, python-format
@@ -2714,8 +2714,8 @@ msgid ""
 "You already own an organization. Only one organization per user as owner is "
 "allowed."
 msgstr ""
-"Ya eres propietario de una organización. Solo se permite una organización "
-"por usuario como propietario."
+"Ya eres propietaria o propietario de una organización. Solo se permite una organización "
+"por cuenta de usuario con propiedad."
 
 msgid ""
 "Cannot delete a tier that has membership applications. They are part of the "
@@ -4260,7 +4260,7 @@ msgid "Include guest users"
 msgstr "Incluir personas usuarias invitadas"
 
 msgid "Organization owners only"
-msgstr "Solo propietarios de organizaciones"
+msgstr "Solo la propiedad de las organizaciones"
 
 msgid "Warning"
 msgstr "Advertencia"
@@ -4524,7 +4524,7 @@ msgid ""
 "the ticket list flags these sales."
 msgstr ""
 "La persona propietaria de la organización ve la lista completa con los datos "
-"del comprador en Facturación; la lista de entradas marca estas ventas."
+"de quien compra en Facturación; la lista de entradas marca estas ventas."
 
 msgid "Open the documents to issue yourself"
 msgstr "Abrir los documentos que debes emitir tú"
@@ -4605,16 +4605,16 @@ msgid "You are now a <strong>%(role)s</strong> of <strong>%(org)s</strong>!"
 msgstr "¡Ahora eres <strong>%(role)s</strong> de <strong>%(org)s</strong>!"
 
 msgid "As a member, you can:"
-msgstr "Como miembro, puedes:"
+msgstr "Como parte de la membresía, puedes:"
 
 msgid "Access members-only events"
-msgstr "Acceder a eventos exclusivos para miembros"
+msgstr "Acceder a eventos exclusivos para quienes son miembros"
 
 msgid "Receive organization announcements"
 msgstr "Recibir los anuncios de la organización"
 
 msgid "Connect with other members"
-msgstr "Conectar con otros miembros"
+msgstr "Conectar con otras personas miembro"
 
 #, python-format
 msgid "You are now a %(role)s of %(org)s!"
@@ -4863,7 +4863,7 @@ msgid "Sign Up & Accept"
 msgstr "Registrarse y aceptar"
 
 msgid "Don't want invitations from Revel organizers?"
-msgstr "¿No quieres recibir invitaciones de organizadores de Revel?"
+msgstr "¿No quieres recibir invitaciones de equipos organizadores de Revel?"
 
 msgid "Stop these emails"
 msgstr "Dejar de recibir estos correos"
@@ -4873,7 +4873,7 @@ msgstr "Regístrate para aceptar esta invitación:"
 
 msgid "Don't want invitations from Revel organizers? Stop these emails:"
 msgstr ""
-"¿No quieres recibir invitaciones de organizadores de Revel? Deja de recibir "
+"¿No quieres recibir invitaciones de equipos organizadores de Revel? Deja de recibir "
 "estos correos:"
 
 #, python-format
@@ -5440,7 +5440,7 @@ msgstr ""
 "cancelado."
 
 msgid "Holder:"
-msgstr "Titular:"
+msgstr "Persona titular:"
 
 #, python-format
 msgid ""
@@ -5500,7 +5500,7 @@ msgstr ""
 "sido cancelada."
 
 msgid "Ticket Holder"
-msgstr "Titular de la entrada"
+msgstr "Persona titular de la entrada"
 
 msgid "Cancelled Ticket"
 msgstr "Entrada cancelada"
@@ -5510,8 +5510,8 @@ msgid ""
 "A refund of <strong>%(amount)s %(currency)s</strong> has been issued to the "
 "ticket holder."
 msgstr ""
-"Se ha emitido un reembolso de <strong>%(amount)s %(currency)s</strong> al "
-"titular de la entrada."
+"Se ha emitido un reembolso de <strong>%(amount)s %(currency)s</strong> a la "
+"persona titular de la entrada."
 
 #, python-format
 msgid "%(holder)s cancelled their ticket for %(event)s."
@@ -5529,7 +5529,7 @@ msgid "%(holder)s's ticket for %(event)s has been cancelled."
 msgstr "La entrada de %(holder)s para %(event)s ha sido cancelada."
 
 msgid "Ticket Holder:"
-msgstr "Titular de la entrada:"
+msgstr "Persona titular de la entrada:"
 
 msgid "Cancelled Ticket:"
 msgstr "Entrada cancelada:"
@@ -6090,10 +6090,10 @@ msgid "You have reached the maximum number of apps."
 msgstr "Has alcanzado el número máximo de apps."
 
 msgid "Dynamically registered apps have no owner."
-msgstr "Las apps registradas dinámicamente no tienen propietario."
+msgstr "Las apps registradas dinámicamente no tienen propiedad asignada."
 
 msgid "An owner is required."
-msgstr "Se requiere un propietario."
+msgstr "Se requiere una persona propietaria."
 
 msgid "Only the authorization-code grant is supported: {}"
 msgstr "Solo se admite el flujo de código de autorización: {}"
@@ -6144,10 +6144,10 @@ msgid ""
 "see attendee details and revenue"
 msgstr ""
 "Gestionar tipos de entrada, entradas, códigos de descuento y asientos, "
-"emitir reembolsos y ver los datos de los asistentes y los ingresos"
+"emitir reembolsos y ver los datos de quienes asisten y los ingresos"
 
 msgid "Check attendees in"
-msgstr "Registrar la entrada de los asistentes"
+msgstr "Registrar la entrada de quienes asisten"
 
 msgid ""
 "Manage members, subscriptions and membership payments, including refunds, "
@@ -6233,7 +6233,7 @@ msgstr ""
 
 msgid "Only the organization owner can perform this action."
 msgstr ""
-"Solo el/la propietario/a de la organización puede realizar esta acción."
+"Solo la persona propietaria de la organización puede realizar esta acción."
 
 msgid "Unknown event {} or it does not belong to this organization."
 msgstr "Evento {} desconocido o no pertenece a esta organización."
@@ -6878,7 +6878,7 @@ msgstr "PRECIO"
 
 #: wallet/apple/generator.py
 msgid "GUEST"
-msgstr "INVITADO"
+msgstr "ASISTENTE"
 
 #: wallet/apple/generator.py
 msgid "TIER"
@@ -6886,7 +6886,7 @@ msgstr "NIVEL"
 
 #: wallet/apple/generator.py
 msgid "MEMBER SINCE"
-msgstr "SOCIO DESDE"
+msgstr "MIEMBRO DESDE"
 
 #: wallet/apple/generator.py
 msgid "Ticket ID"
@@ -6894,7 +6894,7 @@ msgstr "ID de entrada"
 
 #: wallet/apple/generator.py
 msgid "Guest"
-msgstr "Invitado"
+msgstr "Asistente"
 
 #: wallet/apple/generator.py
 msgid "Venue"
@@ -6910,7 +6910,7 @@ msgstr "Asientos"
 
 #: wallet/apple/generator.py
 msgid "Member ID"
-msgstr "ID de socio"
+msgstr "ID de miembro"
 
 #: wallet/apple/generator.py
 msgid "Organization"
@@ -7078,19 +7078,19 @@ msgid "Won"
 msgstr "Ganada"
 
 msgid "Convert guest to full account"
-msgstr "Convertir invitado en cuenta completa"
+msgstr "Convertir cuenta de invitación en cuenta completa"
 
 #, python-format
 msgid "Converted %d guest to a full account."
 msgid_plural "Converted %d guests to full accounts."
-msgstr[0] "%d invitado convertido en cuenta completa."
-msgstr[1] "%d invitados convertidos en cuentas completas."
+msgstr[0] "%d cuenta de invitación convertida en cuenta completa."
+msgstr[1] "%d cuentas de invitación convertidas en cuentas completas."
 
 #, python-format
 msgid "Skipped %d globally banned guest."
 msgid_plural "Skipped %d globally banned guests."
-msgstr[0] "%d invitado bloqueado omitido."
-msgstr[1] "%d invitados bloqueados omitidos."
+msgstr[0] "%d cuenta de invitación bloqueada omitida."
+msgstr[1] "%d cuentas de invitación bloqueadas omitidas."
 
 msgid ""
 "An organizer under a small-business scheme can't issue a reverse-charge "
@@ -7173,7 +7173,7 @@ msgid ""
 "This change would stop attendee invoicing: {details}. Turn invoicing off "
 "first."
 msgstr ""
-"Este cambio detendría la facturación a los asistentes: {details}. Desactiva "
+"Este cambio detendría la facturación a las personas asistentes: {details}. Desactiva "
 "primero la facturación."
 
 msgid ""
@@ -7289,10 +7289,10 @@ msgid "A temporary tier cannot be granted by a token."
 msgstr "Un nivel temporal no puede concederse mediante un token."
 
 msgid "Temporary membership tiers cannot be used to restrict ticket tiers."
-msgstr "Los niveles de membresía temporales no pueden usarse para restringir niveles de entrada."
+msgstr "Los niveles de membresía temporales no pueden usarse para restringir tipos de entrada."
 
 msgid "Temporary membership tiers cannot be used to exclude members from ticket tiers."
-msgstr "Los niveles de membresía temporales no pueden usarse para excluir a miembros de niveles de entrada."
+msgstr "Los niveles de membresía temporales no pueden usarse para excluir a miembros de tipos de entrada."
 
 msgid "The granted membership tier must belong to the event's organization."
 msgstr "El nivel de membresía concedido debe pertenecer a la organización del evento."
@@ -7301,10 +7301,10 @@ msgid "Only a temporary tier can be granted by tickets."
 msgstr "Las entradas solo pueden conceder un nivel temporal."
 
 msgid "A ticket tier that grants a membership cannot be restricted to members."
-msgstr "Un nivel de entrada que concede una membresía no puede limitarse a miembros."
+msgstr "Un tipo de entrada que concede una membresía no puede limitarse a miembros."
 
 msgid "A ticket tier that grants a membership must be limited to one ticket per person."
-msgstr "Un nivel de entrada que concede una membresía debe limitarse a una entrada por persona."
+msgstr "Un tipo de entrada que concede una membresía debe limitarse a una entrada por persona."
 
 
 msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
@@ -7366,7 +7366,7 @@ msgid "If you weren't expecting this, you can safely ignore this email."
 msgstr "Si no esperabas esto, puedes ignorar este correo sin problema."
 
 msgid "Invited"
-msgstr "Invitado"
+msgstr "Con invitación"
 
 msgid "Link my membership"
 msgstr "Vincular mi membresía"
@@ -7378,10 +7378,10 @@ msgid "Link your membership"
 msgstr "Vincula tu membresía"
 
 msgid "Linked"
-msgstr "Vinculado"
+msgstr "Vinculada"
 
 msgid "Not invited"
-msgstr "No invitado"
+msgstr "Sin invitación"
 
 msgid "Invitation"
 msgstr "Invitación"
@@ -7438,7 +7438,7 @@ msgid "An open entry can only be merged into another open standard entry."
 msgstr "Una entrada abierta solo se puede fusionar con otra entrada estándar abierta."
 
 msgid "Claim"
-msgstr "Reclamación"
+msgstr "Entrada reclamada"
 
 msgid "Name"
 msgstr "Nombre"
@@ -7465,7 +7465,7 @@ msgid "This register entry is not linked or merged."
 msgstr "Esta entrada del registro no está vinculada ni fusionada."
 
 msgid "Linking a register entry needs a signed-in staff session."
-msgstr "Vincular una entrada del registro requiere una sesión iniciada de un miembro del equipo."
+msgstr "Vincular una entrada del registro requiere una sesión iniciada del staff."
 
 msgid "A merged register entry cannot be invited."
 msgstr "No se puede invitar a una entrada del registro fusionada."
@@ -7484,16 +7484,16 @@ msgstr "Una entrada de registro fusionada no tiene nota propia; edita la nota de
 
 #, python-brace-format
 msgid "— From register entry ({date}) —"
-msgstr "— De la entrada de registro ({date}) —"
+msgstr "— De la entrada del registro ({date}) —"
 
 msgid "[truncated]"
 msgstr "[truncado]"
 
 msgid "The register entry belongs to another organization."
-msgstr "La entrada de registro pertenece a otra organización."
+msgstr "La entrada del registro pertenece a otra organización."
 
 msgid "Use either active_on or active_at, not both."
-msgstr "Utilice active_on o active_at, pero no ambos."
+msgstr "Usa active_on o active_at, pero no ambos."
 
 msgid "Online payments are managed through Stripe and cannot be edited here."
 msgstr "Los pagos en línea se gestionan a través de Stripe y no se pueden editar aquí."
@@ -7517,7 +7517,27 @@ msgid "initial_payment_occurred_at requires initial_payment_amount."
 msgstr "initial_payment_occurred_at requiere initial_payment_amount."
 
 msgid "Online subscriptions change plan from the member's side; staff cannot change them."
-msgstr "Las suscripciones en línea cambian de plan desde el lado del miembro; el equipo no puede cambiarlas."
+msgstr "Las suscripciones en línea cambian de plan desde el lado del miembro; el staff no puede cambiarlas."
 
 msgid "This member's tier follows their subscription plan. Change the subscription's plan instead."
 msgstr "El nivel de este miembro sigue el plan de su suscripción. Cambia en su lugar el plan de la suscripción."
+
+#: src/events/models/ticket.py
+msgid "General public"
+msgstr "el público en general"
+
+#: src/events/models/ticket.py
+msgid "Members only"
+msgstr "solo quienes son miembros"
+
+#: src/events/models/ticket.py
+msgid "Invitees only"
+msgstr "solo las personas invitadas"
+
+#: src/events/models/ticket.py
+msgid "Invited and Members only"
+msgstr "solo las personas invitadas y quienes son miembros"
+
+#: src/events/models/ticket.py
+msgid "Non-members only"
+msgstr "solo quienes no son miembros"
