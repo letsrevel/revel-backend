@@ -437,6 +437,22 @@ class TestVoid:
         assert second.status == MembershipPayment.PaymentStatus.VOIDED
         assert second.refund_amount is None
 
+    def test_refund_checks_the_locked_row_not_a_stale_lookup(
+        self, sub: MembershipSubscription, organization_owner_user: RevelUser
+    ) -> None:
+        """A void committed after the refund's lookup (stale SUCCEEDED instance) is still refused under the lock."""
+        from events.exceptions import MembershipPaymentEditRefusedError
+        from events.service.subscription import refunds
+
+        stale = _record(sub, organization_owner_user)
+        MembershipPayment.objects.filter(pk=stale.pk).update(status=MembershipPayment.PaymentStatus.VOIDED)
+        assert stale.status == MembershipPayment.PaymentStatus.SUCCEEDED
+        with pytest.raises(MembershipPaymentEditRefusedError):
+            refunds.refund_payment(stale, recorded_by=organization_owner_user)
+        stale.refresh_from_db()
+        assert stale.status == MembershipPayment.PaymentStatus.VOIDED
+        assert stale.refund_amount is None
+
     def test_void_without_body(
         self, organization_owner_client: Client, organization: Organization, sub: MembershipSubscription
     ) -> None:
