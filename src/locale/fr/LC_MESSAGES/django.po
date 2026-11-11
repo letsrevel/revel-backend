@@ -7652,3 +7652,210 @@ msgstr "Non défini"
 
 msgid "Changed"
 msgstr "Modifié"
+
+msgid "Ticket created"
+msgstr "Billet créé"
+
+msgid "Ticket updated"
+msgstr "Billet mis à jour"
+
+msgid "Ticket cancelled"
+msgstr "Billet annulé"
+
+msgid "Ticket refunded"
+msgstr "Billet remboursé"
+
+msgid "Ticket checked in"
+msgstr "Billet enregistré à l'entrée"
+
+msgid "Payment confirmation"
+msgstr "Confirmation de paiement"
+
+msgid "Unmatched refund"
+msgstr "Remboursement non rattaché"
+
+msgid "Ticket sold"
+msgstr "Billet vendu"
+
+msgid "Ticket cancelled by attendee"
+msgstr "Billet annulé par la personne participante"
+
+msgid "Ticket refunded to attendee"
+msgstr "Billet remboursé à la personne participante"
+
+msgid "Payment disputed"
+msgstr "Paiement contesté"
+
+msgid "Event open"
+msgstr "Événement ouvert"
+
+msgid "Event updated"
+msgstr "Événement mis à jour"
+
+msgid "Event cancelled"
+msgstr "Événement annulé"
+
+msgid "Event reminder"
+msgstr "Rappel d'événement"
+
+msgid "Event refund summary"
+msgstr "Récapitulatif des remboursements de l'événement"
+
+msgid "RSVP confirmation"
+msgstr "Confirmation de réponse"
+
+msgid "RSVP updated"
+msgstr "Réponse mise à jour"
+
+msgid "RSVP cancelled"
+msgstr "Réponse annulée"
+
+msgid "Potluck item added"
+msgstr "Contribution au potluck ajoutée"
+
+msgid "Potluck item added and claimed"
+msgstr "Contribution au potluck ajoutée et prise en charge"
+
+msgid "Potluck item updated"
+msgstr "Contribution au potluck mise à jour"
+
+msgid "Potluck item claimed"
+msgstr "Contribution au potluck prise en charge"
+
+msgid "Potluck item unclaimed"
+msgstr "Contribution au potluck libérée"
+
+msgid "Potluck item removed"
+msgstr "Contribution au potluck supprimée"
+
+msgid "Questionnaire submitted"
+msgstr "Questionnaire soumis"
+
+msgid "Questionnaire result"
+msgstr "Résultat du questionnaire"
+
+msgid "Invitation received"
+msgstr "Invitation reçue"
+
+msgid "Invitation request"
+msgstr "Demande d'invitation"
+
+msgid "Membership granted"
+msgstr "Adhésion accordée"
+
+msgid "Membership promoted"
+msgstr "Adhésion promue"
+
+msgid "Membership removed"
+msgstr "Adhésion supprimée"
+
+msgid "Membership card updated"
+msgstr "Carte d'adhésion mise à jour"
+
+msgid "Membership request"
+msgstr "Demande d'adhésion"
+
+msgid "Membership request approved"
+msgstr "Demande d'adhésion approuvée"
+
+msgid "Membership request rejected"
+msgstr "Demande d'adhésion refusée"
+
+msgid "Member record linked"
+msgstr "Fiche membre liée"
+
+msgid "Organization announcement"
+msgstr "Annonce de l'organisation"
+
+msgid "Contact message received"
+msgstr "Message de contact reçu"
+
+msgid "Organization setup reminder"
+msgstr "Rappel de configuration de l'organisation"
+
+msgid "Custom domain active"
+msgstr "Domaine personnalisé actif"
+
+msgid "Custom domain failed"
+msgstr "Échec du domaine personnalisé"
+
+msgid "Skipped fiscal documents"
+msgstr "Documents fiscaux ignorés"
+
+msgid "Waitlist spot available"
+msgstr "Place disponible sur la liste d'attente"
+
+msgid "Whitelist request"
+msgstr "Demande de liste blanche"
+
+msgid "Whitelist request approved"
+msgstr "Demande de liste blanche approuvée"
+
+msgid "Whitelist request rejected"
+msgstr "Demande de liste blanche refusée"
+
+msgid "Account banned"
+msgstr "Compte banni"
+
+msgid "Platform announcement"
+msgstr "Annonce de la plateforme"
+
+msgid "New organization follower"
+msgstr "Nouvel abonnement à l'organisation"
+
+msgid "New series follower"
+msgstr "Nouvel abonnement à la série"
+
+msgid "New event from an organization you follow"
+msgstr "Nouvel événement d'une organisation que tu suis"
+
+msgid "New event in a series you follow"
+msgstr "Nouvel événement dans une série que tu suis"
+
+msgid "Series events generated"
+msgstr "Événements de la série générés"
+
+msgid "Series pass purchased"
+msgstr "Pass de série acheté"
+
+msgid "Series pass extended"
+msgstr "Pass de série étendu"
+
+msgid "Series pass cancelled"
+msgstr "Pass de série annulé"
+
+msgid "Series pass sold"
+msgstr "Pass de série vendu"
+
+msgid "Series pass cancelled by holder"
+msgstr "Pass de série annulé par la personne titulaire"
+
+msgid "Subscription renewed"
+msgstr "Abonnement renouvelé"
+
+msgid "Subscription payment failed"
+msgstr "Échec du paiement de l'abonnement"
+
+msgid "Subscription expired"
+msgstr "Abonnement expiré"
+
+msgid "Subscription cancellation confirmed"
+msgstr "Résiliation de l'abonnement confirmée"
+
+msgid "Subscription renewal reminder"
+msgstr "Rappel de renouvellement de l'abonnement"
+
+msgid "Subscription price change"
+msgstr "Changement de prix de l'abonnement"
+
+msgid "Subscription revival link"
+msgstr "Lien de réactivation de l'abonnement"
+
+msgid "Start"
+msgstr "Début"
+
+msgid "End"
+msgstr "Fin"
+
+msgid "City"
+msgstr "Ville"

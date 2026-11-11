@@ -50,6 +50,11 @@ def test_digest_renders_in_recipient_language_outside_any_override(
         expected_subject = ngettext("%(counter)s new notification", "%(counter)s new notifications", 3) % {"counter": 3}
     assert expected_subject != "3 new notifications"
     assert kwargs["subject"] == expected_subject
+    label_de = _tr("de", "Event reminder")
+    assert label_de == "Veranstaltungserinnerung"  # the catalog label, not the auto-generated English one
+    assert label_de in kwargs["body"]
+    assert label_de in kwargs["html_body"]
+    assert "Event reminder" not in kwargs["html_body"]
     assert _tr("de", "Your Notification Digest") in kwargs["body"]
     assert _tr("de", "Best regards,") in kwargs["html_body"]
     assert "Best regards," not in kwargs["html_body"]
@@ -99,6 +104,8 @@ class TestEventUpdatedPerRecipientLanguage:
             assert ctx["event_start_formatted"] == expected_start
             assert not_set in ctx["update_message"]
             assert "Not set" not in ctx["update_message"]
+            assert ctx["update_message"].startswith(f"{_tr(lang, 'Start')}: ")
+            assert f"{_tr(lang, 'City')}: " in ctx["update_message"]
         assert sent["de"]["event_start_formatted"] != sent["it"]["event_start_formatted"]
 
     def test_fallback_message_is_translated_per_recipient(self, public_event: Event, django_user_model: t.Any) -> None:

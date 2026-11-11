@@ -7,7 +7,7 @@ import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from notifications.enums import DeliveryChannel, DeliveryStatus
+from notifications.enums import DeliveryChannel, DeliveryStatus, NotificationType
 from notifications.models import Notification, NotificationDelivery, NotificationPreference
 from notifications.service import digest
 from notifications.service.digest import (
@@ -257,8 +257,8 @@ class TestNotificationDigest:
         # Assert
         assert "3 new notification" in subject
         # The group heading uses the human-readable type label, not the raw enum value
-        assert "Event Reminder" in text_body
-        assert "Event Reminder" in html_body
+        assert str(NotificationType.EVENT_REMINDER.label) in text_body
+        assert str(NotificationType.EVENT_REMINDER.label) in html_body
         # Each row carries a CTA link derived from the notification context
         assert "https://example.com/events/test-0" in text_body
         assert len(text_body) > 0

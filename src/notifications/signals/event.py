@@ -11,6 +11,7 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.utils import translation
 from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy
 
 from accounts.models import RevelUser
 from events.models import Event
@@ -32,6 +33,16 @@ _event_previous_state: dict[UUID, dict[str, t.Any]] = {}
 # Change-diff display names whose values are gated by the event's address_visibility.
 # These must be redacted per-user when the recipient cannot see the address.
 _ADDRESS_SENSITIVE_FIELDS = {"address", "city"}
+
+
+# Display labels of the watched fields; evaluated under the recipient's language override.
+_FIELD_LABELS = {
+    "name": gettext_lazy("Name"),
+    "start": gettext_lazy("Start"),
+    "end": gettext_lazy("End"),
+    "address": gettext_lazy("Address"),
+    "city": gettext_lazy("City"),
+}
 
 
 class _Marker(enum.Enum):
@@ -175,7 +186,7 @@ def _notify_event_updated(
     # Build the human-readable summary/message from the per-user (redacted) field set.
     changes_summary = ", ".join(user_changed_fields)
     update_parts = [
-        f"{field.capitalize()}: {_render_diff_value(user_old_values.get(field), instance)} → "
+        f"{_FIELD_LABELS.get(field, field.capitalize())}: {_render_diff_value(user_old_values.get(field), instance)} → "
         f"{_render_diff_value(user_new_values.get(field), instance)}"
         for field in user_changed_fields
     ]
