@@ -120,3 +120,23 @@ class LinkTokenError(Exception):
         """Store the machine code and the translated, user-safe message."""
         super().__init__(message)
         self.code = code
+
+
+class EmailChangeErrorCode(models.TextChoices):
+    """Stable machine-readable reasons an email-change confirmation is refused. Renaming a value is breaking."""
+
+    EMAIL_TAKEN = "email_taken"
+    EMAIL_CHANGE_SUPERSEDED = "email_change_superseded"
+
+
+class EmailChangeError(Exception):
+    """Raised when an email-change confirmation cannot be applied (400).
+
+    The handler renders ``{"detail": <translated message>, "code": <code>}``. Clients branch on
+    ``code``; ``detail`` is translated text and must not be matched on.
+    """
+
+    def __init__(self, code: EmailChangeErrorCode, message: str) -> None:
+        """Store the machine code and the translated, user-safe message."""
+        super().__init__(message)
+        self.code = code

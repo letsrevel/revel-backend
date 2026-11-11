@@ -14,7 +14,13 @@ from ninja.errors import HttpError
 
 from accounts import schema, tasks
 from accounts.dispatch import guest_converted
-from accounts.exceptions import LinkTokenError, LinkTokenErrorCode, ReferralForfeitureConfirmationRequiredError
+from accounts.exceptions import (
+    EmailChangeError,
+    EmailChangeErrorCode,
+    LinkTokenError,
+    LinkTokenErrorCode,
+    ReferralForfeitureConfirmationRequiredError,
+)
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import blacklist_user_tokens, check_blacklist, create_token
 from accounts.models import Referral, ReferralCode, RevelUser
@@ -576,9 +582,9 @@ def confirm_email_change(token: str) -> RevelUser:
         The user with the updated email.
 
     Raises:
-        HttpError: 400 if the new address is already taken (including under a
-            DB-level race), 403 if the address became globally banned between
-            request and confirm.
+        EmailChangeError: 400 if the new address is already taken (including under a
+            DB-level race) or the link was superseded by a password reset.
+        HttpError: 403 if the address became globally banned between request and confirm.
     """
     from accounts.service.global_ban_service import BAN_ERROR_MESSAGE, is_email_globally_banned
 
@@ -592,7 +598,10 @@ def confirm_email_change(token: str) -> RevelUser:
     if user.credentials_changed_at and payload.iat < user.credentials_changed_at:
         blacklist_token(token)
         logger.warning("email_change_confirm_superseded_by_password_reset", user_id=str(user.id))
-        raise HttpError(400, str(_("This email change link is no longer valid. Please request a new one.")))
+        raise EmailChangeError(
+            EmailChangeErrorCode.EMAIL_CHANGE_SUPERSEDED,
+            str(_("This email change link is no longer valid. Please request a new one.")),
+        )
 
     # Re-check the global ban at confirm time — a ban added between request and
     # confirm must block the swap (mirrors verify_email).
@@ -604,7 +613,7 @@ def confirm_email_change(token: str) -> RevelUser:
     if RevelUser.objects.filter(username__iexact=new_email).exclude(pk=user.pk).exists():
         blacklist_token(token)
         logger.warning("email_change_confirm_email_taken", user_id=str(user.id), new_email=new_email)
-        raise HttpError(400, str(_("This email is already in use.")))
+        raise EmailChangeError(EmailChangeErrorCode.EMAIL_TAKEN, str(_("This email is already in use.")))
 
     old_email = user.email
     try:
@@ -621,7 +630,7 @@ def confirm_email_change(token: str) -> RevelUser:
         # Blacklist outside the rolled-back transaction so the token cannot be retried.
         blacklist_token(token)
         logger.warning("email_change_confirm_race_loss", user_id=str(user.id), new_email=new_email)
-        raise HttpError(400, str(_("This email is already in use.")))
+        raise EmailChangeError(EmailChangeErrorCode.EMAIL_TAKEN, str(_("This email is already in use.")))
 
     _change_completed_context = {"old_email": old_email, "new_email": new_email, "language": user.language}
     transaction.on_commit(
