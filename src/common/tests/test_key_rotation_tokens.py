@@ -10,6 +10,7 @@ from ninja.errors import HttpError
 from ninja_extra.exceptions import AuthenticationFailed
 
 from accounts import schema as accounts_schema
+from accounts.exceptions import LinkTokenError
 from accounts.models import RevelUser
 from accounts.service import account as account_service
 from accounts.service import auth as auth_service
@@ -52,7 +53,7 @@ def _signed_url_ok(url: str) -> None:
 def _case(name: str, user: RevelUser) -> tuple[str, t.Callable[[str], object], type[Exception]]:
     """Return (token minted under the current key, verifier, exception raised on rejection)."""
     if name == "verify_email":
-        return account_service.create_verification_token(user), _verify_email, HttpError
+        return account_service.create_verification_token(user), _verify_email, LinkTokenError
     if name == "otp":
         return auth_service.get_temporary_otp_jwt(user), _otp(user), AuthenticationFailed
     if name == "guest":
@@ -84,6 +85,8 @@ def test_old_key_accepted_while_fallback_then_rejected(family: str, user: RevelU
         verify(token)
     if type(exc.value) is HttpError:
         assert exc.value.status_code == 400  # signature failure, not e.g. the blacklist's 401
+    else:
+        assert not isinstance(exc.value, LinkTokenError) or exc.value.code == "invalid_token"
 
 
 def test_signed_file_url(settings: t.Any) -> None:
@@ -112,7 +115,7 @@ def test_unsubscribe_links_survive_with_dedicated_keys(user: RevelUser, settings
     assert prefs.user_id == user.id
     # Newly minted links use the first unsubscribe key, so they don't verify against the main keys.
     fresh = unsubscribe_service.generate_unsubscribe_token(user)
-    with pytest.raises(HttpError):
+    with pytest.raises(LinkTokenError):
         token_to_payload(fresh, OneClickUnsubscribePayload)
 
 
@@ -122,5 +125,5 @@ def test_old_secret_signed_non_unsubscribe_token_rejected_by_auth_paths(user: Re
     settings.SECRET_KEY = NEW
     settings.SECRET_KEY_FALLBACKS = []
     settings.UNSUBSCRIBE_SIGNING_KEYS = ["unsub-new", old]
-    with pytest.raises(HttpError):
+    with pytest.raises(LinkTokenError):
         _verify_email(token)

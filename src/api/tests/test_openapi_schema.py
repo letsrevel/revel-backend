@@ -139,6 +139,7 @@ KNOWN_400_COMPONENTS = {
     "ErrorDetail",
     "EventUserEligibility",
     "GuestActionErrorSchema",
+    "LinkTokenErrorSchema",
     "MembershipApprovalRefusedSchema",
     "MembershipEligibilitySchema",
     "ResponseMessage",

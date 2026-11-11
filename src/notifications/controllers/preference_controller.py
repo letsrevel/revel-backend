@@ -5,9 +5,10 @@ from uuid import UUID
 from django.shortcuts import get_object_or_404
 from ninja_extra import api_controller, route
 
+from accounts.schema import LinkTokenErrorSchema
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
-from common.schema import ResponseMessage
+from common.schema import ErrorDetail, ResponseMessage
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events.models import Organization
 from notifications.enums import NotificationType
@@ -118,7 +119,12 @@ class NotificationPreferenceController(UserAwareController):
         """
         return list(NotificationType)
 
-    @route.post("/unsubscribe", response=ResponseMessage, throttle=WriteThrottle(), auth=None)
+    @route.post(
+        "/unsubscribe",
+        response={200: ResponseMessage, 400: LinkTokenErrorSchema | ErrorDetail},
+        throttle=WriteThrottle(),
+        auth=None,
+    )
     def unsubscribe(self, payload: UnsubscribeSchema) -> ResponseMessage:
         """Update notification preferences via unsubscribe token from email.
 

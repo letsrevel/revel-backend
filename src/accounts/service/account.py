@@ -14,7 +14,7 @@ from ninja.errors import HttpError
 
 from accounts import schema, tasks
 from accounts.dispatch import guest_converted
-from accounts.exceptions import ReferralForfeitureConfirmationRequiredError
+from accounts.exceptions import LinkTokenError, LinkTokenErrorCode, ReferralForfeitureConfirmationRequiredError
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import blacklist_user_tokens, check_blacklist, create_token
 from accounts.models import Referral, ReferralCode, RevelUser
@@ -780,7 +780,7 @@ def token_to_payload(token: str, schema_class: t.Type[T], keys: list[str] | None
         return schema_class.model_validate(_payload)
     except jwt.ExpiredSignatureError:
         logger.warning("token_validation_expired", token_type=schema_class.__name__)
-        raise HttpError(400, str(_("Token has expired.")))
+        raise LinkTokenError(LinkTokenErrorCode.TOKEN_EXPIRED, str(_("Token has expired.")))
     except Exception as e:
         logger.warning("token_validation_failed", token_type=schema_class.__name__, error=str(e))
-        raise HttpError(400, str(_("Invalid token: {error}")).format(error=e))
+        raise LinkTokenError(LinkTokenErrorCode.INVALID_TOKEN, str(_("Invalid token.")))

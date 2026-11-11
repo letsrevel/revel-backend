@@ -6,8 +6,9 @@ from django.http import HttpResponseRedirect
 from django.utils.translation import gettext as _
 from ninja_extra import ControllerBase, api_controller, route
 
+from accounts.schema import LinkTokenErrorSchema
 from common.models import SiteSettings
-from common.schema import ResponseMessage
+from common.schema import ErrorDetail, ResponseMessage
 from notifications.service.unsubscribe import one_click_unsubscribe
 
 
@@ -16,7 +17,11 @@ from notifications.service.unsubscribe import one_click_unsubscribe
 class OneClickUnsubscribeController(ControllerBase):
     """One-click unsubscribe for mailbox providers (POST) and humans clicking the header link (GET)."""
 
-    @route.post("/one-click", response=ResponseMessage, url_name="one_click_unsubscribe")
+    @route.post(
+        "/one-click",
+        response={200: ResponseMessage, 400: LinkTokenErrorSchema | ErrorDetail},
+        url_name="one_click_unsubscribe",
+    )
     def one_click(self, token: str) -> ResponseMessage:
         """Apply a one-click unsubscribe (RFC 8058).
 

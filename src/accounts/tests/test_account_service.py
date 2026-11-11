@@ -9,6 +9,7 @@ from django.utils import timezone
 from ninja.errors import HttpError
 
 from accounts import schema
+from accounts.exceptions import LinkTokenError, LinkTokenErrorCode
 from accounts.jwt import create_token
 from accounts.models import Referral, ReferralCode, RevelUser
 from accounts.service import account as account_service
@@ -188,9 +189,10 @@ def test_verify_email_success(user: RevelUser) -> None:
 
 
 def test_verify_email_invalid_token(user: RevelUser) -> None:
-    """Test that verifying with a bad token raises an HttpError."""
-    with pytest.raises(HttpError, match="Invalid token"):
+    """A bad token raises the coded link-token error."""
+    with pytest.raises(LinkTokenError) as exc_info:
         account_service.verify_email("this.is.a.bad.token")
+    assert exc_info.value.code == LinkTokenErrorCode.INVALID_TOKEN
 
 
 def test_verify_email_blocks_guest_user(guest_user: RevelUser) -> None:

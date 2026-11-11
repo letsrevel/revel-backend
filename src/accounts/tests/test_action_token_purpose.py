@@ -10,10 +10,10 @@ import typing as t
 
 import pytest
 from ninja import Schema
-from ninja.errors import HttpError
 from ninja_extra.exceptions import AuthenticationFailed
 
 from accounts import schema
+from accounts.exceptions import LinkTokenError
 from accounts.jwt import validate_otp_jwt
 from accounts.models import RevelUser
 from accounts.service import account as account_service
@@ -48,14 +48,14 @@ def test_session_token_is_not_an_action_token(
     which: t.Literal["access", "refresh"],
 ) -> None:
     pair = get_token_pair_for_user(unverified_user)
-    with pytest.raises(HttpError) as exc:
+    with pytest.raises(LinkTokenError) as exc:
         account_service.token_to_payload(getattr(pair, which), schema_class)
-    assert exc.value.status_code == 400
+    assert exc.value.code == "invalid_token"
 
 
 def test_session_token_cannot_verify_email(unverified_user: RevelUser) -> None:
     pair = get_token_pair_for_user(unverified_user)
-    with pytest.raises(HttpError):
+    with pytest.raises(LinkTokenError):
         account_service.verify_email(pair.access)
     unverified_user.refresh_from_db()
     assert unverified_user.email_verified is False
@@ -63,7 +63,7 @@ def test_session_token_cannot_verify_email(unverified_user: RevelUser) -> None:
 
 def test_session_token_cannot_reset_password(unverified_user: RevelUser) -> None:
     pair = get_token_pair_for_user(unverified_user)
-    with pytest.raises(HttpError):
+    with pytest.raises(LinkTokenError):
         account_service.reset_password(pair.refresh, "a-New-strong-password-456!")
     unverified_user.refresh_from_db()
     assert not unverified_user.check_password("a-New-strong-password-456!")

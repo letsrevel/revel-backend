@@ -8,6 +8,7 @@ from django.conf import settings
 from django.utils import timezone
 from ninja.errors import HttpError
 
+from accounts.exceptions import LinkTokenError
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import create_token
 from accounts.models import RevelUser
@@ -229,11 +230,10 @@ def test_confirm_unsubscribe_with_expired_token_raises_error(user: RevelUser) ->
     preferences = UpdateNotificationPreferenceSchema(silence_all_notifications=True)  # type: ignore[call-arg]
 
     # Act & Assert
-    with pytest.raises(HttpError) as exc_info:
+    with pytest.raises(LinkTokenError) as exc_info:
         confirm_unsubscribe(token, preferences)
 
-    assert exc_info.value.status_code == 400
-    assert "expired" in str(exc_info.value.message).lower()
+    assert exc_info.value.code == "token_expired"
 
 
 def test_confirm_unsubscribe_with_invalid_token_raises_error(user: RevelUser) -> None:
@@ -243,11 +243,10 @@ def test_confirm_unsubscribe_with_invalid_token_raises_error(user: RevelUser) ->
     preferences = UpdateNotificationPreferenceSchema(silence_all_notifications=True)  # type: ignore[call-arg]
 
     # Act & Assert
-    with pytest.raises(HttpError) as exc_info:
+    with pytest.raises(LinkTokenError) as exc_info:
         confirm_unsubscribe(invalid_token, preferences)
 
-    assert exc_info.value.status_code == 400
-    assert "invalid" in str(exc_info.value.message).lower()
+    assert exc_info.value.code == "invalid_token"
 
 
 def test_confirm_unsubscribe_with_blacklisted_token_raises_error(user: RevelUser) -> None:
