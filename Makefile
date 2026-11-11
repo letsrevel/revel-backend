@@ -197,6 +197,11 @@ e2e-seed:
 	uv run python src/manage.py reset_events --no-input
 	$(MAKE) seed
 	$(MAKE) bootstrap-tests
+	# The reseed churns millions of rows and autovacuum has been seen never to catch up on the
+	# local container (reltuples=-1, 2.8M dead tuples in events_ticket): with no stats the planner
+	# nested-loops filtered ticket lists into 10+ s requests and the FE suite times out. VACUUM can't
+	# run inside a transaction; Django's cursor is autocommit outside atomic blocks.
+	uv run python src/manage.py shell -c "from django.db import connection; connection.cursor().execute('VACUUM ANALYZE')"
 
 # Stop the daemonized e2e backend. Idempotent: pid-file kill first, then any
 # stray listener on :8000 (stale gunicorn/runserver — the "stale backend
