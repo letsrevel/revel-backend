@@ -136,6 +136,7 @@ RESPONSE_MESSAGE_ERROR_ALLOWLIST = {(path, "400") for path in RESPONSE_MESSAGE_4
 KNOWN_400_COMPONENTS = {
     "AlreadyMemberErrorSchema",
     "AuthorizationErrorResponse",
+    "EmailChangeErrorSchema",
     "ErrorDetail",
     "EventUserEligibility",
     "GuestActionErrorSchema",

@@ -19,6 +19,7 @@ from django.utils.translation import gettext as _
 from ninja.responses import Response
 
 from accounts.exceptions import (
+    EmailChangeError,
     LinkTokenError,
     OIDCLoginError,
     ReferralAlreadyActiveError,
@@ -90,6 +91,12 @@ def handle_link_token_error(request: HttpRequest, exc: Exception | t.Type[Except
     return Response(status=400, data={"detail": str(error), "code": error.code.value})
 
 
+def handle_email_change_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Render an :class:`EmailChangeError` as ``{"detail": <message>, "code": <code>}`` (400)."""
+    error = t.cast(EmailChangeError, exc)
+    return Response(status=400, data={"detail": str(error), "code": error.code.value})
+
+
 def make_referral_application_handler(status: int) -> ExceptionHandler:
     """Render a :class:`ReferralApplicationError` as ``{"detail": <message>, "code": <code>}``.
 
@@ -113,6 +120,7 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     ReferralAlreadyActiveError: make_referral_application_handler(409),
     TurnstileFailedError: make_simple_handler(400),
     LinkTokenError: handle_link_token_error,
+    EmailChangeError: handle_email_change_error,
 }
 
 

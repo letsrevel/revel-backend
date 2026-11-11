@@ -306,7 +306,10 @@ class AccountController(UserAwareController):
     @route.post(
         "/email-change-confirm",
         tags=["Account"],
-        response={200: schema.EmailChangeResponseSchema, 400: schema.LinkTokenErrorSchema | ErrorDetail},
+        response={
+            200: schema.EmailChangeResponseSchema,
+            400: schema.LinkTokenErrorSchema | schema.EmailChangeErrorSchema | ErrorDetail,
+        },
         url_name="email-change-confirm",
         auth=None,
         throttle=WriteThrottle(),

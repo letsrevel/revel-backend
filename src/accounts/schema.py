@@ -10,7 +10,7 @@ from ninja import ModelSchema, Schema
 from ninja_jwt.schema import TokenObtainPairOutputSchema
 from pydantic import UUID4, AwareDatetime, EmailStr, Field, field_serializer, field_validator, model_validator
 
-from accounts.exceptions import LinkTokenErrorCode
+from accounts.exceptions import EmailChangeErrorCode, LinkTokenErrorCode
 from accounts.password_validation import validate_password
 from common.schema import (
     BillingInfoSchemaMixin,
@@ -580,3 +580,14 @@ class LinkTokenErrorSchema(Schema):
 
     detail: str
     code: LinkTokenErrorCode
+
+
+class EmailChangeErrorSchema(Schema):
+    """400 body when an email-change confirmation is refused.
+
+    ``detail`` is translated and must never be matched on; ``code`` is the stable
+    machine-readable discriminator.
+    """
+
+    detail: str
+    code: EmailChangeErrorCode

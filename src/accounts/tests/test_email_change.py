@@ -17,7 +17,7 @@ from ninja_jwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from ninja_jwt.tokens import RefreshToken
 
 from accounts import schema
-from accounts.exceptions import LinkTokenError
+from accounts.exceptions import EmailChangeError, EmailChangeErrorCode, LinkTokenError
 from accounts.jwt import create_token
 from accounts.models import GlobalBan, RevelUser
 from accounts.service import account as account_service
@@ -244,9 +244,9 @@ class TestConfirmEmailChange:
         token = _make_change_token(user, "raced@example.com")
         # Between request and confirm, somebody else takes the address.
         django_user_model.objects.create_user(username="raced@example.com", email="raced@example.com", password="x")
-        with pytest.raises(HttpError) as exc:
+        with pytest.raises(EmailChangeError) as exc:
             account_service.confirm_email_change(token)
-        assert exc.value.status_code == 400
+        assert exc.value.code == EmailChangeErrorCode.EMAIL_TAKEN
         # User's email is unchanged.
         user.refresh_from_db()
         assert user.email != "raced@example.com"
@@ -276,9 +276,9 @@ class TestConfirmEmailChange:
         token = _make_change_token(user, "intruder@example.com")
         account_service.reset_password(account_service.create_password_reset_token(user), "a-new-valid-Password-123!")
 
-        with pytest.raises(HttpError) as exc:
+        with pytest.raises(EmailChangeError) as exc:
             account_service.confirm_email_change(token)
-        assert exc.value.status_code == 400
+        assert exc.value.code == EmailChangeErrorCode.EMAIL_CHANGE_SUPERSEDED
         user.refresh_from_db()
         assert user.email != "intruder@example.com"
         assert BlacklistedToken.objects.filter(token__jti=_jti(token)).exists()
