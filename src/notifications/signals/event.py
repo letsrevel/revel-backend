@@ -1,13 +1,18 @@
 """Signal handlers for event notifications."""
 
+import enum
 import typing as t
+from datetime import datetime
 from uuid import UUID
 
 import structlog
 from django.db import transaction
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
+from django.utils import translation
+from django.utils.translation import gettext as _
 
+from accounts.models import RevelUser
 from events.models import Event
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
@@ -27,6 +32,28 @@ _event_previous_state: dict[UUID, dict[str, t.Any]] = {}
 # Change-diff display names whose values are gated by the event's address_visibility.
 # These must be redacted per-user when the recipient cannot see the address.
 _ADDRESS_SENSITIVE_FIELDS = {"address", "city"}
+
+
+class _Marker(enum.Enum):
+    """Language-neutral change-diff values, localized per recipient when the notification is built."""
+
+    CHANGED = "changed"
+
+
+# A change-diff value: ``None`` means "not set", a datetime is formatted in the event's timezone and the
+# recipient's language, a ``_Marker`` is a translatable word. Plain strings pass through.
+_DiffValue = str | datetime | _Marker | None
+
+
+def _render_diff_value(value: _DiffValue, event: Event) -> str:
+    """Render a change-diff value for one recipient (call under their ``translation.override``)."""
+    if value is None:
+        return _("Not set")
+    if value is _Marker.CHANGED:
+        return _("Changed")
+    if isinstance(value, datetime):
+        return format_event_datetime(value, event)
+    return str(value)
 
 
 def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
@@ -89,70 +116,22 @@ def _handle_event_updated(
     sender: type[Event],
     instance: Event,
     changed_fields: list[str],
-    old_values: dict[str, str],
-    new_values: dict[str, str],
+    old_values: dict[str, _DiffValue],
+    new_values: dict[str, _DiffValue],
 ) -> None:
-    """Handle EVENT_UPDATED notification."""
-    from django.utils.translation import gettext as _
+    """Handle EVENT_UPDATED notification.
+
+    Everything user-facing (dates, "Not set", the fallback message) is built per recipient under their
+    own language: this runs in the editor's request, whose language must not leak to the recipients.
+    """
 
     def send_update_notifications() -> None:
         frontend_base_url = frontend_base_url_for(instance.organization)
         eligible_users = get_eligible_users_for_event_notification(instance, NotificationType.EVENT_UPDATED)
 
-        event_start_formatted = format_event_datetime(instance.start, instance)
-        event_end_formatted = format_event_datetime(instance.end, instance) or None
-
         for user in eligible_users:
-            # Check address visibility per user
-            event_location, address_url = get_event_location_for_user(instance, user)
-
-            # Redact address/city from the change diff for users who cannot see the address,
-            # mirroring the per-user gating already applied to event_location. address_visibility
-            # is independent of event visibility, so the EVENT_UPDATED recipient set can be broader
-            # than the set allowed to see the venue — building the diff once outside this loop would
-            # leak the (old and new) address to recipients who are not permitted to see it.
-            if instance.can_user_see_address(user):
-                user_changed_fields = changed_fields
-                user_old_values = old_values
-                user_new_values = new_values
-            else:
-                user_changed_fields = [f for f in changed_fields if f not in _ADDRESS_SENSITIVE_FIELDS]
-                user_old_values = {k: v for k, v in old_values.items() if k not in _ADDRESS_SENSITIVE_FIELDS}
-                user_new_values = {k: v for k, v in new_values.items() if k not in _ADDRESS_SENSITIVE_FIELDS}
-
-            # Build the human-readable summary/message from the per-user (redacted) field set.
-            changes_summary = ", ".join(user_changed_fields)
-            update_parts = [
-                f"{field.capitalize()}: {user_old_values.get(field, 'Not set')} → "
-                f"{user_new_values.get(field, 'Not set')}"
-                for field in user_changed_fields
-            ]
-            update_message = "; ".join(update_parts) if update_parts else _("Event details have been updated.")
-
-            context = {
-                "event_id": str(instance.id),
-                "event_name": instance.name,
-                "organization_id": str(instance.organization_id),
-                "event_start_formatted": event_start_formatted,
-                "event_location": event_location,
-                "event_url": f"{frontend_base_url}/events/{instance.id}",
-                "changed_fields": user_changed_fields,
-                "old_values": user_old_values,
-                "new_values": user_new_values,
-                "changes_summary": changes_summary,
-                "update_message": update_message,
-            }
-            if event_end_formatted:
-                context["event_end_formatted"] = event_end_formatted
-            if address_url:
-                context["address_url"] = address_url
-
-            notification_requested.send(
-                sender=sender,
-                user=user,
-                notification_type=NotificationType.EVENT_UPDATED,
-                context=context,
-            )
+            with translation.override(user.language):
+                _notify_event_updated(sender, instance, user, frontend_base_url, changed_fields, old_values, new_values)
 
         logger.info(
             "event_updated_notifications_sent",
@@ -164,9 +143,73 @@ def _handle_event_updated(
     transaction.on_commit(send_update_notifications)
 
 
+def _notify_event_updated(
+    sender: type[Event],
+    instance: Event,
+    user: RevelUser,
+    frontend_base_url: str,
+    changed_fields: list[str],
+    old_values: dict[str, _DiffValue],
+    new_values: dict[str, _DiffValue],
+) -> None:
+    """Send one recipient's EVENT_UPDATED notification (caller holds their language override)."""
+    event_start_formatted = format_event_datetime(instance.start, instance)
+    event_end_formatted = format_event_datetime(instance.end, instance) or None
+    # Check address visibility per user
+    event_location, address_url = get_event_location_for_user(instance, user)
+
+    # Redact address/city from the change diff for users who cannot see the address,
+    # mirroring the per-user gating already applied to event_location. address_visibility
+    # is independent of event visibility, so the EVENT_UPDATED recipient set can be broader
+    # than the set allowed to see the venue — building the diff once outside this loop would
+    # leak the (old and new) address to recipients who are not permitted to see it.
+    if instance.can_user_see_address(user):
+        user_changed_fields = changed_fields
+        user_old_values = old_values
+        user_new_values = new_values
+    else:
+        user_changed_fields = [f for f in changed_fields if f not in _ADDRESS_SENSITIVE_FIELDS]
+        user_old_values = {k: v for k, v in old_values.items() if k not in _ADDRESS_SENSITIVE_FIELDS}
+        user_new_values = {k: v for k, v in new_values.items() if k not in _ADDRESS_SENSITIVE_FIELDS}
+
+    # Build the human-readable summary/message from the per-user (redacted) field set.
+    changes_summary = ", ".join(user_changed_fields)
+    update_parts = [
+        f"{field.capitalize()}: {_render_diff_value(user_old_values.get(field), instance)} → "
+        f"{_render_diff_value(user_new_values.get(field), instance)}"
+        for field in user_changed_fields
+    ]
+    update_message = "; ".join(update_parts) if update_parts else _("Event details have been updated.")
+
+    context = {
+        "event_id": str(instance.id),
+        "event_name": instance.name,
+        "organization_id": str(instance.organization_id),
+        "event_start_formatted": event_start_formatted,
+        "event_location": event_location,
+        "event_url": f"{frontend_base_url}/events/{instance.id}",
+        "changed_fields": user_changed_fields,
+        "old_values": {k: _render_diff_value(v, instance) for k, v in user_old_values.items()},
+        "new_values": {k: _render_diff_value(v, instance) for k, v in user_new_values.items()},
+        "changes_summary": changes_summary,
+        "update_message": update_message,
+    }
+    if event_end_formatted:
+        context["event_end_formatted"] = event_end_formatted
+    if address_url:
+        context["address_url"] = address_url
+
+    notification_requested.send(
+        sender=sender,
+        user=user,
+        notification_type=NotificationType.EVENT_UPDATED,
+        context=context,
+    )
+
+
 def _detect_field_changes(
     instance: Event, previous_state: dict[str, t.Any]
-) -> tuple[list[str], dict[str, str], dict[str, str]]:
+) -> tuple[list[str], dict[str, _DiffValue], dict[str, _DiffValue]]:
     """Detect which important fields changed.
 
     Args:
@@ -174,7 +217,8 @@ def _detect_field_changes(
         previous_state: Dictionary containing previous field values
 
     Returns:
-        Tuple of (changed_fields list, old_values dict, new_values dict)
+        Tuple of (changed_fields list, old_values dict, new_values dict); values are
+        language-neutral (see :data:`_DiffValue`) and rendered per recipient
     """
     # Map of instance attribute -> display name in notifications
     watched_fields = {
@@ -185,9 +229,9 @@ def _detect_field_changes(
         "city_id": "city",
     }
 
-    changed_fields = []
-    old_values = {}
-    new_values = {}
+    changed_fields: list[str] = []
+    old_values: dict[str, _DiffValue] = {}
+    new_values: dict[str, _DiffValue] = {}
 
     for attr_name, display_name in watched_fields.items():
         old_val = previous_state.get(attr_name)
@@ -198,21 +242,15 @@ def _detect_field_changes(
 
             # Format values for display
             if attr_name in ("start", "end") and new_val:
-                new_values[display_name] = format_event_datetime(new_val, instance)
-                if old_val:
-                    old_values[display_name] = format_event_datetime(old_val, instance)
-                else:
-                    old_values[display_name] = "Not set"
+                new_values[display_name] = new_val
+                old_values[display_name] = old_val or None
             elif attr_name == "city_id":
-                new_values[display_name] = instance.city.name if instance.city else "Not set"
-                if old_val and instance.city:
-                    # We don't have the old city object, so we can't get the name
-                    old_values[display_name] = "Changed"
-                else:
-                    old_values[display_name] = "Not set"
+                new_values[display_name] = instance.city.name if instance.city else None
+                # We don't have the old city object, so we can't get the name
+                old_values[display_name] = _Marker.CHANGED if old_val and instance.city else None
             else:
-                new_values[display_name] = str(new_val) if new_val else "Not set"
-                old_values[display_name] = str(old_val) if old_val else "Not set"
+                new_values[display_name] = str(new_val) if new_val else None
+                old_values[display_name] = str(old_val) if old_val else None
 
     return changed_fields, old_values, new_values
 

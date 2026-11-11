@@ -9,7 +9,7 @@ from celery import shared_task
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
-from django.utils import timezone
+from django.utils import timezone, translation
 from django.utils.translation import gettext as _
 
 from accounts.models import Referral, ReferralPayout, ReferralPayoutStatement, RevelUser
@@ -284,11 +284,6 @@ def _send_payout_statement_email(
 
     from django.template.loader import render_to_string
 
-    subject = _("Referral payout statement %(document_number)s (%(currency)s)") % {
-        "document_number": statement.document_number,
-        "currency": payout.currency,
-    }
-
     site = SiteSettings.get_solo()
     bcc = [site.platform_invoice_bcc_email] if site.platform_invoice_bcc_email else []
 
@@ -298,8 +293,14 @@ def _send_payout_statement_email(
         "period_end": payout.period_end.isoformat(),
         "frontend_base_url": site.frontend_base_url,
     }
-    body = render_plain_text("accounts/emails/referral_payout_email.txt", email_ctx)
-    html_body = render_to_string("accounts/emails/referral_payout_email.html", email_ctx)
+    # Celery workers have no active language: use the referrer's, even when a billing email is the recipient.
+    with translation.override(referrer.language):
+        subject = _("Referral payout statement %(document_number)s (%(currency)s)") % {
+            "document_number": statement.document_number,
+            "currency": payout.currency,
+        }
+        body = render_plain_text("accounts/emails/referral_payout_email.txt", email_ctx)
+        html_body = render_to_string("accounts/emails/referral_payout_email.html", email_ctx)
 
     send_email(
         to=recipient,

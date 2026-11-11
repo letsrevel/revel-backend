@@ -7323,3 +7323,18 @@ msgstr "apenas pessoas convidadas e membros"
 #: src/events/models/ticket.py
 msgid "Non-members only"
 msgstr "apenas quem não é membro"
+
+msgid "Your Revel Data Export is Ready"
+msgstr "A tua exportação de dados do Revel está pronta"
+
+msgid "Malware detected in your upload"
+msgstr "Foi detetado malware no teu carregamento"
+
+msgid "Malware detected in organization-related upload"
+msgstr "Foi detetado malware num carregamento da tua organização"
+
+msgid "Not set"
+msgstr "Não definido"
+
+msgid "Changed"
+msgstr "Alterado"

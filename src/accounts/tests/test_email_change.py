@@ -74,7 +74,7 @@ class TestRequestEmailChange:
         assert mock_send.call_count == 2
         conf_call = _call_for(mock_send, AccountEmail.CHANGE_CONFIRMATION)
         assert conf_call.args == (AccountEmail.CHANGE_CONFIRMATION, "new@example.com")
-        assert conf_call.kwargs == {"token": token}
+        assert conf_call.kwargs == {"token": token, "context": {"language": user.language}}
         notice_call = _call_for(mock_send, AccountEmail.CHANGE_NOTICE)
         assert notice_call.args[1] == user.email
         masked = notice_call.kwargs["context"]["masked_new_email"]
@@ -191,7 +191,7 @@ class TestConfirmEmailChange:
         assert result.email_verified is True
         # Exactly the completed-old + completed-new emails — no extra/unrelated dispatch.
         assert mock_send.call_count == 2
-        expected_context = {"old_email": old_email, "new_email": "new@example.com"}
+        expected_context = {"old_email": old_email, "new_email": "new@example.com", "language": user.language}
         old_call = _call_for(mock_send, AccountEmail.CHANGE_COMPLETED_OLD)
         assert old_call.args == (AccountEmail.CHANGE_COMPLETED_OLD, old_email)
         assert old_call.kwargs == {"context": expected_context}

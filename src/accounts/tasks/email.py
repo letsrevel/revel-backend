@@ -21,7 +21,9 @@ from urllib.parse import quote
 import structlog
 from celery import shared_task
 from django.template.loader import render_to_string
+from django.utils import translation
 
+from accounts.utils.language import is_supported_language, recipient_language
 from common.models import SiteSettings
 from common.tasks import send_email
 from common.utils import render_plain_text
@@ -148,6 +150,10 @@ def send_account_email(
               is *always* built on the platform base URL, never on this host; the hint carries no
               credential.
 
+            An optional ``"language"`` key (a code from ``settings.LANGUAGES``) sets the language the
+            email is rendered in; without a valid one it is looked up from the account matching ``to``,
+            then ``settings.LANGUAGE_CODE``. Old workers ignore it.
+
             Rolling deploy, both directions: a message queued before #1156 has no ``return_host``
             key and renders a plain link. A hinted message delivered to a worker that predates
             #1156 is accepted (unknown context keys are ignored, and the task has no ``return_host``
@@ -178,9 +184,15 @@ def send_account_email(
             action_link += ("&" if "?" in action_link else "?") + "return_host=" + quote(return_host, safe="")
         body_context["action_link"] = action_link
 
-    subject = str(render_plain_text(f"accounts/emails/{config.template_base}_subject.txt")).strip()
-    body = render_plain_text(f"accounts/emails/{config.template_base}_body.txt", body_context)
-    html_body = render_to_string(f"accounts/emails/{config.template_base}_body.html", body_context)
+    # Workers have no active language: render in the recipient's. The caller passes it in ``context``
+    # because a lookup by ``to`` misses when the address is not (yet) the user's, e.g. an email change.
+    language = caller_context.get("language")
+    if language is None or not is_supported_language(language):
+        language = recipient_language(to)
+    with translation.override(language):
+        subject = str(render_plain_text(f"accounts/emails/{config.template_base}_subject.txt")).strip()
+        body = render_plain_text(f"accounts/emails/{config.template_base}_body.txt", body_context)
+        html_body = render_to_string(f"accounts/emails/{config.template_base}_body.html", body_context)
     send_email(to=to, subject=subject, body=body, html_body=html_body)
 
     logger.info("account_email_sent", email_type=email_type, to=to)

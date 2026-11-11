@@ -8,7 +8,7 @@ import pytest
 from django.core.files.base import ContentFile
 from PIL import Image
 
-from common.models import FileUploadAudit, QuarantinedFile
+from common.models import FileUploadAudit, QuarantinedFile, SiteSettings
 from common.service.upload_service import safe_save_uploaded_file
 from common.tasks import notify_malware_detected, scan_for_malware
 from conftest import RevelUserFactory
@@ -219,3 +219,54 @@ def test_notify_malware_detected_is_scoped_to_the_instance(
     audit_b.refresh_from_db()
     assert audit_b.notified is False
     mock_send_email.assert_not_called()  # org_a's own audit has no quarantine row to notify from
+
+
+@mock.patch("common.tasks.send_email.delay")
+def test_notify_malware_detected_renders_user_notice_in_recipient_language(
+    mock_send_email: MagicMock, revel_user_factory: RevelUserFactory
+) -> None:
+    """Workers have no active language: the uploader's notice (subject and body) is in their language.
+
+    The call runs under an explicit English override to simulate the worker; the uploader speaks German.
+    """
+    from django.template.loader import render_to_string
+    from django.utils import translation
+    from django.utils.translation import gettext
+
+    uploader = revel_user_factory(language="de")
+    file_content = b"test content"
+    file_hash = hashlib.sha256(file_content).hexdigest()
+    audit = FileUploadAudit.objects.create(
+        app="accounts",
+        model="RevelUser",
+        instance_pk=uploader.pk,
+        field="profile_picture",
+        file_hash=file_hash,
+        uploader=uploader.username,
+        status=FileUploadAudit.FileUploadAuditStatus.MALICIOUS,
+    )
+    QuarantinedFile.objects.create(
+        audit=audit, file=ContentFile(file_content, name="test.jpg"), findings={"stream": ("FOUND", "Virus")}
+    )
+
+    with translation.override("en"):
+        notify_malware_detected(
+            app="accounts",
+            model="RevelUser",
+            pk=str(uploader.pk),
+            field="profile_picture",
+            file_hash=file_hash,
+            findings={"stream": ("FOUND", "Virus")},
+        )
+
+    with translation.override("de"):
+        expected_subject = gettext("Malware detected in your upload")
+    assert expected_subject != "Malware detected in your upload"
+    user_calls = [c.kwargs for c in mock_send_email.call_args_list if c.kwargs["to"] == uploader.email]
+    assert len(user_calls) == 1
+    assert user_calls[0]["subject"] == expected_subject
+    ctx = {"user": uploader, "frontend_base_url": SiteSettings.get_solo().frontend_base_url}
+    with translation.override("de"):
+        assert user_calls[0]["html_body"] == render_to_string("common/emails/malware_detected_user.html", ctx)
+    with translation.override("en"):
+        assert user_calls[0]["html_body"] != render_to_string("common/emails/malware_detected_user.html", ctx)

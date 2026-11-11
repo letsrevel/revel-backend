@@ -4,7 +4,7 @@ from datetime import time, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from django.utils import timezone, translation
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from notifications.enums import DeliveryChannel, DeliveryStatus
@@ -233,11 +233,11 @@ class TestNotificationDigest:
     ) -> None:
         """Subject uses each locale's own plural form, not an English 's' suffix."""
         # Arrange
+        regular_user.language = language
         digest = NotificationDigest(regular_user, Notification.objects.filter(user=regular_user))
 
-        # Act
-        with translation.override(language):
-            subject, _text_body, _html_body = digest.build_digest_content()
+        # Act: no override here; the digest renders in the recipient's language itself
+        subject, _text_body, _html_body = digest.build_digest_content()
 
         # Assert
         assert subject == expected

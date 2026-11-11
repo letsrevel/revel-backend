@@ -86,7 +86,7 @@ def test_resend_link_carries_encoded_return_url(
         account_service.resend_verification_email(unverified_user.email, return_url=_OAUTH_RETURN_URL)
 
     mock_delay.assert_called_once()
-    assert mock_delay.call_args.kwargs["context"] == {"return_url": _OAUTH_RETURN_URL}
+    assert mock_delay.call_args.kwargs["context"] == {"language": "en", "return_url": _OAUTH_RETURN_URL}
 
     link = _sent_link(mock_send)
     query = parse_qs(urlsplit(link).query, strict_parsing=True)
@@ -107,7 +107,9 @@ def test_resend_link_unchanged_without_return_url(
 
     # The dispatched message keeps its exact pre-return_url shape (no ``context`` kwarg).
     token = mock_delay.call_args.kwargs["token"]
-    mock_delay.assert_called_once_with(AccountEmail.VERIFICATION, unverified_user.email, token=token)
+    mock_delay.assert_called_once_with(
+        AccountEmail.VERIFICATION, unverified_user.email, token=token, context={"language": unverified_user.language}
+    )
     assert "returnUrl" not in _sent_link(mock_send)
 
 
@@ -124,4 +126,4 @@ def test_endpoint_threads_return_url_to_task(mock_delay: MagicMock, client: Clie
 
     assert response.status_code == 200
     mock_delay.assert_called_once()
-    assert mock_delay.call_args.kwargs["context"] == {"return_url": _OAUTH_RETURN_URL}
+    assert mock_delay.call_args.kwargs["context"] == {"language": "en", "return_url": _OAUTH_RETURN_URL}

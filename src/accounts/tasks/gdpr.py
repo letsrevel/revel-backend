@@ -9,7 +9,8 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.template.loader import render_to_string
-from django.utils import timezone
+from django.utils import timezone, translation
+from django.utils.translation import gettext as _
 
 from accounts.exceptions import ReferralPayoutInFlightError
 from accounts.models import RevelUser, UserDataExport
@@ -53,29 +54,32 @@ def _notify_data_export_failed(user: RevelUser, error: str) -> None:
 
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
 
+    # Celery workers have no active language: render each email in its recipient's.
     # Notify the user that something went wrong
-    subject = str(render_plain_text("accounts/emails/data_export_failed_subject.txt"))
-    body = render_plain_text("accounts/emails/data_export_failed_body.txt", {"user": user})
-    html_body = render_to_string(
-        "accounts/emails/data_export_failed_body.html",
-        {"user": user, "frontend_base_url": frontend_base_url},
-    )
+    with translation.override(user.language):
+        subject = str(render_plain_text("accounts/emails/data_export_failed_subject.txt"))
+        body = render_plain_text("accounts/emails/data_export_failed_body.txt", {"user": user})
+        html_body = render_to_string(
+            "accounts/emails/data_export_failed_body.html",
+            {"user": user, "frontend_base_url": frontend_base_url},
+        )
     send_email(to=user.email, subject=subject, body=body, html_body=html_body)
 
     # Notify admins
-    subject = str(render_plain_text("accounts/emails/data_export_failed_admin_subject.txt"))
     admins = RevelUser.objects.filter(Q(is_superuser=True) | Q(is_staff=True))
     admin_count = admins.count()
     logger.info("gdpr_export_admin_notification_sending", user_id=str(user.id), admin_count=admin_count)
     for admin in admins:
-        body = render_plain_text(
-            "accounts/emails/data_export_failed_admin_body.txt",
-            {"user": user, "error_message": data_export.error_message},
-        )
-        html_body = render_to_string(
-            "accounts/emails/data_export_failed_admin_body.html",
-            {"user": user, "error_message": data_export.error_message, "frontend_base_url": frontend_base_url},
-        )
+        with translation.override(admin.language):
+            subject = str(render_plain_text("accounts/emails/data_export_failed_admin_subject.txt"))
+            body = render_plain_text(
+                "accounts/emails/data_export_failed_admin_body.txt",
+                {"user": user, "error_message": data_export.error_message},
+            )
+            html_body = render_to_string(
+                "accounts/emails/data_export_failed_admin_body.html",
+                {"user": user, "error_message": data_export.error_message, "frontend_base_url": frontend_base_url},
+            )
         send_email(to=admin.email, subject=subject, body=body, html_body=html_body)
 
 
@@ -91,14 +95,15 @@ def _notify_user_data_export_ready(data_export: UserDataExport) -> None:
     signed_path = generate_signed_url(data_export.file.name, expires_in=DATA_EXPORT_URL_EXPIRES_IN)
     download_url = settings.BASE_URL.rstrip("/") + signed_path
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
-    subject = "Your Revel Data Export is Ready"
-    body = render_plain_text(
-        "accounts/emails/data_export_ready_body.txt", {"download_url": download_url, "user": data_export.user}
-    )
-    html_body = render_to_string(
-        "accounts/emails/data_export_ready_body.html",
-        {"download_url": download_url, "user": data_export.user, "frontend_base_url": frontend_base_url},
-    )
+    with translation.override(data_export.user.language):
+        subject = str(_("Your Revel Data Export is Ready"))
+        body = render_plain_text(
+            "accounts/emails/data_export_ready_body.txt", {"download_url": download_url, "user": data_export.user}
+        )
+        html_body = render_to_string(
+            "accounts/emails/data_export_ready_body.html",
+            {"download_url": download_url, "user": data_export.user, "frontend_base_url": frontend_base_url},
+        )
     send_email(to=data_export.user.email, subject=subject, body=body, html_body=html_body)
 
 

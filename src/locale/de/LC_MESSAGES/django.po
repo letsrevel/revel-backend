@@ -7604,3 +7604,18 @@ msgstr "ausschließlich Eingeladenen und Mitgliedern"
 #: src/events/models/ticket.py
 msgid "Non-members only"
 msgstr "ausschließlich Nichtmitgliedern"
+
+msgid "Your Revel Data Export is Ready"
+msgstr "Dein Revel-Datenexport ist bereit"
+
+msgid "Malware detected in your upload"
+msgstr "Schadsoftware in deinem Upload erkannt"
+
+msgid "Malware detected in organization-related upload"
+msgstr "Schadsoftware in einem Upload deiner Organisation erkannt"
+
+msgid "Not set"
+msgstr "Nicht festgelegt"
+
+msgid "Changed"
+msgstr "Geändert"

@@ -15,6 +15,7 @@ from django.utils import translation
 from django.utils.translation import gettext as _
 
 from accounts.models import RevelUser
+from accounts.utils.language import recipient_language
 from common.keys import decode_jwt, verification_keys
 from common.models import SiteSettings
 from common.tasks import send_email
@@ -154,11 +155,10 @@ def _confirmation_org(organization_id: str | None, token: str) -> Organization |
 def _guest_language(email: str) -> str:
     """The guest user's stored language (set at RSVP/checkout), else the platform default.
 
-    The tasks keep their signatures (rolling-deploy safety), so the language is read from the
+    The tasks keep their signatures (rolling-deploy safety), so the language is resolved from the
     guest row looked up by email instead of being passed in.
     """
-    language = RevelUser.objects.filter(email__iexact=email).values_list("language", flat=True).first()
-    return language or str(settings.LANGUAGE_CODE)
+    return recipient_language(email)
 
 
 def _tenant_sender(org: Organization | None, kind: str) -> dict[str, t.Any]:

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import structlog
 from django.db.models import QuerySet
 from django.template.loader import render_to_string
-from django.utils import timezone
+from django.utils import timezone, translation
 from django.utils.translation import ngettext
 
 from accounts.models import RevelUser
@@ -54,8 +54,14 @@ class NotificationDigest:
         """Build digest email content.
 
         Returns:
-            Tuple of (subject, text_body, html_body)
+            Tuple of (subject, text_body, html_body), rendered in the user's language
+            (Celery workers have no active language of their own).
         """
+        with translation.override(self.user.language):
+            return self._build_digest_content()
+
+    def _build_digest_content(self) -> tuple[str, str, str]:
+        """Render the digest; callers must have the recipient's language active."""
         # Count totals
         total_count = self.notifications.count()
 
