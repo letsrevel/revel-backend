@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.36.1] - 2026-11-11
+
+### Changed
+- **Emailed link tokens return a machine-readable error code**: an invalid or expired link (email verification, password reset, email-change confirmation, account deletion, organization contact-email verification, unsubscribe and one-click unsubscribe) now returns 400 with `code: "invalid_token"` or `code: "token_expired"` (`LinkTokenErrorSchema`), so clients no longer match the translated message.
+
+### Security
+- Invalid link-token errors no longer include the token decoder's internal error text; the response says only "Invalid token." and the details stay in the server log.
+
 ## [2.36.0] - 2026-11-08
 
 ### Added
