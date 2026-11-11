@@ -289,11 +289,11 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
     # controls who can buy tickets. For example, a tier may be visible to all but only purchasable
     # by members or invitees. If you change these choices, ensure you update related business logic.
     class PurchasableBy(models.TextChoices):
-        PUBLIC = "public", "General public"
-        MEMBERS = "members", "Members only"
-        INVITED = "invited", "Invitees only"
-        INVITED_AND_MEMBERS = "invited_and_members", "Invited and Members only"
-        NON_MEMBERS = "non_members", "Non-members only"
+        PUBLIC = "public", _("General public")
+        MEMBERS = "members", _("Members only")
+        INVITED = "invited", _("Invitees only")
+        INVITED_AND_MEMBERS = "invited_and_members", _("Invited and Members only")
+        NON_MEMBERS = "non_members", _("Non-members only")
 
     class PaymentMethod(models.TextChoices):
         ONLINE = "online", "Online"
