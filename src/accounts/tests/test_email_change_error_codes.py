@@ -53,6 +53,30 @@ def test_email_taken_returns_code(client: Client, user: RevelUser, django_user_m
     assert body["detail"] == gettext("This email is already in use.")
 
 
+def test_email_taken_code_is_stable_in_another_locale(
+    client: Client, user: RevelUser, django_user_model: t.Type[RevelUser]
+) -> None:
+    """The ``code`` stays the same while the ``detail`` follows the request locale (the reason the code exists)."""
+    from django.utils import translation
+
+    token = _make_change_token(user, "taken-de@example.com")
+    django_user_model.objects.create_user(username="taken-de@example.com", email="taken-de@example.com", password="x")
+    english = "This email is already in use."
+    with translation.override("de"):
+        german = gettext(english)
+    assert german != english  # the German catalog must translate it
+
+    response = client.post(
+        reverse("api:email-change-confirm"),
+        data=orjson.dumps({"token": token}),
+        content_type="application/json",
+        HTTP_ACCEPT_LANGUAGE="de",
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": german, "code": "email_taken"}
+
+
 def test_integrity_race_returns_email_taken_code(
     client: Client, user: RevelUser, django_user_model: t.Type[RevelUser]
 ) -> None:
