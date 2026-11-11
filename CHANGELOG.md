@@ -7,16 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.36.0] - 2026-11-08
+
 ### Added
+- **Member register** (#1318, #1319): each organization gets a legal register of membership periods (`MembershipRecord`), kept even when a member deletes their Revel account. The link to the account is cleared and the name snapshot stays.
+  - Joins, cancellations, bans, tier changes and removals are recorded automatically, with their source and any questionnaire acceptance. A pause without a tier change keeps the member's open entry as it is, so pauses don't appear in the register. Existing memberships are backfilled on migration with `source=backfill`; their dates are approximate.
+  - Organization admin API under `/organization-admin/{slug}/member-register`:
+    - list with filters (kind, tier, open/closed, ended, has account, a person's own periods via `user_id`, member on a calendar day in the organization's timezone, name/email search). Organization responses include that resolved `timezone`. Entries absorbed by a merge are hidden unless `include_merged=true`; `merged_into=<entry>` lists the entries merged into one survivor;
+    - each entry shows whether it is current (`is_current`) and whether it has a note (`has_note`). For entries linked to an account it also shows the membership status (`member_status`) and a subscription summary (status, plan, period end, cancel at period end);
+    - add manual entries for people without an account, edit, end, and delete (owner only);
+    - xlsx export, optionally of the members on a given day. Merged entries are left out unless `include_merged` is set; an export of a given day never includes them.
+  - `GET /organization-admin/{slug}/members/{user_id}` returns one member's access row in any status, with the same permissions as the member list.
+  - `GET /organization-admin/{slug}/users/lookup?email=` finds an account by its exact, verified email, so staff can add an existing user as a member. It's rate limited (30 per hour) and needs a logged-in session with the members permission. A match returns the account; every miss (no account, unverified email, guest or inactive account) returns the same `user_not_found`, so a miss doesn't reveal which of these applies.
+  - Linking entries to accounts:
+    - invitation links, sent singly or in bulk, for open standard entries; any account can claim one. Each entry reports whether it can be invited (`can_invite`, `invite_blocked_reason`), and a refused claim returns a `code` (`already_member`, `not_started`);
+    - automatic linking on a verified, exact email match, with a staff alert (`STAFF_MEMBER_RECORD_AUTO_LINKED`);
+    - register matches on membership applications, with approve-and-link. When an approval is refused, the 400 carries a `code` and says whether `force` can override it (`forceable`);
+    - a possible-duplicates view, merge and unlink.
+
+    Entries record how and when they were linked (`linked_via`, `linked_at`).
+  - A user's own register entries are included in their data export. The account-deletion email notes that organizations keep their own membership records.
+- **Private organizer notes** (#1314): staff with `manage_members` can keep one private note per member or attendee (`GET|PUT|DELETE /organization-admin/{slug}/users/{user_id}/note`). The note shows the editor's name (`updated_by_name`).
+  - Register entries without an account can carry a note too (`/organization-admin/{slug}/member-register/{record_id}/note`); for an entry linked to an account, this route edits that person's note.
+  - When an entry is linked to an account, its note moves to that person. If the person already has a note, the entry's text is appended under a dated separator; anything beyond the 5000-character limit is cut, with a marker. If the person's note already leaves no room, the entry's note is dropped, so copy it first if it matters.
+  - Door staff (`check_in_attendees`) see the note in ticket, series-pass and member-card check-in responses and in member verification. They also see it on the single-ticket admin view (`GET /event-admin/{event_id}/tickets/{ticket_id}`), so it shows before they confirm the check-in.
+  - Notes never appear on member- or attendee-facing responses, exports or notifications, and OAuth app tokens can't read them.
+- **Ticket tiers not purchasable by members** (#1316): a tier can be `purchasable_by=non_members`, optionally narrowed with `excluded_membership_tiers` ("everyone except members of these tiers"). Excluded members still see the tier, but checkout refuses with the `choose_another_tier` next step. Series passes accept `non_members` too.
+- Admin ticket list and detail include the day-membership record each ticket produced (`membership_record`), or `null` if it produced none
+- The admin membership-tier list accepts a `kind` filter (`standard` / `temporary`)
+- **Django admin organizer activity**: the admin dashboard shows the manually created events per week, grouped by organization. Organization and event admin lists are ordered by newest first and show city, created date and View-on-Revel links. Dashboard event totals no longer count series templates.
 - **Day memberships granted by tickets** (#1320, #1321): a valid ticket (ACTIVE, or checked in straight from PENDING) of a tier with `grants_membership_tier` creates a temporary membership-register record for the holder. It covers the event's window and stores the admission questionnaire acceptance that satisfied the event or series gate. It is granted on every issuance path: checkout, free, offline confirm, Stripe, door check-in, box office sales and comps, and series-pass purchase/confirm/materialize/backfill (one record per pass ticket, for its own event).
   - Cancelling or unconfirming the ticket revokes the record while the event hasn't started and the person isn't checked in; a later re-confirm reopens the same record. Banning a person, or deleting an event that hasn't started, revokes upcoming day records. Changing an event's dates before it ends moves its day records.
   - Day members get no platform privileges: they count as non-members everywhere.
   - Ticket check-in and member-card scan responses include a read-only `membership` block (standard tier, or day member with `valid_until`)
 - **Temporary (day-membership) tiers** (#1320): a membership tier can be created as `temporary`. Temporary tiers can't be held by members, applied for, given subscription plans, granted by organization tokens, or used for ticket-tier restrictions, poll tiers or announcement targets. A ticket tier can name one in `grants_membership_tier_id`. Such a ticket tier can't be purchasable by members only, must allow one ticket per person, and is not synced to external listing platforms.
 - **Series pass quote shows the questionnaire requirement** (#1323): for signed-in buyers, the pass quote lists the series admission questionnaires still to answer and the event to answer them through, so the questionnaire step can be shown before checkout
+- **Edit and void manual membership payments** (#1366): `PATCH /organization-admin/{slug}/payments/{payment_id}` corrects the amount, status, date or notes of a hand-recorded payment on an offline plan, and `POST .../payments/{payment_id}/void` (optional `notes`) voids one entered by mistake.
+  - Status and date changes, and voids, apply only to the subscription's latest payment; the payment's period and the subscription's current period and status are recalculated, with no notifications sent.
+  - Voided payments stay in the ledger for the audit trail but never count as revenue. Staff payment lists hide them unless `include_voided=true`; members never see them.
+  - Refusals return 409 with a `code`: `payment_online`, `payment_refunded`, `payment_voided`, `payment_not_latest`, `subscription_terminal`. Payment responses include `can_edit` and `can_void`. Invalid input returns 400 without a `code`: an `occurred_at` in the future, or a change that would leave an already-lapsed billing period.
+  - The membership payment status enum is now its own OpenAPI component, `MembershipPaymentStatus` (it gained `voided`).
+- **Backdated first payment** (#1366): creating a subscription accepts `initial_payment_occurred_at`, so a payment made before the subscription was entered anchors its period. It is refused (400) if it lies in the future or its billing period has already ended, e.g. a monthly payment from two months ago.
+- **Register filter for an exact instant** (#1365): the register list accepts `active_at` (a timezone-aware datetime), which returns only the entries covering that moment. `active_on` covers the whole calendar day. Sending both returns 400.
+- **Staff can change a subscription's plan** (#1367): `POST /organization-admin/{slug}/subscriptions/{sub_id}/change-plan` (`{plan_id}`) moves an offline or free subscription onto another plan of the organization. The switch is immediate, the member's tier follows the new plan, and no notification is sent. Online subscriptions are refused (`plan_change_online`): members change those themselves. Refusals return 409 with a `code`; a plan that is sold out returns 400 without one.
+- Adding someone who is already a member (`POST /organization-admin/{slug}/members/{user_id}`) returns its 400 with `code: "already_member"` (#1363), so clients can tell it apart from other errors. The message is unchanged.
+
+### Upgrade notes
+- Production and demo upgrade normally: the release's migrations (`events` 0139–0142, `polls` 0003, `common` 0020, `notifications` 0038–0039) apply in a rolling deploy.
+- The unreleased `events` migrations were squashed into `0140_membershiprecord` before this release. A dev or beta database that applied the old, unsquashed chain must have reached `0147_register_entry_notes` before upgrading (otherwise columns are missing, since the regenerated `0140` counts as applied); bring it to `0147` on the previous code first, or reset it. After upgrading, `manage.py migrate events --prune` removes the stale `0142`–`0147` rows.
 
 ### Changed
-- **Series passes can cover questionnaire-gated events** (#1320): passes can be created on, or extended to, series and events with admission questionnaires. A pass purchase now also requires the admission questionnaires of each upcoming covered event (an event's `per_event` questionnaire needs a submission for that event), and the quote lists them all. Existing pass holders still receive tickets for events added later, without answering those events' questionnaires
+- **A member's tier follows their subscription plan** (#1367): changing or clearing a member's tier while they have a live subscription now returns 409 `tier_follows_subscription`, since the subscription would revert it and keep billing the old plan. Change the plan instead. Staff member responses include `tier_locked_by_subscription` and `subscription_id`.
+- **Merging register entries keeps the survivor's start date** (#1365): merging an open entry without an account no longer moves the surviving entry's `valid_from` back to the absorbed entry's start, which could make two periods overlap. The absorbed entry keeps its own dates and stays visible as merged.
+- **External listings only carry public tiers** (#1332): tiers that aren't `public` are no longer listed on external platforms such as Eventbrite, because the platform can't enforce member, invitee or non-member rules.
+  - Organizers see why a tier wasn't listed: `tier_purchase_restricted`, `tier_grants_membership` for day-membership tiers, or `tier_members_only`.
+  - A tier that was already listed and becomes restricted is removed from the platform if nothing sold there; otherwise it is hidden.
+- **Series-pass tier links follow purchase rules** (#1332): a pass can no longer link a tier whose purchase rule is stricter than the pass's own. Examples: a public pass linking a members-only or non-members tier, or a tier restricted to membership tiers. This is checked when a link is created, when it moves to another tier or pass, and when the pass's rule changes. Existing links are left as they are. Making an already linked tier's own rule stricter is not checked yet (#1341).
+- **Series passes can cover questionnaire-gated events** (#1320): passes can be created on, or extended to, series and events with admission questionnaires. A pass purchase now also requires the admission questionnaires of each upcoming covered event (an event's `per_event` questionnaire needs a submission for that event). The quote lists them all, and so does the checkout's 400 eligibility response (`questionnaire_events`, giving the event to answer each one through). Existing pass holders still receive tickets for events added later, without answering those events' questionnaires
 - **Fewer queries when buying a series pass** (#1327): the series questionnaire check no longer loads the full event eligibility data
 - **Membership access checks share one set of predicates**: visibility and eligibility rules for membership status now live in one module, and a guard test fails when new code writes an inline membership status filter
 - **Fewer queries in event eligibility checks**: one fewer database query per eligibility check
@@ -24,10 +71,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - PENDING ticket holders (e.g. an unconfirmed bank transfer) no longer appear on attendee lists or see attendee-only info (address, cancellation reason, attendee-only resources and polls) until their ticket is active; they still see their event and receive its updates
 
 ### Fixed
+- **Transactional emails now arrive in the recipient's language** (#1372). Background workers had no language set, so these emails went out in English even though their templates are translated:
+  - account emails: verification, password reset, email change (including the message to the new address) and deletion;
+  - verification reminders and the deactivation notice;
+  - data-export emails, the referral payout statement and the malware notice;
+  - the notification digest, whose group headers are now translated too;
+  - event-update notifications, which were built in the editor's language;
+  - pending event invitations.
+- **Translations** (#1370):
+  - "Voided" no longer shares its German, French and Italian label with "Cancelled".
+  - The ticket purchase-rule labels in the "can be purchased by" message are now translated.
+  - All five languages use gender-inclusive wording, with no typographic gender marks, which screen readers read badly.
+  - Portuguese strings are consistently European Portuguese.
+  - The German, French and Italian email sign-off has its line break back.
+- Plain-text email parts no longer show HTML entities in names (for example `Rock &amp; Roll` or `O&#x27;Brien`). This covers notification, account, invoice and digest emails; HTML parts still escape.
 - **Series pass purchase enforces admission questionnaires** (#1321): buying a series pass now requires completing the series' admission questionnaires. This affects series where an admission questionnaire was attached after the pass was created (the coverage gate already blocked the rest). Buyers answer once for the whole pass, regardless of `per_event`, and an event invitation does not waive it. Members exempt from a questionnaire stay exempt.
 - **Paused members see members-only tiers consistently**: the eligible-tiers listing now shows members-only-visible ticket tiers to paused members, matching checkout. A paused member can buy such a tier only if it is purchasable by non-members (e.g. public); they still cannot buy member-only or membership-tier-restricted tiers
 - **Dashboard "member" filters skip inactive memberships**: the organization, event and series filters no longer list organizations, events or series where the membership is cancelled or banned
 - **Series-pass tickets now update attendee counts right away**: free series-pass purchases, tickets granted when an online pass activates, and tickets added to existing holders when an event joins the series now refresh the event's attendee count, "full" status and attendee visibility immediately, instead of waiting for an unrelated ticket or RSVP change
+
+### Security
+- A voided membership payment can no longer be refunded (#1368). Refunding one now returns 409 `payment_voided`. Before, the voided row became REFUNDED and showed up in the revenue report as money that was never collected.
+- **Server-side logout**: new `POST /api/auth/logout` (`{refresh}`). It revokes the presented refresh token and every token rotated from the same login, so an older copy can't sign the session back in. Other devices stay signed in.
+- **Revocation now reaches refreshed sessions**: refresh tokens issued by rotation are recorded, so a password reset, email change, global ban or tenant-domain revoke now ends sessions that had already refreshed (before, these sessions escaped revocation)
+- **Refresh-token reuse grace** (`REFRESH_TOKEN_REUSE_GRACE_SECONDS`, default 30, 0 = strict): a refresh token presented again within the grace window after its own rotation gets one fresh pair, so reloading a page during a token refresh no longer signs the user out.
+  - It applies only to tokens blacklisted by rotation, and only while the login's session is still alive. After a logout, reset, ban or revoke, nothing can be revived.
+  - A second reuse within the window is rejected. If the cache is unavailable, the grace is refused and the old token can't be reused.
+- `oauthlib` upgraded to 4.0.1 (CVE-2026-49272), used by the OAuth provider and Google sign-in
 
 ## [2.35.0] - 2026-11-05
 
