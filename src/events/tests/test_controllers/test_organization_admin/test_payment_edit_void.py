@@ -419,6 +419,24 @@ class TestVoid:
         assert sub.current_period_end == first.period_end
         assert sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
 
+    def test_voided_payment_cannot_be_refunded(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        sub: MembershipSubscription,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """A voided row never changed hands: refunding it must not put it back into revenue as REFUNDED."""
+        second = _record(sub, organization_owner_user)
+        assert _void(organization_owner_client, organization, second).status_code == 200
+        url = reverse("api:refund_subscription_payment", kwargs={"slug": organization.slug, "payment_id": second.id})
+        resp = organization_owner_client.post(url, {"notes": "oops"}, content_type="application/json")
+        assert resp.status_code == 409, resp.content
+        assert resp.json()["code"] == "payment_voided"
+        second.refresh_from_db()
+        assert second.status == MembershipPayment.PaymentStatus.VOIDED
+        assert second.refund_amount is None
+
     def test_void_without_body(
         self, organization_owner_client: Client, organization: Organization, sub: MembershipSubscription
     ) -> None:

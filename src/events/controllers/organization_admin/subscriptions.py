@@ -646,7 +646,12 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     @route.post(
         "/payments/{payment_id}/refund",
         url_name="refund_subscription_payment",
-        response={200: schema.MembershipPaymentSchema, 400: ErrorDetail, 404: ErrorDetail},
+        response={
+            200: schema.MembershipPaymentSchema,
+            400: ErrorDetail,
+            404: ErrorDetail,
+            409: schema.MembershipPaymentEditRefusedSchema,
+        },
     )
     def refund_payment(
         self,
