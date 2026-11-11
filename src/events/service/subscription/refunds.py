@@ -11,8 +11,10 @@ import structlog
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from accounts.models import RevelUser
+from events.exceptions import MembershipPaymentEditRefusalCode, MembershipPaymentEditRefusedError
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
 from events.service.subscription import notifications
 from events.service.subscription.stripe import checkout as stripe_checkout
@@ -95,11 +97,18 @@ def refund_payment(
     If the refund fully covers the subscription's current period, also
     cancels the subscription immediately (the Stripe-side cancel is deferred
     to after commit — see :func:`_cancel_refunded_subscription`). Idempotent:
-    re-calling for an already-REFUNDED payment is a no-op.
+    re-calling for an already-REFUNDED payment is a no-op. A VOIDED payment is
+    refused (409 ``payment_voided``).
     """
     payment = MembershipPayment.objects.select_for_update().get(pk=payment.pk)
     if payment.status == MembershipPayment.PaymentStatus.REFUNDED:
         return payment
+    if payment.status == MembershipPayment.PaymentStatus.VOIDED:
+        # A voided row never changed hands; refunding it would put fake money back into revenue
+        # and lock the row (refunded rows are not editable). Checked under the lock: a racing void wins.
+        raise MembershipPaymentEditRefusedError(
+            MembershipPaymentEditRefusalCode.PAYMENT_VOIDED, str(_("This payment has been voided."))
+        )
     payment.status = MembershipPayment.PaymentStatus.REFUNDED
     # Keep the audit trail consistent with the partial-refund path: a full
     # refund is still a refund, and organizers read these fields rather than
