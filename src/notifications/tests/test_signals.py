@@ -843,7 +843,10 @@ class TestEventCancelledNotificationReason:
         assert "refund_info" not in context
         assert context["refund_available"] is requires_ticket
 
-        german = "Rückerstattungen werden gemäß der Rückerstattungsrichtlinie des Veranstalters bearbeitet."
+        english = "Refunds will be processed according to the organizer's refund policy."
+        with translation.override("de"):
+            german = translation.gettext(english)  # read from the catalog: wording may evolve
+        assert german != english  # the German catalog must actually translate it
         for template in ("email/event_cancelled.txt", "in_app/event_cancelled.md", "telegram/event_cancelled.md"):
             with translation.override("de"):
                 body = render_to_string(f"notifications/{template}", {"context": context, "user": user})

@@ -5492,7 +5492,7 @@ msgstr ""
 "von <strong>%(holder)s</strong> wurde storniert."
 
 msgid "Holder:"
-msgstr "Ticket auf den Namen:"
+msgstr "Auf den Namen:"
 
 #, python-format
 msgid ""
