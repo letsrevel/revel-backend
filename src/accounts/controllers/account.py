@@ -156,7 +156,7 @@ class AccountController(UserAwareController):
     @route.post(
         "/verify",
         tags=["Account"],
-        response=schema.VerifyEmailResponseSchema,
+        response={200: schema.VerifyEmailResponseSchema, 400: schema.LinkTokenErrorSchema | ErrorDetail},
         url_name="verify-email",
         auth=None,
     )
@@ -211,7 +211,11 @@ class AccountController(UserAwareController):
     @route.post(
         "/delete-confirm",
         tags=["Account"],
-        response={200: ResponseMessage, 409: schema.ReferralForfeitureSchema},
+        response={
+            200: ResponseMessage,
+            400: schema.LinkTokenErrorSchema | ErrorDetail,
+            409: schema.ReferralForfeitureSchema,
+        },
         url_name="delete-account-confirm",
         auth=None,
     )
@@ -253,7 +257,7 @@ class AccountController(UserAwareController):
     @route.post(
         "/password/reset",
         tags=["Account"],
-        response=ResponseMessage,
+        response={200: ResponseMessage, 400: schema.LinkTokenErrorSchema | ErrorDetail},
         url_name="reset-password",
         auth=None,
     )
@@ -302,7 +306,7 @@ class AccountController(UserAwareController):
     @route.post(
         "/email-change-confirm",
         tags=["Account"],
-        response=schema.EmailChangeResponseSchema,
+        response={200: schema.EmailChangeResponseSchema, 400: schema.LinkTokenErrorSchema | ErrorDetail},
         url_name="email-change-confirm",
         auth=None,
         throttle=WriteThrottle(),

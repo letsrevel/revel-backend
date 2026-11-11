@@ -17,6 +17,7 @@ from ninja_jwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from ninja_jwt.tokens import RefreshToken
 
 from accounts import schema
+from accounts.exceptions import LinkTokenError
 from accounts.jwt import create_token
 from accounts.models import GlobalBan, RevelUser
 from accounts.service import account as account_service
@@ -219,9 +220,9 @@ class TestConfirmEmailChange:
 
     def test_expired_token(self, user: RevelUser) -> None:
         token = _make_change_token(user, "new@example.com", expired=True)
-        with pytest.raises(HttpError) as exc:
+        with pytest.raises(LinkTokenError) as exc:
             account_service.confirm_email_change(token)
-        assert exc.value.status_code == 400
+        assert exc.value.code == "token_expired"
 
     @patch("accounts.tasks.send_account_email.delay")
     def test_blacklisted_token_rejected(self, mock_send: MagicMock, user: RevelUser) -> None:

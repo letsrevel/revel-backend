@@ -8,6 +8,7 @@ from django.utils import translation
 from ninja.errors import HttpError
 from ninja_jwt.tokens import RefreshToken
 
+from accounts.exceptions import LinkTokenError
 from accounts.models import RevelUser
 from accounts.schema import RegisterUserSchema
 from accounts.service.account import register_user, token_to_payload
@@ -102,7 +103,7 @@ def test_token_expiry_error_translation_german() -> None:
     expired_token = jwt.encode({"exp": 0}, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
     with translation.override("de"):
-        with pytest.raises(HttpError, match="abgelaufen"):
+        with pytest.raises(LinkTokenError, match="abgelaufen"):
             token_to_payload(expired_token, VerifyEmailJWTPayloadSchema)
 
 
@@ -117,7 +118,7 @@ def test_token_expiry_error_translation_italian() -> None:
     expired_token = jwt.encode({"exp": 0}, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
     with translation.override("it"):
-        with pytest.raises(HttpError, match="scaduto"):
+        with pytest.raises(LinkTokenError, match="scaduto"):
             token_to_payload(expired_token, VerifyEmailJWTPayloadSchema)
 
 
@@ -132,7 +133,7 @@ def test_token_expiry_error_translation_french() -> None:
     expired_token = jwt.encode({"exp": 0}, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
     with translation.override("fr"):
-        with pytest.raises(HttpError, match="expiré"):
+        with pytest.raises(LinkTokenError, match="expiré"):
             token_to_payload(expired_token, VerifyEmailJWTPayloadSchema)
 
 

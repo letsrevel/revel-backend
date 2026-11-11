@@ -6,6 +6,8 @@ registered on the global API from :meth:`accounts.apps.AccountsConfig.ready`.
 
 import typing as t
 
+from django.db import models
+
 if t.TYPE_CHECKING:  # pragma: no cover - typing only
     from accounts.service.referral_cleanup import ReferralForfeitureSummary
 
@@ -98,3 +100,23 @@ class ReferralAlreadyActiveError(ReferralApplicationError):
 
 class TurnstileFailedError(Exception):
     """Raised when a registration's Turnstile token is missing or rejected by Cloudflare (400)."""
+
+
+class LinkTokenErrorCode(models.TextChoices):
+    """Stable machine-readable reasons a single-use link token is refused. Renaming a value is breaking."""
+
+    INVALID_TOKEN = "invalid_token"
+    TOKEN_EXPIRED = "token_expired"
+
+
+class LinkTokenError(Exception):
+    """Raised when an emailed link token (verify, reset, confirm, unsubscribe...) cannot be used (400).
+
+    The handler renders ``{"detail": <translated message>, "code": <code>}``. The message never
+    carries decoder internals; those stay in the server log.
+    """
+
+    def __init__(self, code: LinkTokenErrorCode, message: str) -> None:
+        """Store the machine code and the translated, user-safe message."""
+        super().__init__(message)
+        self.code = code

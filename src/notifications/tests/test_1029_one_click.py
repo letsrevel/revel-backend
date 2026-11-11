@@ -10,6 +10,7 @@ from django.test import Client
 from django.utils import timezone
 from ninja.errors import HttpError
 
+from accounts.exceptions import LinkTokenError
 from accounts.jwt import create_token
 from accounts.models import RevelUser
 from common.models import SiteSettings
@@ -213,5 +214,5 @@ def test_confirm_unsubscribe_accepts_typed_token(regular_user: RevelUser, organi
 def test_confirm_unsubscribe_rejects_email_opt_out_token() -> None:
     token = generate_email_opt_out_token("invitee@example.com", organization_id=None)
 
-    with pytest.raises(HttpError):
+    with pytest.raises(LinkTokenError):
         confirm_unsubscribe(token, UpdateNotificationPreferenceSchema(silence_all_notifications=True))  # type: ignore[call-arg]

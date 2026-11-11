@@ -8,7 +8,7 @@ from ninja.errors import HttpError
 from ninja.files import UploadedFile
 from ninja_extra import api_controller, route
 
-from accounts.schema import VerifyEmailSchema
+from accounts.schema import LinkTokenErrorSchema, VerifyEmailSchema
 from common.authentication import I18nJWTAuth, ScopedJWTAuth
 from common.schema import EmailSchema, ErrorDetail, ValidationErrorResponse
 from common.service.upload_service import safe_save_uploaded_file
@@ -163,7 +163,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
     @route.post(
         "/verify-contact-email",
         url_name="verify_contact_email",
-        response={200: schema.OrganizationRetrieveSchema},
+        response={200: schema.OrganizationRetrieveSchema, 400: LinkTokenErrorSchema | ErrorDetail},
         # An unsafe method whose only scope gate would be ``org:read`` (it declares no route-level
         # permissions and resolves the organization from the emailed token, not from ``slug``, so
         # no object check runs either). Confirming an email link is a browser/session flow, not an

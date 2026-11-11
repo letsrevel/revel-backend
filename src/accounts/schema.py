@@ -10,6 +10,7 @@ from ninja import ModelSchema, Schema
 from ninja_jwt.schema import TokenObtainPairOutputSchema
 from pydantic import UUID4, AwareDatetime, EmailStr, Field, field_serializer, field_validator, model_validator
 
+from accounts.exceptions import LinkTokenErrorCode
 from accounts.password_validation import validate_password
 from common.schema import (
     BillingInfoSchemaMixin,
@@ -568,3 +569,14 @@ class StatementDownloadURLSchema(Schema):
     """Schema for payout statement PDF download URL response."""
 
     download_url: str
+
+
+class LinkTokenErrorSchema(Schema):
+    """400 body when an emailed link token is invalid or expired.
+
+    ``detail`` is translated and must never be matched on; ``code`` is the stable
+    machine-readable discriminator.
+    """
+
+    detail: str
+    code: LinkTokenErrorCode
