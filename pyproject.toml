@@ -53,7 +53,7 @@ dependencies = [
     "markdownify>=1.2.3",
     "nh3>=0.3.6",
     "openpyxl>=3.1.5",
-    "opentelemetry-api>=1.44.0",
+    "opentelemetry-api>=1.45.2",
     "opentelemetry-exporter-otlp>=1.44.0",
     "opentelemetry-instrumentation-celery>=0.65b0",
     "opentelemetry-instrumentation-django>=0.65b0",
@@ -146,12 +146,19 @@ sentinel = [
 # brotli is pulled in by weasyprint[woff] via fonttools (and brotlicffi on
 # non-CPython); 1.2.1 / 1.2.1.0 fix CVE-2026-111497 / GHSA-9v8h-qqgm-4m35
 # ("Node2Shell" out-of-bounds write in the Brotli decoder).
+# soupsieve is pulled in by markdownify via beautifulsoup4; 4.0.0 fixes
+# CVE-2026-126190.
+# tornado is pulled in by flower; 6.6.1 fixes CVE-2026-126347.
+# dnspython is pulled in by email-validator; 2.9.2 fixes CVE-2026-128089.
 constraint-dependencies = [
     "aiohttp>=3.14.3",
     "anyio>=4.14.2",
     "brotli>=1.2.1",
     "brotlicffi>=1.2.1.0",
+    "dnspython>=2.9.2",
     "httplib2>=0.32.0",
+    "soupsieve>=4.0.0",
+    "tornado>=6.6.1",
 ]
 
 [build-system]
