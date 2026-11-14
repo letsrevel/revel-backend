@@ -353,3 +353,14 @@ def test_adopting_unverified_account_rejects_earlier_access_tokens(unverified_us
     request = RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
     with pytest.raises(SessionRevoked):
         I18nJWTAuth().authenticate(request, token)
+
+
+def test_adopting_unverified_account_unlinks_telegram(unverified_user: RevelUser) -> None:
+    from telegram.models import TelegramUser
+
+    tg = TelegramUser.objects.create(telegram_id=4242, telegram_username="someone", user=unverified_user)
+    oidc._resolve_user(GOOGLE, claims(email=unverified_user.email))
+    tg.refresh_from_db()
+    assert tg.user is None
+    unverified_user.refresh_from_db()
+    assert unverified_user.credentials_changed_at is not None
