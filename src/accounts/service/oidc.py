@@ -336,7 +336,6 @@ def _language_from_locale(locale: str | None) -> str:
     return lang if lang in {code for code, _ in settings.LANGUAGES} else str(settings.LANGUAGE_CODE)
 
 
-@transaction.atomic
 def _adopt_unverified_account(user: RevelUser) -> None:
     """Mark an unverified account verified and drop every credential set before this login.
 
@@ -355,6 +354,7 @@ def _adopt_unverified_account(user: RevelUser) -> None:
     logger.info("oidc_unverified_account_adopted", user_id=str(user.id))
 
 
+@transaction.atomic
 def _resolve_user(provider: OIDCProviderConfig, claims: OIDCClaims) -> RevelUser:  # noqa: C901
     """Find the user for verified claims, linking or creating as needed.
 

@@ -60,3 +60,30 @@ def test_failed_jwt_auth_binds_nothing(user: RevelUser) -> None:
         assert "user_id" not in structlog.contextvars.get_contextvars()
     finally:
         structlog.contextvars.clear_contextvars()
+
+
+def test_access_token_issued_before_credential_reset_is_refused(user: RevelUser) -> None:
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from common.auth_base import SessionRevoked
+
+    token = str(RefreshToken.for_user(user).access_token)  # type: ignore[attr-defined]
+    user.credentials_changed_at = timezone.now() + timedelta(seconds=2)
+    user.save(update_fields=["credentials_changed_at"])
+    request = RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    with pytest.raises(SessionRevoked):
+        I18nJWTAuth().authenticate(request, token)
+
+
+def test_access_token_issued_in_the_same_second_as_reset_is_accepted(user: RevelUser) -> None:
+    from django.utils import timezone
+
+    user.credentials_changed_at = timezone.now()
+    user.save(update_fields=["credentials_changed_at"])
+    token = str(RefreshToken.for_user(user).access_token)  # type: ignore[attr-defined]
+    request = RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    assert I18nJWTAuth().authenticate(request, token) == user

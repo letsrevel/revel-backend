@@ -335,3 +335,21 @@ def test_guest_upgrade_clears_guest_notification_defaults(guest_user: RevelUser)
 
     guest_user.notification_preferences.refresh_from_db()
     assert guest_user.notification_preferences.notification_type_settings == get_default_notification_type_settings()
+
+
+def test_adopting_unverified_account_rejects_earlier_access_tokens(unverified_user: RevelUser) -> None:
+    from datetime import timedelta
+
+    from django.test import RequestFactory
+    from django.utils import timezone
+    from ninja_jwt.tokens import RefreshToken
+
+    from common.auth_base import SessionRevoked
+    from common.authentication import I18nJWTAuth
+
+    token = str(RefreshToken.for_user(unverified_user).access_token)  # type: ignore[attr-defined]
+    with patch("accounts.service.oidc.timezone.now", return_value=timezone.now() + timedelta(seconds=2)):
+        oidc._resolve_user(GOOGLE, claims(email=unverified_user.email))
+    request = RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
+    with pytest.raises(SessionRevoked):
+        I18nJWTAuth().authenticate(request, token)
