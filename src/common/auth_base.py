@@ -73,12 +73,22 @@ class BaseJWTAuth(JWTAuth):
         Runs on every authenticated request (e.g. ``accounts`` revokes sessions bound to a custom
         domain that stopped serving).
 
+        Also refuses an access token issued before the user's ``credentials_changed_at``: refresh
+        tokens are blacklisted at that point, and this closes the access token's remaining lifetime.
+        ``iat`` has whole-second precision, so a token minted in the same second still passes.
+
         Raises:
-            SessionRevoked: A registered session validator refused the token's claims.
+            SessionRevoked: A registered session validator refused the token's claims, or the
+                token predates the user's last credential reset.
         """
         if not all(validator(validated_token.payload) for validator in _session_validators):
             raise SessionRevoked
-        return super().get_user(validated_token)
+        user = super().get_user(validated_token)
+        changed_at = getattr(user, "credentials_changed_at", None)
+        issued_at = validated_token.payload.get("iat")
+        if changed_at is not None and issued_at is not None and issued_at < int(changed_at.timestamp()):
+            raise SessionRevoked
+        return user
 
     def authenticate(self, request: HttpRequest, token: str) -> t.Any:
         """Authenticate and verify user permissions.

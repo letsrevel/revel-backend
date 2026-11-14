@@ -372,3 +372,23 @@ def test_full_flow_old_refresh_tokens_invalidated(
     new_jti = pyjwt.decode(new_refresh, options={"verify_signature": False}, algorithms=[settings.JWT_ALGORITHM])["jti"]
     assert not BlacklistedToken.objects.filter(token__jti=new_jti).exists()
     assert new_jti not in old_outstanding_jtis
+
+
+def test_confirm_rechecks_credential_reset_under_lock(user: RevelUser) -> None:
+    """A reset that commits after the unlocked pre-check still voids the link."""
+    from accounts.exceptions import EmailChangeError, EmailChangeErrorCode
+
+    token = _make_change_token(user, "late@example.com")
+
+    def bump_then_allow(email: str) -> bool:
+        RevelUser.objects.filter(pk=user.pk).update(
+            credentials_changed_at=timezone.now() + datetime.timedelta(seconds=5)
+        )
+        return False
+
+    with patch("accounts.service.global_ban_service.is_email_globally_banned", side_effect=bump_then_allow):
+        with pytest.raises(EmailChangeError) as exc:
+            account_service.confirm_email_change(token)
+    assert exc.value.code == EmailChangeErrorCode.EMAIL_CHANGE_SUPERSEDED
+    user.refresh_from_db()
+    assert user.email != "late@example.com"

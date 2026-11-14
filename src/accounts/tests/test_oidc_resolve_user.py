@@ -9,7 +9,7 @@ from django.db.models import Q
 from django.test.client import Client
 from django.urls import reverse
 
-from accounts.exceptions import OIDCLoginError
+from accounts.exceptions import EmailChangeError, EmailChangeErrorCode, OIDCLoginError
 from accounts.models import ExternalIdentity, GlobalBan, RevelUser
 from accounts.service import account as account_service
 from accounts.service import oidc
@@ -52,6 +52,8 @@ def test_existing_identity_inactive_user(inactive_user: RevelUser) -> None:
 
 
 def test_existing_user_verified_email_gets_linked(user: RevelUser) -> None:
+    user.email_verified = True
+    user.save(update_fields=["email_verified"])
     result = oidc._resolve_user(GOOGLE, claims(email=user.email))
     assert result == user
     identity = user.external_identities.get()
@@ -75,6 +77,50 @@ def test_existing_unverified_user_becomes_verified(unverified_user: RevelUser) -
     oidc._resolve_user(GOOGLE, claims(email=unverified_user.email))
     unverified_user.refresh_from_db()
     assert unverified_user.email_verified is True
+
+
+def test_adopting_unverified_account_drops_password(client: Client, unverified_user: RevelUser) -> None:
+    oidc._resolve_user(GOOGLE, claims(email=unverified_user.email))
+    unverified_user.refresh_from_db()
+    assert not unverified_user.has_usable_password()
+    response = client.post(
+        reverse("api:token_obtain_pair"),
+        data=orjson.dumps({"username": unverified_user.username, "password": "strong-password-123!"}),
+        content_type="application/json",
+    )
+    assert response.status_code == 401
+
+
+def test_adopting_unverified_account_revokes_sessions(unverified_user: RevelUser) -> None:
+    from ninja_jwt.token_blacklist.models import BlacklistedToken
+    from ninja_jwt.tokens import RefreshToken
+
+    RefreshToken.for_user(unverified_user)
+    oidc._resolve_user(GOOGLE, claims(email=unverified_user.email))
+    assert BlacklistedToken.objects.filter(token__user=unverified_user).count() == 1
+
+
+def test_adopting_unverified_account_resets_totp(unverified_user: RevelUser) -> None:
+    old_secret = unverified_user.totp_secret
+    unverified_user.totp_active = True
+    unverified_user.save(update_fields=["totp_active"])
+    oidc._resolve_user(GOOGLE, claims(email=unverified_user.email))
+    unverified_user.refresh_from_db()
+    assert unverified_user.totp_active is False
+    assert unverified_user.totp_secret != old_secret
+
+
+@patch("accounts.tasks.send_account_email.delay")
+def test_adopting_unverified_account_voids_pending_email_change(mock_send: t.Any, unverified_user: RevelUser) -> None:
+    token = account_service.request_email_change(
+        user=unverified_user, new_email="elsewhere@example.com", password="strong-password-123!"
+    )
+    oidc._resolve_user(GOOGLE, claims(email=unverified_user.email))
+    with pytest.raises(EmailChangeError) as exc:
+        account_service.confirm_email_change(token)
+    assert exc.value.code == EmailChangeErrorCode.EMAIL_CHANGE_SUPERSEDED
+    unverified_user.refresh_from_db()
+    assert unverified_user.email == "unverified@example.com"
 
 
 def test_guest_user_is_upgraded(guest_user: RevelUser) -> None:
@@ -289,3 +335,32 @@ def test_guest_upgrade_clears_guest_notification_defaults(guest_user: RevelUser)
 
     guest_user.notification_preferences.refresh_from_db()
     assert guest_user.notification_preferences.notification_type_settings == get_default_notification_type_settings()
+
+
+def test_adopting_unverified_account_rejects_earlier_access_tokens(unverified_user: RevelUser) -> None:
+    from datetime import timedelta
+
+    from django.test import RequestFactory
+    from django.utils import timezone
+    from ninja_jwt.tokens import RefreshToken
+
+    from common.auth_base import SessionRevoked
+    from common.authentication import I18nJWTAuth
+
+    token = str(RefreshToken.for_user(unverified_user).access_token)  # type: ignore[attr-defined]
+    with patch("accounts.service.oidc.timezone.now", return_value=timezone.now() + timedelta(seconds=2)):
+        oidc._resolve_user(GOOGLE, claims(email=unverified_user.email))
+    request = RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
+    with pytest.raises(SessionRevoked):
+        I18nJWTAuth().authenticate(request, token)
+
+
+def test_adopting_unverified_account_unlinks_telegram(unverified_user: RevelUser) -> None:
+    from telegram.models import TelegramUser
+
+    tg = TelegramUser.objects.create(telegram_id=4242, telegram_username="someone", user=unverified_user)
+    oidc._resolve_user(GOOGLE, claims(email=unverified_user.email))
+    tg.refresh_from_db()
+    assert tg.user is None
+    unverified_user.refresh_from_db()
+    assert unverified_user.credentials_changed_at is not None

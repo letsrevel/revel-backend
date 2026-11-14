@@ -618,19 +618,33 @@ def confirm_email_change(token: str) -> RevelUser:
     old_email = user.email
     try:
         with transaction.atomic():
-            blacklist_token(token)
-            user.email = new_email
-            user.username = new_email
-            user.email_verified = True
-            user.save(update_fields=["email", "username", "email_verified"])
-            # Email is an identity primitive — invalidate every active session.
-            blacklist_user_tokens(user)
+            # Re-check under the row lock: a credential reset that committed after the unlocked
+            # check above (it holds this lock while it runs) must still void the link.
+            changed_at = (
+                RevelUser.objects.select_for_update().values_list("credentials_changed_at", flat=True).get(pk=user.pk)
+            )
+            superseded = bool(changed_at and payload.iat < changed_at)
+            if not superseded:
+                blacklist_token(token)
+                user.email = new_email
+                user.username = new_email
+                user.email_verified = True
+                user.save(update_fields=["email", "username", "email_verified"])
+                # Email is an identity primitive — invalidate every active session.
+                blacklist_user_tokens(user)
     except IntegrityError:
         # Another confirmation took the address between the pre-check and the save.
         # Blacklist outside the rolled-back transaction so the token cannot be retried.
         blacklist_token(token)
         logger.warning("email_change_confirm_race_loss", user_id=str(user.id), new_email=new_email)
         raise EmailChangeError(EmailChangeErrorCode.EMAIL_TAKEN, str(_("This email is already in use.")))
+    if superseded:
+        blacklist_token(token)
+        logger.warning("email_change_confirm_superseded_by_password_reset", user_id=str(user.id))
+        raise EmailChangeError(
+            EmailChangeErrorCode.EMAIL_CHANGE_SUPERSEDED,
+            str(_("This email change link is no longer valid. Please request a new one.")),
+        )
 
     _change_completed_context = {"old_email": old_email, "new_email": new_email, "language": user.language}
     transaction.on_commit(
