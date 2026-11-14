@@ -14,7 +14,7 @@ constraints = [
     { name = "brotlicffi", specifier = ">=1.2.1.0" },
     { name = "dnspython", specifier = ">=2.9.2" },
     { name = "httplib2", specifier = ">=0.32.0" },
-    { name = "soupsieve", specifier = ">=4.0.0" },
+    { name = "soupsieve", specifier = ">=4.0.1" },
     { name = "tornado", specifier = ">=6.6.1" },
 ]
 
