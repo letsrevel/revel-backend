@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.36.2] - 2026-11-14
+
+### Changed
+- Email-change confirmation refusals return a machine-readable error code: 400 with `code: "email_taken"` or `code: "email_change_superseded"` (`EmailChangeErrorSchema`), so clients no longer match the translated message.
+- Signing in through an OIDC provider into an existing account whose email was never verified now starts that account with fresh credentials: no usable password (set one through password reset), 2FA turned off, existing sessions, app authorizations and Telegram link removed.
+- Access tokens issued before a user's last credential reset (password reset, or the OIDC case above) are now refused, rather than staying valid until they expire.
+- Email-change confirmation re-checks for a credential reset under the user row lock before switching the address.
+
+### Security
+- Dependency updates for published CVEs: `soupsieve` 4.1 (CVE-2026-126190, CVE-2026-126189), `tornado` 6.6.1 (CVE-2026-126347), `dnspython` 2.9.2 (CVE-2026-128089) and `opentelemetry-api` 1.45.2 (CVE-2026-126360).
+
 ## [2.36.1] - 2026-11-11
 
 ### Changed
