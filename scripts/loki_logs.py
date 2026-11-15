@@ -13,7 +13,8 @@ Log shape (structlog JSON, parsed by Alloy before ingestion):
   * stream labels:        ``service_name`` (web|celery_default|beat|telegram),
                           ``level`` (info|warning|error|...), ``environment``
   * structured metadata:  ``trace_id``, ``request_id``, ``method``, ``path``,
-                          ``status_code``, ``user_id``, ``ip_address``, ``user_agent``
+                          ``status_code``, ``user_id``, ``ip_address``, ``user_agent``,
+                          plus allowlisted kwargs (``code``, ``channel``, ``provider``, ids)
 
 Run with the venv interpreter (imports ``python-decouple``). Examples::
 
@@ -56,14 +57,67 @@ DEFAULT_DATASOURCE_UID = "loki"
 USER_AGENT = "revel-loki-logs/1.0 (+scripts/loki_logs.py)"
 KNOWN_SERVICES = ("web", "celery_default", "beat", "telegram")
 # Per-record fields we extract for display beneath each log line.
-METADATA_FIELDS = ("trace_id", "request_id", "method", "path", "status_code", "user_id", "ip_address", "user_agent")
+METADATA_FIELDS = (
+    "trace_id",
+    "request_id",
+    "method",
+    "path",
+    "status_code",
+    "user_id",
+    "ip_address",
+    "user_agent",
+    "code",
+    "channel",
+    "provider",
+    "status",
+    "count",
+    "event_id",
+    "organization_id",
+    "org_id",
+    "ticket_id",
+    "delivery_id",
+    "task_id",
+)
 # Order in which metadata is shown beneath each log line (most useful first).
-META_DISPLAY_ORDER = ("status_code", "method", "path", "user_id", "ip_address", "user_agent", "request_id", "trace_id")
+META_DISPLAY_ORDER = (
+    "status_code",
+    "method",
+    "path",
+    "code",
+    "channel",
+    "provider",
+    "status",
+    "count",
+    "user_id",
+    "organization_id",
+    "org_id",
+    "event_id",
+    "ticket_id",
+    "delivery_id",
+    "task_id",
+    "ip_address",
+    "user_agent",
+    "request_id",
+    "trace_id",
+)
 # Fields the live pipeline promotes to structured metadata → queryable as
 # ``| field="x"`` (since the single-render structlog fix, v1.62.4, all are
 # promoted — ip_address/user_agent only on lines ingested after the matching
-# alloy-config update; older lines simply won't match those filters).
-LABEL_METADATA = ("trace_id", "request_id", "method", "path", "status_code", "user_id", "ip_address", "user_agent")
+# alloy-config update; older lines simply won't match those filters. Same for
+# code/channel/provider and the other id fields, added in infra#75).
+LABEL_METADATA = (
+    "trace_id",
+    "request_id",
+    "method",
+    "path",
+    "status_code",
+    "user_id",
+    "ip_address",
+    "user_agent",
+    "code",
+    "channel",
+    "provider",
+)
 DURATION_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
 
@@ -340,6 +394,9 @@ def build_parser() -> argparse.ArgumentParser:
     flt.add_argument("--status-code", dest="status_code", help="HTTP status_code metadata, e.g. 500")
     flt.add_argument("--ip", dest="ip_address", help="client ip_address metadata (exact match)")
     flt.add_argument("--user-agent", dest="user_agent", help="user_agent metadata (exact match)")
+    flt.add_argument("--code", help="error/result code metadata, e.g. state (oidc_login_failed)")
+    flt.add_argument("--channel", help="notification channel metadata, e.g. email")
+    flt.add_argument("--provider", help="provider metadata, e.g. google")
 
     win = parser.add_argument_group("time & limit")
     win.add_argument("-s", "--since", default="1h", metavar="DUR", help="look back this far (default 1h): 30m,2h,1d,1w")
