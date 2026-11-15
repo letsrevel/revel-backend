@@ -15,14 +15,15 @@ from accounts import schema
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
 from common.controllers.base import UserAwareController
+from common.throttling import OTPThrottle
 from common.types import HttpRequest
 
 logger = structlog.get_logger(__name__)
 
 
-# No class-level throttle: inherit the API default pair so TOTP verification is
-# rate limited per user (an anonymous-only throttle skips authenticated requests).
-@api_controller("/otp", tags=["OTP"], auth=I18nJWTAuth())
+# A *user* throttle: an anonymous-only throttle skips authenticated requests, which would leave
+# TOTP verification unlimited.
+@api_controller("/otp", tags=["OTP"], auth=I18nJWTAuth(), throttle=OTPThrottle())
 class OtpController(UserAwareController):
     @route.get(
         "/setup",

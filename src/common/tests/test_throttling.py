@@ -109,6 +109,24 @@ def test_send_announcement_throttle_enforces_its_own_rate(user_request: t.Any) -
     assert throttle.allow_request(user_request) is False
 
 
+@pytest.mark.parametrize(
+    ("throttle_cls", "request_fixture", "key", "limit"),
+    [
+        (AnonDefaultThrottle, "anon_request", f"throttle_anon_{CLIENT_IP}", 150),
+        (UserDefaultThrottle, "user_request", f"throttle_user_{USER_PK}", 200),
+    ],
+    ids=["anon", "user"],
+)
+def test_default_throttle_limits(
+    throttle_cls: type[t.Any], request_fixture: str, key: str, limit: int, request: pytest.FixtureRequest
+) -> None:
+    """The defaults allow ``limit`` requests a minute and refuse the next one."""
+    req = request.getfixturevalue(request_fixture)
+    _fill_bucket(key, limit - 1)
+    assert throttle_cls().allow_request(req) is True
+    assert throttle_cls().allow_request(req) is False
+
+
 def test_disabled_throttling_short_circuits(settings: t.Any, user_request: t.Any) -> None:
     settings.DISABLE_THROTTLING = True
     throttle = SendAnnouncementThrottle()
