@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.36.3] - 2026-11-15
+
+### Changed
+- Default API rate limits raised: anonymous requests from 60 to 150 per minute per IP, authenticated requests from 100 to 200 per minute per user. One page load makes several API calls and visitors on a shared IP (venue Wi-Fi, mobile carrier) share one anonymous allowance, so ordinary browsing was being refused with 429. Stricter per-endpoint limits (registration, login, exports, announcements, OAuth) are unchanged.
+- TOTP enable and disable (`/otp/verify`, `/otp/disable`) have their own limit, kept at 100 per minute per user, so the higher default does not loosen it.
+
 ## [2.36.2] - 2026-11-14
 
 ### Changed
