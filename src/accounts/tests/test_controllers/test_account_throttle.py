@@ -24,7 +24,7 @@ def _enable_throttling(settings: t.Any) -> None:
 def test_account_me_is_throttled_per_user(auth_client: Client) -> None:
     url = reverse("api:me")
 
-    for _ in range(100):
+    for _ in range(200):  # UserDefaultThrottle
         assert auth_client.get(url).status_code == 200
 
     assert auth_client.get(url).status_code == 429
@@ -34,7 +34,7 @@ def test_otp_verify_is_throttled_per_user(auth_client: Client) -> None:
     """Brute-forcing a 6-digit TOTP code must hit the per-user limit."""
     url = reverse("api:enable-otp")
 
-    for _ in range(100):
+    for _ in range(100):  # OTPThrottle
         response = auth_client.post(url, {"otp": "000000"}, content_type="application/json")
         assert response.status_code == 403
 
