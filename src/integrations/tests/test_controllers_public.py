@@ -135,10 +135,10 @@ def test_webhook_is_not_throttled(organization: Organization, fake_provider: Fak
     client = Client()
     body = orjson.dumps({"action": "order.placed", "path": "/orders/1/"})
     statuses = {
-        client.post(url, data=body, content_type="application/json").status_code for _ in range(70)
-    }  # well past AnonDefaultThrottle's 60/min
+        client.post(url, data=body, content_type="application/json").status_code for _ in range(160)
+    }  # well past AnonDefaultThrottle's 150/min
     assert statuses == {200}
-    assert WebhookDelivery.objects.count() == 70
+    assert WebhookDelivery.objects.count() == 160
 
 
 def test_webhook_unknown_secret_404(organization: Organization, fake_provider: FakeProvider) -> None:

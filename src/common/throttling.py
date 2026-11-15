@@ -33,9 +33,12 @@ class DisableableThrottleMixin:
 
 
 class AnonDefaultThrottle(DisableableThrottleMixin, AnonRateThrottle):
-    """Anonymous user default throttle (60 requests/min)."""
+    """Anonymous user default throttle (150 requests/min).
 
-    rate = "60/min"
+    Sized for SSR page loads (5-8 API calls each) and shared IPs (venue Wi-Fi, carrier NAT).
+    """
+
+    rate = "150/min"
 
 
 class MemberRegisterInviteLookupThrottle(DisableableThrottleMixin, AnonRateThrottle):
@@ -50,9 +53,9 @@ class MemberRegisterInviteLookupThrottle(DisableableThrottleMixin, AnonRateThrot
 
 
 class UserDefaultThrottle(DisableableThrottleMixin, UserRateThrottle):
-    """Authenticated user default throttle (100 requests/min)."""
+    """Authenticated user default throttle (200 requests/min)."""
 
-    rate = "100/min"
+    rate = "200/min"
 
 
 class AuthThrottle(DisableableThrottleMixin, AnonRateThrottle):
@@ -117,6 +120,16 @@ class UserRequestThrottle(DisableableThrottleMixin, UserRateThrottle):
     """User request throttle (100 requests/min)."""
 
     scope = "user_request"
+    rate = "100/min"
+
+
+class OTPThrottle(DisableableThrottleMixin, UserRateThrottle):
+    """TOTP enable/disable verification throttle (100 requests/min per user).
+
+    Pinned separately so raising the user default never loosens the TOTP brute-force ceiling.
+    """
+
+    scope = "otp"
     rate = "100/min"
 
 
