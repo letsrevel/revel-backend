@@ -7,8 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.37.0] - 2026-11-16
+
+### Added
+- **Daily admin recap**: every day at 09:00 (Europe/Vienna) the platform admin gets a summary of the previous day on Pushover and the admin Discord webhook.
+  - Covers registered users and guest users created, organizations created (with names), events, tickets and RSVPs created, ticket and membership payments collected, and platform fees.
+  - Fees are reported net, VAT to set aside, and gross, per currency.
+  - Each channel is delivered and retried independently; permanent (4xx) failures are not retried. Messages are capped at 1024 characters.
+  - Scheduled through a `django_celery_beat` row (`events.tasks.send_daily_admin_recap`), so it can be disabled from the admin.
+- **Platform revenue on the admin dashboard**: a "Platform revenue" section with Today, This week, This month and MRR cards.
+  - Each card shows platform fees net, VAT to set aside and gross, per currency. Payments without a VAT breakdown are counted as net and flagged.
+  - A fee counts once its payment was collected (succeeded or later refunded, since the platform fee is kept on refund).
+  - MRR is the latest collected membership fee of each active or past-due subscription, normalised to 30 days.
+- `SiteSettings.notify_guest_user_joined` (default off) to control admin notifications for new guest users separately from registered signups.
+
+### Changed
+- Admin "new user" notifications (`SiteSettings.notify_user_joined`) now cover registered users only, including guests who convert to a full account. Guest-user notifications are off by default and are Pushover-only.
+- The VAT preview now caps each item at 50 tickets, the same limit as a checkout cart group (it previously allowed up to 1000).
+- gunicorn 27 rejects requests whose `Transfer-Encoding` does not end in `chunked` (for example `identity`) with a 400.
+
 ### Removed
 - The four deprecated single-tier checkout endpoints: `POST /events/{event_id}/tickets/{tier_id}/checkout`, `.../checkout/pwyc`, `.../checkout/public` and `.../checkout/pwyc/public`. They had no remaining callers. Use the cart endpoints instead: `POST /events/{event_id}/checkout` (authenticated) and `POST /events/{event_id}/checkout/public` (guest). Their payload schemas are gone from the OpenAPI document too.
+
+### Security
+- Guest RSVP (`POST /events/{event_id}/rsvp/{answer}/public`) and guest checkout (`POST /events/{event_id}/checkout/public`) now require a valid Cloudflare Turnstile token (`turnstile_token`) when bot protection is configured, closing a way to create accounts without passing the registration bot check. Requires frontend v2.38.0 or later.
+- Dependency updates for published advisories: Django 5.2.19, gunicorn 27.0.1, httplib2 0.32.1 (no longer trusts the eMudhra cross-sign root) and truststore 0.10.5.
 
 ## [2.36.3] - 2026-11-15
 
