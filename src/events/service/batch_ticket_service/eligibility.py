@@ -205,7 +205,7 @@ class PurchaseEligibilityMixin(BatchTicketContext):
 
     # The three lookups below are properties of the buyer, not of any tier, yet the
     # per-tier assertions run once per cart group — cached so a wide cart costs the
-    # same queries as a single-tier checkout. Instance-scoped, and the service is
+    # same queries as a one-group checkout. Instance-scoped, and the service is
     # request-scoped, so there is no staleness to worry about.
 
     @cached_property

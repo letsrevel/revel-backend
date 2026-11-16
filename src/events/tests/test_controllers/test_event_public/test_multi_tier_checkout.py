@@ -225,7 +225,7 @@ class TestDiscountNoMatch:
     def test_single_group_surfaces_the_specific_reason(
         self, member_client: Client, public_event: Event, organization: Organization
     ) -> None:
-        """One group == the deprecated single-tier route's cart: its error passes through verbatim."""
+        """A one-group cart: its error passes through verbatim."""
         tier = _tier(public_event, "Paid A")
         self._code(organization, valid_until=timezone.now() - timedelta(days=1))
         payload = {

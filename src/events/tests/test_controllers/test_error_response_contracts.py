@@ -61,6 +61,7 @@ from events.models import (
 )
 from events.models.discount_code import DiscountCode
 from events.service import cloudflare_custom_hostnames as cloudflare
+from events.tests.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
@@ -172,7 +173,7 @@ class TestRsvpErrorContracts:
 
 
 class TestTicketCheckoutErrorContracts:
-    """``ticket_checkout`` / ``ticket_pwyc_checkout`` declared only ``EventUserEligibility``."""
+    """PWYC cart errors on ``multi_tier_checkout`` must emit ``{detail}``, not only eligibility."""
 
     @pytest.fixture
     def pwyc_tier(self, public_event: Event) -> TicketTier:
@@ -185,20 +186,13 @@ class TestTicketCheckoutErrorContracts:
             pwyc_max=Decimal("50.00"),
         )
 
-    def test_pwyc_tier_on_fixed_price_endpoint_returns_detail(
+    def test_pwyc_tier_without_amount_returns_detail(
         self, member_client: Client, public_event: Event, pwyc_tier: TicketTier
     ) -> None:
-        url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.id, "tier_id": pwyc_tier.id})
-        response = member_client.post(url, data={"tickets": [{"guest_name": "A"}]}, content_type="application/json")
-        assert_detail_body(response)
-
-    def test_fixed_price_tier_on_pwyc_endpoint_returns_detail(
-        self, member_client: Client, public_event: Event, vip_tier: TicketTier
-    ) -> None:
-        url = reverse("api:ticket_pwyc_checkout", kwargs={"event_id": public_event.id, "tier_id": vip_tier.id})
+        url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.id})
         response = member_client.post(
             url,
-            data={"tickets": [{"guest_name": "A"}], "price_per_ticket": "10.00"},
+            data=to_cart(pwyc_tier.id, tickets=[{"guest_name": "A"}]),
             content_type="application/json",
         )
         assert_detail_body(response)
@@ -206,10 +200,10 @@ class TestTicketCheckoutErrorContracts:
     def test_pwyc_below_minimum_returns_detail(
         self, member_client: Client, public_event: Event, pwyc_tier: TicketTier
     ) -> None:
-        url = reverse("api:ticket_pwyc_checkout", kwargs={"event_id": public_event.id, "tier_id": pwyc_tier.id})
+        url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.id})
         response = member_client.post(
             url,
-            data={"tickets": [{"guest_name": "A"}], "price_per_ticket": "1.00"},
+            data=to_cart(pwyc_tier.id, tickets=[{"guest_name": "A"}], pwyc_amount="1.00"),
             content_type="application/json",
         )
         assert_detail_body(response)
@@ -230,7 +224,7 @@ class TestMultiTierCheckoutErrorContracts:
 
         response = member_client.post(
             self._url(public_event),
-            data={"items": [{"tier_id": str(uuid.uuid4()), "tickets": [{"guest_name": "A"}]}]},
+            data=to_cart(uuid.uuid4(), tickets=[{"guest_name": "A"}]),
             content_type="application/json",
         )
         assert_detail_body_with_status(response, 404)
@@ -300,40 +294,20 @@ class TestGuestErrorContracts:
         )
         assert_detail_body(response)
 
-    def test_guest_ticket_checkout_requires_login_returns_detail(
+    def test_guest_multi_tier_checkout_requires_login_returns_detail(
         self, client: Client, public_event: Event, vip_tier: TicketTier
     ) -> None:
         public_event.can_attend_without_login = False
         public_event.save(update_fields=["can_attend_without_login"])
 
-        url = reverse("api:guest_ticket_checkout", kwargs={"event_id": public_event.id, "tier_id": vip_tier.id})
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": public_event.id})
         response = client.post(
             url,
             data={
                 "email": "guest@example.com",
                 "first_name": "G",
                 "last_name": "U",
-                "tickets": [{"guest_name": "G U"}],
-            },
-            content_type="application/json",
-        )
-        assert_detail_body(response)
-
-    def test_guest_pwyc_checkout_on_fixed_price_tier_returns_detail(
-        self, client: Client, public_event: Event, vip_tier: TicketTier
-    ) -> None:
-        public_event.can_attend_without_login = True
-        public_event.save(update_fields=["can_attend_without_login"])
-
-        url = reverse("api:guest_ticket_pwyc_checkout", kwargs={"event_id": public_event.id, "tier_id": vip_tier.id})
-        response = client.post(
-            url,
-            data={
-                "email": "guest@example.com",
-                "first_name": "G",
-                "last_name": "U",
-                "tickets": [{"guest_name": "G U"}],
-                "price_per_ticket": "10.00",
+                "items": [{"tier_id": str(vip_tier.id), "tickets": [{"guest_name": "G U"}]}],
             },
             content_type="application/json",
         )

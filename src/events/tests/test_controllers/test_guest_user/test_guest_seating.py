@@ -28,6 +28,7 @@ from events.models import (
 from events.service import guest as guest_service
 from events.service.guest_hold_session import GUEST_HOLD_COOKIE, issue_guest_hold_token
 from events.service.seating import holds as holds_service
+from events.tests.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
@@ -146,10 +147,7 @@ class TestGuestCheckoutReservedSeating:
         """Test guest checkout with USER_CHOICE seating includes seat in confirmation."""
         # Arrange
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": user_choice_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "reservedseat@example.com",
             "first_name": "Reserved",
@@ -158,7 +156,7 @@ class TestGuestCheckoutReservedSeating:
         }
 
         # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        response = client.post(url, data=to_cart(user_choice_tier.pk, payload), content_type="application/json")
 
         # Assert
         assert response.status_code == 200
@@ -211,10 +209,7 @@ class TestGuestCheckoutReservedSeating:
         """Test guest checkout with BEST_AVAILABLE seating mode (no seat_id needed)."""
         # Arrange
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": best_available_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "autoseat@example.com",
             "first_name": "Auto",
@@ -224,7 +219,7 @@ class TestGuestCheckoutReservedSeating:
         }
 
         # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        response = client.post(url, data=to_cart(best_available_tier.pk, payload), content_type="application/json")
 
         # Assert
         assert response.status_code == 200
@@ -278,10 +273,7 @@ class TestGuestCheckoutReservedSeating:
         """Test guest checkout with multiple tickets each having their own seat."""
         # Arrange
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": user_choice_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "multiticket@example.com",
             "first_name": "Multi",
@@ -294,7 +286,7 @@ class TestGuestCheckoutReservedSeating:
         }
 
         # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        response = client.post(url, data=to_cart(user_choice_tier.pk, payload), content_type="application/json")
 
         # Assert
         assert response.status_code == 200
@@ -404,10 +396,7 @@ class TestGuestCheckoutReservedSeating:
         )
 
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": online_user_choice_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "onlinereserved@example.com",
             "first_name": "Online",
@@ -420,7 +409,9 @@ class TestGuestCheckoutReservedSeating:
 
         # Act: reserve
         with mock.patch("stripe.checkout.Session.create") as mock_create:
-            response = client.post(url, data=payload, content_type="application/json")
+            response = client.post(
+                url, data=to_cart(online_user_choice_tier.pk, payload), content_type="application/json"
+            )
             mock_create.assert_not_called()
 
         # Assert: reserved, no Stripe call yet
@@ -485,10 +476,7 @@ class TestGuestAccessibleSeating:
         """Checkout payload flag is embedded in the signed email token."""
         # Arrange
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": best_available_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "accessible@example.com",
             "first_name": "Access",
@@ -499,7 +487,7 @@ class TestGuestAccessibleSeating:
         }
 
         # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        response = client.post(url, data=to_cart(best_available_tier.pk, payload), content_type="application/json")
 
         # Assert: the token sent by email carries the flag
         assert response.status_code == 200
@@ -507,8 +495,8 @@ class TestGuestAccessibleSeating:
         token = mock_send_email.call_args[0][1]
         decoded = guest_service.validate_and_decode_guest_token(token)
         assert isinstance(decoded, schema.GuestTicketJWTPayloadSchema)
-        # The controller now mints every token via the cart (groups) form (#846),
-        # even for this single-tier route — the flag lives on the one group.
+        # Tokens are minted via the cart (groups) form (#846):
+        # the flag lives on the one group.
         assert decoded.groups[0].accessible_required is True
 
     def test_confirm_assigns_accessible_seats_when_flag_set(
@@ -645,10 +633,7 @@ class TestGuestAccessibleSeating:
             seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
         )
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": online_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "onlineaccessible@example.com",
             "first_name": "Online",
@@ -659,7 +644,7 @@ class TestGuestAccessibleSeating:
         }
 
         # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        response = client.post(url, data=to_cart(online_tier.pk, payload), content_type="application/json")
 
         # Assert: PENDING ticket reserved on an accessible seat
         assert response.status_code == 200
@@ -771,10 +756,7 @@ class TestGuestZoneSelection:
         seats: list[VenueSeat],
     ) -> None:
         tier, _front, back = two_zone_tier
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "zone@example.com",
             "first_name": "Zone",
@@ -783,14 +765,14 @@ class TestGuestZoneSelection:
             "tickets": [{"guest_name": "Zone Picker"}],
         }
 
-        response = Client().post(url, data=payload, content_type="application/json")
+        response = Client().post(url, data=to_cart(tier.pk, payload), content_type="application/json")
 
         assert response.status_code == 200, response.content
         token = mock_send_email.call_args[0][1]
         decoded = guest_service.validate_and_decode_guest_token(token)
         assert isinstance(decoded, schema.GuestTicketJWTPayloadSchema)
-        # The controller now mints every token via the cart (groups) form (#846),
-        # even for this single-tier route — the zone lives on the one group.
+        # Tokens are minted via the cart (groups) form (#846):
+        # the zone lives on the one group.
         assert decoded.groups[0].price_category_id == back.id
 
     def test_confirm_assigns_a_seat_from_the_token_zone(
@@ -828,10 +810,7 @@ class TestGuestZoneSelection:
         """A venue category that is not a zone of this tier is unsellable through it."""
         tier, _front, _back = two_zone_tier
         stranger = PriceCategory.objects.create(venue=venue, name="Boxes", color="#0000aa")
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "zone@example.com",
             "first_name": "Zone",
@@ -840,7 +819,7 @@ class TestGuestZoneSelection:
             "tickets": [{"guest_name": "Zone Picker"}],
         }
 
-        response = Client().post(url, data=payload, content_type="application/json")
+        response = Client().post(url, data=to_cart(tier.pk, payload), content_type="application/json")
 
         assert response.status_code == 400, response.content
         assert "Back" in response.json()["detail"]
@@ -874,17 +853,17 @@ class TestGuestZoneSelection:
         client.cookies[GUEST_HOLD_COOKIE] = cookie
 
         response = client.post(
-            reverse(
-                "api:guest_ticket_checkout",
-                kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": tier.pk},
+            reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk}),
+            data=to_cart(
+                tier.pk,
+                {
+                    "email": "stalezone@example.com",
+                    "first_name": "Stale",
+                    "last_name": "Zone",
+                    "price_category_id": str(back.id),
+                    "tickets": [{"guest_name": "Guest 1"}, {"guest_name": "Guest 2"}],
+                },
             ),
-            data={
-                "email": "stalezone@example.com",
-                "first_name": "Stale",
-                "last_name": "Zone",
-                "price_category_id": str(back.id),
-                "tickets": [{"guest_name": "Guest 1"}, {"guest_name": "Guest 2"}],
-            },
             content_type="application/json",
         )
 

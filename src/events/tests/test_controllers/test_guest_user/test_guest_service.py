@@ -427,10 +427,10 @@ class TestGuestServiceLayer:
     def test_handle_guest_ticket_checkout_large_cart_with_discount(
         self, guest_event_with_tickets: Event, online_tier: TicketTier
     ) -> None:
-        """A >50-ticket legacy cart with a discount code must not 500 (#893 review).
+        """A >50-ticket cart with a discount code must not 500 (#893 review).
 
-        The deprecated single-tier guest payload has no upper bound on ``tickets``,
-        but the discount step used to re-validate the cart through the wire
+        The service layer has no upper bound on tickets (only the wire schema caps a group at 50),
+        and the discount step used to re-validate the cart through the wire
         schema's 50-item cap — turning such carts into an unhandled pydantic
         ValidationError instead of a checkout.
         """

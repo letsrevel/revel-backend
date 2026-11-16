@@ -1,7 +1,6 @@
-"""Tests for guest ticket checkout endpoints.
+"""Tests for the guest cart checkout endpoint (fixed-price and PWYC tiers).
 
-- Fixed-price: POST /events/{event_id}/tickets/{tier_id}/checkout/public
-- PWYC: POST /events/{event_id}/tickets/{tier_id}/checkout/pwyc/public
+POST /events/{event_id}/checkout/public with a one-item cart (``api:guest_multi_tier_checkout``).
 """
 
 from decimal import Decimal
@@ -15,6 +14,7 @@ from django.urls import reverse
 
 from accounts.models import RevelUser
 from events.models import Event, Ticket, TicketTier
+from events.tests.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
@@ -41,10 +41,7 @@ class TestGuestTicketCheckout:
         """Test guest checkout for free ticket sends email confirmation."""
         # Arrange
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": free_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "freeticket@example.com",
             "first_name": "Free",
@@ -53,7 +50,7 @@ class TestGuestTicketCheckout:
         }
 
         # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        response = client.post(url, data=to_cart(free_tier.pk, payload), content_type="application/json")
 
         # Assert
         assert response.status_code == 200
@@ -84,10 +81,7 @@ class TestGuestTicketCheckout:
     ) -> None:
         """Test guest checkout for online payment: reserve (no Stripe call), then session (#632)."""
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": online_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "onlineguest@example.com",
             "first_name": "Online",
@@ -97,7 +91,7 @@ class TestGuestTicketCheckout:
 
         # Act: reserve
         with mock.patch("stripe.checkout.Session.create") as mock_create:
-            response = client.post(url, data=payload, content_type="application/json")
+            response = client.post(url, data=to_cart(online_tier.pk, payload), content_type="application/json")
             mock_create.assert_not_called()
 
         # Assert: reserved, no Stripe call yet
@@ -128,10 +122,7 @@ class TestGuestTicketCheckout:
     ) -> None:
         """Test that authenticated users cannot use guest checkout."""
         # Arrange
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": free_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "auth@example.com",
             "first_name": "Auth",
@@ -140,7 +131,7 @@ class TestGuestTicketCheckout:
         }
 
         # Act
-        response = member_client.post(url, data=payload, content_type="application/json")
+        response = member_client.post(url, data=to_cart(free_tier.pk, payload), content_type="application/json")
 
         # Assert
         assert response.status_code == 400
@@ -159,10 +150,7 @@ class TestGuestTicketCheckout:
 
         # Arrange
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": login_required_event.pk, "tier_id": tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": login_required_event.pk})
         payload = {
             "email": "guest@example.com",
             "first_name": "Guest",
@@ -171,7 +159,7 @@ class TestGuestTicketCheckout:
         }
 
         # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        response = client.post(url, data=to_cart(tier.pk, payload), content_type="application/json")
 
         # Assert
         assert response.status_code == 400
@@ -184,10 +172,7 @@ class TestGuestTicketCheckout:
         """Test that guest checkout is rejected if non-guest account exists."""
         # Arrange
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": free_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": existing_regular_user.email,
             "first_name": "Different",
@@ -196,35 +181,12 @@ class TestGuestTicketCheckout:
         }
 
         # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        response = client.post(url, data=to_cart(free_tier.pk, payload), content_type="application/json")
 
         # Assert
         assert response.status_code == 400
         data = response.json()
         assert "already exists" in data["detail"].lower()
-
-    def test_guest_checkout_rejects_pwyc_tier(self, guest_event_with_tickets: Event, pwyc_tier: TicketTier) -> None:
-        """Test that PWYC tiers must use the /pwyc endpoint."""
-        # Arrange
-        client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": pwyc_tier.pk},
-        )
-        payload = {
-            "email": "guest@example.com",
-            "first_name": "Guest",
-            "last_name": "User",
-            "tickets": [{"guest_name": "Guest User"}],
-        }
-
-        # Act
-        response = client.post(url, data=payload, content_type="application/json")
-
-        # Assert
-        assert response.status_code == 400
-        data = response.json()
-        assert "pwyc" in data["detail"].lower()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -244,10 +206,7 @@ class TestGuestPWYCCheckout:
         """Test successful guest PWYC checkout with offline payment."""
         # Arrange
         client = Client()
-        url = reverse(
-            "api:guest_ticket_pwyc_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": pwyc_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "pwycguest@example.com",
             "first_name": "PWYC",
@@ -257,7 +216,7 @@ class TestGuestPWYCCheckout:
         }
 
         # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        response = client.post(url, data=to_cart(pwyc_tier.pk, payload), content_type="application/json")
 
         # Assert
         assert response.status_code == 200
@@ -273,10 +232,7 @@ class TestGuestPWYCCheckout:
     ) -> None:
         """Test successful guest PWYC checkout with online payment: reserve, then session (#632)."""
         client = Client()
-        url = reverse(
-            "api:guest_ticket_pwyc_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": pwyc_online_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "pwycstripe@example.com",
             "first_name": "PWYC",
@@ -287,7 +243,7 @@ class TestGuestPWYCCheckout:
 
         # Act: reserve
         with mock.patch("stripe.checkout.Session.create") as mock_create:
-            response = client.post(url, data=payload, content_type="application/json")
+            response = client.post(url, data=to_cart(pwyc_online_tier.pk, payload), content_type="application/json")
             mock_create.assert_not_called()
 
         # Assert: reserved, no Stripe call yet
@@ -315,10 +271,7 @@ class TestGuestPWYCCheckout:
         """Test that PWYC amount below minimum is rejected."""
         # Arrange
         client = Client()
-        url = reverse(
-            "api:guest_ticket_pwyc_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": pwyc_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "lowpwyc@example.com",
             "first_name": "Low",
@@ -328,7 +281,7 @@ class TestGuestPWYCCheckout:
         }
 
         # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        response = client.post(url, data=to_cart(pwyc_tier.pk, payload), content_type="application/json")
 
         # Assert
         assert response.status_code == 400
@@ -341,10 +294,7 @@ class TestGuestPWYCCheckout:
         """Test that PWYC amount above maximum is rejected."""
         # Arrange
         client = Client()
-        url = reverse(
-            "api:guest_ticket_pwyc_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": pwyc_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "highpwyc@example.com",
             "first_name": "High",
@@ -354,7 +304,7 @@ class TestGuestPWYCCheckout:
         }
 
         # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        response = client.post(url, data=to_cart(pwyc_tier.pk, payload), content_type="application/json")
 
         # Assert
         assert response.status_code == 400
@@ -367,10 +317,7 @@ class TestGuestPWYCCheckout:
         """Test that non-PWYC tiers are rejected."""
         # Arrange
         client = Client()
-        url = reverse(
-            "api:guest_ticket_pwyc_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": free_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "guest@example.com",
             "first_name": "Guest",
@@ -380,7 +327,7 @@ class TestGuestPWYCCheckout:
         }
 
         # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        response = client.post(url, data=to_cart(free_tier.pk, payload), content_type="application/json")
 
         # Assert
         assert response.status_code == 400
@@ -392,10 +339,7 @@ class TestGuestPWYCCheckout:
     ) -> None:
         """Test that authenticated users cannot use guest PWYC checkout."""
         # Arrange
-        url = reverse(
-            "api:guest_ticket_pwyc_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": pwyc_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "auth@example.com",
             "first_name": "Auth",
@@ -405,7 +349,7 @@ class TestGuestPWYCCheckout:
         }
 
         # Act
-        response = member_client.post(url, data=payload, content_type="application/json")
+        response = member_client.post(url, data=to_cart(pwyc_tier.pk, payload), content_type="application/json")
 
         # Assert
         assert response.status_code == 400

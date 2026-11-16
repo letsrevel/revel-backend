@@ -185,9 +185,8 @@ def create_guest_ticket_token(
 
     - **Single-tier form** (legacy): pass ``tier_id``/``tickets``. The minted token
       carries the v1 flat fields at the top level — exactly what every pre-#846
-      token looked like. No route mints it any more (the deprecated single-tier
-      guest routes now build one-group carts); kept so tests can mint the v1 shape
-      that ``confirm_guest_action`` must keep decoding for in-flight tokens.
+      token looked like. No route mints it any more (guest checkout always builds a cart); kept so tests can
+      mint the v1 shape that ``confirm_guest_action`` must keep decoding for in-flight tokens.
     - **Cart form**: pass ``groups`` (one
       :class:`~events.service.batch_ticket_service.context.CartGroup` per tier).
       The token instead carries ``groups``; the flat fields stay at their defaults.

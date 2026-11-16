@@ -14,6 +14,7 @@ from accounts.models import RevelUser
 from events import schema
 from events.models import Event, EventRSVP, Organization, TicketTier
 from events.service import guest as guest_service
+from events.tests.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
@@ -83,10 +84,7 @@ class TestGuestUserEdgeCases:
         """Test PWYC amount exactly at minimum is accepted."""
         # Arrange
         client = Client()
-        url = reverse(
-            "api:guest_ticket_pwyc_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": pwyc_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "minpwyc@example.com",
             "first_name": "Min",
@@ -97,7 +95,7 @@ class TestGuestUserEdgeCases:
 
         # Act
         with patch("events.tasks.send_guest_ticket_confirmation.delay"):
-            response = client.post(url, data=payload, content_type="application/json")
+            response = client.post(url, data=to_cart(pwyc_tier.pk, payload), content_type="application/json")
 
         # Assert
         assert response.status_code == 200
@@ -106,10 +104,7 @@ class TestGuestUserEdgeCases:
         """Test PWYC amount exactly at maximum is accepted."""
         # Arrange
         client = Client()
-        url = reverse(
-            "api:guest_ticket_pwyc_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": pwyc_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "maxpwyc@example.com",
             "first_name": "Max",
@@ -120,7 +115,7 @@ class TestGuestUserEdgeCases:
 
         # Act
         with patch("events.tasks.send_guest_ticket_confirmation.delay"):
-            response = client.post(url, data=payload, content_type="application/json")
+            response = client.post(url, data=to_cart(pwyc_tier.pk, payload), content_type="application/json")
 
         # Assert
         assert response.status_code == 200

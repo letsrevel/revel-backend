@@ -1455,16 +1455,6 @@ msgstr "Jeton introuvable."
 msgid "The token is invalid or expired."
 msgstr "Le jeton est invalide ou expiré."
 
-msgid "Use /pwyc endpoint for pay-what-you-can tickets"
-msgstr ""
-"Utilise le point d'accès /pwyc pour les tickets avec tarif libre (paie ce "
-"que tu peux)"
-
-msgid "This endpoint is only for pay-what-you-can tickets"
-msgstr ""
-"Ce point d'accès est réservé aux tickets avec tarif libre (paie ce que tu "
-"peux)"
-
 msgid "One or more ticket tiers were not found."
 msgstr "Une ou plusieurs catégories de billets sont introuvables."
 
@@ -1473,11 +1463,6 @@ msgstr "Aucune réservation en attente trouvée."
 
 msgid "This event has no venue."
 msgstr "Cet événement n'a pas de lieu."
-
-msgid "Use /checkout/pwyc endpoint for pay-what-you-can tickets"
-msgstr ""
-"Utilise le point d'accès /checkout/pwyc pour les tickets avec tarif libre "
-"(paie ce que tu peux)"
 
 #, python-brace-format
 msgid "PWYC amount must be at least {min_amount}"

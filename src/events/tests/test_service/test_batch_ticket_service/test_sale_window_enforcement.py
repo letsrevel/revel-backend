@@ -23,6 +23,7 @@ from accounts.models import RevelUser
 from events.models import Event, Organization, TicketTier
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
+from events.tests.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
@@ -114,9 +115,10 @@ class TestSaleWindowEnforcementEndpoint:
         )
         refresh = RefreshToken.for_user(member_user)
         client = Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
-        url = reverse("api:ticket_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk})
+        url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.pk})
+        payload = to_cart(tier.pk, tickets=[{"guest_name": "Test"}])
 
-        response = client.post(url, data={"tickets": [{"guest_name": "Test"}]}, content_type="application/json")
+        response = client.post(url, data=payload, content_type="application/json")
 
         assert response.status_code == 403, response.content
         assert "outside of the sale window" in response.json()["detail"]

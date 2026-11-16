@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- The four deprecated single-tier checkout endpoints: `POST /events/{event_id}/tickets/{tier_id}/checkout`, `.../checkout/pwyc`, `.../checkout/public` and `.../checkout/pwyc/public`. They had no remaining callers. Use the cart endpoints instead: `POST /events/{event_id}/checkout` (authenticated) and `POST /events/{event_id}/checkout/public` (guest). Their payload schemas are gone from the OpenAPI document too.
+
 ## [2.36.3] - 2026-11-15
 
 ### Changed
@@ -889,7 +892,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deprecated
 
-- The four per-tier checkout endpoints (`POST /events/{event_id}/tickets/{tier_id}/checkout`, `.../checkout/public`, `.../checkout/pwyc`, `.../checkout/pwyc/public`) are deprecated in favor of the new cart endpoints above; they remain functional for now
+- The four per-tier checkout endpoints (`POST /events/{event_id}/tickets/{tier_id}/checkout`, `.../checkout/public`, `.../checkout/pwyc`, `.../checkout/pwyc/public`) are deprecated in favor of the new cart endpoints above; they remain functional for now (since removed, see Unreleased)
 
 ### Security
 

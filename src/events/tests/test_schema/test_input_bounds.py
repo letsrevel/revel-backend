@@ -9,6 +9,7 @@ from django.utils import timezone
 from pydantic import ValidationError
 
 from events.schema import VenueSectorCreateSchema
+from events.schema.checkout import MAX_TICKETS_PER_GROUP
 from events.schema.organization import OrganizationEditSchema
 from events.schema.recurrence_rule import RecurrenceRuleCreateSchema
 from events.schema.vat_preview import VATPreviewItemSchema, VATPreviewRequestSchema
@@ -34,19 +35,16 @@ def test_vat_preview_item_count_is_capped() -> None:
 
 
 def test_vat_preview_item_count_boundary() -> None:
-    assert VATPreviewItemSchema(tier_id=uuid4(), count=1000).count == 1000
-    assert VATPreviewItemSchema(tier_id=uuid4(), count=51).count == 51
+    assert VATPreviewItemSchema(tier_id=uuid4(), count=MAX_TICKETS_PER_GROUP).count == MAX_TICKETS_PER_GROUP
     with pytest.raises(ValidationError):
-        VATPreviewItemSchema(tier_id=uuid4(), count=1001)
+        VATPreviewItemSchema(tier_id=uuid4(), count=MAX_TICKETS_PER_GROUP + 1)
 
 
-def test_vat_preview_total_ticket_budget() -> None:
+def test_vat_preview_mirrors_checkout_cart_limits() -> None:
+    """The largest cart checkout accepts (20 groups x 50 tickets) previews fine."""
     billing = {"billing_name": "A"}
-    ok = [{"tier_id": str(uuid4()), "count": 500} for _ in range(2)]
-    VATPreviewRequestSchema.model_validate({"billing_info": billing, "items": ok})
-    over = ok + [{"tier_id": str(uuid4()), "count": 1}]
-    with pytest.raises(ValidationError):
-        VATPreviewRequestSchema.model_validate({"billing_info": billing, "items": over})
+    full = [{"tier_id": str(uuid4()), "count": MAX_TICKETS_PER_GROUP} for _ in range(20)]
+    VATPreviewRequestSchema.model_validate({"billing_info": billing, "items": full})
 
 
 def test_bulk_seat_requests_are_capped() -> None:

@@ -230,8 +230,7 @@ def test_eligibility_endpoints_also_declare_the_detail_shape() -> None:
     declared = _declared_400_schemas()
     for path in (
         "/api/events/{event_id}/rsvp/{answer}",
-        "/api/events/{event_id}/tickets/{tier_id}/checkout",
-        "/api/events/{event_id}/tickets/{tier_id}/checkout/pwyc",
+        "/api/events/{event_id}/checkout",
     ):
         assert declared[(path, "post")] == {"EventUserEligibility", "ErrorDetail"}, path
 
@@ -246,8 +245,6 @@ def test_guest_endpoints_declare_the_coded_error_shape() -> None:
     declared = _declared_400_schemas()
     for path in (
         "/api/events/{event_id}/rsvp/{answer}/public",
-        "/api/events/{event_id}/tickets/{tier_id}/checkout/public",
-        "/api/events/{event_id}/tickets/{tier_id}/checkout/pwyc/public",
         "/api/events/{event_id}/checkout/public",
     ):
         assert declared[(path, "post")] == {"EventUserEligibility", "ErrorDetail", "GuestActionErrorSchema"}, path

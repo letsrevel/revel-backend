@@ -177,8 +177,9 @@ def buyer_client(organization_owner_user: RevelUser) -> Client:
 
 def _checkout(client: Client, event: Event, tier: TicketTier, *, code: str | None, count: int = 2) -> t.Any:
     """POST the authenticated batch checkout endpoint."""
-    url = reverse("api:ticket_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk})
-    payload: dict[str, t.Any] = {"tickets": [{"guest_name": f"Guest {i}"} for i in range(count)]}
+    url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.pk})
+    group = {"tier_id": str(tier.pk), "tickets": [{"guest_name": f"Guest {i}"} for i in range(count)]}
+    payload: dict[str, t.Any] = {"items": [group]}
     if code is not None:
         payload["discount_code"] = code
     with mock.patch("stripe.checkout.Session.create") as create:
@@ -447,7 +448,7 @@ class TestGuestOnlineParity:
         impossible and raise 500 — **after** the ACTIVE tickets were created and
         the code's usage counter incremented, so the buyer saw an error for a
         purchase that had succeeded and burned another ``times_used`` on retry.
-        It now branches on the returned shape, exactly like ``ticket_checkout``.
+        It now branches on the returned shape, exactly like ``multi_tier_checkout``.
 
         ``price_paid`` is ``0.00`` for the same reason as the authenticated case above:
         no ``Payment`` row exists on this path, so the free checkout must record the

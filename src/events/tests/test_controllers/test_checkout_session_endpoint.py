@@ -1,10 +1,10 @@
 """Tests for the reserve -> checkout-session flow (#632).
 
 Covers:
-- Authed: ``ticket_checkout`` reserves (requires_payment + reservation_id) then
+- Authed: ``multi_tier_checkout`` reserves (requires_payment + reservation_id) then
   ``checkout_session`` creates the Stripe session. Ownership is enforced by
   scoping to ``Payment(reservation_id=..., user=...)``.
-- Guest: ``guest_ticket_checkout`` reserves, ``guest_checkout_session`` (the
+- Guest: ``guest_multi_tier_checkout`` reserves, ``guest_checkout_session`` (the
   ``/public`` variant) creates the session with no user scoping - the
   unguessable reservation_id UUID is the bearer capability, but only for
   guest-originated reservations (an authed reservation is not redeemable there).
@@ -20,6 +20,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from events.models import Event, Organization, TicketTier
+from events.tests.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
@@ -89,9 +90,11 @@ class TestAuthedCheckoutSession:
         self, member_client: Client, event: Event, online_tier: TicketTier
     ) -> None:
         """Checkout on an ONLINE tier reserves and returns a reservation_id, no Stripe call."""
-        url = reverse("api:ticket_checkout", kwargs={"event_id": event.id, "tier_id": online_tier.id})
+        url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.id})
         with mock.patch("stripe.checkout.Session.create") as mock_create:
-            response = member_client.post(url, data={"tickets": [{"guest_name": "A"}]}, content_type="application/json")
+            response = member_client.post(
+                url, data=to_cart(online_tier, tickets=[{"guest_name": "A"}]), content_type="application/json"
+            )
             mock_create.assert_not_called()
 
         assert response.status_code == 200, response.content
@@ -105,10 +108,10 @@ class TestAuthedCheckoutSession:
         self, member_client: Client, event: Event, online_tier: TicketTier
     ) -> None:
         """POSTing checkout-session for an owned reservation creates the Stripe session."""
-        reserve_url = reverse("api:ticket_checkout", kwargs={"event_id": event.id, "tier_id": online_tier.id})
+        reserve_url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.id})
         with mock.patch("stripe.checkout.Session.create"):
             reserve_response = member_client.post(
-                reserve_url, data={"tickets": [{"guest_name": "A"}]}, content_type="application/json"
+                reserve_url, data=to_cart(online_tier, tickets=[{"guest_name": "A"}]), content_type="application/json"
             )
         reservation_id = reserve_response.json()["reservation_id"]
 
@@ -125,10 +128,10 @@ class TestAuthedCheckoutSession:
         self, member_client: Client, nonmember_client: Client, event: Event, online_tier: TicketTier
     ) -> None:
         """A reservation owned by one user cannot be sessioned by another."""
-        reserve_url = reverse("api:ticket_checkout", kwargs={"event_id": event.id, "tier_id": online_tier.id})
+        reserve_url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.id})
         with mock.patch("stripe.checkout.Session.create"):
             reserve_response = member_client.post(
-                reserve_url, data={"tickets": [{"guest_name": "A"}]}, content_type="application/json"
+                reserve_url, data=to_cart(online_tier, tickets=[{"guest_name": "A"}]), content_type="application/json"
             )
         reservation_id = reserve_response.json()["reservation_id"]
 
@@ -151,15 +154,12 @@ class TestGuestCheckoutSession:
     def test_guest_reserve_then_session(self, guest_online_event: Event, guest_online_tier: TicketTier) -> None:
         """Guest checkout reserves and returns a reservation_id; the public session endpoint sessions it."""
         client = Client()
-        reserve_url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_online_event.id, "tier_id": guest_online_tier.id},
-        )
+        reserve_url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_online_event.id})
         payload = {
             "email": "guest-checkout@example.com",
             "first_name": "Guest",
             "last_name": "User",
-            "tickets": [{"guest_name": "Guest User"}],
+            "items": [{"tier_id": str(guest_online_tier.id), "tickets": [{"guest_name": "Guest User"}]}],
         }
         with mock.patch("stripe.checkout.Session.create") as mock_create:
             reserve_response = client.post(reserve_url, data=payload, content_type="application/json")
@@ -186,10 +186,10 @@ class TestGuestCheckoutSession:
         """An authenticated user's reservation_id must not be sessioned anonymously:
         the public endpoint is scoped to guest-originated reservations (the authed
         sibling endpoint enforces ownership; this route must not bypass it)."""
-        reserve_url = reverse("api:ticket_checkout", kwargs={"event_id": event.id, "tier_id": online_tier.id})
+        reserve_url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.id})
         with mock.patch("stripe.checkout.Session.create"):
             reserve_response = member_client.post(
-                reserve_url, data={"tickets": [{"guest_name": "A"}]}, content_type="application/json"
+                reserve_url, data=to_cart(online_tier, tickets=[{"guest_name": "A"}]), content_type="application/json"
             )
         reservation_id = reserve_response.json()["reservation_id"]
 

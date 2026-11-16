@@ -13,7 +13,7 @@ from events.exceptions import GuestActionErrorCode
 from events.models import TicketAttribution
 
 from .attribution import AttributionPayloadMixin
-from .checkout import BuyerBillingInfoSchema, CheckoutGroupSchema, TicketPurchaseItem
+from .checkout import BuyerBillingInfoSchema, CheckoutGroupSchema
 from .ticket_detail import UserTicketSchema
 
 # ---- Guest User Schemas ----
@@ -25,32 +25,6 @@ class GuestUserDataSchema(Schema):
     email: EmailStr
     first_name: StrippedString = Field(default="", max_length=150, description="Guest user's first name (optional)")
     last_name: StrippedString = Field(default="", max_length=150, description="Guest user's last name (optional)")
-
-
-class GuestBatchCheckoutPayload(GuestUserDataSchema, AttributionPayloadMixin):
-    """Payload for batch checkout by guest (unauthenticated) users."""
-
-    tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
-    discount_code: str | None = Field(default=None, max_length=64, description="Optional discount code")
-    billing_info: BuyerBillingInfoSchema | None = Field(default=None, description="Optional billing info for invoicing")
-    accessible_required: bool = Field(
-        default=False,
-        description="Request accessible seating for the whole checkout (BEST_AVAILABLE assignment "
-        "picks from the accessible pool)",
-    )
-    price_category_id: UUID | None = Field(
-        default=None,
-        description=(
-            "Zone the best-available picker draws from: a price category painted in the tier's "
-            "sector and priced by its `category_prices` map. Null = the tier's whole pool."
-        ),
-    )
-
-
-class GuestBatchCheckoutPWYCPayload(GuestBatchCheckoutPayload):
-    """Payload for batch PWYC checkout by guest users."""
-
-    price_per_ticket: Decimal = Field(..., ge=1, description="Pay what you can amount per ticket (same for all)")
 
 
 class GuestMultiTierCheckoutPayload(GuestUserDataSchema, AttributionPayloadMixin):

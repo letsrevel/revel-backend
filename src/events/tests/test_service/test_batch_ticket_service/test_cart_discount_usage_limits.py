@@ -8,10 +8,9 @@ code applied to fewer tickets than they asked for, and no explanation.
 The per-user usage limit used to be inside that per-group pass, which made it a drop
 reason too. A group bigger than the buyer's remaining allowance vanished from the cart
 instead of failing it: ``max_uses_per_user=2`` with a 3+1 cart returned 200 with the
-code on 1 ticket of 4 — while the very same over-limit purchase on the deprecated
-single-tier route, and even a 2+2 split of the same cart (caught by the summed final
-re-check), returned 400. These tests pin the limit where it belongs: checked once,
-against the summed count of every applicable group.
+code on 1 ticket of 4 — while the very same over-limit purchase as a single group, and even a
+2+2 split of the same cart (caught by the summed final re-check), returned 400.
+These tests pin the limit where it belongs: checked once, against the summed count of every applicable group.
 """
 
 import typing as t
