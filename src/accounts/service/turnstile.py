@@ -9,9 +9,11 @@ Operator-side problems (wrong secret, 4xx) are logged at error so they don't pas
 import httpx
 import structlog
 from django.conf import settings
+from django.http import HttpRequest
 from django.utils.translation import gettext as _
 
 from accounts.exceptions import TurnstileFailedError
+from common.client_ip import get_client_ip
 
 logger = structlog.get_logger(__name__)
 
@@ -25,6 +27,15 @@ _OPERATOR_ERRORS = frozenset({"missing-input-secret", "invalid-input-secret"})
 def is_turnstile_enabled() -> bool:
     """Return True only when both the site key and the secret key are configured."""
     return bool(settings.TURNSTILE_SITE_KEY and settings.TURNSTILE_SECRET_KEY)
+
+
+def verify_turnstile_request(token: str | None, request: HttpRequest) -> None:
+    """Verify a Turnstile token, sending the request's client IP as Cloudflare's ``remoteip`` signal.
+
+    Raises:
+        TurnstileFailedError: The token is missing or Cloudflare rejected it.
+    """
+    verify_turnstile(token, get_client_ip(request))
 
 
 def verify_turnstile(token: str | None, remote_ip: str) -> None:

@@ -1,5 +1,7 @@
+import typing as t
 from uuid import UUID
 
+from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from ninja_extra import (
@@ -7,6 +9,7 @@ from ninja_extra import (
     route,
 )
 
+from accounts.service.turnstile import verify_turnstile_request
 from common.authentication import OptionalAuth
 from common.schema import ErrorDetail
 from common.throttling import WriteThrottle
@@ -27,6 +30,10 @@ class EventPublicGuestController(EventPublicBaseController):
         """Resolve the guest hold (``X-Guest-Hold`` header, then cookie), if valid (seat holds are owned by it)."""
         hold = resolve_request_guest_hold(self.context.request)  # type: ignore[arg-type,union-attr]
         return hold.session_id if hold else None
+
+    def _verify_turnstile(self, token: str | None) -> None:
+        """Verify the Turnstile token (no-op when bot protection isn't configured)."""
+        verify_turnstile_request(token, t.cast(HttpRequest, self.context.request))  # type: ignore[union-attr]
 
     @route.post(
         "/{uuid:event_id}/rsvp/{answer}/public",
@@ -52,9 +59,13 @@ class EventPublicGuestController(EventPublicBaseController):
         Send an invitation link's token as ``X-Event-Token`` (or ``?et=``) and it is claimed for
         the guest first, exactly as the join page does for a logged-in user — this is how a guest
         passes a private event's invitation gate.
+
+        When bot protection is configured, a valid `turnstile_token` is required (400 otherwise).
         """
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
+        # After the cheap lookups: don't spend a Cloudflare round trip (or the single-use token) on a 404.
+        self._verify_turnstile(payload.turnstile_token)
         return guest_service.handle_guest_rsvp(
             event,
             answer,
@@ -103,6 +114,8 @@ class EventPublicGuestController(EventPublicBaseController):
         it is claimed for the guest first, exactly as the join page does for a logged-in
         user — this is how a guest buys from an invited-only tier. Returns 403 if a tier's
         `purchasable_by` rule or sale window rejects the buyer.
+
+        When bot protection is configured, a valid `turnstile_token` is required (400 otherwise).
         """
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
@@ -117,6 +130,7 @@ class EventPublicGuestController(EventPublicBaseController):
         }
         if len(tiers) != len({g.tier_id for g in payload.items}):
             raise HttpError(404, str(_("One or more ticket tiers were not found.")))
+        self._verify_turnstile(payload.turnstile_token)
 
         groups = [
             CartGroup(

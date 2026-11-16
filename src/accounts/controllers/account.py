@@ -18,9 +18,8 @@ from accounts.schema import (
 from accounts.service import account as account_service
 from accounts.service import oidc as oidc_service
 from accounts.service.auth import get_token_pair_for_user
-from accounts.service.turnstile import verify_turnstile
+from accounts.service.turnstile import verify_turnstile_request
 from common.authentication import I18nJWTAuth, ScopedJWTAuth
-from common.client_ip import get_client_ip
 from common.controllers.base import UserAwareController
 from common.schema import EmailSchema, ErrorDetail, ResponseMessage
 from common.service.upload_service import safe_save_uploaded_file
@@ -149,7 +148,7 @@ class AccountController(UserAwareController):
         required (400 otherwise).
         """
         request = t.cast(HttpRequest, self.context.request)  # type: ignore[union-attr]
-        verify_turnstile(payload.turnstile_token, get_client_ip(request))
+        verify_turnstile_request(payload.turnstile_token, request)
         user, _ = account_service.register_user(payload, return_host=tenant_return_host(request))
         return status.HTTP_201_CREATED, user
 

@@ -302,7 +302,7 @@ def test_register_without_token_rejected_when_turnstile_on(
     mock_register.assert_not_called()
 
 
-@patch("accounts.controllers.account.verify_turnstile")
+@patch("accounts.service.turnstile.verify_turnstile")
 @patch("accounts.service.account.register_user")
 def test_register_verifies_token_before_creating_user(
     mock_register: MagicMock,
