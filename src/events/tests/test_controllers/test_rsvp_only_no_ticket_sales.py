@@ -85,20 +85,6 @@ class TestDuplication:
 
 
 class TestCheckoutRefused:
-    def test_auth_single_tier(self, member_client: Client, public_event: Event) -> None:
-        event = _rsvp_event(public_event)
-        tier = _tier(event)
-        url = reverse("api:ticket_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk})
-
-        _assert_rsvp_only(_post(member_client, url, {"tickets": [{"guest_name": "Ann"}]}))
-
-    def test_auth_pwyc(self, member_client: Client, public_event: Event) -> None:
-        event = _rsvp_event(public_event)
-        tier = _tier(event, price_type=TicketTier.PriceType.PWYC, pwyc_min=Decimal("1.00"))
-        url = reverse("api:ticket_pwyc_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk})
-
-        _assert_rsvp_only(_post(member_client, url, {"tickets": [{"guest_name": "Ann"}], "price_per_ticket": "5.00"}))
-
     def test_auth_multi_tier(self, member_client: Client, public_event: Event) -> None:
         event = _rsvp_event(public_event)
         tier = _tier(event)
@@ -106,20 +92,16 @@ class TestCheckoutRefused:
 
         _assert_rsvp_only(_post(member_client, url, {"items": [{"tier_id": str(tier.pk), "tickets": [{}]}]}))
 
-    @pytest.mark.parametrize(
-        "route", ["guest_ticket_checkout", "guest_ticket_pwyc_checkout", "guest_multi_tier_checkout"]
-    )
-    def test_guest_routes(self, client: Client, public_event: Event, route: str) -> None:
+    def test_guest_multi_tier(self, client: Client, public_event: Event) -> None:
         event = _rsvp_event(public_event)
-        extra: dict[str, t.Any] = {"price_type": TicketTier.PriceType.PWYC, "pwyc_min": Decimal("1.00")}
-        tier = _tier(event, **(extra if route == "guest_ticket_pwyc_checkout" else {}))
-        guest = {"email": "guest@example.com", "first_name": "G", "last_name": "Uest"}
-        if route == "guest_multi_tier_checkout":
-            url = reverse(f"api:{route}", kwargs={"event_id": event.pk})
-            data = {**guest, "items": [{"tier_id": str(tier.pk), "tickets": [{"guest_name": "G"}]}]}
-        else:
-            url = reverse(f"api:{route}", kwargs={"event_id": event.pk, "tier_id": tier.pk})
-            data = {**guest, "tickets": [{"guest_name": "G"}], "price_per_ticket": "5.00"}
+        tier = _tier(event)
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": event.pk})
+        data = {
+            "email": "guest@example.com",
+            "first_name": "G",
+            "last_name": "Uest",
+            "items": [{"tier_id": str(tier.pk), "tickets": [{"guest_name": "G"}]}],
+        }
 
         _assert_rsvp_only(_post(client, url, data))
 
@@ -128,8 +110,13 @@ class TestCheckoutRefused:
         event.can_attend_without_login = False
         event.save(update_fields=["can_attend_without_login"])
         tier = _tier(event)
-        url = reverse("api:guest_ticket_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk})
-        data = {"email": "guest@example.com", "first_name": "G", "last_name": "Uest", "tickets": [{"guest_name": "G"}]}
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": event.pk})
+        data = {
+            "email": "guest@example.com",
+            "first_name": "G",
+            "last_name": "Uest",
+            "items": [{"tier_id": str(tier.pk), "tickets": [{"guest_name": "G"}]}],
+        }
 
         _assert_rsvp_only(_post(client, url, data))
 

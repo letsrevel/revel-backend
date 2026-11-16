@@ -121,196 +121,6 @@ class EventPublicTicketsController(EventPublicBaseController):
         return venue_service.get_tier_seat_availability(event, tier)
 
     @route.post(
-        "/{uuid:event_id}/tickets/{tier_id}/checkout",
-        url_name="ticket_checkout",
-        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility | ErrorDetail, 422: ErrorDetail},
-        auth=I18nJWTAuth(),
-        throttle=WriteThrottle(),
-        permissions=[CanPurchaseTicket()],
-        deprecated=True,
-    )
-    def ticket_checkout(
-        self,
-        event_id: UUID,
-        tier_id: UUID,
-        payload: schema.BatchCheckoutPayload,
-    ) -> schema.BatchCheckoutResponse:
-        """Purchase one or more fixed-price event tickets.
-
-        Supports batch purchases with individual guest names per ticket. Runs eligibility checks
-        before allowing purchase. For online payment: returns Stripe checkout URL to redirect
-        user for payment. For free/offline/at-the-door tickets: creates tickets immediately.
-
-        Cannot be used for pay-what-you-can (PWYC) tiers - use the /checkout/pwyc endpoint instead.
-
-        **Request Body:**
-        - `tickets`: List of tickets to purchase, each with:
-          - `guest_name`: Name of the ticket holder (optional; required only when
-            the event has `require_ticket_names` enabled)
-          - `seat_id`: Seat UUID for USER_CHOICE seat assignment mode (optional)
-
-        **Seat Assignment Modes:**
-        - `NONE`: No seat assigned (general admission)
-        - `BEST_AVAILABLE`: System auto-assigns the best adjacent block of seats
-        - `USER_CHOICE`: User must provide seat_id for each ticket
-
-        On eligibility failure, returns 400 with eligibility details explaining what's blocking
-        you and what next_step to take.
-
-        **Online tiers:** returns `requires_payment=true` and a `reservation_id`. Call
-        `POST /events/reservations/{reservation_id}/checkout-session` next to obtain the
-        Stripe `checkout_url`. Free / offline / at-the-door tiers complete here
-        (`requires_payment=false`, tickets returned).
-
-        Deprecated: use POST /events/{event_id}/checkout (a single-group cart) instead.
-        """
-        event = get_object_or_404(self.get_queryset(include_past=True), pk=event_id)
-        user = self.user()
-        # Use for_visible_event() to avoid redundant Event.for_user() call
-        # since we already have a visibility-checked event
-        tier = get_object_or_404(
-            models.TicketTier.objects.for_visible_event(event, user),
-            pk=tier_id,
-        )
-
-        if tier.price_type == models.TicketTier.PriceType.PWYC:
-            raise HttpError(400, str(_("Use /checkout/pwyc endpoint for pay-what-you-can tickets")))
-
-        # Run eligibility check
-        manager = EventManager(user, event)
-        manager.check_eligibility(raise_on_false=True)
-
-        # Validate discount code if provided. The code itself is threaded into the
-        # service — the discounted price is computed per ticket by the pricing
-        # service, never pre-collapsed into a scalar here.
-        dc = None
-        if payload.discount_code:
-            dc = discount_code_service.validate_discount_code(
-                payload.discount_code, event.organization, tier, user, len(payload.tickets)
-            )
-
-        # Create batch of tickets
-        service = BatchTicketService(
-            event,
-            tier,
-            user,
-            discount_code=dc,
-            accessible_required=payload.accessible_required,
-            price_category_id=payload.price_category_id,
-            attribution=payload.attribution,
-        )
-        result = service.create_batch(payload.tickets, billing_info=payload.billing_info)
-
-        if isinstance(result, tuple):
-            tickets, reservation_id = result
-            return schema.BatchCheckoutResponse(
-                checkout_url=None,
-                tickets=[],
-                reservation_id=reservation_id,
-                requires_payment=True,
-            )
-        return schema.BatchCheckoutResponse(
-            checkout_url=None,
-            tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
-            requires_payment=False,
-        )
-
-    @route.post(
-        "/{uuid:event_id}/tickets/{tier_id}/checkout/pwyc",
-        url_name="ticket_pwyc_checkout",
-        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility | ErrorDetail, 422: ErrorDetail},
-        auth=I18nJWTAuth(),
-        throttle=WriteThrottle(),
-        permissions=[CanPurchaseTicket()],
-        deprecated=True,
-    )
-    def ticket_pwyc_checkout(
-        self,
-        event_id: UUID,
-        tier_id: UUID,
-        payload: schema.BatchCheckoutPWYCPayload,
-    ) -> schema.BatchCheckoutResponse:
-        """Purchase one or more pay-what-you-can (PWYC) tickets.
-
-        Only works for ticket tiers with price_type=PWYC. All tickets in the batch are purchased
-        at the same price_per_ticket amount. Validates the amount is within the tier's min/max
-        bounds.
-
-        **Request Body:**
-        - `tickets`: List of tickets to purchase, each with:
-          - `guest_name`: Name of the ticket holder (optional; required only when
-            the event has `require_ticket_names` enabled)
-          - `seat_id`: Seat UUID for USER_CHOICE seat assignment mode (optional)
-        - `price_per_ticket`: PWYC amount per ticket (same for all tickets in batch)
-
-        Returns Stripe checkout URL for online payment, or creates tickets immediately for
-        free/offline payment methods. Returns 400 for non-PWYC tiers, if amount is out of
-        bounds, or on eligibility failure.
-
-        **Online tiers:** returns `requires_payment=true` and a `reservation_id`. Call
-        `POST /events/reservations/{reservation_id}/checkout-session` next to obtain the
-        Stripe `checkout_url`. Free / offline / at-the-door tiers complete here
-        (`requires_payment=false`, tickets returned).
-
-        Deprecated: use POST /events/{event_id}/checkout (a single-group cart) instead.
-        """
-        event = get_object_or_404(self.get_queryset(include_past=True), pk=event_id)
-        user = self.user()
-        # Use for_visible_event() to avoid redundant Event.for_user() call
-        tier = get_object_or_404(
-            models.TicketTier.objects.for_visible_event(event, user),
-            pk=tier_id,
-        )
-
-        # Validate that this tier is actually PWYC
-        if tier.price_type != models.TicketTier.PriceType.PWYC:
-            raise HttpError(400, str(_("This endpoint is only for pay-what-you-can tickets")))
-
-        # Validate PWYC amount is within bounds
-        if payload.price_per_ticket < tier.pwyc_min:
-            raise HttpError(
-                400,
-                str(_("PWYC amount must be at least {min_amount}")).format(min_amount=tier.pwyc_min),
-            )
-
-        if tier.pwyc_max and payload.price_per_ticket > tier.pwyc_max:
-            raise HttpError(
-                400,
-                str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max),
-            )
-
-        # Run eligibility check
-        manager = EventManager(user, event)
-        manager.check_eligibility(raise_on_false=True)
-
-        # Create batch of tickets
-        service = BatchTicketService(
-            event,
-            tier,
-            user,
-            accessible_required=payload.accessible_required,
-            price_category_id=payload.price_category_id,
-            attribution=payload.attribution,
-        )
-        result = service.create_batch(
-            payload.tickets, pwyc_amount=payload.price_per_ticket, billing_info=payload.billing_info
-        )
-
-        if isinstance(result, tuple):
-            tickets, reservation_id = result
-            return schema.BatchCheckoutResponse(
-                checkout_url=None,
-                tickets=[],
-                reservation_id=reservation_id,
-                requires_payment=True,
-            )
-        return schema.BatchCheckoutResponse(
-            checkout_url=None,
-            tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
-            requires_payment=False,
-        )
-
-    @route.post(
         "/{uuid:event_id}/checkout",
         url_name="multi_tier_checkout",
         response={
@@ -334,8 +144,7 @@ class EventPublicTicketsController(EventPublicBaseController):
         Each entry in `items` is one tier's slice of the cart: its own tickets, PWYC
         amount (required iff that tier is PWYC), best-available zone and accessible
         seating flag. Every tier must belong to (and be visible in) this event, and the
-        whole cart must share one currency and one payment method — see
-        `POST /{event_id}/tickets/{tier_id}/checkout` for the per-rule error messages.
+        whole cart must share one currency and one payment method.
 
         `discount_code` is validated per group: a code need not discount every tier in
         the cart, only some — but if it matches none of them the request is rejected.
@@ -417,7 +226,7 @@ class EventPublicTicketsController(EventPublicBaseController):
     def checkout_session(self, reservation_id: UUID) -> schema.CheckoutSessionResponse:
         """Create the Stripe checkout session for a reservation and return its URL.
 
-        Second step of online checkout (#632): the checkout/pwyc endpoints reserve
+        Second step of online checkout (#632): the checkout endpoints reserve
         tickets and return a `reservation_id`; this endpoint creates the Stripe
         session holding no contended DB lock. Idempotent — repeat calls (retry or
         double-submit) reuse the same Stripe session. Returns 404 if the

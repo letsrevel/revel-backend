@@ -6,8 +6,6 @@ re-exported here so ``events.schema.ticket.X`` keeps resolving to the same objec
 """
 
 from .checkout import (
-    BatchCheckoutPayload,
-    BatchCheckoutPWYCPayload,
     BatchCheckoutResponse,
     BuyerBillingInfoSchema,
     CheckoutSessionResponse,
@@ -22,8 +20,6 @@ from .guest_checkout import (
     GuestActionErrorSchema,
     GuestActionPayload,
     GuestActionResponseSchema,
-    GuestBatchCheckoutPayload,
-    GuestBatchCheckoutPWYCPayload,
     GuestCheckoutGroupPayload,
     GuestCheckoutResponseSchema,
     GuestMultiTierCheckoutPayload,
@@ -92,8 +88,6 @@ __all__ = [
     "AdminRefundTicketSchema",
     "AdminTicketDetailSchema",
     "AdminTicketSchema",
-    "BatchCheckoutPWYCPayload",
-    "BatchCheckoutPayload",
     "BatchCheckoutResponse",
     "BuyerBillingInfoSchema",
     "CancellationBlockedErrorSchema",
@@ -110,8 +104,6 @@ __all__ = [
     "GuestActionErrorSchema",
     "GuestActionPayload",
     "GuestActionResponseSchema",
-    "GuestBatchCheckoutPWYCPayload",
-    "GuestBatchCheckoutPayload",
     "GuestCheckoutGroupPayload",
     "GuestCheckoutResponseSchema",
     "GuestMultiTierCheckoutPayload",

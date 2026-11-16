@@ -26,6 +26,7 @@ from events.service.guest_hold_session import (
     issue_guest_hold_token,
     resolve_request_guest_hold,
 )
+from events.tests.test_controllers.test_guest_user.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
@@ -84,13 +85,16 @@ def _emailed_token_session(mock_send_email: Mock) -> str | None:
 
 def _checkout(client: Client, event: Event, tier: TicketTier, seat: VenueSeat, **extra: t.Any) -> t.Any:
     return client.post(
-        reverse("api:guest_ticket_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk}),
-        data={
-            "email": "tenantbuyer@example.com",
-            "first_name": "Tenant",
-            "last_name": "Buyer",
-            "tickets": [{"guest_name": "Tenant Buyer", "seat_id": str(seat.id)}],
-        },
+        reverse("api:guest_multi_tier_checkout", kwargs={"event_id": event.pk}),
+        data=to_cart(
+            tier.pk,
+            {
+                "email": "tenantbuyer@example.com",
+                "first_name": "Tenant",
+                "last_name": "Buyer",
+                "tickets": [{"guest_name": "Tenant Buyer", "seat_id": str(seat.id)}],
+            },
+        ),
         content_type="application/json",
         **extra,
     )

@@ -86,32 +86,6 @@ class BuyerBillingInfoSchema(Schema):
         return v
 
 
-class BatchCheckoutPayload(AttributionPayloadMixin):
-    """Payload for batch ticket checkout (authenticated users)."""
-
-    tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
-    discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
-    billing_info: BuyerBillingInfoSchema | None = Field(None, description="Optional billing info for invoicing")
-    accessible_required: bool = Field(
-        default=False,
-        description="Request accessible seating for the whole checkout (BEST_AVAILABLE assignment "
-        "picks from the accessible pool)",
-    )
-    price_category_id: UUID | None = Field(
-        default=None,
-        description=(
-            "Zone the best-available picker draws from: a price category painted in the tier's "
-            "sector and priced by its `category_prices` map. Null = the tier's whole pool."
-        ),
-    )
-
-
-class BatchCheckoutPWYCPayload(BatchCheckoutPayload):
-    """Payload for batch PWYC ticket checkout."""
-
-    price_per_ticket: Decimal = Field(..., ge=1, description="Pay what you can amount per ticket (same for all)")
-
-
 # ---- Multi-Tier Cart Checkout Schemas (#846) ----
 
 

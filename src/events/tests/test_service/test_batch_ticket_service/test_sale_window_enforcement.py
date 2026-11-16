@@ -114,9 +114,10 @@ class TestSaleWindowEnforcementEndpoint:
         )
         refresh = RefreshToken.for_user(member_user)
         client = Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
-        url = reverse("api:ticket_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk})
+        url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.pk})
+        payload = {"items": [{"tier_id": str(tier.pk), "tickets": [{"guest_name": "Test"}]}]}
 
-        response = client.post(url, data={"tickets": [{"guest_name": "Test"}]}, content_type="application/json")
+        response = client.post(url, data=payload, content_type="application/json")
 
         assert response.status_code == 403, response.content
         assert "outside of the sale window" in response.json()["detail"]

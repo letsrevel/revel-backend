@@ -1,22 +1,26 @@
 """Email-only guest checkout (#845). URL names/payload idioms: mirror test_guest_checkout.py."""
 
 from unittest.mock import Mock, patch
+from uuid import uuid4
 
 import pytest
 from django.test.client import Client
 from django.urls import reverse
 
 from events.models import Event, Ticket, TicketTier
-from events.schema.guest_checkout import GuestBatchCheckoutPayload, GuestTicketItemPayload
+from events.schema.guest_checkout import GuestMultiTierCheckoutPayload, GuestTicketItemPayload
 from events.service.guest import get_or_create_guest_user
+from events.tests.test_controllers.test_guest_user.cart_helpers import to_cart
 
 
 class TestSchemas:
     def test_guest_payload_valid_with_email_only(self) -> None:
-        payload = GuestBatchCheckoutPayload.model_validate({"email": "speedy@example.com", "tickets": [{}]})
+        payload = GuestMultiTierCheckoutPayload.model_validate(
+            {"email": "speedy@example.com", "items": [{"tier_id": str(uuid4()), "tickets": [{}]}]}
+        )
         assert payload.first_name == ""
         assert payload.last_name == ""
-        assert payload.tickets[0].guest_name is None
+        assert payload.items[0].tickets[0].guest_name is None
 
     def test_jwt_item_payload_defaults_to_empty_name(self) -> None:
         assert GuestTicketItemPayload().guest_name == ""
@@ -47,14 +51,11 @@ class TestEmailOnlyGuestCheckout:
         guest_event_with_tickets.save(update_fields=["require_ticket_names"])
 
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": free_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
 
         response = client.post(
             url,
-            data={"email": "speedy@example.com", "tickets": [{}]},
+            data=to_cart(free_tier.pk, {"email": "speedy@example.com", "tickets": [{}]}),
             content_type="application/json",
         )
 
@@ -81,14 +82,11 @@ class TestEmailOnlyGuestCheckout:
         assert guest_event_with_tickets.require_ticket_names is True
 
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": free_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
 
         response = client.post(
             url,
-            data={"email": "speedy@example.com", "tickets": [{}]},
+            data=to_cart(free_tier.pk, {"email": "speedy@example.com", "tickets": [{}]}),
             content_type="application/json",
         )
 

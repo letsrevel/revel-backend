@@ -62,15 +62,6 @@ def test_multi_tier_checkout_stamps_attribution(member_client: Client, public_ev
     assert _attributions(public_event) == [ATTRIBUTION] * 3
 
 
-def test_single_tier_checkout_stamps_attribution(member_client: Client, public_event: Event) -> None:
-    tier = _tier(public_event, "A")
-    payload = {"tickets": [{"guest_name": "Ann"}], "attribution": ATTRIBUTION}
-    url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": tier.pk})
-    response = member_client.post(url, data=payload, content_type="application/json")
-    assert response.status_code == 200, response.content
-    assert _attributions(public_event) == [ATTRIBUTION]
-
-
 def test_pwyc_checkout_stamps_attribution(member_client: Client, public_event: Event) -> None:
     tier = _tier(
         public_event,
@@ -79,8 +70,11 @@ def test_pwyc_checkout_stamps_attribution(member_client: Client, public_event: E
         pwyc_min=Decimal("5.00"),
         pwyc_max=Decimal("50.00"),
     )
-    payload = {"tickets": [{"guest_name": "Ann"}], "price_per_ticket": "10.00", "attribution": ATTRIBUTION}
-    url = reverse("api:ticket_pwyc_checkout", kwargs={"event_id": public_event.pk, "tier_id": tier.pk})
+    payload = {
+        "items": [{"tier_id": str(tier.id), "tickets": [{"guest_name": "Ann"}], "pwyc_amount": "10.00"}],
+        "attribution": ATTRIBUTION,
+    }
+    url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
     response = member_client.post(url, data=payload, content_type="application/json")
     assert response.status_code == 200, response.content
     assert _attributions(public_event) == [ATTRIBUTION]
@@ -168,16 +162,6 @@ def test_guest_multi_tier_checkout_carries_attribution_through_the_token(
     assert _attributions(guest_event) == [ATTRIBUTION] * 2
 
 
-def test_guest_single_tier_checkout_carries_attribution_through_the_token(
-    guest_event: Event, django_capture_on_commit_callbacks: t.Callable[..., t.Any]
-) -> None:
-    tier = _tier(guest_event, "Free", payment_method=TicketTier.PaymentMethod.FREE, price=Decimal("0.00"))
-    payload = {**GUEST, "tickets": [{"guest_name": "Ann"}], "attribution": ATTRIBUTION}
-    url = reverse("api:guest_ticket_checkout", kwargs={"event_id": guest_event.pk, "tier_id": tier.pk})
-    _checkout_then_confirm(django_capture_on_commit_callbacks, url, payload)
-    assert _attributions(guest_event) == [ATTRIBUTION]
-
-
 def test_guest_pwyc_checkout_carries_attribution_through_the_token(
     guest_event: Event, django_capture_on_commit_callbacks: t.Callable[..., t.Any]
 ) -> None:
@@ -188,8 +172,12 @@ def test_guest_pwyc_checkout_carries_attribution_through_the_token(
         pwyc_min=Decimal("5.00"),
         pwyc_max=Decimal("50.00"),
     )
-    payload = {**GUEST, "tickets": [{"guest_name": "Ann"}], "price_per_ticket": "10.00", "attribution": ATTRIBUTION}
-    url = reverse("api:guest_ticket_pwyc_checkout", kwargs={"event_id": guest_event.pk, "tier_id": tier.pk})
+    payload = {
+        **GUEST,
+        "items": [{"tier_id": str(tier.id), "tickets": [{"guest_name": "Ann"}], "pwyc_amount": "10.00"}],
+        "attribution": ATTRIBUTION,
+    }
+    url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event.pk})
     _checkout_then_confirm(django_capture_on_commit_callbacks, url, payload)
     assert _attributions(guest_event) == [ATTRIBUTION]
 

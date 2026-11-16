@@ -18,6 +18,7 @@ from django.urls import reverse
 from accounts.models import RevelUser
 from events.models import Event, EventRSVP, Ticket, TicketTier
 from events.service import guest as guest_service
+from events.tests.test_controllers.test_guest_user.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
@@ -80,10 +81,7 @@ class TestGuestFlowIntegration:
 
         # Step 1: Initiate ticket purchase
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": free_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "ticketflow@example.com",
             "first_name": "Ticket",
@@ -91,7 +89,7 @@ class TestGuestFlowIntegration:
             "tickets": [{"guest_name": "Ticket Flow"}],
         }
         with django_capture_on_commit_callbacks(execute=True):
-            response = client.post(url, data=payload, content_type="application/json")
+            response = client.post(url, data=to_cart(free_tier.pk, payload), content_type="application/json")
         assert response.status_code == 200
 
         # Step 2: Verify email was sent and extract token
@@ -116,10 +114,7 @@ class TestGuestFlowIntegration:
     def test_complete_online_payment_flow(self, guest_event_with_tickets: Event, online_tier: TicketTier) -> None:
         """Test complete online payment flow: reserve -> create session -> get Stripe URL (#632)."""
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": online_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "stripe@example.com",
             "first_name": "Stripe",
@@ -129,7 +124,7 @@ class TestGuestFlowIntegration:
 
         # Act: Initiate online payment (reserve; no Stripe call yet)
         with mock.patch("stripe.checkout.Session.create") as mock_create:
-            response = client.post(url, data=payload, content_type="application/json")
+            response = client.post(url, data=to_cart(online_tier.pk, payload), content_type="application/json")
             mock_create.assert_not_called()
 
         # Assert: reserved, no email confirmation needed
@@ -250,10 +245,7 @@ class TestGuestDuplicateActions:
         """Test that initiating ticket purchase twice before confirming works."""
         # First attempt
         client = Client()
-        url = reverse(
-            "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": free_tier.pk},
-        )
+        url = reverse("api:guest_multi_tier_checkout", kwargs={"event_id": guest_event_with_tickets.pk})
         payload = {
             "email": "dupticket@example.com",
             "first_name": "Dup",
@@ -261,12 +253,12 @@ class TestGuestDuplicateActions:
             "tickets": [{"guest_name": "Dup Ticket"}],
         }
         with django_capture_on_commit_callbacks(execute=True):
-            response1 = client.post(url, data=payload, content_type="application/json")
+            response1 = client.post(url, data=to_cart(free_tier.pk, payload), content_type="application/json")
         assert response1.status_code == 200
 
         # Second attempt
         with django_capture_on_commit_callbacks(execute=True):
-            response2 = client.post(url, data=payload, content_type="application/json")
+            response2 = client.post(url, data=to_cart(free_tier.pk, payload), content_type="application/json")
         assert response2.status_code == 200
 
         # Assert: Both attempts succeeded (new tokens generated)

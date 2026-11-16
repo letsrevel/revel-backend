@@ -323,28 +323,6 @@ class TestGuestInvitationLinkPrivateTier:
 
     @pytest.mark.django_db(transaction=True)
     @patch("events.tasks.send_guest_ticket_confirmation.delay")
-    def test_link_unlocks_private_tier_on_deprecated_single_tier_route(
-        self, mock_send_email: Mock, guest_event: Event, private_invited_tier: TicketTier, invitation_link: EventToken
-    ) -> None:
-        response = Client().post(
-            reverse(
-                "api:guest_ticket_checkout", kwargs={"event_id": guest_event.pk, "tier_id": private_invited_tier.pk}
-            ),
-            data={
-                "email": "legacy@example.com",
-                "first_name": "Guest",
-                "last_name": "Legacy",
-                "tickets": [{"guest_name": "Guest Legacy"}],
-            },
-            content_type="application/json",
-            headers=_token_headers(invitation_link.pk),
-        )
-
-        assert response.status_code == 200, response.content
-        mock_send_email.assert_called_once()
-
-    @pytest.mark.django_db(transaction=True)
-    @patch("events.tasks.send_guest_ticket_confirmation.delay")
     def test_visibility_linked_restriction_needs_a_linked_link(
         self, mock_send_email: Mock, guest_event: Event, private_invited_tier: TicketTier, invitation_link: EventToken
     ) -> None:

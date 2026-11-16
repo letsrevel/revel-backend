@@ -79,8 +79,8 @@ class TestEventStripeCheckout:
     ) -> None:
         """Test successful ticket checkout: reserve (no Stripe call), then create the session (#632)."""
         # Act: reserve
-        url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": paid_ticket_tier.pk})
-        payload = {"tickets": [{"guest_name": "Test Guest"}]}
+        url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
+        payload = {"items": [{"tier_id": str(paid_ticket_tier.pk), "tickets": [{"guest_name": "Test Guest"}]}]}
         with mock.patch("stripe.checkout.Session.create") as mock_create:
             response = authenticated_client.post(url, data=payload, content_type="application/json")
             mock_create.assert_not_called()
@@ -115,8 +115,8 @@ class TestEventStripeCheckout:
         client = Client()
 
         # Act
-        url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": paid_ticket_tier.pk})
-        payload = {"tickets": [{"guest_name": "Test Guest"}]}
+        url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
+        payload = {"items": [{"tier_id": str(paid_ticket_tier.pk), "tickets": [{"guest_name": "Test Guest"}]}]}
         response = client.post(url, data=payload, content_type="application/json")
 
         # Assert
@@ -132,64 +132,12 @@ class TestEventStripeCheckout:
         fake_event_id = "00000000-0000-0000-0000-000000000000"
 
         # Act
-        url = reverse("api:ticket_checkout", kwargs={"event_id": fake_event_id, "tier_id": paid_ticket_tier.pk})
-        payload = {"tickets": [{"guest_name": "Test Guest"}]}
+        url = reverse("api:multi_tier_checkout", kwargs={"event_id": fake_event_id})
+        payload = {"items": [{"tier_id": str(paid_ticket_tier.pk), "tickets": [{"guest_name": "Test Guest"}]}]}
         response = authenticated_client.post(url, data=payload, content_type="application/json")
 
         # Assert
         assert response.status_code == 404
-
-    def test_ticket_checkout_tier_not_found(
-        self,
-        authenticated_client: Client,
-        public_event: Event,
-    ) -> None:
-        """Test checkout with non-existent ticket tier."""
-        # Arrange
-        fake_tier_id = "00000000-0000-0000-0000-000000000000"
-
-        # Act
-        url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": fake_tier_id})
-        payload = {"tickets": [{"guest_name": "Test Guest"}]}
-        response = authenticated_client.post(url, data=payload, content_type="application/json")
-
-        # Assert
-        assert response.status_code == 404
-
-    def test_ticket_checkout_tier_belongs_to_different_event(
-        self,
-        authenticated_client: Client,
-        public_event: Event,
-        stripe_connected_organization: Organization,
-        next_week: datetime,
-    ) -> None:
-        """Test checkout with tier that belongs to a different event."""
-        # Arrange
-        different_event = Event.objects.create(
-            organization=stripe_connected_organization,
-            name="Different Event",
-            slug="different-event",
-            event_type=Event.EventType.PUBLIC,
-            start=next_week,
-            end=next_week + timedelta(days=1),
-            status=Event.EventStatus.OPEN,
-            visibility=Event.Visibility.PUBLIC,
-        )
-
-        different_tier = TicketTier.objects.create(
-            event=different_event,
-            name="Different Tier",
-            price=Decimal("30.00"),
-            currency="EUR",
-        )
-
-        # Act
-        url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": different_tier.pk})
-        payload = {"tickets": [{"guest_name": "Test Guest"}]}
-        response = authenticated_client.post(url, data=payload, content_type="application/json")
-
-        # Assert
-        assert response.status_code == 404  # get_object_or_404 filters by event
 
     def test_ticket_checkout_stripe_service_error(
         self,
@@ -201,8 +149,8 @@ class TestEventStripeCheckout:
         the error now surfaces at the checkout-session step (#632).
         """
         # Arrange: reserve succeeds
-        url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": paid_ticket_tier.pk})
-        payload = {"tickets": [{"guest_name": "Test Guest"}]}
+        url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
+        payload = {"items": [{"tier_id": str(paid_ticket_tier.pk), "tickets": [{"guest_name": "Test Guest"}]}]}
         with mock.patch("stripe.checkout.Session.create"):
             response = authenticated_client.post(url, data=payload, content_type="application/json")
         assert response.status_code == 200
@@ -249,8 +197,8 @@ class TestEventStripeCheckout:
         client.defaults["HTTP_AUTHORIZATION"] = f"Bearer {refresh.access_token}"  # type: ignore[attr-defined]
 
         # Act
-        url = reverse("api:ticket_checkout", kwargs={"event_id": private_event.pk, "tier_id": private_tier.pk})
-        payload = {"tickets": [{"guest_name": "Test Guest"}]}
+        url = reverse("api:multi_tier_checkout", kwargs={"event_id": private_event.pk})
+        payload = {"items": [{"tier_id": str(private_tier.pk), "tickets": [{"guest_name": "Test Guest"}]}]}
         response = client.post(url, data=payload, content_type="application/json")
 
         # Assert
@@ -272,8 +220,8 @@ class TestEventStripeCheckout:
         )
 
         # Act
-        url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": free_tier.pk})
-        payload = {"tickets": [{"guest_name": "Test Guest"}]}
+        url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
+        payload = {"items": [{"tier_id": str(free_tier.pk), "tickets": [{"guest_name": "Test Guest"}]}]}
         response = authenticated_client.post(url, data=payload, content_type="application/json")
 
         # Assert
@@ -308,8 +256,8 @@ class TestEventStripeCheckout:
         )
 
         # Act
-        url = reverse("api:ticket_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk})
-        payload = {"tickets": [{"guest_name": "Test Guest"}]}
+        url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.pk})
+        payload = {"items": [{"tier_id": str(tier.pk), "tickets": [{"guest_name": "Test Guest"}]}]}
         response = authenticated_client.post(url, data=payload, content_type="application/json")
 
         # Assert
@@ -377,8 +325,8 @@ class TestStripeCheckoutRateLimit:
         # Act - Make multiple rapid requests (this would normally be rate limited)
         responses = []
         for i in range(3):
-            url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": paid_ticket_tier.pk})
-            payload = {"tickets": [{"guest_name": f"Guest {i}"}]}
+            url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
+            payload = {"items": [{"tier_id": str(paid_ticket_tier.pk), "tickets": [{"guest_name": f"Guest {i}"}]}]}
             response = authenticated_client.post(url, data=payload, content_type="application/json")
             responses.append(response)
 
