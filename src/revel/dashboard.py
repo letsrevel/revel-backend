@@ -13,6 +13,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from common.models import STRIPE_CONNECTED_Q, SiteSettings
 from events.models import Event, Organization, TicketTier
+from events.service import platform_revenue_service
 from notifications.enums import DeliveryStatus
 from notifications.models import NotificationDelivery
 from telegram.models import TelegramUser
@@ -24,6 +25,29 @@ class PronounDistribution(t.TypedDict):
     labels: list[str]
     data: list[int]
     total: int
+
+
+class PlatformRevenue(t.TypedDict):
+    """Revel's platform-fee income: per-currency totals for three windows plus membership-fee MRR."""
+
+    today: list[platform_revenue_service.FeeTotals]
+    week: list[platform_revenue_service.FeeTotals]
+    month: list[platform_revenue_service.FeeTotals]
+    mrr: list[platform_revenue_service.FeeTotals]
+
+
+def _get_platform_revenue() -> PlatformRevenue:
+    """Fee totals for today, this week (from Monday) and this month, in Europe/Vienna, plus MRR."""
+    now = timezone.now()
+    today = platform_revenue_service.local_midnight(now)
+    week = platform_revenue_service.local_midnight(now, days_back=timezone.localtime(now).weekday())
+    month = platform_revenue_service.local_midnight(now, first_of_month=True)
+    return {
+        "today": list(platform_revenue_service.platform_fee_totals(today, now).values()),
+        "week": list(platform_revenue_service.platform_fee_totals(week, now).values()),
+        "month": list(platform_revenue_service.platform_fee_totals(month, now).values()),
+        "mrr": list(platform_revenue_service.membership_fee_mrr().values()),
+    }
 
 
 class UserGrowthData(t.TypedDict):
@@ -504,6 +528,8 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
         .count()
     )
 
+    platform_revenue = _get_platform_revenue()
+
     # Organizer activity (manually created events in the selected week)
     organizer_activity = _get_organizer_activity(_parse_week_offset(request.GET.get("week")))
 
@@ -566,6 +592,7 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
                     "total_events": total_events,
                     "events_with_online_payment": events_with_online_payment,
                 },
+                "platform_revenue": platform_revenue,
                 "organizer_activity": organizer_activity,
                 "user_growth": user_growth,
                 "pronoun_distribution": pronoun_distribution,

@@ -20,8 +20,9 @@ def notify_admin_on_user_creation(
     """Send admin notifications when a new user joins.
 
     Standalone notification system that runs alongside the main notification
-    system. Checks SiteSettings.notify_user_joined and dispatches Celery tasks
-    to send Pushover and Discord notifications if enabled. The Discord task
+    system. Registered users are gated by SiteSettings.notify_user_joined and guest
+    users by SiteSettings.notify_guest_user_joined; when enabled, dispatches Celery
+    tasks to send Pushover and Discord notifications. The Discord task
     skips guest users internally since the non-guest count would be unchanged.
 
     Args:
@@ -35,7 +36,8 @@ def notify_admin_on_user_creation(
 
     # Check if admin notifications for new users are enabled
     site_settings = SiteSettings.get_solo()
-    if not site_settings.notify_user_joined:
+    enabled = site_settings.notify_guest_user_joined if instance.guest else site_settings.notify_user_joined
+    if not enabled:
         logger.debug(
             "user_joined_notification_disabled",
             user_id=str(instance.id),
