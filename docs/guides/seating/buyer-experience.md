@@ -315,7 +315,7 @@ Key endpoints (all under `/events`):
 | `POST /{event_id}/seating/holds` | All-or-nothing TTL hold on specific seats |
 | `POST /{event_id}/seating/holds/best-available` | Optimistic hold of the best adjacent block |
 | `DELETE /{event_id}/seating/holds` | Release the caller's holds (subset or all) |
-| `POST /{event_id}/tickets/{tier_id}/checkout` (+ `/pwyc`, `/public`, `/pwyc/public`) | Purchase — consumes the buyer's own holds |
+| `POST /{event_id}/checkout` (+ `/public` for guests) | Cart purchase (PWYC via each item's `pwyc_amount`) — consumes the buyer's own holds |
 | `POST /reservations/{reservation_id}/checkout-session` (+ `/public`) | Fetch the Stripe checkout URL for an online-tier reservation |
 | `POST /guest-actions/confirm` | Guest email-link confirm — where free/offline/door seats are actually assigned |
 
