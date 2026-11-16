@@ -39,13 +39,18 @@ class PlatformRevenue(t.TypedDict):
 def _get_platform_revenue() -> PlatformRevenue:
     """Fee totals for today, this week (from Monday) and this month, in Europe/Vienna, plus MRR."""
     now = timezone.now()
-    today = platform_revenue_service.local_midnight(now)
-    week = platform_revenue_service.local_midnight(now, days_back=timezone.localtime(now).weekday())
-    month = platform_revenue_service.local_midnight(now, first_of_month=True)
+    windows = platform_revenue_service.platform_fee_windows(
+        {
+            "today": platform_revenue_service.local_midnight(now),
+            "week": platform_revenue_service.local_midnight(now, days_back=timezone.localtime(now).weekday()),
+            "month": platform_revenue_service.local_midnight(now, first_of_month=True),
+        },
+        now,
+    )
     return {
-        "today": list(platform_revenue_service.platform_fee_totals(today, now).values()),
-        "week": list(platform_revenue_service.platform_fee_totals(week, now).values()),
-        "month": list(platform_revenue_service.platform_fee_totals(month, now).values()),
+        "today": list(windows["today"].values()),
+        "week": list(windows["week"].values()),
+        "month": list(windows["month"].values()),
         "mrr": list(platform_revenue_service.membership_fee_mrr().values()),
     }
 

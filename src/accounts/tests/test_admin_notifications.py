@@ -184,7 +184,11 @@ def test_signal_gates_by_guest_flag(
     assert mock_pushover.called is dispatched
     if dispatched:
         mock_pushover.assert_called_once()
-        mock_discord.assert_called_once_with(is_guest=guest)
+        # Guests are Pushover-only: the Discord task is not even enqueued for them.
+        if guest:
+            mock_discord.assert_not_called()
+        else:
+            mock_discord.assert_called_once_with(is_guest=False)
     else:
         mock_discord.assert_not_called()
 
@@ -240,3 +244,37 @@ def test_referral_application_pushover_skipped_when_not_configured() -> None:
         result = notify_admin_new_referral_application(application_id="00000000-0000-0000-0000-000000000000")
     assert result == {"status": "skipped", "reason": "pushover_not_configured"}
     mock_post.assert_not_called()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("notify_user_joined", [True, False])
+def test_guest_conversion_notifies_like_a_signup(
+    guest_user: RevelUser, django_capture_on_commit_callbacks: t.Any, notify_user_joined: bool
+) -> None:
+    """A converted guest is a new registered user: gated by notify_user_joined, Pushover says so."""
+    from accounts.dispatch import guest_converted
+
+    _set_flags(user_joined=notify_user_joined, guest_joined=False)
+    guest_user.guest = False
+    with (
+        patch("accounts.signals.notify_admin_new_user_joined.delay") as mock_pushover,
+        patch("accounts.signals.notify_admin_new_user_joined_discord.delay") as mock_discord,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        guest_converted.send(sender=RevelUser, user=guest_user)
+    if notify_user_joined:
+        mock_pushover.assert_called_once_with(
+            user_id=str(guest_user.id), user_email=guest_user.email, is_guest=False, converted=True
+        )
+        mock_discord.assert_called_once_with(is_guest=False)
+    else:
+        mock_pushover.assert_not_called()
+        mock_discord.assert_not_called()
+
+
+@pytest.mark.django_db
+@override_settings(PUSHOVER_USER_KEY="key", PUSHOVER_APP_TOKEN="token")
+def test_pushover_message_mentions_conversion(user: RevelUser) -> None:
+    with patch("accounts.tasks.notifications.httpx.post", return_value=_make_response()) as mock_post:
+        notify_admin_new_user_joined(user_id=str(user.id), user_email=user.email, is_guest=False, converted=True)
+    assert "converted from guest" in mock_post.call_args.kwargs["data"]["message"]

@@ -5,12 +5,39 @@ from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+from accounts.dispatch import guest_converted
 from accounts.models import GlobalBan, RevelUser
 from accounts.service import referral_application_service
 from accounts.tasks import notify_admin_new_user_joined, notify_admin_new_user_joined_discord
 from common.models import SiteSettings
 
 logger = structlog.get_logger(__name__)
+
+
+def _dispatch_user_joined_notifications(user: RevelUser, *, converted: bool = False) -> None:
+    """Queue the admin notifications for ``user`` once the surrounding transaction commits.
+
+    Guests only get Pushover (the Discord task counts registered users, which a guest does not change).
+    """
+    user_id = str(user.id)
+    user_email = user.email
+    is_guest = user.guest
+
+    def _dispatch() -> None:
+        notify_admin_new_user_joined.delay(
+            user_id=user_id, user_email=user_email, is_guest=is_guest, converted=converted
+        )
+        if not is_guest:
+            notify_admin_new_user_joined_discord.delay(is_guest=False)
+
+    transaction.on_commit(_dispatch)
+    logger.info(
+        "user_joined_notification_dispatched",
+        user_id=user_id,
+        user_email=user_email,
+        is_guest=is_guest,
+        converted=converted,
+    )
 
 
 @receiver(post_save, sender=RevelUser)
@@ -20,10 +47,8 @@ def notify_admin_on_user_creation(
     """Send admin notifications when a new user joins.
 
     Standalone notification system that runs alongside the main notification
-    system. Registered users are gated by SiteSettings.notify_user_joined and guest
-    users by SiteSettings.notify_guest_user_joined; when enabled, dispatches Celery
-    tasks to send Pushover and Discord notifications. The Discord task
-    skips guest users internally since the non-guest count would be unchanged.
+    system. Registered users are gated by SiteSettings.notify_user_joined (Pushover + Discord) and guest
+    users by SiteSettings.notify_guest_user_joined (Pushover only).
 
     Args:
         sender: The model class (RevelUser)
@@ -34,33 +59,19 @@ def notify_admin_on_user_creation(
     if not created:
         return
 
-    # Check if admin notifications for new users are enabled
     site_settings = SiteSettings.get_solo()
     enabled = site_settings.notify_guest_user_joined if instance.guest else site_settings.notify_user_joined
     if not enabled:
-        logger.debug(
-            "user_joined_notification_disabled",
-            user_id=str(instance.id),
-            user_email=instance.email,
-        )
+        logger.debug("user_joined_notification_disabled", user_id=str(instance.id), user_email=instance.email)
         return
+    _dispatch_user_joined_notifications(instance)
 
-    user_id = str(instance.id)
-    user_email = instance.email
-    is_guest = instance.guest
 
-    def _dispatch() -> None:
-        notify_admin_new_user_joined.delay(user_id=user_id, user_email=user_email, is_guest=is_guest)
-        notify_admin_new_user_joined_discord.delay(is_guest=is_guest)
-
-    transaction.on_commit(_dispatch)
-
-    logger.info(
-        "user_joined_notification_dispatched",
-        user_id=user_id,
-        user_email=user_email,
-        is_guest=is_guest,
-    )
+@receiver(guest_converted)
+def notify_admin_on_guest_conversion(sender: type[RevelUser], user: RevelUser, **kwargs: object) -> None:
+    """A guest that becomes a registered user is a new registered user: notify like a signup."""
+    if SiteSettings.get_solo().notify_user_joined:
+        _dispatch_user_joined_notifications(user, converted=True)
 
 
 @receiver(post_save, sender=RevelUser)

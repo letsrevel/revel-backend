@@ -11,7 +11,7 @@ import typing as t
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
-from django.db.models import Count, DecimalField, OuterRef, Q, QuerySet, Subquery, Sum, Value
+from django.db.models import Count, DecimalField, Q, QuerySet, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -19,7 +19,7 @@ from events.models import MembershipPayment, MembershipSubscription, Payment
 
 _ZERO = Decimal("0.00")
 _CENT = Decimal("0.01")
-_COLLECTED = ("succeeded", "refunded")
+COLLECTED_STATUSES = ("succeeded", "refunded")
 _LIVE_SUBSCRIPTION_STATUSES = (
     MembershipSubscription.SubscriptionStatus.ACTIVE,
     MembershipSubscription.SubscriptionStatus.PAST_DUE,
@@ -60,64 +60,83 @@ def _add(totals: dict[str, FeeTotals], currency: str, gross: Decimal, net: Decim
     row.legacy_count += legacy
 
 
-def _fee_rows(qs: QuerySet[t.Any]) -> list[dict[str, t.Any]]:
-    rows: list[dict[str, t.Any]] = list(
+def _fee_rows(qs: QuerySet[t.Any], ts: str, starts: dict[str, datetime.datetime]) -> list[dict[str, t.Any]]:
+    """One grouped query computing gross/net/VAT/legacy per currency for every window start in ``starts``."""
+    aggregates: dict[str, t.Any] = {}
+    zero = Value(_ZERO, output_field=DecimalField())
+    for key, start in starts.items():
+        in_window = Q(**{f"{ts}__gte": start})
+        aggregates[f"n_{key}"] = Count("pk", filter=in_window)
+        aggregates[f"gross_{key}"] = Sum("platform_fee", filter=in_window)
+        aggregates[f"net_{key}"] = Sum(Coalesce("platform_fee_net", "platform_fee"), filter=in_window)
+        aggregates[f"vat_{key}"] = Sum(Coalesce("platform_fee_vat", zero), filter=in_window)
+        aggregates[f"legacy_{key}"] = Count("pk", filter=in_window & Q(platform_fee_net__isnull=True))
+    return list(
         qs.filter(platform_fee__gt=0)
         .order_by()  # the model's default ordering would otherwise leak into GROUP BY
         .values("currency")
-        .annotate(
-            gross_=Sum("platform_fee"),
-            net_=Sum(Coalesce("platform_fee_net", "platform_fee")),
-            vat_=Sum(Coalesce("platform_fee_vat", Value(_ZERO, output_field=DecimalField()))),
-            legacy_=Count("pk", filter=Q(platform_fee_net__isnull=True)),
-        )
+        .annotate(**aggregates)
     )
-    return rows
+
+
+def platform_fee_windows(
+    starts: dict[str, datetime.datetime], end: datetime.datetime
+) -> dict[str, dict[str, FeeTotals]]:
+    """Return collected platform fees per currency for each window ``[starts[key], end)``.
+
+    Two queries in total (one per source) regardless of the number of windows: each source is scanned once
+    from the earliest start, with conditional aggregation per window. Ticket payments are bucketed by
+    ``created_at`` (they have no paid timestamp, and ``updated_at`` moves on refund); membership payments by
+    ``occurred_at``, falling back to ``created_at``.
+    """
+    lower = min(starts.values())
+    ticket_qs = Payment.objects.filter(status__in=COLLECTED_STATUSES, created_at__gte=lower, created_at__lt=end)
+    membership_qs = (
+        MembershipPayment.objects.filter(status__in=COLLECTED_STATUSES)
+        .annotate(paid_at=Coalesce("occurred_at", "created_at"))
+        .filter(paid_at__gte=lower, paid_at__lt=end)
+    )
+    rows = [*_fee_rows(ticket_qs, "created_at", starts), *_fee_rows(membership_qs, "paid_at", starts)]
+    result: dict[str, dict[str, FeeTotals]] = {key: {} for key in starts}
+    for row in rows:
+        for key in starts:
+            if row[f"n_{key}"]:
+                _add(
+                    result[key],
+                    row["currency"],
+                    row[f"gross_{key}"],
+                    row[f"net_{key}"],
+                    row[f"vat_{key}"],
+                    row[f"legacy_{key}"],
+                )
+    return {key: dict(sorted(totals.items())) for key, totals in result.items()}
 
 
 def platform_fee_totals(start: datetime.datetime, end: datetime.datetime) -> dict[str, FeeTotals]:
-    """Return collected platform fees per currency for payments in ``[start, end)``.
-
-    Ticket payments are bucketed by ``created_at`` (they have no paid timestamp, and ``updated_at`` moves on
-    refund); membership payments by ``occurred_at``, falling back to ``created_at``.
-    """
-    ticket_qs = Payment.objects.filter(status__in=_COLLECTED, created_at__gte=start, created_at__lt=end)
-    membership_qs = (
-        MembershipPayment.objects.filter(status__in=_COLLECTED)
-        .annotate(paid_at=Coalesce("occurred_at", "created_at"))
-        .filter(paid_at__gte=start, paid_at__lt=end)
-    )
-    totals: dict[str, FeeTotals] = {}
-    for row in [*_fee_rows(ticket_qs), *_fee_rows(membership_qs)]:
-        _add(totals, row["currency"], row["gross_"], row["net_"], row["vat_"], row["legacy_"])
-    return dict(sorted(totals.items()))
+    """Return collected platform fees per currency for payments in ``[start, end)``."""
+    return platform_fee_windows({"window": start}, end)["window"]
 
 
 def membership_fee_mrr() -> dict[str, FeeTotals]:
     """Platform-fee MRR from recurring memberships, per currency, normalised to a 30-day month.
 
-    Takes each ACTIVE or PAST_DUE subscription's most recent SUCCEEDED fee-bearing payment and scales its
-    fee by ``30 days / (period_end - period_start)``. Free, lifetime and offline plans carry no fee and drop out.
-    Ticket fees are not recurring and are not included.
+    Takes each ACTIVE or PAST_DUE subscription's latest collected payment (SUCCEEDED or REFUNDED, as for fee
+    totals) and scales its fee by ``30 days / (period_end - period_start)``. A latest payment without a fee
+    (free, lifetime, offline) contributes 0, even if an older payment carried one. Ticket fees are not recurring
+    and are not included. One query (``DISTINCT ON subscription``).
     """
-    latest = (
-        MembershipPayment.objects.filter(
-            subscription=OuterRef("subscription"),
-            status=MembershipPayment.PaymentStatus.SUCCEEDED,
-            platform_fee__gt=0,
-        )
-        .order_by("-period_end", "-created_at")
-        .values("pk")[:1]
-    )
     rows = (
-        MembershipPayment.objects.filter(pk=Subquery(latest), subscription__status__in=_LIVE_SUBSCRIPTION_STATUSES)
-        .order_by()
+        MembershipPayment.objects.filter(
+            subscription__status__in=_LIVE_SUBSCRIPTION_STATUSES, status__in=COLLECTED_STATUSES
+        )
+        .order_by("subscription_id", "-period_end", "-created_at")
+        .distinct("subscription_id")
         .values("currency", "platform_fee", "platform_fee_net", "platform_fee_vat", "period_start", "period_end")
     )
     totals: dict[str, FeeTotals] = {}
     for row in rows:
         seconds = Decimal((row["period_end"] - row["period_start"]).total_seconds())
-        if seconds <= 0:
+        if seconds <= 0 or row["platform_fee"] <= 0:
             continue
         factor = _MONTH_SECONDS / seconds
         gross = row["platform_fee"]

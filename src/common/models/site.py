@@ -40,7 +40,11 @@ class SiteSettings(SingletonModel):
         default=False, help_text="Send a notification when a new registered (non-guest) user joins the platform."
     )
     notify_guest_user_joined = models.BooleanField(
-        default=False, help_text="Send a notification when a new guest user is created (guest RSVP/checkout)."
+        default=False,
+        help_text=(
+            "Send a Pushover notification when a new guest user is created (guest RSVP/checkout). "
+            "Guests never trigger Discord."
+        ),
     )
     notify_organization_created = models.BooleanField(
         default=False, help_text="Send a notification when a new organization is created."

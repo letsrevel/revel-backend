@@ -10,7 +10,6 @@ from freezegun import freeze_time
 
 from accounts.models import RevelUser
 from events.models import Payment, Ticket, TicketTier
-from revel.dashboard import dashboard_callback
 
 pytestmark = pytest.mark.django_db
 
@@ -21,7 +20,38 @@ FEE: dict[str, t.Any] = {
 }
 
 
+def _revenue(request: t.Any, django_assert_num_queries: t.Any) -> dict[str, t.Any]:
+    """Fee windows + MRR must cost 3 queries (Payment, MembershipPayment, MRR)."""
+    from revel.dashboard import _get_platform_revenue  # noqa: PLC2701
+
+    with django_assert_num_queries(3):
+        revenue = _get_platform_revenue()
+    return dict(revenue)
+
+
+def test_week_starting_in_previous_month_is_counted(
+    django_assert_num_queries: t.Any,
+    tier_factory: t.Callable[..., TicketTier],
+    ticket_factory: t.Callable[..., Ticket],
+    payment_factory: t.Callable[..., Payment],
+    django_user_model: type[RevelUser],
+) -> None:
+    """Now is Fri 3 Apr 2026: the week began Mon 30 Mar, before the month start; both windows must be right."""
+    tier = tier_factory(name="T")
+    for i, stamp in enumerate(["2026-03-31 12:00:00", "2026-04-02 12:00:00"]):
+        user = django_user_model.objects.create_user(username=f"x{i}", email=f"x{i}@x.com", password="x")
+        with freeze_time(stamp):
+            payment_factory(ticket_factory(user=user, tier=tier), **FEE)
+
+    with freeze_time("2026-04-03 09:00:00"):
+        revenue = _revenue(None, django_assert_num_queries)
+
+    assert revenue["week"][0].gross == Decimal("2.40")
+    assert revenue["month"][0].gross == Decimal("1.20")
+
+
 def test_windows_use_vienna_today_monday_and_first_of_month(
+    django_assert_num_queries: t.Any,
     superuser: RevelUser,
     tier_factory: t.Callable[..., TicketTier],
     ticket_factory: t.Callable[..., Ticket],
@@ -47,7 +77,7 @@ def test_windows_use_vienna_today_monday_and_first_of_month(
     request = RequestFactory().get("/admin/")
     request.user = superuser
     with freeze_time("2026-03-11 09:00:00"):
-        revenue = dashboard_callback(request, {})["dashboard"]["platform_revenue"]
+        revenue = _revenue(request, django_assert_num_queries)
 
     assert [len(revenue[k]) and revenue[k][0].gross for k in ("today", "week", "month")] == [
         Decimal("1.20"),

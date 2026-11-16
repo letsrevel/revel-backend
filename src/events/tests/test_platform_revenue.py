@@ -156,7 +156,7 @@ def test_membership_fees_collected_rules(make_membership_payment: t.Callable[...
 
 
 def test_mrr_normalises_periods_uses_latest_payment_and_live_statuses(
-    make_membership_payment: t.Callable[..., MembershipPayment],
+    make_membership_payment: t.Callable[..., MembershipPayment], django_assert_num_queries: t.Any
 ) -> None:
     make_membership_payment(days=30)  # monthly: net 1.00 -> 1.00
     make_membership_payment(days=365)  # yearly: net 1.00 per year -> 30/365
@@ -165,13 +165,19 @@ def test_mrr_normalises_periods_uses_latest_payment_and_live_statuses(
     make_membership_payment(sub_status=MembershipSubscription.SubscriptionStatus.EXPIRED)
     make_membership_payment(sub_status=MembershipSubscription.SubscriptionStatus.PENDING)
     make_membership_payment(platform_fee=D("0.00"), platform_fee_net=None, platform_fee_vat=None)  # free/offline
-    # Only the most recent fee-bearing payment of a subscription counts.
+    # Only the most recent collected payment of a subscription counts.
     renewed = make_membership_payment(
         days=30, platform_fee=D("2.40"), platform_fee_net=D("2.00"), platform_fee_vat=D("0.40")
     )
     make_membership_payment(sub=renewed.subscription, days=30, period_end=END - timedelta(days=60))
+    # A fee from months ago must not count once the latest renewal is zero-fee (moved to offline).
+    moved_offline = make_membership_payment(period_end=END - timedelta(days=60))
+    make_membership_payment(
+        sub=moved_offline.subscription, platform_fee=D("0.00"), platform_fee_net=None, platform_fee_vat=None
+    )
 
-    mrr = svc.membership_fee_mrr()
+    with django_assert_num_queries(1):
+        mrr = svc.membership_fee_mrr()
 
     # monthly 1.00 + yearly 0.0822 + past_due 1.00 + renewed 2.00
     assert mrr["EUR"].net == D("4.08")

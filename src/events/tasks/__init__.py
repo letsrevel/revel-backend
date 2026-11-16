@@ -6,7 +6,7 @@ exports, organization). Every task is re-exported here so the historical
 ``from events.tasks import <task>`` import path keeps working.
 """
 
-from events.tasks.admin_recap import send_daily_admin_recap
+from events.tasks.admin_recap import send_admin_recap_discord, send_admin_recap_pushover, send_daily_admin_recap
 from events.tasks.announcements import resend_announcements_to_new_signups, send_scheduled_announcements
 from events.tasks.attendees import (
     build_attendee_visibility_flags,
@@ -73,6 +73,8 @@ from events.tasks.waitlist import (
 )
 
 __all__ = [
+    "send_admin_recap_discord",
+    "send_admin_recap_pushover",
     "send_daily_admin_recap",
     "auto_link_member_records",
     "send_member_register_invite",
