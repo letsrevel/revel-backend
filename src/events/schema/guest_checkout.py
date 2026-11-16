@@ -25,6 +25,11 @@ class GuestUserDataSchema(Schema):
     email: EmailStr
     first_name: StrippedString = Field(default="", max_length=150, description="Guest user's first name (optional)")
     last_name: StrippedString = Field(default="", max_length=150, description="Guest user's last name (optional)")
+    turnstile_token: str | None = Field(
+        default=None,
+        max_length=2048,
+        description="Cloudflare Turnstile token (`cf-turnstile-response`); required when bot protection is configured",
+    )
 
 
 class GuestMultiTierCheckoutPayload(GuestUserDataSchema, AttributionPayloadMixin):
