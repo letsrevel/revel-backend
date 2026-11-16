@@ -1444,12 +1444,6 @@ msgstr "Token no encontrado."
 msgid "The token is invalid or expired."
 msgstr "El token no es válido o ha caducado."
 
-msgid "Use /pwyc endpoint for pay-what-you-can tickets"
-msgstr "Usa el endpoint /pwyc para las entradas de aportación voluntaria"
-
-msgid "This endpoint is only for pay-what-you-can tickets"
-msgstr "Este endpoint es solo para entradas de aportación voluntaria"
-
 msgid "One or more ticket tiers were not found."
 msgstr "No se encontraron uno o más tipos de entrada."
 
@@ -1458,10 +1452,6 @@ msgstr "No se ha encontrado ninguna reserva pendiente."
 
 msgid "This event has no venue."
 msgstr "Este evento no tiene lugar asignado."
-
-msgid "Use /checkout/pwyc endpoint for pay-what-you-can tickets"
-msgstr ""
-"Usa el endpoint /checkout/pwyc para las entradas de aportación voluntaria"
 
 #, python-brace-format
 msgid "PWYC amount must be at least {min_amount}"

@@ -385,8 +385,8 @@ def _no_qualifying_group_error(errors: list[HttpError]) -> HttpError:
     """Pick the error to raise when a cart code qualified for no group at all (#846).
 
     A single generic "does not apply to any tier" message hid the real reason
-    (expired, usage limit reached, wrong currency...) that the deprecated
-    single-tier routes used to surface verbatim. So:
+    (expired, usage limit reached, wrong currency...) that a one-group cart
+    surfaces verbatim. So:
 
     * one group checked → re-raise ITS error (byte-identical to the legacy path);
     * several groups, all rejected for the SAME reason (identical messages, e.g. an
@@ -428,7 +428,7 @@ def validate_cart_discount(
     of the buyer and the whole cart, not of one tier's applicability. Running it per group
     made a group larger than the buyer's remaining allowance drop out silently — a
     3+1 cart under ``max_uses_per_user=2`` quietly discounted 1 ticket of 4, while the
-    same 2+2 cart (and the deprecated single-tier route) correctly 400'd. So it runs
+    same 2+2 cart correctly 400'd. So it runs
     exactly once, in the definitive validation call below: :func:`validate_discount_code`
     reruns with the SUMMED ticket count across every applicable group, so the usage limits
     see the cart's true consumption instead of one group's slice of it, and an over-limit

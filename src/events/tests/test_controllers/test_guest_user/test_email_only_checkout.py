@@ -10,7 +10,7 @@ from django.urls import reverse
 from events.models import Event, Ticket, TicketTier
 from events.schema.guest_checkout import GuestMultiTierCheckoutPayload, GuestTicketItemPayload
 from events.service.guest import get_or_create_guest_user
-from events.tests.test_controllers.test_guest_user.cart_helpers import to_cart
+from events.tests.cart_helpers import to_cart
 
 
 class TestSchemas:

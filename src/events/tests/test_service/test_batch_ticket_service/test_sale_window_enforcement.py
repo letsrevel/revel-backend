@@ -23,6 +23,7 @@ from accounts.models import RevelUser
 from events.models import Event, Organization, TicketTier
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
+from events.tests.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
@@ -115,7 +116,7 @@ class TestSaleWindowEnforcementEndpoint:
         refresh = RefreshToken.for_user(member_user)
         client = Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
         url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.pk})
-        payload = {"items": [{"tier_id": str(tier.pk), "tickets": [{"guest_name": "Test"}]}]}
+        payload = to_cart(tier.pk, tickets=[{"guest_name": "Test"}])
 
         response = client.post(url, data=payload, content_type="application/json")
 

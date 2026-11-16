@@ -18,7 +18,7 @@ from django.urls import reverse
 from accounts.models import RevelUser
 from events.models import Event, EventRSVP, Ticket, TicketTier
 from events.service import guest as guest_service
-from events.tests.test_controllers.test_guest_user.cart_helpers import to_cart
+from events.tests.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 

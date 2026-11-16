@@ -222,6 +222,7 @@ correctness, and hundreds of translations that were quietly still in English.
   visibility rules and payload as the slug route.
 - The four per-tier checkout endpoints are **deprecated** in favor of the cart endpoints. They
   still work for now; if you integrate against the API directly, this is the moment to migrate.
+  (Update: they have since been removed.)
 - A `report_mischarged_attendee_vat` command emits a CSV of historical invoices affected by the
   previous attendee-VAT treatment, for review with a tax adviser.
 - Seeded organizations get deterministic placeholder logos, so seeded and demo instances render

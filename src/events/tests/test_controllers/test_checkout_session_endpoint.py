@@ -10,7 +10,6 @@ Covers:
   guest-originated reservations (an authed reservation is not redeemable there).
 """
 
-import typing as t
 import uuid
 from decimal import Decimal
 from unittest import mock
@@ -21,6 +20,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from events.models import Event, Organization, TicketTier
+from events.tests.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
@@ -83,11 +83,6 @@ def guest_online_tier(guest_online_event: Event) -> TicketTier:
     )
 
 
-def _cart(tier: TicketTier) -> dict[str, t.Any]:
-    """A one-tier, one-ticket cart payload."""
-    return {"items": [{"tier_id": str(tier.id), "tickets": [{"guest_name": "A"}]}]}
-
-
 class TestAuthedCheckoutSession:
     """Authed reserve -> checkout-session flow."""
 
@@ -97,7 +92,9 @@ class TestAuthedCheckoutSession:
         """Checkout on an ONLINE tier reserves and returns a reservation_id, no Stripe call."""
         url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.id})
         with mock.patch("stripe.checkout.Session.create") as mock_create:
-            response = member_client.post(url, data=_cart(online_tier), content_type="application/json")
+            response = member_client.post(
+                url, data=to_cart(online_tier, tickets=[{"guest_name": "A"}]), content_type="application/json"
+            )
             mock_create.assert_not_called()
 
         assert response.status_code == 200, response.content
@@ -113,7 +110,9 @@ class TestAuthedCheckoutSession:
         """POSTing checkout-session for an owned reservation creates the Stripe session."""
         reserve_url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.id})
         with mock.patch("stripe.checkout.Session.create"):
-            reserve_response = member_client.post(reserve_url, data=_cart(online_tier), content_type="application/json")
+            reserve_response = member_client.post(
+                reserve_url, data=to_cart(online_tier, tickets=[{"guest_name": "A"}]), content_type="application/json"
+            )
         reservation_id = reserve_response.json()["reservation_id"]
 
         fake = _fake_session()
@@ -131,7 +130,9 @@ class TestAuthedCheckoutSession:
         """A reservation owned by one user cannot be sessioned by another."""
         reserve_url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.id})
         with mock.patch("stripe.checkout.Session.create"):
-            reserve_response = member_client.post(reserve_url, data=_cart(online_tier), content_type="application/json")
+            reserve_response = member_client.post(
+                reserve_url, data=to_cart(online_tier, tickets=[{"guest_name": "A"}]), content_type="application/json"
+            )
         reservation_id = reserve_response.json()["reservation_id"]
 
         session_url = reverse("api:checkout_session", kwargs={"reservation_id": reservation_id})
@@ -187,7 +188,9 @@ class TestGuestCheckoutSession:
         sibling endpoint enforces ownership; this route must not bypass it)."""
         reserve_url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.id})
         with mock.patch("stripe.checkout.Session.create"):
-            reserve_response = member_client.post(reserve_url, data=_cart(online_tier), content_type="application/json")
+            reserve_response = member_client.post(
+                reserve_url, data=to_cart(online_tier, tickets=[{"guest_name": "A"}]), content_type="application/json"
+            )
         reservation_id = reserve_response.json()["reservation_id"]
 
         session_url = reverse("api:guest_checkout_session", kwargs={"reservation_id": reservation_id})

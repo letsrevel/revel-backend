@@ -15,6 +15,7 @@ from django.test.client import Client
 from django.urls import reverse
 
 from events.models import Event, Organization, Ticket, TicketTier
+from events.tests.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
@@ -94,7 +95,7 @@ def test_attribution_is_sanitised_at_the_boundary(member_client: Client, public_
 
 def test_omitted_attribution_is_null(member_client: Client, public_event: Event) -> None:
     tier = _tier(public_event, "A")
-    payload = {"items": [{"tier_id": str(tier.id), "tickets": [{"guest_name": "Ann"}]}]}
+    payload = to_cart(tier.id, tickets=[{"guest_name": "Ann"}])
     url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
     response = member_client.post(url, data=payload, content_type="application/json")
     assert response.status_code == 200, response.content

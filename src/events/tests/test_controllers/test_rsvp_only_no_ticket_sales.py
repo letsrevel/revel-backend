@@ -16,6 +16,7 @@ from events.models import Event, Organization, RecurrenceRule, TicketTier
 from events.schema.recurring_event import TemplateEditSchema
 from events.service import recurrence_service
 from events.service.recurrence_service import PROPAGATABLE_FIELDS, PropagateScope
+from events.tests.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
@@ -90,7 +91,7 @@ class TestCheckoutRefused:
         tier = _tier(event)
         url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.pk})
 
-        _assert_rsvp_only(_post(member_client, url, {"items": [{"tier_id": str(tier.pk), "tickets": [{}]}]}))
+        _assert_rsvp_only(_post(member_client, url, to_cart(tier.pk, tickets=[{}])))
 
     def test_guest_multi_tier(self, client: Client, public_event: Event) -> None:
         event = _rsvp_event(public_event)

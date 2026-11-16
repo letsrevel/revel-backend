@@ -89,11 +89,14 @@ class BuyerBillingInfoSchema(Schema):
 # ---- Multi-Tier Cart Checkout Schemas (#846) ----
 
 
+MAX_TICKETS_PER_GROUP = 50
+
+
 class CheckoutGroupSchema(Schema):
     """One tier's slice of a multi-tier checkout cart."""
 
     tier_id: UUID
-    tickets: list[TicketPurchaseItem] = Field(..., min_length=1, max_length=50)
+    tickets: list[TicketPurchaseItem] = Field(..., min_length=1, max_length=MAX_TICKETS_PER_GROUP)
     pwyc_amount: Decimal | None = Field(default=None, ge=0, description="Required iff the tier is pay-what-you-can")
     price_category_id: UUID | None = Field(default=None, description="Zone the best-available picker draws from")
     accessible_required: bool = Field(

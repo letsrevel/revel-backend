@@ -61,6 +61,7 @@ from events.models import (
 )
 from events.models.discount_code import DiscountCode
 from events.service import cloudflare_custom_hostnames as cloudflare
+from events.tests.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
@@ -191,7 +192,7 @@ class TestTicketCheckoutErrorContracts:
         url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.id})
         response = member_client.post(
             url,
-            data={"items": [{"tier_id": str(pwyc_tier.id), "tickets": [{"guest_name": "A"}]}]},
+            data=to_cart(pwyc_tier.id, tickets=[{"guest_name": "A"}]),
             content_type="application/json",
         )
         assert_detail_body(response)
@@ -202,7 +203,7 @@ class TestTicketCheckoutErrorContracts:
         url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.id})
         response = member_client.post(
             url,
-            data={"items": [{"tier_id": str(pwyc_tier.id), "tickets": [{"guest_name": "A"}], "pwyc_amount": "1.00"}]},
+            data=to_cart(pwyc_tier.id, tickets=[{"guest_name": "A"}], pwyc_amount="1.00"),
             content_type="application/json",
         )
         assert_detail_body(response)
@@ -223,7 +224,7 @@ class TestMultiTierCheckoutErrorContracts:
 
         response = member_client.post(
             self._url(public_event),
-            data={"items": [{"tier_id": str(uuid.uuid4()), "tickets": [{"guest_name": "A"}]}]},
+            data=to_cart(uuid.uuid4(), tickets=[{"guest_name": "A"}]),
             content_type="application/json",
         )
         assert_detail_body_with_status(response, 404)

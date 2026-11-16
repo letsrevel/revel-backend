@@ -15,6 +15,7 @@ from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
 from events.models import Event, Organization, Payment, TicketTier
+from events.tests.cart_helpers import to_cart
 
 
 def _fake_session(session_id: str = "cs_test123") -> mock.Mock:
@@ -80,7 +81,7 @@ class TestEventStripeCheckout:
         """Test successful ticket checkout: reserve (no Stripe call), then create the session (#632)."""
         # Act: reserve
         url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
-        payload = {"items": [{"tier_id": str(paid_ticket_tier.pk), "tickets": [{"guest_name": "Test Guest"}]}]}
+        payload = to_cart(paid_ticket_tier, tickets=[{"guest_name": "Test Guest"}])
         with mock.patch("stripe.checkout.Session.create") as mock_create:
             response = authenticated_client.post(url, data=payload, content_type="application/json")
             mock_create.assert_not_called()
@@ -116,7 +117,7 @@ class TestEventStripeCheckout:
 
         # Act
         url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
-        payload = {"items": [{"tier_id": str(paid_ticket_tier.pk), "tickets": [{"guest_name": "Test Guest"}]}]}
+        payload = to_cart(paid_ticket_tier, tickets=[{"guest_name": "Test Guest"}])
         response = client.post(url, data=payload, content_type="application/json")
 
         # Assert
@@ -133,7 +134,7 @@ class TestEventStripeCheckout:
 
         # Act
         url = reverse("api:multi_tier_checkout", kwargs={"event_id": fake_event_id})
-        payload = {"items": [{"tier_id": str(paid_ticket_tier.pk), "tickets": [{"guest_name": "Test Guest"}]}]}
+        payload = to_cart(paid_ticket_tier, tickets=[{"guest_name": "Test Guest"}])
         response = authenticated_client.post(url, data=payload, content_type="application/json")
 
         # Assert
@@ -150,7 +151,7 @@ class TestEventStripeCheckout:
         """
         # Arrange: reserve succeeds
         url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
-        payload = {"items": [{"tier_id": str(paid_ticket_tier.pk), "tickets": [{"guest_name": "Test Guest"}]}]}
+        payload = to_cart(paid_ticket_tier, tickets=[{"guest_name": "Test Guest"}])
         with mock.patch("stripe.checkout.Session.create"):
             response = authenticated_client.post(url, data=payload, content_type="application/json")
         assert response.status_code == 200
@@ -198,7 +199,7 @@ class TestEventStripeCheckout:
 
         # Act
         url = reverse("api:multi_tier_checkout", kwargs={"event_id": private_event.pk})
-        payload = {"items": [{"tier_id": str(private_tier.pk), "tickets": [{"guest_name": "Test Guest"}]}]}
+        payload = to_cart(private_tier, tickets=[{"guest_name": "Test Guest"}])
         response = client.post(url, data=payload, content_type="application/json")
 
         # Assert
@@ -221,7 +222,7 @@ class TestEventStripeCheckout:
 
         # Act
         url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
-        payload = {"items": [{"tier_id": str(free_tier.pk), "tickets": [{"guest_name": "Test Guest"}]}]}
+        payload = to_cart(free_tier, tickets=[{"guest_name": "Test Guest"}])
         response = authenticated_client.post(url, data=payload, content_type="application/json")
 
         # Assert
@@ -257,7 +258,7 @@ class TestEventStripeCheckout:
 
         # Act
         url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.pk})
-        payload = {"items": [{"tier_id": str(tier.pk), "tickets": [{"guest_name": "Test Guest"}]}]}
+        payload = to_cart(tier, tickets=[{"guest_name": "Test Guest"}])
         response = authenticated_client.post(url, data=payload, content_type="application/json")
 
         # Assert
@@ -326,7 +327,7 @@ class TestStripeCheckoutRateLimit:
         responses = []
         for i in range(3):
             url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
-            payload = {"items": [{"tier_id": str(paid_ticket_tier.pk), "tickets": [{"guest_name": f"Guest {i}"}]}]}
+            payload = to_cart(paid_ticket_tier, tickets=[{"guest_name": f"Guest {i}"}])
             response = authenticated_client.post(url, data=payload, content_type="application/json")
             responses.append(response)
 

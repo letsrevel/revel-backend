@@ -28,8 +28,6 @@ from .application import (
     MembershipEligibilitySchema,
 )
 
-# Checkout schemas (multi-tier cart, #846) — the single-tier checkout schemas
-# still resolve through .ticket, which re-exports .checkout for backward compat.
 # Attribution (#922)
 from .attribution import AttributionPayloadMixin
 

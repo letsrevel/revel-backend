@@ -1,7 +1,5 @@
 """Tests for POST /events/{event_id}/checkout (authenticated multi-tier cart) endpoint."""
 
-import typing as t
-
 import pytest
 from django.test.client import Client
 from django.urls import reverse
@@ -14,6 +12,7 @@ from events.models import (
     TicketTier,
     VenueSeat,
 )
+from events.tests.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
@@ -37,15 +36,10 @@ def _two_zone_tier(event: Event, seats: list[VenueSeat]) -> tuple[TicketTier, Pr
     return tier, front, back
 
 
-def _cart(tier: TicketTier, **group: t.Any) -> dict[str, t.Any]:
-    """A one-tier cart payload; ``group`` holds the per-tier fields (tickets, price_category_id, ...)."""
-    return {"items": [{"tier_id": str(tier.id), **group}]}
-
-
 def test_ticket_checkout_success(nonmember_client: Client, public_event: Event, free_tier: TicketTier) -> None:
     """Test that an eligible user can successfully obtain a ticket."""
     url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
-    payload = _cart(free_tier, tickets=[{"guest_name": "Test Guest"}])
+    payload = to_cart(free_tier, tickets=[{"guest_name": "Test Guest"}])
     response = nonmember_client.post(url, data=payload, content_type="application/json")
 
     assert response.status_code == 200
@@ -63,7 +57,7 @@ def test_ticket_checkout_success(nonmember_client: Client, public_event: Event, 
 def test_ticket_checkout_for_member_success(member_client: Client, public_event: Event, free_tier: TicketTier) -> None:
     """Test that an eligible member user gets a ticket with the correct 'member' tier."""
     url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
-    payload = _cart(free_tier, tickets=[{"guest_name": "Member Guest"}])
+    payload = to_cart(free_tier, tickets=[{"guest_name": "Member Guest"}])
     response = member_client.post(url, data=payload, content_type="application/json")
 
     assert response.status_code == 200
@@ -81,7 +75,7 @@ def test_ticket_checkout_for_rsvp_only_event_fails(
 ) -> None:
     """Test that trying to get a ticket for an RSVP-only event fails correctly."""
     url = reverse("api:multi_tier_checkout", kwargs={"event_id": rsvp_only_public_event.pk})
-    payload = _cart(free_tier, tickets=[{"guest_name": "Test Guest"}])
+    payload = to_cart(free_tier, tickets=[{"guest_name": "Test Guest"}])
     response = nonmember_client.post(url, data=payload, content_type="application/json")
 
     assert response.status_code == 404  # there is no tier-event pair
@@ -100,7 +94,7 @@ def test_ticket_checkout_for_full_event_fails(
     Ticket.objects.create(guest_name="Test Guest", user=public_user, event=public_event, tier=tier)
 
     url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
-    payload = _cart(free_tier, tickets=[{"guest_name": "Test Guest"}])
+    payload = to_cart(free_tier, tickets=[{"guest_name": "Test Guest"}])
     response = nonmember_client.post(url, data=payload, content_type="application/json")
 
     assert response.status_code == 400
@@ -113,7 +107,7 @@ def test_ticket_checkout_for_full_event_fails(
 def test_ticket_checkout_anonymous_fails(client: Client, public_event: Event, free_tier: TicketTier) -> None:
     """Test that an anonymous user cannot obtain a ticket."""
     url = reverse("api:multi_tier_checkout", kwargs={"event_id": public_event.pk})
-    payload = _cart(free_tier, tickets=[{"guest_name": "Test Guest"}])
+    payload = to_cart(free_tier, tickets=[{"guest_name": "Test Guest"}])
     response = client.post(url, data=payload, content_type="application/json")
 
     assert response.status_code == 401
@@ -129,7 +123,7 @@ def test_ticket_checkout_zone_reaches_the_picker(
 
     response = member_client.post(
         url,
-        data=_cart(tier, tickets=[{"guest_name": "Zoned"}], price_category_id=str(back.id)),
+        data=to_cart(tier, tickets=[{"guest_name": "Zoned"}], price_category_id=str(back.id)),
         content_type="application/json",
     )
 
@@ -147,7 +141,7 @@ def test_ticket_checkout_without_a_zone_is_400(
     url = reverse("api:multi_tier_checkout", kwargs={"event_id": event.pk})
 
     response = member_client.post(
-        url, data=_cart(tier, tickets=[{"guest_name": "Zoned"}]), content_type="application/json"
+        url, data=to_cart(tier, tickets=[{"guest_name": "Zoned"}]), content_type="application/json"
     )
 
     assert response.status_code == 400, response.content
@@ -175,7 +169,7 @@ class TestAuthenticatedAccessibleRequest:
 
         response = member_client.post(
             url,
-            data=_cart(
+            data=to_cart(
                 tier,
                 tickets=[{"guest_name": "Wheelchair user"}],
                 price_category_id=str(back.id),
@@ -206,7 +200,7 @@ class TestAuthenticatedAccessibleRequest:
 
         response = member_client.post(
             url,
-            data=_cart(
+            data=to_cart(
                 tier,
                 tickets=[{"guest_name": "Wheelchair user"}],
                 price_category_id=str(front.id),
@@ -230,7 +224,7 @@ class TestAuthenticatedAccessibleRequest:
 
         response = member_client.post(
             url,
-            data=_cart(
+            data=to_cart(
                 tier,
                 tickets=[{"guest_name": "One"}, {"guest_name": "Two"}],
                 price_category_id=str(front.id),

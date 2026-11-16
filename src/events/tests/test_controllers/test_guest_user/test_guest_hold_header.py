@@ -26,7 +26,7 @@ from events.service.guest_hold_session import (
     issue_guest_hold_token,
     resolve_request_guest_hold,
 )
-from events.tests.test_controllers.test_guest_user.cart_helpers import to_cart
+from events.tests.cart_helpers import to_cart
 
 pytestmark = pytest.mark.django_db
 
