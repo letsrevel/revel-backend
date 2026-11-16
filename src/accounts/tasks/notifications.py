@@ -23,7 +23,9 @@ def _get_referrer_email(user_id: str) -> str | None:
 
 
 @shared_task(bind=True, max_retries=3, name="accounts.tasks.notify_admin_new_user_joined")
-def notify_admin_new_user_joined(self: t.Any, user_id: str, user_email: str, is_guest: bool) -> dict[str, t.Any]:
+def notify_admin_new_user_joined(
+    self: t.Any, user_id: str, user_email: str, is_guest: bool, converted: bool = False
+) -> dict[str, t.Any]:
     """Send Pushover notification to admin when a new user joins the platform.
 
     This is a standalone notification system separate from the main notification infrastructure.
@@ -34,6 +36,7 @@ def notify_admin_new_user_joined(self: t.Any, user_id: str, user_email: str, is_
         user_id: UUID of the user who joined
         user_email: Email of the user who joined
         is_guest: Whether the user is a guest user
+        converted: Whether a guest just became a registered user
 
     Returns:
         Dict with notification result
@@ -53,7 +56,7 @@ def notify_admin_new_user_joined(self: t.Any, user_id: str, user_email: str, is_
     referrer_email = _get_referrer_email(user_id)
     user_count = RevelUser.objects.filter(guest=False).count()
 
-    lines = [f"New {user_type_label} joined: {user_email}"]
+    lines = [f"New {user_type_label} joined{' (converted from guest)' if converted else ''}: {user_email}"]
     if referrer_email:
         lines.append(f"Referred by: {referrer_email}")
     lines.append(f"We now have {user_count} users!")

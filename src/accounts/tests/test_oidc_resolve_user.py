@@ -292,7 +292,7 @@ def test_new_account_dispatches_admin_new_user_notification(django_capture_on_co
         django_capture_on_commit_callbacks(execute=True),
     ):
         user = oidc._resolve_user(GOOGLE, claims())
-    pushover.assert_called_once_with(user_id=str(user.id), user_email=user.email, is_guest=False)
+    pushover.assert_called_once_with(user_id=str(user.id), user_email=user.email, is_guest=False, converted=False)
     discord.assert_called_once_with(is_guest=False)
 
 

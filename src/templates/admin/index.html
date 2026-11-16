@@ -112,6 +112,15 @@
             </div>
         </div>
 
+        {# Platform revenue #}
+        <h2 class="text-lg font-semibold mb-3 text-gray-800 dark:text-gray-200">Platform revenue</h2>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            {% include "admin/_fee_card.html" with title="Today" rows=dashboard.platform_revenue.today %}
+            {% include "admin/_fee_card.html" with title="This week" rows=dashboard.platform_revenue.week %}
+            {% include "admin/_fee_card.html" with title="This month" rows=dashboard.platform_revenue.month %}
+            {% include "admin/_fee_card.html" with title="MRR (membership fees, net)" rows=dashboard.platform_revenue.mrr %}
+        </div>
+
         {# Organizer Activity #}
         <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow p-6 mb-8">
             <div class="flex items-start justify-between gap-4 mb-4">

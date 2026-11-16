@@ -30,6 +30,13 @@ def enable_user_notifications() -> t.Iterator[None]:
         settings.save()
 
 
+def _set_flags(*, user_joined: bool, guest_joined: bool) -> None:
+    site_settings = SiteSettings.get_solo()
+    site_settings.notify_user_joined = user_joined
+    site_settings.notify_guest_user_joined = guest_joined
+    site_settings.save()
+
+
 def _make_response(status_code: int = 200) -> MagicMock:
     response = MagicMock(spec=httpx.Response)
     response.status_code = status_code
@@ -146,23 +153,44 @@ def test_signal_dispatches_both_tasks_on_commit_when_enabled(
     mock_discord.assert_called_once_with(is_guest=False)
 
 
-@pytest.mark.django_db(transaction=True)
-def test_signal_dispatches_discord_with_is_guest_for_guest_user(
-    django_user_model: type[RevelUser], enable_user_notifications: None
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("user_joined", "guest_joined", "guest", "dispatched"),
+    [
+        (True, False, True, False),  # guest flag off: guests are silent even if user flag is on
+        (False, True, True, True),  # guest flag on: guests notify even if user flag is off
+        (False, True, False, False),  # guest flag does not enable non-guest notifications
+        (True, False, False, True),  # non-guests follow notify_user_joined
+    ],
+)
+def test_signal_gates_by_guest_flag(
+    django_user_model: type[RevelUser],
+    django_capture_on_commit_callbacks: t.Any,
+    user_joined: bool,
+    guest_joined: bool,
+    guest: bool,
+    dispatched: bool,
 ) -> None:
-    """Discord task is dispatched with is_guest=True so it can skip internally."""
+    """Guests are gated by notify_guest_user_joined, registered users by notify_user_joined."""
+    _set_flags(user_joined=user_joined, guest_joined=guest_joined)
     with (
         patch("accounts.signals.notify_admin_new_user_joined.delay") as mock_pushover,
         patch("accounts.signals.notify_admin_new_user_joined_discord.delay") as mock_discord,
+        django_capture_on_commit_callbacks(execute=True),
     ):
         django_user_model.objects.create_user(
-            username="guest@example.com",
-            email="guest@example.com",
-            password="x",
-            guest=True,
+            username="gated@example.com", email="gated@example.com", password="x", guest=guest
         )
-    mock_pushover.assert_called_once()
-    mock_discord.assert_called_once_with(is_guest=True)
+    assert mock_pushover.called is dispatched
+    if dispatched:
+        mock_pushover.assert_called_once()
+        # Guests are Pushover-only: the Discord task is not even enqueued for them.
+        if guest:
+            mock_discord.assert_not_called()
+        else:
+            mock_discord.assert_called_once_with(is_guest=False)
+    else:
+        mock_discord.assert_not_called()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -216,3 +244,37 @@ def test_referral_application_pushover_skipped_when_not_configured() -> None:
         result = notify_admin_new_referral_application(application_id="00000000-0000-0000-0000-000000000000")
     assert result == {"status": "skipped", "reason": "pushover_not_configured"}
     mock_post.assert_not_called()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("notify_user_joined", [True, False])
+def test_guest_conversion_notifies_like_a_signup(
+    guest_user: RevelUser, django_capture_on_commit_callbacks: t.Any, notify_user_joined: bool
+) -> None:
+    """A converted guest is a new registered user: gated by notify_user_joined, Pushover says so."""
+    from accounts.dispatch import guest_converted
+
+    _set_flags(user_joined=notify_user_joined, guest_joined=False)
+    guest_user.guest = False
+    with (
+        patch("accounts.signals.notify_admin_new_user_joined.delay") as mock_pushover,
+        patch("accounts.signals.notify_admin_new_user_joined_discord.delay") as mock_discord,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        guest_converted.send(sender=RevelUser, user=guest_user)
+    if notify_user_joined:
+        mock_pushover.assert_called_once_with(
+            user_id=str(guest_user.id), user_email=guest_user.email, is_guest=False, converted=True
+        )
+        mock_discord.assert_called_once_with(is_guest=False)
+    else:
+        mock_pushover.assert_not_called()
+        mock_discord.assert_not_called()
+
+
+@pytest.mark.django_db
+@override_settings(PUSHOVER_USER_KEY="key", PUSHOVER_APP_TOKEN="token")
+def test_pushover_message_mentions_conversion(user: RevelUser) -> None:
+    with patch("accounts.tasks.notifications.httpx.post", return_value=_make_response()) as mock_post:
+        notify_admin_new_user_joined(user_id=str(user.id), user_email=user.email, is_guest=False, converted=True)
+    assert "converted from guest" in mock_post.call_args.kwargs["data"]["message"]
