@@ -9,9 +9,8 @@ from ninja_extra import (
     route,
 )
 
-from accounts.service.turnstile import verify_turnstile
+from accounts.service.turnstile import verify_turnstile_request
 from common.authentication import OptionalAuth
-from common.client_ip import get_client_ip
 from common.schema import ErrorDetail
 from common.throttling import WriteThrottle
 from events import models, schema
@@ -34,8 +33,7 @@ class EventPublicGuestController(EventPublicBaseController):
 
     def _verify_turnstile(self, token: str | None) -> None:
         """Verify the Turnstile token (no-op when bot protection isn't configured)."""
-        request = t.cast(HttpRequest, self.context.request)  # type: ignore[union-attr]
-        verify_turnstile(token, get_client_ip(request))
+        verify_turnstile_request(token, t.cast(HttpRequest, self.context.request))  # type: ignore[union-attr]
 
     @route.post(
         "/{uuid:event_id}/rsvp/{answer}/public",
@@ -65,8 +63,9 @@ class EventPublicGuestController(EventPublicBaseController):
         When bot protection is configured, a valid `turnstile_token` is required (400 otherwise).
         """
         self.ensure_not_authenticated()
-        self._verify_turnstile(payload.turnstile_token)
         event = self.get_one(event_id)
+        # After the cheap lookups: don't spend a Cloudflare round trip (or the single-use token) on a 404.
+        self._verify_turnstile(payload.turnstile_token)
         return guest_service.handle_guest_rsvp(
             event,
             answer,
@@ -119,7 +118,6 @@ class EventPublicGuestController(EventPublicBaseController):
         When bot protection is configured, a valid `turnstile_token` is required (400 otherwise).
         """
         self.ensure_not_authenticated()
-        self._verify_turnstile(payload.turnstile_token)
         event = self.get_one(event_id)
         tiers = {
             tier.id: tier
@@ -132,6 +130,7 @@ class EventPublicGuestController(EventPublicBaseController):
         }
         if len(tiers) != len({g.tier_id for g in payload.items}):
             raise HttpError(404, str(_("One or more ticket tiers were not found.")))
+        self._verify_turnstile(payload.turnstile_token)
 
         groups = [
             CartGroup(

@@ -74,8 +74,7 @@ class TestGuestTurnstile:
         assert response.json() == {"detail": BOT_MESSAGE}
         assert not RevelUser.objects.filter(email=EMAIL).exists()
 
-    @patch("events.tasks.send_guest_rsvp_confirmation.delay")
-    def test_valid_token_proceeds(self, _mock_send: MagicMock, target: str, request: pytest.FixtureRequest) -> None:
+    def test_valid_token_proceeds(self, target: str, request: pytest.FixtureRequest) -> None:
         url, body = self._target(target, request)
         with patch("accounts.service.turnstile.httpx.post", return_value=_siteverify(True)) as mock_post:
             response = Client().post(url, data={**body, "turnstile_token": "good"}, content_type="application/json")
