@@ -8267,12 +8267,12 @@ msgid ""
 "Your **%(plan)s** subscription at **%(org)s** has been cancelled "
 "effective immediately."
 msgstr ""
-"Dein Abo **%(plan)s** bei **%(org)s** wurde mit sofortiger Wirkung "
+"Dein Abonnement **%(plan)s** bei **%(org)s** wurde mit sofortiger Wirkung "
 "gekündigt."
 
 #, python-format
 msgid "Your **%(plan)s** subscription at **%(org)s** will end on %(date)s."
-msgstr "Dein Abo **%(plan)s** bei **%(org)s** endet am %(date)s."
+msgstr "Dein Abonnement **%(plan)s** bei **%(org)s** endet am %(date)s."
 
 #, python-format
 msgid "Your **%(plan)s** membership at **%(org)s** ended on %(date)s."
@@ -8293,7 +8293,7 @@ msgid ""
 "Your **%(plan)s** subscription at **%(org)s** is moving from %(old)s to "
 "%(new)s starting %(date)s."
 msgstr ""
-"Dein Abo **%(plan)s** bei **%(org)s** wechselt ab dem %(date)s von "
+"Dein Abonnement **%(plan)s** bei **%(org)s** wechselt ab dem %(date)s von "
 "%(old)s zu %(new)s."
 
 #, python-format
@@ -8638,13 +8638,13 @@ msgid ""
 "Your <b>%(plan)s</b> subscription at <b>%(org)s</b> has been cancelled "
 "effective immediately."
 msgstr ""
-"Dein Abo <b>%(plan)s</b> bei <b>%(org)s</b> wurde mit sofortiger Wirkung "
+"Dein Abonnement <b>%(plan)s</b> bei <b>%(org)s</b> wurde mit sofortiger Wirkung "
 "gekündigt."
 
 #, python-format
 msgid ""
 "Your <b>%(plan)s</b> subscription at <b>%(org)s</b> will end on %(date)s."
-msgstr "Dein Abo <b>%(plan)s</b> bei <b>%(org)s</b> endet am %(date)s."
+msgstr "Dein Abonnement <b>%(plan)s</b> bei <b>%(org)s</b> endet am %(date)s."
 
 #, python-format
 msgid "Your <b>%(plan)s</b> membership at <b>%(org)s</b> ended on %(date)s."
@@ -8665,7 +8665,7 @@ msgid ""
 "Your <b>%(plan)s</b> subscription at <b>%(org)s</b> is moving from "
 "%(old)s to %(new)s starting %(date)s."
 msgstr ""
-"Dein Abo <b>%(plan)s</b> bei <b>%(org)s</b> wechselt ab dem %(date)s von "
+"Dein Abonnement <b>%(plan)s</b> bei <b>%(org)s</b> wechselt ab dem %(date)s von "
 "%(old)s zu %(new)s."
 
 #, python-format
