@@ -3,7 +3,7 @@
 All development tasks are driven through `make` targets. This page is the complete reference.
 
 !!! tip "Before every commit"
-    Run `make check` to catch formatting, linting, type errors, migration issues, and file length violations before they hit CI:
+    Run `make check` to catch formatting, linting, type errors, migration issues, missing or untranslated i18n strings, unpinned Celery task names, and file length violations before they hit CI:
 
     ```bash
     make check
@@ -17,9 +17,9 @@ These are the commands you will use most often during day-to-day development.
 |---------|-------------|
 | `make setup` | Complete one-time setup: installs deps, copies `.env.example`, starts Docker, bootstraps database, starts server |
 | `make run` | Start the Django development server (also generates test JWTs) |
-| `make run-e2e` | Start a prod-like gunicorn server behind PgBouncer for frontend E2E under load (see below) |
+| `make run-e2e` | Start a prod-like gunicorn server behind PgBouncer, plus a Keycloak container for OIDC, for frontend E2E under load (see below) |
 | `make check` | Run **all** code quality checks (see below) |
-| `make test` | Run the full pytest suite in parallel (`pytest -n auto`) with coverage reporting |
+| `make test` | Run the full pytest suite in parallel (`pytest -n auto`) with coverage reporting. Compiles `.mo` catalogs first; on failure it saves the failures section to `.tests.output` |
 | `make test-linear` | Run the full test suite sequentially (single process, useful for debugging) |
 | `make test-failed` | Re-run only previously failed tests |
 
@@ -32,10 +32,14 @@ These are the commands you will use most often during day-to-day development.
     from — `ATOMIC_REQUESTS` pins one connection per in-flight request across every gunicorn
     worker/thread — and multiplexes those onto a small server pool.
 
+    The same target also starts the **Keycloak** container from `docker-compose-e2e.yml` and sets `OIDC_PROVIDERS=keycloak` (plus the matching `OIDC_KEYCLOAK_*` vars) inline, so the E2E server, and only it, exposes an OIDC provider.
+
     Only this target opts into PgBouncer (via `DB_USE_PGBOUNCER=True DB_PORT=6432` set inline);
     `make run` and `make test` stay on a direct `5432` connection. Unlike `make run`, gunicorn
     does not serve Django static files, so admin/Swagger pages are unstyled — irrelevant for
     frontend E2E, which only hits `/api/*`. Tune load with `GUNICORN_WORKERS` / `GUNICORN_THREADS`.
+
+    `make run-e2e-daemon` is the same server daemonized (pid in `.e2e-gunicorn.pid`, log in `.e2e-gunicorn.log`); it kills any stale backend first and returns once `GET /api/version` answers. `make stop-e2e` stops it. `make e2e-seed` is the canonical E2E reseed: it recreates Keycloak, runs `reset_events`, then `seed`, then `bootstrap-tests` (in that order, never reorder), then `VACUUM ANALYZE`. These are normally driven from `revel-frontend` (`make e2e-setup` / `make e2e-run`).
 
 ## Code Quality and Formatting
 
@@ -48,7 +52,12 @@ These are the commands you will use most often during day-to-day development.
 | 3 | `make mypy` | Run strict type checking with mypy |
 | 4 | `make migration-check` | Verify no migrations are missing (`makemigrations --check`) |
 | 5 | `make i18n-check` | Verify the `.po` catalog is complete (keys extracted + translated) |
-| 6 | `make file-length` | Verify no source file exceeds 1,000 lines |
+| 6 | `make i18n-literals` | Verify user-facing error messages are translatable (`scripts/check_i18n_literals.py`) |
+| 7 | `make file-length` | Verify no source file exceeds 1,000 lines |
+| 8 | `make task-names` | Verify every `@shared_task` pins an explicit `name=` (`scripts/check_task_names.py`) |
+
+!!! info "Custom checks"
+    `scripts/check_i18n_literals.py` rejects f-strings and untranslated literals in `HttpError(...)` and in exceptions mapped to HTTP handlers; `scripts/check_task_names.py` fails on a bare `@shared_task`. See [Code Style](../contributing/code-style.md).
 
 !!! info "Why a custom file length check?"
     Ruff doesn't currently enforce a maximum file length. Rather than pulling in another linter just for this one rule, we use a lightweight shell script (`scripts/check-file-length.sh`) that fails if any Python file exceeds 1,000 lines.
@@ -130,12 +139,18 @@ To test with real async processing, set `CELERY_TASK_ALWAYS_EAGER=False` in your
 | `make test-linear` | Run the full test suite sequentially (single process, useful for debugging) |
 | `make test-failed` | Re-run only tests that failed in the previous run |
 | `make test-integration` | Run only tests marked with `@pytest.mark.integration` |
+| `make store-durations` | Refresh `.test_durations`, which `pytest-split` uses to balance CI shards (also refreshed weekly by CI) |
+
+All test targets depend on `make compilemessages`, because the i18n tests assert translated strings.
 
 ## Security Scanning
 
 | Command | Description |
 |---------|-------------|
 | `make bandit` | Run [Bandit](https://bandit.readthedocs.io/) static security analysis on `src/` |
+| `make audit` | `pip-audit` against the locked dependency graph (known CVEs) |
+| `make licensecheck` | Check dependency licenses against the policy in `pyproject.toml` |
+| `make deps-check` | `licensecheck` + `audit` |
 
 ## Authentication
 
@@ -164,13 +179,18 @@ To test with real async processing, set `CELERY_TASK_ALWAYS_EAGER=False` in your
 | `make shell` | Open the Django interactive shell |
 | `make reset-db` | Reset the database using the `reset_db` management command |
 | `make db-diagram` | Generate a database entity-relationship diagram (requires `django-extensions`) |
+| `make demo-video` | Create pre-arranged scenarios for recording product demo videos (`bootstrap_demo_video`; idempotent) |
 | `make bootstrap-tests` | Run only the `bootstrap_test_events` management command (test events for eligibility gates) |
-| `make check-version` | Check the currently deployed versions on main and dev servers |
+| `make check-version` | **Legacy**: curls `main.api.revel.io` / `dev.api.revel.io` `/api/v1/version`, domains that no longer apply |
 | `make count-lines` | Count non-blank, non-comment Python lines in `src/` |
 | `make tree` | Print the project directory tree (excludes `__pycache__`, images, htmlcov) |
 | `make dump-openapi` | Dump the OpenAPI schema to a file |
 | `make dump-issues` | Export all open GitHub issues to `issues.md` |
-| `make release` | Create a GitHub release for the current version |
+| `make release` | **Legacy**: creates a GitHub release by hand from the current `pyproject.toml` version. Use the release flow below instead |
+
+## Releases
+
+Releases are PR-driven, not made with `make release`. The `/release` skill reconciles `CHANGELOG.md`, bumps the version with `uv version --bump <part>` (never hand-edit `version` in `pyproject.toml`, so `uv.lock` stays in sync) and opens a `release/vX.Y.Z` PR. When that PR merges, `.github/workflows/release.yaml` tags and creates the GitHub release, which triggers `publish.yaml` to build and push the image.
 
 ## Common Workflows
 
@@ -196,6 +216,6 @@ make run              # Start the server
 ### Pre-commit checklist
 
 ```bash
-make check            # Format + lint + mypy + migration-check + i18n-check + file-length
+make check            # Format + lint + mypy + migration-check + i18n-check + i18n-literals + file-length + task-names
 make test             # (or make test-linear for sequential execution)
 ```

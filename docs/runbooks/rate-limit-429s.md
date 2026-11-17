@@ -12,9 +12,17 @@ Throttles live in `common/throttling.py` (subclasses of `ninja_extra`'s
 |---|---|---|
 | `UserRateThrottle`, **authenticated** request | `user.pk` | No — per user |
 | `AnonRateThrottle`, or any throttle on an **anonymous** request | client IP via `get_ident()` | **Yes** |
+| `OAuthTokenThrottle`, `OAuthRegistrationThrottle` (`_IPRateThrottle` mixin) | client IP via `get_ident()` for **every** caller, authenticated or not | **Yes** |
 
-Throttling uses the **stock** `get_ident()` — the throttle classes in
-`common/throttling.py` do **not** override it. With `NUM_PROXIES=1`, `get_ident()`
+Default rates (`common/throttling.py`): `AnonDefaultThrottle` 150/min, `UserDefaultThrottle`
+200/min, `WriteThrottle` 100/min, `AuthThrottle` 100/min, `OTPThrottle` 100/min per user. Newer,
+narrower ones: `OrgUserLookupThrottle` 30/hour per user,
+`MemberRegisterBulkInviteThrottle` 5/day per user, `MemberRegisterInviteLookupThrottle` 20/min
+per client (anonymous invitation-link preview), `OAuthTokenThrottle` 60/min and
+`OAuthRegistrationThrottle` 10/hour per IP.
+
+Throttling uses the **stock** `get_ident()` — none of the throttle classes in
+`common/throttling.py` override it, and none call `get_client_ip()`. With `NUM_PROXIES=1`, `get_ident()`
 returns the **last** `X-Forwarded-For` entry, which in production is the
 **Cloudflare edge IP**, not the visitor. So anonymous users behind the same
 Cloudflare egress IP **share a throttle bucket** — the most likely cause of
@@ -33,8 +41,11 @@ See backend issue #479 and infra#3 for the remaining fix (key throttles on the r
 visitor IP too). This is **not** a bypass — the current key is unspoofable; the risk
 is collateral throttling, not evasion.
 
-The lowest, most collision-prone limit is anonymous **registration**
-(`UserRegistrationThrottle`, 100/day).
+The lowest, most collision-prone limits are anonymous **registration**
+(`UserRegistrationThrottle`, 100/day) and the OAuth dynamic client registration
+(`OAuthRegistrationThrottle`, 10/hour). The `_IPRateThrottle` mixin exists only to stop a session
+cookie from switching the throttle off; it keys on the same `get_ident()` value, so it shares the
+proxy-IP collision.
 
 ## Investigate
 

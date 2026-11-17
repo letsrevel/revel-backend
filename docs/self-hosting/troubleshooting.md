@@ -107,6 +107,29 @@ non-browser user agents, which such rules block.
 Integrity Check for it). Verify with `curl -i -X POST https://<api-host>/o/token`: expect a `400`
 JSON error from Revel, not a Cloudflare page.
 
+## Turnstile is configured but the bot check is not enforced
+
+**Cause:** only one of `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` is set. Revel then logs a
+warning ("Only one of TURNSTILE_SITE_KEY / TURNSTILE_SECRET_KEY is set; Turnstile stays disabled")
+and silently leaves the check off, and `GET /api/version` reports no `turnstile_site_key`.
+
+**Fix:** set both keys and restart `web`.
+
+## Requests fail with 400 before reaching the app
+
+**Cause:** gunicorn 27 (v2.37.0 onwards) rejects any request whose `Transfer-Encoding` does not end
+in `chunked` (for example `identity`) with a 400. A proxy or client that sets that header on a
+normal request trips it.
+
+**Fix:** stop sending `Transfer-Encoding: identity`; use `Content-Length` for non-chunked bodies.
+
+## Legitimate users get 429 Too Many Requests
+
+**Cause:** the throttle buckets are per user or per proxy address, and a busy NAT or a misconfigured
+`NUM_PROXIES` can fill them.
+
+**Fix:** see the [rate limit 429s runbook](../runbooks/rate-limit-429s.md).
+
 ## The stack won't start after editing `.env`
 
 **Cause:** common `.env` mistakes:

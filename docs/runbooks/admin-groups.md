@@ -27,6 +27,13 @@ users, or change platform configuration.
 | **View-only** | view | All financial records (`Payment`, `*Invoice`, `*CreditNote`, referrals, billing profiles), `RevelUser`, `Announcement`, compliance models (`Blacklist`, questionnaires), system config (`SiteSettings`, `Legal`, `EmailLog`), notifications, geo, telegram |
 | **No access** | none | Security/audit (`GlobalBan`, `ImpersonationLog`, `UserDataExport`, file audit), dietary PII, user privacy preferences |
 
+Anything not listed in `sync_sales_group.py` is **no access** by default. That currently includes
+the newer models: member register records (`MembershipRecord`), private organizer notes
+(`OrganizationUserNote`), membership subscription plans, subscriptions and payments, series passes,
+the `integrations` app and the `oauth` app. Adding one of them to a tier is a deliberate policy
+change in that file, not an oversight to patch silently; notes in particular are private to the
+organization.
+
 **No `delete_*` permission is granted on any model.** Deletion of financial,
 audit, or user data must go through superuser review.
 

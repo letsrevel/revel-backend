@@ -46,6 +46,8 @@ The bot integrates with Revel's notification system to deliver messages to users
 - Questionnaire submissions requiring review
 - Invitation and whitelist request actions
 
+Notification texts are translated into every supported language (see [Internationalization](internationalization.md)).
+
 ### Event Interactions
 
 Users can interact with events directly from Telegram callback queries:

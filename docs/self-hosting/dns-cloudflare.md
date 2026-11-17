@@ -74,8 +74,10 @@ Caddy certificates for your own hostnames described on this page.
 When you proxy through Cloudflare, the client IP that reaches Caddy is Cloudflare's, not the real
 visitor's — the real IP arrives in the `Cf-Connecting-Ip` header. The setup wizard selects a
 **Cloudflare Caddyfile variant** that configures `trusted_proxies` for Cloudflare's IP ranges and
-reads `Cf-Connecting-Ip`, so rate limiting, logging, and geolocation see the correct client
-address.
+reads `Cf-Connecting-Ip`, so logging and geolocation see the correct client
+address. Rate limiting is different: the default throttles key on the address of the single trusted
+proxy hop (`NUM_PROXIES=1`), not on `Cf-Connecting-Ip`; see
+[Rate limit 429s](../runbooks/rate-limit-429s.md).
 
 !!! note
     If you change your proxy setup later (turning Cloudflare on or off), make sure the active

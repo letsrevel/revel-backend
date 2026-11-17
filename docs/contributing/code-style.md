@@ -217,6 +217,57 @@ Keep controller methods flat. Avoid nested conditionals and try-except blocks.
     Use `get_object_or_404()` or `self.get_object_or_exception()` for object lookups.
     Never write manual try-except blocks for `DoesNotExist`.
 
+### Query and Body Parameters
+
+Use the `Annotated` idiom: put the real type in the annotation and the `Query()` / `Body()`
+object in the metadata. It passes `mypy --strict` without a `# type: ignore[type-arg]` and keeps
+the OpenAPI constraints.
+
+```python
+params: t.Annotated[EventFilterSchema, Query(...)]          # not: params: EventFilterSchema = Query(...)
+month: t.Annotated[int | None, Query(ge=1, le=12)] = None
+payload: t.Annotated[ItemSchema | None, Body(None)] = None  # optional JSON body
+```
+
+A plain `Schema | None = None` body fails with "Cannot parse request body" when no JSON is sent,
+so keep `Body(None)` in the metadata (tests must then send `content_type="application/json"`).
+
+### Exception Handling
+
+Controllers contain no `try/except`. Each app maps its exception types to HTTP statuses once,
+in `<app>/exception_handlers.py` (a `HANDLERS` dict plus a `register()` function), and wires
+`register()` into its `AppConfig.ready`. Build handlers with `make_simple_handler(status)` or
+`make_static_handler(status, message)` from `common/exception_handlers.py`. Do not add app
+handlers to `api/api.py`. See [Controllers](../architecture/controllers.md).
+
+### User-Facing Messages and Translation
+
+Any message that reaches the client (`HttpError(status, msg)`, or an app exception mapped with
+`make_simple_handler`) must be `str(_("..."))`. To interpolate, translate first, then format:
+`str(_("Unknown event {}.").format(event_id))`. f-strings are invisible to `xgettext` and are
+rejected by `make i18n-literals` (part of `make check` and CI). See
+[Internationalization](../guides/internationalization.md).
+
+---
+
+## Celery Tasks
+
+Every `@shared_task` must pass an explicit `name=`, for example
+`@shared_task(name="events.cleanup_expired_payments")`. Without it Celery derives the name from
+the module path, so moving the module silently changes the registered name and breaks
+`django_celery_beat` rows and in-flight messages. When moving a task, keep its existing name
+verbatim. Enforced by `make task-names` (in `make check` and CI).
+
+---
+
+## Dependency Direction and Migrations
+
+- Controllers call services, services call models and utils. **Models never import from
+  services**; put pure model helpers in `<app>/utils/`.
+- **One migration per app per PR.** Squash a branch's schema migrations before merge by deleting
+  the files and regenerating with `makemigrations`. Never hand-edit schema migrations; hand-written
+  migrations are for data migrations only.
+
 ---
 
 ## Race Condition Protection

@@ -43,7 +43,7 @@ This repository is the API and the main project page. The web app lives in [reve
 git clone https://github.com/letsrevel/infra && cd infra && ./setup.sh
 ```
 
-You need a Linux x86-64 server, run as root or as a user in the `docker` group, with ports 80 and 443 open and DNS A records for two hostnames: one for the web app and one for the API, which defaults to `api.<your domain>`. Add a third for Grafana if you enable observability. The wizard offers to install Docker if it is missing, asks for your domains, email settings and which optional services to run, writes `.env` with generated secrets, pulls the prebuilt images and starts the stack. The slim tier needs 2 vCPU and 4 GB RAM, about €20/month (Hetzner CPX22, September 2026). The full tier, with observability and malware scanning, needs 8 vCPU and 32 GB RAM. Full guide: [docs.letsrevel.io/self-hosting](https://docs.letsrevel.io/self-hosting/).
+You need a Linux server (x86-64, or arm64 on a best-effort basis), run as root or as a user in the `docker` group, with ports 80 and 443 open and DNS A records for two hostnames: one for the web app and one for the API, which defaults to `api.<your domain>`. Add a third for Grafana if you enable observability. The wizard offers to install Docker if it is missing, asks for your domains, email settings and which optional services to run, writes `.env` with generated secrets, pulls the prebuilt images and starts the stack. The slim tier needs 2 vCPU and 4 GB RAM, about €20/month (Hetzner CPX22, September 2026). The full tier, with observability and malware scanning, needs 8 vCPU and 32 GB RAM. Full guide: [docs.letsrevel.io/self-hosting](https://docs.letsrevel.io/self-hosting/).
 
 ## Fees and data
 
@@ -242,7 +242,7 @@ Potluck coordination with dietary restrictions, polls and event discovery with d
 
 ## Self-hosting
 
-The [infra](https://github.com/letsrevel/infra) repo holds the Docker Compose stack and the `setup.sh` wizard shown above. You do not need to clone this repo or the frontend; the images come from `ghcr.io/letsrevel` and are built for `linux/amd64` only. The infra README lists what each tier runs and every Compose profile and feature flag.
+The [infra](https://github.com/letsrevel/infra) repo holds the Docker Compose stack and the `setup.sh` wizard shown above. You do not need to clone this repo or the frontend; the images come from `ghcr.io/letsrevel` and are multi-arch (`linux/amd64` and `linux/arm64`; the arm64 build is best-effort and may occasionally be missing for a release). The infra README lists what each tier runs and every Compose profile and feature flag.
 
 Stripe, SMTP, Telegram, LLM screening, OpenID Connect login, Eventbrite and the wallet passes are all optional. Without SMTP the instance runs, but nobody receives verification or ticket emails. DNS, tiers, upgrades and troubleshooting: [docs.letsrevel.io/self-hosting](https://docs.letsrevel.io/self-hosting/).
 

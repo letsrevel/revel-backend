@@ -97,7 +97,6 @@ Apple Wallet pass generation requires three PEM certificate files and several en
 
 ```bash
 # .env
-APPLE_TEAM_IDENTIFIER=YOUR_TEAM_ID
 APPLE_WALLET_PASS_TYPE_ID=pass.io.letsrevel.events
 APPLE_WALLET_TEAM_ID=YOUR_TEAM_ID
 APPLE_WALLET_CERT_PATH=/app/src/certs/pass_certificate.pem
@@ -151,12 +150,11 @@ If you see `PermissionError` or `EACCES` in logs:
 === "Linux"
 
     ```bash
-    # Find appuser's UID inside the container
+    # Find appuser's UID/GID inside the container (the image does not pin them)
     docker compose exec web id appuser
-    # uid=999(appuser) gid=999(appuser)
 
-    # Fix host directory ownership
-    sudo chown -R 999:999 ./src/geo/data ./src/certs
+    # Fix host directory ownership, substituting the UID:GID printed above
+    sudo chown -R <uid>:<gid> ./src/geo/data ./src/certs
     ```
 
 === "macOS"
@@ -202,7 +200,10 @@ Most external services have safe defaults for local development. Here's what act
 
 | Service | Env Var | Default | Feature |
 |---------|---------|---------|---------|
-| Stripe | `STRIPE_SECRET_KEY` | Test key (`sk_test_...`) | Paid ticket checkout |
+| Stripe | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRETS` (or legacy `STRIPE_WEBHOOK_SECRET`) | Test key (`sk_test_...`) | Paid ticket checkout |
+| Cloudflare Turnstile | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | unset (off) | Bot check on registration, guest RSVP and guest checkout. Both keys are required; a half-configured pair leaves it off with a warning |
+| Admin alerts | `PUSHOVER_USER_KEY`, `PUSHOVER_APP_TOKEN`, `DISCORD_ADMIN_WEBHOOK_URL` | unset | Admin notifications and the daily recap; nothing is sent without keys |
+| Token lifetimes | `ACCESS_TOKEN_LIFETIME_HOURS`, `REFRESH_TOKEN_LIFETIME_DAYS`, `REFRESH_TOKEN_REUSE_GRACE_SECONDS`, `VERIFY_TOKEN_LIFETIME_MINUTES` | `1`, `30`, `30`, `15` | Optional tuning of JWT and emailed-link lifetimes |
 | Telegram | `TELEGRAM_BOT_TOKEN` | `0000000000:AABBCCDD` | Telegram bot |
 | LLM Provider | `LLM_API_KEY`, `LLM_DEFAULT_MODEL` | Ollama local | Questionnaire AI evaluation (requires `FEATURE_LLM_EVALUATION=True`) |
 | Django admin Google login | `GOOGLE_SSO_CLIENT_ID` | `fake-id` | Google login on the Django admin page only |
@@ -227,7 +228,7 @@ Most external services have safe defaults for local development. Here's what act
     The default Stripe keys are test keys (prefixed `sk_test_` / `pk_test_`). These are safe for development; no real charges are made.
 
 !!! danger "Stripe webhook: own events vs. connected accounts"
-    A Stripe webhook endpoint can be configured to receive events either from the platform's own account **or** from connected accounts. Revel currently expects a single `STRIPE_WEBHOOK_SECRET`, so the endpoint you point at Revel should only receive events from one of these sources; mixing platform-account and connected-account events on the same endpoint would require additional backend support. If the platform host also operates an organization that sells tickets, that organization must use a **different** Stripe account from the platform's `STRIPE_ACCOUNT`. Otherwise, webhook events (e.g., `checkout.session.completed`) won't be delivered. Configure this in the Stripe Dashboard under **Developers > Webhooks**. See [Billing & VAT](../architecture/billing-and-vat.md) for details.
+    A Stripe webhook endpoint can be configured to receive events either from the platform's own account **or** from connected accounts. Revel verifies each webhook against `STRIPE_WEBHOOK_SECRETS`, a comma-separated list of signing secrets that it tries in turn (it falls back to the legacy single `STRIPE_WEBHOOK_SECRET` when the list is empty). Create one endpoint for platform-account events and one for connected-account events, and put both secrets in the list; a single endpoint should not mix the two sources. If the platform host also operates an organization that sells tickets, that organization must use a **different** Stripe account from the platform's `STRIPE_ACCOUNT`. Otherwise, webhook events (e.g., `checkout.session.completed`) won't be delivered. Configure this in the Stripe Dashboard under **Developers > Webhooks**. See [Billing & VAT](../architecture/billing-and-vat.md) for details.
 
 ---
 
