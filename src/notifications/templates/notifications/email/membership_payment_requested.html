@@ -9,6 +9,6 @@
 <p>{% blocktranslate with org=context.organization_name url=context.organization_contact_url %}{{ org }} will tell you how to pay: <a href="{{ url }}">{{ url }}</a>{% endblocktranslate %}</p>
 {% endif %}
 <center>
-    <a href="{{ context.memberships_url }}" class="button">{% trans "Your memberships" %}</a>
+    <a href="{{ context.memberships_url }}" class="button">{% blocktranslate with org=context.organization_name %}Your membership at {{ org }}{% endblocktranslate %}</a>
 </center>
 {% endblock %}

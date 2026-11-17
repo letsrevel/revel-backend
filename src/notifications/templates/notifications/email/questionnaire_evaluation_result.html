@@ -2,11 +2,6 @@
 {% load i18n %}
 {% block extra_styles %}
 .comments { background:#f0f0f0; padding:15px; margin:15px 0; border-radius:4px; font-style:italic; color:#555; }
-{% if context.membership_url %}
-<center>
-    <a href="{{ context.membership_url }}" class="button">{% blocktranslate with org=context.organization_name %}Continue joining {{ org }}{% endblocktranslate %}</a>
-</center>
-{% endif %}
 {% endblock %}
 {% block content %}
 <p>{% trans "Hello" %} {{ user.display_name }},</p>
@@ -42,6 +37,11 @@
 {% if context.event_url %}
 <center>
     <a href="{{ context.event_url }}" class="button {% if context.evaluation_status != "APPROVED" %}button--danger{% endif %}">{% if context.evaluation_status == "APPROVED" %}{% if context.requires_ticket %}{% trans "Get Ticket" %}{% else %}{% trans "RSVP Now" %}{% endif %}{% else %}{% trans "View Event" %}{% endif %}</a>
+</center>
+{% endif %}
+{% if context.membership_url %}
+<center>
+    <a href="{{ context.membership_url }}" class="button">{% blocktranslate with org=context.organization_name %}Continue joining {{ org }}{% endblocktranslate %}</a>
 </center>
 {% endif %}
 {% endblock %}

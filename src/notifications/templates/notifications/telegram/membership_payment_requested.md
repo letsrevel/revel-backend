@@ -2,4 +2,4 @@
 
 {%if context.payment_instructions%}{{ context.payment_instructions }}{%else%}{%blocktranslate with org=context.organization_name url=context.organization_contact_url %}{{ org }} will tell you how to pay: {{ url }}{%endblocktranslate%}{%endif%}
 
-<a href="{{context.memberships_url}}">{%trans "Your memberships" %}</a>
+<a href="{{context.memberships_url}}">{%blocktranslate with org=context.organization_name %}Your membership at {{ org }}{%endblocktranslate%}</a>

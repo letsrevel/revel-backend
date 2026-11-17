@@ -175,8 +175,9 @@ def test_payment_requested_renders_instructions_all_channels(
         assert "Yearly" in body, channel
         assert "50.00 EUR" in body, channel
         assert "30 days" in body, channel
+        assert f"Your membership at {organization.name}" in body, channel
         assert "Wire to IBAN AT00 1234" in body, channel
-        assert "/account/memberships" in body or f"/org/{organization.slug}/membership" in body, channel
+        assert f"/org/{organization.slug}/membership" in body, channel
 
 
 def test_payment_requested_contact_fallback(offline_sub: MembershipSubscription, organization: Organization) -> None:
@@ -250,6 +251,10 @@ def test_membership_questionnaire_result_links_membership_page(
         assert f"Continue joining {organization.name}" in body, channel
         assert "RSVP" not in body, channel
         assert "ticket" not in body, channel
+    assert (
+        f'<a href="{ctx["membership_url"]}" class="button">Continue joining {organization.name}</a>'
+        in (_bodies(notif)["email_html"])
+    )
 
 
 def test_offline_reminder_includes_instructions(offline_sub: MembershipSubscription) -> None:

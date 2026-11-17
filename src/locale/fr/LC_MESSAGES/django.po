@@ -7892,11 +7892,27 @@ msgstr "Pour renouveler, payez directement %(org)s."
 msgid "To renew, pay %(org)s directly. <a href=\"%(url)s\">Contact %(org)s</a> to find out how."
 msgstr "Pour renouveler, payez directement %(org)s. <a href=\"%(url)s\">Contactez %(org)s</a> pour savoir comment."
 
-msgid "Your memberships"
-msgstr "Vos adhésions"
 
-msgid "Your memberships:"
-msgstr "Vos adhésions :"
 
 msgid "paid directly to the organization"
 msgstr "payé directement à l'organisation"
+
+#, python-format
+msgid "Your membership at %(org)s"
+msgstr "Votre adhésion chez %(org)s"
+
+#, python-format
+msgid "To activate your **%(tier)s** membership (%(plan)s, %(amount)s), pay **%(org)s** directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
+msgstr "Pour activer votre adhésion **%(tier)s** (%(plan)s, %(amount)s), payez directement **%(org)s**. Votre adhésion commence dès qu'il confirme votre paiement. Si aucun paiement n'est enregistré sous 30 jours, votre demande est annulée."
+
+#, python-format
+msgid "To activate your <b>%(tier)s</b> membership (%(plan)s, %(amount)s), pay <b>%(org)s</b> directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
+msgstr "Pour activer votre adhésion <b>%(tier)s</b> (%(plan)s, %(amount)s), payez directement <b>%(org)s</b>. Votre adhésion commence dès qu'il confirme votre paiement. Si aucun paiement n'est enregistré sous 30 jours, votre demande est annulée."
+
+#, python-format
+msgid "Contact %(org)s"
+msgstr "Contacter %(org)s"
+
+#, python-format
+msgid "<a href=\"%(url)s\">Contact %(org)s</a> to find out how."
+msgstr "<a href=\"%(url)s\">Contactez %(org)s</a> pour savoir comment."
