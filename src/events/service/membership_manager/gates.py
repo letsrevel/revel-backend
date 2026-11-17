@@ -13,6 +13,7 @@ import uuid
 from django.utils.translation import gettext as _
 
 from events.models import (
+    MembershipSubscription,
     MembershipSubscriptionPlan,
     Organization,
     OrganizationMember,
@@ -441,7 +442,9 @@ class PaymentReadyGate(BaseMembershipEligibilityGate):
 
     A plan-bearing check that survives every prior gate ends here with an
     *allowing* ``PROCEED_TO_PAYMENT`` verdict — ``/subscribe`` opens Checkout on
-    it. Blocks when the plan is not actually payable (offline plan, org not
+    it (OFFLINE plans: opens the awaiting-payment subscription). A never-paid
+    offline subscription on this plan blocks first with ``AWAITING_OFFLINE_PAYMENT``.
+    Blocks when the plan is not actually payable (ONLINE org not
     Stripe-connected, plan paused or at its sales cap, duplicate non-terminal
     subscription), or when approval is required but the user has nothing on
     file yet (``SUBMIT_APPLICATION``: :class:`ManualApprovalGate` deliberately
@@ -457,12 +460,46 @@ class PaymentReadyGate(BaseMembershipEligibilityGate):
     ``checkout_url`` and an already-ACTIVE subscription.
     """
 
+    def _awaiting_offline_subscription(self) -> MembershipSubscription | None:
+        """The user's never-paid offline subscription on this plan, if any (one query, OFFLINE plans only)."""
+        # Lazy: events.service.subscription imports this package (circular at module level).
+        from events.service.subscription.offline import is_never_paid_offline
+
+        candidates = MembershipSubscription.objects.filter(
+            user=self.user,
+            plan=self.plan,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+        ).select_related("plan")
+        return next((sub for sub in candidates if is_never_paid_offline(sub)), None)
+
+    def _approval_closed_with_subscription(self) -> bool:
+        """APPROVED application with a terminal linked subscription needs re-approval (NULL-link rows pass)."""
+        app = self.handler.current_application
+        return (
+            app is not None
+            and app.status == OrganizationMembershipRequest.Status.APPROVED
+            and app.subscription is not None
+            and app.subscription.status in MembershipSubscription.TERMINAL_STATUSES
+            and resolve_requires_membership_approval(self.organization, self.tier)
+        )
+
     def check(self) -> MembershipEligibility | None:
         """Readiness check for a plan-bearing verdict; allow ends in PROCEED_TO_PAYMENT."""
         if self.plan is None:
             return None
-        if self.handler.approval_required_annotation:
-            # Approval required but nothing on file: the user must create the
+        is_offline = self.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE
+        if is_offline:
+            # First, so the user's own cap slot or a sales pause never hides it.
+            awaiting = self._awaiting_offline_subscription()
+            if awaiting is not None:
+                app = self.handler.current_application
+                return self._block(
+                    Reasons.AWAITING_OFFLINE_PAYMENT,
+                    next_step=MembershipNextStep.WAIT_FOR_OFFLINE_PAYMENT,
+                    application_id=app.pk if app and app.subscription_id == awaiting.pk else None,
+                )
+        if self.handler.approval_required_annotation or (is_offline and self._approval_closed_with_subscription()):
+            # Approval required but nothing usable on file: the user must create the
             # application first so staff have something to approve. No prose —
             # "your application is awaiting staff approval" would be a lie when
             # no application exists (mirrors check_eligibility's annotation
@@ -475,9 +512,6 @@ class PaymentReadyGate(BaseMembershipEligibilityGate):
                 reason_code=MembershipReasonCode.REQUIRES_APPROVAL,
                 next_step=MembershipNextStep.SUBMIT_APPLICATION,
             )
-        if self.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
-            # Staff-managed: there is no member-facing way to pay for it.
-            return self._block(Reasons.PLAN_NOT_ONLINE)
         if (
             self.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
             and not self.organization.is_stripe_connected

@@ -2660,6 +2660,9 @@ msgstr ""
 "Tu membresía en este nivel está en pausa. Ponte en contacto con la "
 "organización para reanudarla."
 
+msgid "Your membership starts once the organization confirms your payment."
+msgstr "Tu membresía comienza cuando la organización confirme tu pago."
+
 msgid "Invalid questionnaire submission."
 msgstr "Envío de cuestionario no válido."
 

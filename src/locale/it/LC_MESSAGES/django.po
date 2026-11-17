@@ -2666,6 +2666,9 @@ msgstr ""
 "La tua iscrizione a questo livello è in pausa. Contatta l'organizzazione per "
 "riprenderla."
 
+msgid "Your membership starts once the organization confirms your payment."
+msgstr "La tua iscrizione inizia non appena l'organizzazione conferma il tuo pagamento."
+
 msgid "Invalid questionnaire submission."
 msgstr "Invio del questionario non valido."
 

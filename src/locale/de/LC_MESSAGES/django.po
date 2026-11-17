@@ -2703,6 +2703,9 @@ msgstr ""
 "Deine Mitgliedschaft auf dieser Stufe ist pausiert. Wende dich an die "
 "Organisation, um sie fortzusetzen."
 
+msgid "Your membership starts once the organization confirms your payment."
+msgstr "Deine Mitgliedschaft beginnt, sobald die Organisation deine Zahlung bestätigt."
+
 msgid "Invalid questionnaire submission."
 msgstr "Ungültige Fragebogen-Einreichung."
 

@@ -2700,6 +2700,9 @@ msgstr ""
 "Ton adhésion à ce niveau est en pause. Contacte l'organisation pour la "
 "reprendre."
 
+msgid "Your membership starts once the organization confirms your payment."
+msgstr "Votre adhésion commence dès que l'organisation confirme votre paiement."
+
 msgid "Invalid questionnaire submission."
 msgstr "Soumission de questionnaire invalide."
 
