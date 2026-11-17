@@ -290,9 +290,7 @@ def record_payment(
         # both — and no FX conversion exists to reconcile them afterwards.
         raise HttpError(400, str(_("Payment currency must match the plan's currency.")))
     now = timezone.now()
-    first_offline_payment = prior_status == MembershipSubscription.SubscriptionStatus.PENDING and is_never_paid_offline(
-        subscription
-    )
+    first_offline_payment = is_never_paid_offline(subscription)
     refuse_blacklisted_first_payment(subscription)
 
     if occurred_at is not None:

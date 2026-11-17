@@ -34,9 +34,11 @@ def is_never_paid(subscription: MembershipSubscription) -> bool:
 
 
 def is_never_paid_offline(subscription: MembershipSubscription) -> bool:
-    """True for a never-paid subscription on an OFFLINE plan."""
-    return subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE and is_never_paid(
-        subscription
+    """True for a PENDING, never-paid subscription on an OFFLINE plan (the one predicate for "first payment")."""
+    return (
+        subscription.status == MembershipSubscription.SubscriptionStatus.PENDING
+        and subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE
+        and is_never_paid(subscription)
     )
 
 

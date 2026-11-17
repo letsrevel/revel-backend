@@ -410,9 +410,11 @@ def rebuild_visibility_on_membership_change(
 def capture_member_old_tier(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
     """Stash the pre-save tier id so post_save can detect tier changes."""
     if instance.pk:
-        instance._old_tier_id = (  # type: ignore[attr-defined]
-            OrganizationMember.objects.filter(pk=instance.pk).values_list("tier_id", flat=True).first()
-        )
+        old_tier_id, old_status = OrganizationMember.objects.filter(pk=instance.pk).values_list(
+            "tier_id", "status"
+        ).first() or (None, None)
+        instance._old_tier_id = old_tier_id  # type: ignore[attr-defined]
+        instance._old_member_status = old_status  # type: ignore[attr-defined]
 
 
 @receiver(post_save, sender=OrganizationMember)
@@ -447,8 +449,9 @@ def handle_membership_tier_changed(
     old_tier_id = getattr(instance, "_old_tier_id", instance.tier_id)
     if old_tier_id == instance.tier_id:
         return
-    if instance.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT:
-        return  # no card yet
+    awaiting = OrganizationMember.MembershipStatus.AWAITING_PAYMENT
+    if instance.status == awaiting or getattr(instance, "_old_member_status", None) == awaiting:
+        return  # no card yet; on activation MEMBERSHIP_GRANTED is the notification
 
     def send_card_updated_notification() -> None:
         frontend_base_url = frontend_base_url_for(instance.organization)
@@ -698,13 +701,6 @@ def _subscription_cannot_move(member: OrganizationMember, target_status: str) ->
     )
 
 
-def _is_unpaid_offline_pending(subscription: MembershipSubscription) -> bool:
-    """True for a PENDING, never-paid OFFLINE subscription: it must not move its member."""
-    return subscription.status == MembershipSubscription.SubscriptionStatus.PENDING.value and is_never_paid_offline(
-        subscription
-    )
-
-
 @receiver(post_save, sender=MembershipSubscription)
 def sync_member_from_subscription(
     sender: type[MembershipSubscription],
@@ -761,7 +757,7 @@ def sync_member_from_subscription(
     ):
         return
 
-    if _is_unpaid_offline_pending(instance):
+    if is_never_paid_offline(instance):  # PENDING + never-paid + OFFLINE: must not move its member
         return
 
     # If a newer non-terminal subscription exists, it owns the member state.

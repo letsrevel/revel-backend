@@ -82,7 +82,12 @@ def test_awaiting_member_activates_and_granted_once(
     sent: list[NotificationType],
     django_capture_on_commit_callbacks: t.Any,
 ) -> None:
-    OrganizationMember.objects.create(organization=organization, user=member_user, status=S.AWAITING_PAYMENT)
+    OrganizationMember.objects.create(
+        organization=organization,
+        user=member_user,
+        status=S.AWAITING_PAYMENT,
+        tier=MembershipTier.objects.get(organization=organization, name="General membership"),
+    )
     sub = _pending_sub(plan, member_user)
     assert _member(sub).status == S.AWAITING_PAYMENT  # saving the PENDING sub did not activate it
     assert not MembershipRecord.objects.filter(user=member_user).exists()
@@ -96,6 +101,7 @@ def test_awaiting_member_activates_and_granted_once(
     assert MembershipRecord.objects.filter(user=member_user, valid_until__isnull=True).exists()
     assert sent.count(NotificationType.MEMBERSHIP_GRANTED) == 1
     assert NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED not in sent
+    assert NotificationType.MEMBERSHIP_CARD_UPDATED not in sent
 
 
 def test_existing_member_keeps_tier_until_first_payment_then_receipt(
@@ -168,6 +174,7 @@ def test_second_payment_does_not_reactivate(
     sub = _pending_sub(plan, member_user)
     with django_capture_on_commit_callbacks(execute=True):
         _pay(sub)
+    # Staff pause the member between payments; a second payment must neither lift it nor re-run activation.
     OrganizationMember.objects.filter(pk=_member(sub).pk).update(status=S.PAUSED)
     sent.clear()
 
@@ -176,6 +183,7 @@ def test_second_payment_does_not_reactivate(
 
     assert _member(sub).status == S.PAUSED
     assert NotificationType.MEMBERSHIP_GRANTED not in sent
+    assert sent.count(NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED) == 1  # an ordinary renewal receipt only
 
 
 def test_blacklisted_first_payment_400_no_row(
@@ -194,6 +202,23 @@ def test_blacklisted_first_payment_400_no_row(
     assert not MembershipPayment.objects.filter(subscription=sub).exists()
     assert _member(sub).status == S.AWAITING_PAYMENT
     assert Blacklist.objects.count() == 0  # real blacklist rows are not needed to exercise the guard
+
+
+def test_edit_to_succeeded_blacklisted_400(
+    plan: MembershipSubscriptionPlan, organization: Organization, member_user: RevelUser
+) -> None:
+    OrganizationMember.objects.create(organization=organization, user=member_user, status=S.AWAITING_PAYMENT)
+    sub = _pending_sub(plan, member_user)
+    payment = _pay(sub, status=MembershipPayment.PaymentStatus.FAILED)
+    with mock.patch("events.service.subscription.offline.check_user_hard_blacklisted", return_value=True):
+        with pytest.raises(HttpError) as exc:
+            payment_edits.update_payment(
+                payment, changes={"status": MembershipPayment.PaymentStatus.SUCCEEDED}, recorded_by=None
+            )
+    assert exc.value.status_code == 400
+    payment.refresh_from_db()
+    assert payment.status == MembershipPayment.PaymentStatus.FAILED
+    assert _member(sub).status == S.AWAITING_PAYMENT
 
 
 def test_settles_linked_application(
