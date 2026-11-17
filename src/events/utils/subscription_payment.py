@@ -17,3 +17,10 @@ def is_never_paid_offline(subscription: MembershipSubscription) -> bool:
         and subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE
         and is_never_paid(subscription)
     )
+
+
+def is_never_paid_on_offline_plan(subscription: MembershipSubscription) -> bool:
+    """True for a never-paid subscription on an OFFLINE plan, whatever status it has now (e.g. just terminalised)."""
+    return subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE and is_never_paid(
+        subscription
+    )

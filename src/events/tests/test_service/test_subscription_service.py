@@ -603,6 +603,17 @@ class TestRecordPaymentOccurredAt:
 
 
 class TestLifecycle:
+    @staticmethod
+    def _paid(plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser) -> MembershipSubscription:
+        """A subscription past its first payment (a never-paid offline one can't be paused)."""
+        return subscription_lifecycle.create_subscription(
+            plan,
+            subscriber,
+            initial_payment=subscription_lifecycle.InitialPayment(
+                amount=plan.price, currency=plan.currency, recorded_by=recorder
+            ),
+        )
+
     def test_cancel_at_period_end(
         self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
     ) -> None:
@@ -631,16 +642,20 @@ class TestLifecycle:
         again = subscription_lifecycle.cancel_subscription(sub, immediate=True)
         assert again.status == MembershipSubscription.SubscriptionStatus.CANCELLED
 
-    def test_pause_and_resume(self, plan: MembershipSubscriptionPlan, subscriber: RevelUser) -> None:
-        sub = subscription_lifecycle.create_subscription(plan, subscriber)
+    def test_pause_and_resume(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
+    ) -> None:
+        sub = self._paid(plan, subscriber, recorder)
         paused = subscription_lifecycle.pause_subscription(sub)
         assert paused.status == MembershipSubscription.SubscriptionStatus.PAUSED
 
         resumed = subscription_lifecycle.resume_subscription(paused)
         assert resumed.status == MembershipSubscription.SubscriptionStatus.ACTIVE
 
-    def test_pause_idempotent(self, plan: MembershipSubscriptionPlan, subscriber: RevelUser) -> None:
-        sub = subscription_lifecycle.create_subscription(plan, subscriber)
+    def test_pause_idempotent(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
+    ) -> None:
+        sub = self._paid(plan, subscriber, recorder)
         subscription_lifecycle.pause_subscription(sub)
         again = subscription_lifecycle.pause_subscription(sub)
         assert again.status == MembershipSubscription.SubscriptionStatus.PAUSED
@@ -656,20 +671,24 @@ class TestLifecycle:
         with pytest.raises(HttpError):
             subscription_lifecycle.resume_subscription(sub)
 
-    def test_schedule_cancel_blocked_when_paused(self, plan: MembershipSubscriptionPlan, subscriber: RevelUser) -> None:
+    def test_schedule_cancel_blocked_when_paused(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
+    ) -> None:
         """A paused subscription cannot be scheduled to cancel at period end.
 
         Time is frozen while PAUSED, so the period boundary would never be
         reached. Callers must resume first or cancel immediately.
         """
-        sub = subscription_lifecycle.create_subscription(plan, subscriber)
+        sub = self._paid(plan, subscriber, recorder)
         subscription_lifecycle.pause_subscription(sub)
         with pytest.raises(HttpError) as excinfo:
             subscription_lifecycle.cancel_subscription(sub, immediate=False)
         assert excinfo.value.status_code == 400
 
-    def test_cancel_immediate_works_when_paused(self, plan: MembershipSubscriptionPlan, subscriber: RevelUser) -> None:
-        sub = subscription_lifecycle.create_subscription(plan, subscriber)
+    def test_cancel_immediate_works_when_paused(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
+    ) -> None:
+        sub = self._paid(plan, subscriber, recorder)
         subscription_lifecycle.pause_subscription(sub)
         out = subscription_lifecycle.cancel_subscription(sub, immediate=True)
         assert out.status == MembershipSubscription.SubscriptionStatus.CANCELLED

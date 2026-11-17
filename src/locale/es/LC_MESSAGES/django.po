@@ -7825,3 +7825,39 @@ msgstr "Contactar con %(org)s"
 #, python-format
 msgid "<a href=\"%(url)s\">Contact %(org)s</a> to find out how."
 msgstr "<a href=\"%(url)s\">Contacta con %(org)s</a> para saber cómo."
+
+#, python-format
+msgid "Membership request lapsed: %(org)s"
+msgstr "Solicitud de membresía caducada: %(org)s"
+
+#, python-format
+msgid "Your %(org)s membership request has lapsed"
+msgstr "Tu solicitud de membresía en %(org)s ha caducado"
+
+msgid "A subscription awaiting its first payment can't be paused."
+msgstr "Una suscripción que espera su primer pago no se puede pausar."
+
+msgid "This status is set by the system."
+msgstr "Este estado lo establece el sistema."
+
+msgid "Membership Request Lapsed"
+msgstr "Solicitud de membresía caducada"
+
+msgid "Lapsed on:"
+msgstr "Caducó el:"
+
+#, python-format
+msgid "Your **%(plan)s** membership request at **%(org)s** lapsed on %(date)s because no payment was received."
+msgstr "Tu solicitud de membresía **%(plan)s** en **%(org)s** caducó el %(date)s porque no se recibió ningún pago."
+
+#, python-format
+msgid "Your <b>%(plan)s</b> membership request at <b>%(org)s</b> lapsed on %(date)s because no payment was received."
+msgstr "Tu solicitud de membresía <b>%(plan)s</b> en <b>%(org)s</b> caducó el %(date)s porque no se recibió ningún pago."
+
+#, python-format
+msgid "Your <strong>%(plan)s</strong> membership request at <strong>%(org)s</strong> lapsed on %(date)s because no payment was received."
+msgstr "Tu solicitud de membresía <strong>%(plan)s</strong> en <strong>%(org)s</strong> caducó el %(date)s porque no se recibió ningún pago."
+
+#, python-format
+msgid "Your %(plan)s membership request at %(org)s lapsed on %(date)s because no payment was received."
+msgstr "Tu solicitud de membresía %(plan)s en %(org)s caducó el %(date)s porque no se recibió ningún pago."

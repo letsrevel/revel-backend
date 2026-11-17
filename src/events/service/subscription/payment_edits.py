@@ -22,6 +22,7 @@ from events.service.subscription.core import _payment_period, _refuse_lapsed_per
 from events.service.subscription.offline import (
     activate_on_first_payment,
     refuse_blacklisted_first_payment,
+    revert_to_awaiting_payment,
 )
 from events.utils.membership_payment_rules import edit_refusal, non_voided_payments, period_edit_refusal
 from events.utils.subscription_payment import is_never_paid_offline
@@ -74,6 +75,8 @@ def _recompute_subscription_period(subscription: MembershipSubscription) -> None
             subscription.status = Status.PENDING
             update_fields.append("status")
     subscription.save(update_fields=update_fields)
+    if latest is None:
+        revert_to_awaiting_payment(subscription)  # a no-op unless the row is a never-paid OFFLINE one again
 
 
 def _lock(payment: MembershipPayment) -> MembershipPayment:

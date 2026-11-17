@@ -223,6 +223,19 @@ def _dispatch_subscription_expired(subscription: MembershipSubscription) -> None
     )
 
 
+def dispatch_unpaid_offline_lapsed(subscription: MembershipSubscription) -> None:
+    """Fire SUBSCRIPTION_EXPIRED (``lapsed`` branch): a never-paid offline request timed out and was cancelled."""
+    ctx = _common_subscription_context(subscription)
+    ctx["expired_at"] = format_organization_datetime(timezone.now(), subscription.organization)
+    ctx["lapsed"] = True
+    notification_requested.send(
+        sender=MembershipSubscription,
+        user=subscription.user,
+        notification_type=NotificationType.SUBSCRIPTION_EXPIRED,
+        context=ctx,
+    )
+
+
 def _dispatch_cancellation_confirmed(subscription: MembershipSubscription, *, immediate: bool) -> None:
     """Fire SUBSCRIPTION_CANCELLATION_CONFIRMED for cancel-now or cancel-at-period-end."""
     if immediate:

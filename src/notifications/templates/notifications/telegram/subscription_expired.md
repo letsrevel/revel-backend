@@ -1,3 +1,3 @@
-{%load i18n %}🔔 {%blocktranslate with plan=context.plan_name org=context.organization_name date=context.expired_at %}Your <b>{{ plan }}</b> membership at <b>{{ org }}</b> ended on {{ date }}.{%endblocktranslate%}
+{%load i18n %}🔔 {%if context.lapsed%}{%blocktranslate with plan=context.plan_name org=context.organization_name date=context.expired_at %}Your <b>{{ plan }}</b> membership request at <b>{{ org }}</b> lapsed on {{ date }} because no payment was received.{%endblocktranslate%}{%else%}{%blocktranslate with plan=context.plan_name org=context.organization_name date=context.expired_at %}Your <b>{{ plan }}</b> membership at <b>{{ org }}</b> ended on {{ date }}.{%endblocktranslate%}{%endif%}
 
 {%if context.revival_url and context.revival_window_end%}<a href="{{context.revival_url}}">{%blocktranslate with date=context.revival_window_end %}Reactivate by {{ date }}{%endblocktranslate%}</a>{%endif%}

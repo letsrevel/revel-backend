@@ -826,6 +826,7 @@ class SubscriptionExpiredContext(BaseNotificationContext):
     expired_at: str
     revival_window_end: t.NotRequired[str | None]
     revival_url: t.NotRequired[str | None]
+    lapsed: t.NotRequired[bool]
 
 
 class SubscriptionCancellationConfirmedContext(BaseNotificationContext):

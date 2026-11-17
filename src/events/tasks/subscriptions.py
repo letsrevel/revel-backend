@@ -1,6 +1,7 @@
 """Celery tasks for membership-subscription lifecycle and renewal reminders."""
 
 import datetime
+import functools
 import typing as t
 
 import structlog
@@ -621,4 +622,67 @@ def expire_stale_approved_applications() -> int:
     )
     if cancelled:
         logger.info("stale_approved_applications_cancelled", count=cancelled)
+    return cancelled
+
+
+@shared_task(name="events.expire_unpaid_offline_subscriptions")
+def expire_unpaid_offline_subscriptions() -> int:
+    """Cancel never-paid OFFLINE subscriptions whose payment window lapsed, and tell the person.
+
+    A joiner who never pays would otherwise hold a PENDING row (and a held member slot) forever.
+    Only rows whose member is held for them are swept: ``AWAITING_PAYMENT`` or missing, or an ACTIVE
+    member on a *different* tier (a free member upgrading). A legacy row (ACTIVE member at the plan's
+    tier, created before the awaiting state existed) was trusted by staff and is left alone.
+
+    Returns:
+        Number of subscriptions cancelled.
+    """
+    from events.models import OrganizationMember
+    from events.service.subscription.notifications import dispatch_unpaid_offline_lapsed
+    from events.service.subscription.offline import close_unpaid_offline
+    from events.utils.subscription_payment import is_never_paid_offline
+
+    cutoff = timezone.now() - datetime.timedelta(days=APPLICATION_PAYMENT_WINDOW_DAYS)
+    members = OrganizationMember.objects.filter(
+        organization_id=models.OuterRef("organization_id"), user_id=models.OuterRef("user_id")
+    )
+    Status = OrganizationMember.MembershipStatus
+    candidate_ids = list(  # a list, not .iterator(): PgBouncer breaks server-side cursors
+        MembershipSubscription.objects.filter(
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            plan__payment_method=MembershipSubscriptionPlan.PaymentMethod.OFFLINE,
+            created_at__lt=cutoff,
+        )
+        .exclude(
+            models.Exists(
+                MembershipPayment.objects.filter(
+                    subscription=models.OuterRef("pk"), status=MembershipPayment.PaymentStatus.SUCCEEDED
+                )
+            )
+        )
+        .filter(
+            ~models.Exists(members)
+            | models.Exists(members.filter(status=Status.AWAITING_PAYMENT))
+            | models.Exists(members.filter(status=Status.ACTIVE).exclude(tier_id=models.OuterRef("plan__tier_id")))
+        )
+        .values_list("pk", flat=True)
+    )
+    cancelled = 0
+    for sub_id in candidate_ids:
+        with transaction.atomic():
+            sub = (
+                MembershipSubscription.objects.select_for_update(of=("self",))
+                .select_related("plan__tier", "organization", "user")
+                .get(pk=sub_id)
+            )
+            if not is_never_paid_offline(sub):  # paid or cancelled since the candidate query
+                continue
+            sub.status = MembershipSubscription.SubscriptionStatus.CANCELLED
+            sub.cancelled_at = timezone.now()
+            sub.save(update_fields=["status", "cancelled_at", "updated_at"])
+            close_unpaid_offline(sub)
+            transaction.on_commit(functools.partial(dispatch_unpaid_offline_lapsed, sub))
+            cancelled += 1
+    if cancelled:
+        logger.info("unpaid_offline_subscriptions_expired", count=cancelled)
     return cancelled

@@ -36,6 +36,7 @@ from events.models import (
 from events.service.user_note_transfer import transfer_record_note
 from events.utils.frontend_urls import frontend_base_url_for
 from events.utils.membership_access import banned_memberships
+from events.utils.subscription_payment import is_never_paid_offline
 
 if t.TYPE_CHECKING:
     from events.schema import MembershipTierCreateSchema, MembershipTierUpdateSchema
@@ -502,7 +503,7 @@ def _mirror_status_to_subscriptions(member: OrganizationMember, status: Organiza
         .select_related("plan")
     )
     for subscription in subscriptions:
-        if subscription.cancel_at_period_end:
+        if subscription.cancel_at_period_end or is_never_paid_offline(subscription):
             continue
         if (
             subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
@@ -567,6 +568,8 @@ def update_member(
     Returns:
         Updated OrganizationMember instance
     """
+    if status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT:
+        raise HttpError(400, str(_("This status is set by the system.")))
     if clear_tier or tier is not None:
         _ensure_tier_not_locked_by_subscription(member, tier)
 

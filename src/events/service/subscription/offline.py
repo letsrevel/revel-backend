@@ -8,6 +8,7 @@ does (``sync_member_from_subscription`` deliberately leaves such members alone).
 
 import structlog
 from django.db import transaction
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -28,7 +29,7 @@ from events.service.subscription.notifications import (
     dispatch_membership_payment_requested,
 )
 from events.service.subscription.sales import ensure_plan_on_sale
-from events.utils.subscription_payment import is_never_paid_offline
+from events.utils.subscription_payment import is_never_paid_offline, is_never_paid_on_offline_plan
 
 logger = structlog.get_logger(__name__)
 
@@ -140,3 +141,62 @@ def open_offline_subscription(
     if created:
         transaction.on_commit(lambda: dispatch_membership_payment_requested(subscription))
     return subscription
+
+
+def _held_member(subscription: MembershipSubscription, *, statuses: tuple[str, ...]) -> OrganizationMember | None:
+    """The subscriber's member row when it was held *for this subscription* (no other live subscription).
+
+    AWAITING_PAYMENT is held by definition; ACTIVE only counts at the plan's tier (a legacy row: the
+    member was created ACTIVE before the awaiting state existed), never an upgrading free member.
+    """
+    member = (
+        OrganizationMember.objects.select_for_update(of=("self",))
+        .filter(organization_id=subscription.organization_id, user_id=subscription.user_id, status__in=statuses)
+        .first()
+    )
+    if member is None:
+        return None
+    if member.status == OrganizationMember.MembershipStatus.ACTIVE and member.tier_id != subscription.plan.tier_id:
+        return None
+    other_live = (
+        MembershipSubscription.objects.filter(
+            user_id=subscription.user_id, organization_id=subscription.organization_id
+        )
+        .exclude(pk=subscription.pk)
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .exists()
+    )
+    return None if other_live else member
+
+
+@transaction.atomic
+def close_unpaid_offline(subscription: MembershipSubscription) -> None:
+    """Tidy up after a never-paid OFFLINE subscription was terminalised (call it *after* the status change).
+
+    Cancels the application that opened it and the member held for it (``AWAITING_PAYMENT``, or a
+    legacy ``ACTIVE`` member at the plan's tier), so the person can join again. A paid, ONLINE or
+    FREE subscription, or one still live, is a no-op.
+    """
+    if not subscription.is_terminal or not is_never_paid_on_offline_plan(subscription):
+        return
+    subscription.originating_application.filter(
+        status__in=(OrganizationMembershipRequest.Status.PENDING, OrganizationMembershipRequest.Status.APPROVED)
+    ).update(status=OrganizationMembershipRequest.Status.CANCELLED, updated_at=timezone.now())
+    Status = OrganizationMember.MembershipStatus
+    member = _held_member(subscription, statuses=(Status.AWAITING_PAYMENT, Status.ACTIVE))
+    if member is not None:
+        member.status = Status.CANCELLED
+        with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
+            member.save(update_fields=["status", "updated_at"])
+
+
+@transaction.atomic
+def revert_to_awaiting_payment(subscription: MembershipSubscription) -> None:
+    """After a void left an OFFLINE subscription never-paid again, hold its ACTIVE member as AWAITING_PAYMENT."""
+    if not is_never_paid_offline(subscription):
+        return
+    member = _held_member(subscription, statuses=(OrganizationMember.MembershipStatus.ACTIVE,))
+    if member is not None:
+        member.status = OrganizationMember.MembershipStatus.AWAITING_PAYMENT
+        with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
+            member.save(update_fields=["status", "updated_at"])

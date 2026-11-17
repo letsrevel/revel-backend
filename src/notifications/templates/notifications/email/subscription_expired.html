@@ -1,12 +1,12 @@
 {% extends "emails/base.html" %}
 {% load i18n %}
 {% block content %}
-<h2 style="margin-top:0;">🔔 {% trans "Membership Ended" %}</h2>
+<h2 style="margin-top:0;">🔔 {% if context.lapsed %}{% trans "Membership Request Lapsed" %}{% else %}{% trans "Membership Ended" %}{% endif %}</h2>
 <p>{% trans "Hello" %} {{ user.display_name }},</p>
-<p style="font-size:18px;">{% blocktranslate with plan=context.plan_name org=context.organization_name date=context.expired_at %}Your <strong>{{ plan }}</strong> membership at <strong>{{ org }}</strong> ended on {{ date }}.{% endblocktranslate %}</p>
+<p style="font-size:18px;">{% if context.lapsed %}{% blocktranslate with plan=context.plan_name org=context.organization_name date=context.expired_at %}Your <strong>{{ plan }}</strong> membership request at <strong>{{ org }}</strong> lapsed on {{ date }} because no payment was received.{% endblocktranslate %}{% else %}{% blocktranslate with plan=context.plan_name org=context.organization_name date=context.expired_at %}Your <strong>{{ plan }}</strong> membership at <strong>{{ org }}</strong> ended on {{ date }}.{% endblocktranslate %}{% endif %}</p>
 <div class="card">
     <div class="info-row"><span class="label">{% trans "Plan:" %}</span> {{ context.plan_name }}</div>
-    <div class="info-row"><span class="label">{% trans "Ended on:" %}</span> {{ context.expired_at }}</div>
+    <div class="info-row"><span class="label">{% if context.lapsed %}{% trans "Lapsed on:" %}{% else %}{% trans "Ended on:" %}{% endif %}</span> {{ context.expired_at }}</div>
 </div>
 {% if context.revival_url and context.revival_window_end %}
 <p>{% blocktranslate with date=context.revival_window_end %}You can reactivate your membership until <strong>{{ date }}</strong>.{% endblocktranslate %}</p>

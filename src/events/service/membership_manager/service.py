@@ -25,6 +25,7 @@ from events.models import (
     OrganizationMembershipRequest,
 )
 from events.service import member_register_service
+from events.utils.subscription_payment import is_never_paid_offline
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 from questionnaires.models import QuestionnaireSubmission
@@ -468,13 +469,20 @@ def cancel_application(application: OrganizationMembershipRequest) -> Organizati
     """Cancel one of the member's own applications.
 
     Only PENDING/APPROVED rows transition to CANCELLED; anything else is
-    already terminal and is returned unchanged (idempotent).
+    already terminal and is returned unchanged (idempotent). A linked never-paid offline
+    subscription is cancelled first, which also releases the member held for it.
     """
     if application.status not in {
         OrganizationMembershipRequest.Status.PENDING,
         OrganizationMembershipRequest.Status.APPROVED,
     }:
         return application
+    # lazy: the subscription services import this package.
+    from events.service.subscription import lifecycle as subscription_lifecycle
+
+    subscription = application.subscription
+    if subscription is not None and not subscription.is_terminal and is_never_paid_offline(subscription):
+        subscription_lifecycle.cancel_subscription(subscription, immediate=True)
     application.status = OrganizationMembershipRequest.Status.CANCELLED
     application.save(update_fields=["status", "updated_at"])
     return application

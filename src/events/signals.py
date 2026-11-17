@@ -55,7 +55,7 @@ from events.tasks.member_register import auto_link_member_records
 from events.utils import format_event_datetime, get_invitation_message
 from events.utils.frontend_urls import frontend_base_url_for
 from events.utils.reserved_slug_tokens import invalidate_reserved_tokens_cache
-from events.utils.subscription_payment import is_never_paid_offline
+from events.utils.subscription_payment import is_never_paid_offline, is_never_paid_on_offline_plan
 from notifications.enums import NotificationType
 from notifications.service.eligibility import BatchParticipationChecker
 from notifications.signals import notification_requested
@@ -757,7 +757,9 @@ def sync_member_from_subscription(
     ):
         return
 
-    if is_never_paid_offline(instance):  # PENDING + never-paid + OFFLINE: must not move its member
+    # PENDING never-paid OFFLINE must not move its member; neither must a cancelled one (it must not take a
+    # free member's existing membership with it: ``close_unpaid_offline`` releases exactly the member held for it).
+    if is_never_paid_offline(instance) or (instance.is_terminal and is_never_paid_on_offline_plan(instance)):
         return
 
     # If a newer non-terminal subscription exists, it owns the member state.
