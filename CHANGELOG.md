@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.38.0] - 2026-11-17
+
+### Added
+- **Offline-paid memberships**: plans paid by bank transfer or cash can now be joined in the app. Must deploy together with the matching frontend release.
+  - With membership approval off, people join directly after any questionnaire. With approval on, they apply and staff approve.
+  - Either way they become a member with the new status `awaiting_payment` and a pending subscription. The status grants no member benefits (no event access, members-only visibility, discounts, member card, check-in or permissions).
+  - The first recorded payment activates them at the plan's tier.
+  - Joins that stay unpaid for 30 days are cancelled by a new daily task (`events.expire_unpaid_offline_subscriptions`, 04:45 UTC). The person is told their request lapsed.
+- **Payment instructions**: plans have an optional Markdown `payment_instructions` field, and organizations have a default `membership_payment_instructions` that plans fall back to. They are shown only to the person while their subscription awaits payment (and to members on offline plans, so they know how to renew), never on public plan cards.
+- New notifications:
+  - `MEMBERSHIP_PAYMENT_REQUESTED` tells the person how to pay. It is always sent immediately and can't be turned off.
+  - `MEMBERSHIP_OFFLINE_JOINED` alerts staff with subscription permissions when someone joins an offline plan without an application.
+- API additions:
+  - `payment_instructions` and `payment_due_by` on the member's subscription.
+  - `payment_due_by` on the admin subscription list.
+  - `plan` and `subscription_status` on membership applications.
+  - `plan` on admin membership requests.
+  - A `payment_method` filter on the admin subscription list.
+  - A machine-readable 409 body (`detail`, `reason_code`, `next_step`) on `POST /me/organizations/{slug}/apply`.
+- Members can withdraw an unpaid offline request themselves by cancelling the subscription, and can join again later.
+
+### Changed
+- `POST /me/organizations/{slug}/apply` returns 200 with the existing application while an offline payment is awaited, instead of creating a new request.
+- Approving a paid online membership application now notifies the applicant.
+- Membership request notifications to staff now include the tier and plan.
+- Payment instructions in emails render as Markdown.
+- The questionnaire result email for membership questionnaires links back to the membership page.
+- Offline renewal reminders include the payment instructions.
+- Cancelling an unpaid request sends a "request cancelled" notice instead of "access ends", and banned people are never invited to rejoin.
+- Staff can no longer pause or manually activate a member who is awaiting their first payment; recording the payment activates them. Cancelling or banning still works and closes the unpaid request.
+- Voiding a member's only payment moves them back to awaiting payment.
+- A never-paid offline subscription can't be paused.
+- In-app and Telegram notification texts are now fully translated in all supported languages. The translation tooling now extracts `.md` notification templates.
+
+### Fixed
+- Approving an application for an offline-paid plan no longer leaves the person without a membership or subscription.
+- Staff-created offline subscriptions no longer make the person an active member before any payment.
+
 ## [2.37.0] - 2026-11-16
 
 ### Added
