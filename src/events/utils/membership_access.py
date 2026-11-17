@@ -29,6 +29,7 @@ VISIBLE_STATUSES: frozenset[str] = frozenset({"active", "paused"})
 ELIGIBLE_STATUSES: frozenset[str] = frozenset({"active"})
 BANNED_STATUS: str = "banned"
 CANCELLED_STATUS: str = "cancelled"
+AWAITING_PAYMENT_STATUS: str = "awaiting_payment"
 
 
 def is_visible_status(status: str | None) -> bool:

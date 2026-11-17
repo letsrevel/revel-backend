@@ -181,6 +181,10 @@ def mirror_member(member: OrganizationMember) -> None:
 
     ACTIVE/PAUSED rows keep exactly one open record (re-opened on tier change); CANCELLED/BANNED
     rows close it. The open record decides whether the tier changed.
+
+    AWAITING_PAYMENT rows open no entry: the person is not a member until the first payment, and
+    the entry opens on activation. If an entry is open (an ACTIVE member reverted to awaiting by a
+    void), it closes as CANCELLED, never EXPELLED.
     """
     if _suppress_var.get():
         return
@@ -217,7 +221,7 @@ def mirror_member(member: OrganizationMember) -> None:
         elif open_record is not None:
             reason = (
                 MembershipRecord.EndedReason.CANCELLED
-                if locked.status == Status.CANCELLED
+                if locked.status in (Status.CANCELLED, Status.AWAITING_PAYMENT)
                 else MembershipRecord.EndedReason.EXPELLED
             )
             close_standard_record(locked.organization_id, locked.user_id, reason=reason)

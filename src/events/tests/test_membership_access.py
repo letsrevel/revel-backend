@@ -33,7 +33,7 @@ def test_status_constants_match_model_enum() -> None:
     assert ELIGIBLE_STATUSES == {S.ACTIVE}
     assert BANNED_STATUS == S.BANNED
     # A new status must force a decision about the predicates here.
-    assert set(S.values) == {"active", "paused", "cancelled", "banned"}
+    assert set(S.values) == {"active", "paused", "cancelled", "banned", "awaiting_payment"}
 
 
 @pytest.mark.parametrize(
@@ -43,6 +43,7 @@ def test_status_constants_match_model_enum() -> None:
         ("paused", True, False),
         ("cancelled", False, False),
         ("banned", False, False),
+        ("awaiting_payment", False, False),
         (None, False, False),
     ],
 )
@@ -114,7 +115,7 @@ def test_get_eligible_membership_returns_active_with_tier(
 
 def test_non_cancelled_memberships_by_status(user: RevelUser, orgs_by_status: dict[str, Organization]) -> None:
     ids = set(non_cancelled_memberships().filter(user=user).values_list("organization_id", flat=True))
-    assert ids == {orgs_by_status[s].id for s in ("active", "paused", "banned")}
+    assert ids == {orgs_by_status[s].id for s in ("active", "paused", "banned", "awaiting_payment")}
 
 
 def test_user_predicates_accept_user_id(user: RevelUser, orgs_by_status: dict[str, Organization]) -> None:

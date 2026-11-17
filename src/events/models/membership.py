@@ -160,6 +160,7 @@ class OrganizationMember(TimeStampedModel):
         PAUSED = "paused"
         CANCELLED = "cancelled"
         BANNED = "banned"
+        AWAITING_PAYMENT = "awaiting_payment"  # holds a slot; grants nothing until the first payment
 
     QR_PREFIX: t.ClassVar[str] = "member:"
 

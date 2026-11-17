@@ -445,6 +445,8 @@ def handle_membership_tier_changed(
     old_tier_id = getattr(instance, "_old_tier_id", instance.tier_id)
     if old_tier_id == instance.tier_id:
         return
+    if instance.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT:
+        return  # no card yet
 
     def send_card_updated_notification() -> None:
         frontend_base_url = frontend_base_url_for(instance.organization)
