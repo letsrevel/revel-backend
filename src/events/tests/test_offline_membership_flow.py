@@ -84,6 +84,11 @@ def gated_tier(org: Organization) -> MembershipTier:
     return MembershipTier.objects.create(organization=org, name="Vetted", requires_membership_approval=True)
 
 
+@pytest.fixture
+def gold_tier(org: Organization) -> MembershipTier:
+    return MembershipTier.objects.create(organization=org, name="Gold")
+
+
 def _offline_plan(tier: MembershipTier, **kw: t.Any) -> MembershipSubscriptionPlan:
     return MembershipSubscriptionPlan.objects.create(
         tier=tier,
@@ -175,10 +180,10 @@ def test_resubscribe_while_awaiting_is_idempotent(
 
 
 def test_existing_member_keeps_status_and_tier_until_paid(
-    org: Organization, open_tier: MembershipTier, gated_tier: MembershipTier, nonmember_user: RevelUser
+    org: Organization, open_tier: MembershipTier, gold_tier: MembershipTier, nonmember_user: RevelUser
 ) -> None:
     OrganizationMember.objects.create(organization=org, user=nonmember_user, tier=open_tier, status=S.ACTIVE)
-    plan = _offline_plan(open_tier)
+    plan = _offline_plan(gold_tier)
 
     response = _post(_client(nonmember_user), _urls(org)["subscribe"], {"plan_id": str(plan.id)})
 

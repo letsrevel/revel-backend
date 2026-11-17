@@ -116,15 +116,14 @@ def test_existing_member_keeps_tier_until_first_payment_then_receipt(
     sub = _pending_sub(plan, member_user)
     assert _member(sub).tier_id == tier.pk
 
+    sent.clear()
     with django_capture_on_commit_callbacks(execute=True):
         _pay(sub)
 
     assert _member(sub).tier_id == plan.tier_id
     assert _member(sub).status == S.ACTIVE
     assert sent.count(NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED) == 1
-    assert (
-        NotificationType.MEMBERSHIP_GRANTED not in sent[sent.index(NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED) :]
-    )
+    assert NotificationType.MEMBERSHIP_GRANTED not in sent
 
 
 def test_legacy_active_member_untouched(

@@ -257,6 +257,8 @@ def test_payment_due_by_is_created_plus_window_and_follows_payments(
     from events.utils.subscription_payment import APPLICATION_PAYMENT_WINDOW_DAYS
 
     window = timedelta(days=APPLICATION_PAYMENT_WINDOW_DAYS)
+    MembershipSubscription.objects.filter(pk=awaiting_sub.pk).update(created_at=timezone.now() - timedelta(days=10))
+    awaiting_sub.refresh_from_db()
     _assert_same_instant(_my_sub(nonmember_user)["payment_due_by"], awaiting_sub.created_at + window)
 
     payment = MembershipPayment.objects.create(

@@ -96,6 +96,7 @@ class TestCreateNotificationPreferences:
             NotificationType.MEMBERSHIP_REQUEST_APPROVED,
             NotificationType.MEMBERSHIP_REQUEST_REJECTED,
             NotificationType.MEMBERSHIP_PAYMENT_REQUESTED,
+            NotificationType.MEMBERSHIP_OFFLINE_JOINED,
             NotificationType.ORG_ANNOUNCEMENT,
         ]
 

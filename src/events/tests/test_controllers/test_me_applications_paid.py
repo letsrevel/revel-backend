@@ -9,9 +9,11 @@ from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
 from events.models import (
+    MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
+    OrganizationMember,
     OrganizationMembershipRequest,
     SubscriptionPaymentMethod,
 )
@@ -117,6 +119,16 @@ def test_apply_with_offline_plan_opens_awaiting_subscription(
     body = response.json()
     assert body["application"]["status"] == "approved"
     assert body["eligibility"]["next_step"] == "wait_for_offline_payment"
+    application = OrganizationMembershipRequest.objects.get(pk=body["application"]["id"])
+    subscription = application.subscription
+    assert subscription is not None
+    assert (subscription.user_id, subscription.plan_id, subscription.status) == (
+        nonmember_user.id,
+        plan.id,
+        MembershipSubscription.SubscriptionStatus.PENDING,
+    )
+    member = OrganizationMember.objects.get(organization=organization, user=nonmember_user)
+    assert member.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT
 
 
 def test_apply_with_plan_on_approval_tier_stays_pending(
