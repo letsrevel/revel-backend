@@ -32,6 +32,7 @@ Sub = MembershipSubscription.SubscriptionStatus
 Omr = OrganizationMembershipRequest.Status
 
 PAUSE_MESSAGE = "A member awaiting their first payment can't be paused. Cancel their request instead."
+ACTIVATE_MESSAGE = "Record their first payment to activate this member."
 
 
 @pytest.fixture
@@ -40,13 +41,6 @@ def plan(organization: Organization) -> MembershipSubscriptionPlan:
     return subscription_plans.create_plan(
         tier, name="Annual", price=Decimal("50.00"), currency="EUR", period_unit="year", period_count=1
     )
-
-
-@pytest.fixture
-def organization_owner_client(organization_owner_user: RevelUser) -> Client:
-    client = Client()
-    client.defaults["HTTP_AUTHORIZATION"] = f"Bearer {RefreshToken.for_user(organization_owner_user).access_token}"  # type: ignore[attr-defined]
-    return client
 
 
 @pytest.fixture
@@ -156,6 +150,36 @@ def test_pause_through_the_endpoint_returns_400(
     assert response.json()["detail"] == PAUSE_MESSAGE
     sub.refresh_from_db()
     assert sub.status == Sub.PENDING
+
+
+def test_activate_is_refused_and_writes_nothing(
+    awaiting: tuple[MembershipSubscription, OrganizationMembershipRequest, OrganizationMember],
+    organization_owner_client: Client,
+) -> None:
+    sub, application, member = awaiting
+    url = reverse(
+        "api:update_organization_member", kwargs={"slug": member.organization.slug, "user_id": member.user_id}
+    )
+    response = organization_owner_client.put(url, data={"status": "active"}, content_type="application/json")
+
+    assert response.status_code == 400, response.content
+    assert response.json()["detail"] == ACTIVATE_MESSAGE
+    sub.refresh_from_db()
+    application.refresh_from_db()
+    member.refresh_from_db()
+    assert (sub.status, application.status, member.status) == (Sub.PENDING, Omr.APPROVED, S.AWAITING_PAYMENT)
+
+
+def test_stale_instance_is_rechecked_under_the_lock(
+    awaiting: tuple[MembershipSubscription, OrganizationMembershipRequest, OrganizationMember],
+) -> None:
+    """A member instance loaded as ACTIVE but meanwhile moved to AWAITING_PAYMENT is judged on the DB row."""
+    _, _, member = awaiting
+    stale = OrganizationMember.objects.get(pk=member.pk)
+    stale.status = S.ACTIVE  # stale in-memory view; the row says AWAITING_PAYMENT
+    with pytest.raises(HttpError) as exc:
+        membership_service.update_member(stale, status=S.PAUSED)
+    assert exc.value.message == PAUSE_MESSAGE
 
 
 def test_ban_through_the_endpoint_closes_the_request(

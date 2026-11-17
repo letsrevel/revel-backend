@@ -7871,6 +7871,9 @@ msgstr "Questo stato è impostato dal sistema."
 msgid "A member awaiting their first payment can't be paused. Cancel their request instead."
 msgstr "Un membro in attesa del primo pagamento non può essere messo in pausa. Annulla invece la sua richiesta."
 
+msgid "Record their first payment to activate this member."
+msgstr "Registra il suo primo pagamento per attivare questo membro."
+
 msgid "Membership Request Lapsed"
 msgstr "Richiesta di iscrizione scaduta"
 

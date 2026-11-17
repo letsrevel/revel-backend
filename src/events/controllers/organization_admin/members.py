@@ -200,6 +200,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         url_name="update_organization_member",
         response={
             200: schema.OrganizationMemberSchema,
+            400: ErrorDetail,
             404: ErrorDetail,
             409: schema.SubscriptionPlanChangeRefusedSchema,
         },

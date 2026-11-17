@@ -538,6 +538,26 @@ def _ensure_tier_not_locked_by_subscription(member: OrganizationMember, tier: Me
         )
 
 
+def _lock_member_for_update(member: OrganizationMember) -> None:
+    """Lock the member's live subscriptions, then the member row, and reload ``member`` from it.
+
+    Lock order is subscription -> member, the same as ``record_payment`` (which locks the subscription
+    and then activates the held member). ``update_member`` goes on to cancel subscriptions, which locks
+    them *after* the member; taking the member first would invert that order and could deadlock against
+    a concurrent payment. Subscriptions are locked in pk order so two staff requests cannot cross each
+    other either. The reload makes the status checks that follow see a concurrent change.
+    """
+    list(
+        MembershipSubscription.objects.select_for_update(of=("self",))
+        .filter(user_id=member.user_id, organization_id=member.organization_id)
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+    OrganizationMember.objects.select_for_update(of=("self",)).get(pk=member.pk)
+    member.refresh_from_db()
+
+
 @transaction.atomic
 def update_member(
     member: OrganizationMember,
@@ -553,7 +573,7 @@ def update_member(
     next renewal keeps billing and overwrites the staff decision. For a member
     awaiting their first offline payment, CANCELLED / BANNED therefore also close the
     never-paid subscription and its application (via the subscription signal); PAUSED
-    is refused with 400, as there is nothing to pause yet.
+    is refused with 400, as there is nothing to pause yet (and ACTIVE, which only a recorded payment grants).
 
     ``@transaction.atomic`` makes the member write and the mirroring one unit.
     Without it, a Stripe failure during the mirror (``pause_online_subscription``
@@ -576,13 +596,18 @@ def update_member(
     """
     if status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT:
         raise HttpError(400, str(_("This status is set by the system.")))
-    if (
-        status == OrganizationMember.MembershipStatus.PAUSED
-        and member.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT
+    _lock_member_for_update(member)
+    if member.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT and status not in (
+        None,
+        OrganizationMember.MembershipStatus.CANCELLED,
+        OrganizationMember.MembershipStatus.BANNED,
     ):
-        raise HttpError(
-            400, str(_("A member awaiting their first payment can't be paused. Cancel their request instead."))
-        )
+        # The only staff exits from an unpaid hold are closing it (cancel / ban) or recording the payment.
+        if status == OrganizationMember.MembershipStatus.PAUSED:
+            raise HttpError(
+                400, str(_("A member awaiting their first payment can't be paused. Cancel their request instead."))
+            )
+        raise HttpError(400, str(_("Record their first payment to activate this member.")))
     if clear_tier or tier is not None:
         _ensure_tier_not_locked_by_subscription(member, tier)
 
