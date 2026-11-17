@@ -32,9 +32,14 @@ def _live_access_row(record: MembershipRecord) -> OrganizationMember | None:
 
     The member row is locked whatever its status, so a concurrent status change cannot slip in between
     this check and the caller's write. Callers lock it before the record: the mirror's member -> record order.
+    The user's live subscriptions are locked before the member (subscription -> member), because the callers
+    go on to ``update_member``, which takes that order too.
     """
     if record.user_id is None or record.kind != MembershipRecord.Kind.STANDARD or record.valid_until is not None:
         return None
+    from events.service import organization_service  # lazy: avoid import cycle
+
+    organization_service.lock_live_subscriptions(record.user_id, record.organization_id)
     member = (
         OrganizationMember.objects.select_for_update(of=("self",))
         .select_related("user", "organization", "tier")

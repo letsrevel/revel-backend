@@ -538,22 +538,32 @@ def _ensure_tier_not_locked_by_subscription(member: OrganizationMember, tier: Me
         )
 
 
-def _lock_member_for_update(member: OrganizationMember) -> None:
-    """Lock the member's live subscriptions, then the member row, and reload ``member`` from it.
+def lock_live_subscriptions(user_id: UUID, organization_id: UUID) -> None:
+    """Lock the user's live subscriptions for the org, in pk order (two staff requests cannot cross).
 
-    Lock order is subscription -> member, the same as ``record_payment`` (which locks the subscription
-    and then activates the held member). ``update_member`` goes on to cancel subscriptions, which locks
-    them *after* the member; taking the member first would invert that order and could deadlock against
-    a concurrent payment. Subscriptions are locked in pk order so two staff requests cannot cross each
-    other either. The reload makes the status checks that follow see a concurrent change.
+    The branch-wide lock order is user -> subscription -> member -> (register / application), the same as
+    ``record_payment``. Any caller that is going to reach :func:`update_member` must call this *before* it
+    locks the member or register rows itself; ``update_member`` re-takes these locks, which is a no-op for
+    a transaction that already holds them.
     """
     list(
         MembershipSubscription.objects.select_for_update(of=("self",))
-        .filter(user_id=member.user_id, organization_id=member.organization_id)
+        .filter(user_id=user_id, organization_id=organization_id)
         .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
         .order_by("pk")
         .values_list("pk", flat=True)
     )
+
+
+def _lock_member_for_update(member: OrganizationMember) -> None:
+    """Lock the member's live subscriptions, then the member row, and reload ``member`` from it.
+
+    Lock order is subscription -> member (see :func:`lock_live_subscriptions`): ``update_member`` goes on to
+    cancel subscriptions, which locks them *after* the member; taking the member first would invert that order
+    and could deadlock against a concurrent payment. The reload makes the status checks that follow see a
+    concurrent change.
+    """
+    lock_live_subscriptions(member.user_id, member.organization_id)
     OrganizationMember.objects.select_for_update(of=("self",)).get(pk=member.pk)
     member.refresh_from_db()
 

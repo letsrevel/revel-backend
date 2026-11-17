@@ -223,6 +223,11 @@ def unlink_record(record: MembershipRecord) -> MembershipRecord:
     link takes away the membership it granted). Linked and closed/TEMPORARY: only the account is removed.
     """
     with transaction.atomic():
+        if record.user_id is not None:
+            from events.service import organization_service  # lazy: avoid import cycle
+
+            # Subscription -> member -> record: the cancel below goes through ``update_member``, which takes it too.
+            organization_service.lock_live_subscriptions(record.user_id, record.organization_id)
         _lock_members(record.organization_id, [record.user_id])
         locked = _lock_records(record.pk, record.merged_into_id)
         current = locked[record.pk]
