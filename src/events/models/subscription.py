@@ -289,6 +289,15 @@ class MembershipSubscription(TimeStampedModel):
     current_period_end = models.DateTimeField(null=True, blank=True, db_index=True)
     cancel_at_period_end = models.BooleanField(default=False)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    held_member = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text=(
+            "OFFLINE plans only. True: this subscription put the member into AWAITING_PAYMENT "
+            "(created or reactivated it). False: the member already existed and was left alone. "
+            "NULL: a legacy row from before this was tracked."
+        ),
+    )
     stripe_subscription_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
     stripe_checkout_session_id = models.CharField(
         max_length=255,

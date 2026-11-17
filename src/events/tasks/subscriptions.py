@@ -643,7 +643,7 @@ def expire_unpaid_offline_subscriptions() -> int:
     from accounts.models import RevelUser
     from events.models import OrganizationMember
     from events.service.subscription.notifications import dispatch_unpaid_offline_lapsed
-    from events.utils.membership_access import awaiting_payment_memberships, eligible_memberships
+    from events.utils.membership_access import awaiting_payment_memberships, eligible_memberships, is_eligible_status
     from events.utils.subscription_payment import is_never_paid_offline, is_never_paid_on_offline_plan
 
     cutoff = timezone.now() - datetime.timedelta(days=APPLICATION_PAYMENT_WINDOW_DAYS)
@@ -672,6 +672,7 @@ def expire_unpaid_offline_subscriptions() -> int:
         )
         .filter(
             ~models.Exists(members)
+            | models.Q(held_member=False)  # the member pre-existed and is left alone: nothing to protect
             | models.Exists(awaiting_payment_memberships().filter(**holder))
             | models.Exists(eligible_memberships().filter(**holder).exclude(tier_id=models.OuterRef("plan__tier_id")))
         )
@@ -690,6 +691,16 @@ def expire_unpaid_offline_subscriptions() -> int:
             )
             if not (is_never_paid_offline(sub) and is_never_paid_on_offline_plan(sub)):
                 continue  # paid, refunded or cancelled since the candidate query
+            if sub.held_member is None:
+                # Legacy row: re-apply the A6 eligibility under the member lock (staff may have moved the
+                # member onto the plan's tier since the candidate query); an ACTIVE member there is protected.
+                member = (
+                    OrganizationMember.objects.select_for_update(of=("self",))
+                    .filter(organization_id=sub.organization_id, user_id=user_id)
+                    .first()
+                )
+                if member is not None and is_eligible_status(member.status) and member.tier_id == sub.plan.tier_id:
+                    continue
             sub.status = MembershipSubscription.SubscriptionStatus.CANCELLED
             sub.cancelled_at = timezone.now()
             sub.save(update_fields=["status", "cancelled_at", "updated_at"])

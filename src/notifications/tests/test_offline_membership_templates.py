@@ -54,7 +54,7 @@ class TestInstructionsAreMarkdown:
 
         assert "<strong>IBAN</strong>" in html
         assert "<li>cash is fine</li>" in html
-        assert "How to pay" not in html  # leading heading stripped like ticket_created
+        assert "How to pay" in html  # staff-authored content is never stripped (a heading may be the content)
 
     @pytest.mark.parametrize("channel", ["html", "in_app", "telegram"])
     def test_script_never_survives(self, name: str, extra: dict[str, t.Any], channel: str) -> None:
@@ -70,6 +70,20 @@ class TestInstructionsAreMarkdown:
     def test_chat_channels_keep_the_instructions(self, name: str, extra: dict[str, t.Any], channel: str) -> None:
         body = _render(name, channel, payment_instructions="Pay by IBAN AT12", **extra)
         assert "Pay by IBAN AT12" in body
+
+    def test_leading_heading_is_content_not_stripped(self, name: str, extra: dict[str, t.Any]) -> None:
+        body = _render(name, "in_app", payment_instructions="# Bank account 12345\n\nAT12", **extra)
+        assert "Bank account 12345" in body
+
+    def test_telegram_markdown_link_is_clickable_and_safe(self, name: str, extra: dict[str, t.Any]) -> None:
+        raw = _render(
+            name, "telegram", payment_instructions="[Pay here](https://pay.example/x?a=1&b=2) <b>x</b>", **extra
+        )
+        body = sanitize_for_telegram(render_markdown(raw))
+
+        assert '<a href="https://pay.example/x?a=1&amp;b=2"' in body
+        assert ">Pay here</a>" in body
+        assert "<b>x</b>" not in body  # staff HTML is escaped, never passed through
 
     def test_plain_text_is_unchanged(self, name: str, extra: dict[str, t.Any]) -> None:
         body = _render(name, "txt", payment_instructions="Pay by IBAN AT12", **extra)

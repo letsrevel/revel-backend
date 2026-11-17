@@ -37,7 +37,7 @@ from events.service.subscription.offline import (
     refuse_blacklisted_first_payment,
 )
 from events.service.subscription.sales import ensure_plan_sales_capacity
-from events.utils.membership_access import banned_memberships, is_cancelled_status
+from events.utils.membership_access import banned_memberships, is_awaiting_payment_status, is_cancelled_status
 from events.utils.subscription_payment import is_never_paid_offline
 from events.utils.subscription_periods import calculate_period_end
 
@@ -127,8 +127,11 @@ def _refuse_lapsed_period(period_end: datetime.datetime | None, now: datetime.da
         )
 
 
-def _hold_member_awaiting_payment(plan: MembershipSubscriptionPlan, user: RevelUser) -> None:
-    """Make sure an OFFLINE joiner has an access row: AWAITING_PAYMENT when new or CANCELLED, else untouched."""
+def _hold_member_awaiting_payment(plan: MembershipSubscriptionPlan, user: RevelUser) -> bool:
+    """Make sure an OFFLINE joiner has an access row: AWAITING_PAYMENT when new or CANCELLED, else untouched.
+
+    Returns whether the subscription now holds the member (created, reactivated, or already awaiting).
+    """
     organization = plan.tier.organization
     awaiting = OrganizationMember.MembershipStatus.AWAITING_PAYMENT
     with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
@@ -141,6 +144,8 @@ def _hold_member_awaiting_payment(plan: MembershipSubscriptionPlan, user: RevelU
             member.status = awaiting
             member.tier = plan.tier
             member.save(update_fields=["status", "tier", "updated_at"])
+            return True
+    return created or is_awaiting_payment_status(member.status)
 
 
 @transaction.atomic
@@ -192,6 +197,7 @@ def create_subscription(
     # (``activate_on_first_payment``); an existing member keeps their tier and status until then.
     # FREE plans have nothing to wait for, so the member is materialized ACTIVE here.
     is_free = plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.FREE
+    held_member: bool | None = None
     if is_free:
         with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
             update_or_create_with_race_protection(
@@ -203,7 +209,7 @@ def create_subscription(
                 },
             )
     elif plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
-        _hold_member_awaiting_payment(plan, user)
+        held_member = _hold_member_awaiting_payment(plan, user)
 
     # The partial-unique index protects against a race where two requests both
     # pass the duplicate check above; the helper re-fetches the winner whether
@@ -227,6 +233,7 @@ def create_subscription(
                 else MembershipSubscription.SubscriptionStatus.PENDING
             ),
             "current_period_start": timezone.now() if is_free else None,
+            "held_member": held_member,
         },
     )
     if not created:

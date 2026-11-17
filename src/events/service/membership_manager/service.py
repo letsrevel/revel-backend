@@ -478,19 +478,22 @@ def cancel_application(application: OrganizationMembershipRequest) -> Organizati
     already terminal and is returned unchanged (idempotent). A linked never-paid offline
     subscription is cancelled first, which also releases the member held for it.
     """
-    if application.status not in {
-        OrganizationMembershipRequest.Status.PENDING,
-        OrganizationMembershipRequest.Status.APPROVED,
-    }:
-        return application
     # lazy: the subscription services import this package.
     from events.service.subscription import lifecycle as subscription_lifecycle
 
-    subscription = application.subscription
-    if subscription is not None and not subscription.is_terminal and is_never_paid_offline(subscription):
-        subscription_lifecycle.cancel_subscription(subscription, immediate=True)
-    application.status = OrganizationMembershipRequest.Status.CANCELLED
-    application.save(update_fields=["status", "updated_at"])
+    with transaction.atomic():
+        # Same row lock as advance_application: a concurrent advance cannot link a subscription after we read.
+        application = OrganizationMembershipRequest.objects.select_for_update(of=("self",)).get(pk=application.pk)
+        if application.status not in {
+            OrganizationMembershipRequest.Status.PENDING,
+            OrganizationMembershipRequest.Status.APPROVED,
+        }:
+            return application
+        subscription = application.subscription
+        if subscription is not None and not subscription.is_terminal and is_never_paid_offline(subscription):
+            subscription_lifecycle.cancel_subscription(subscription, immediate=True)
+        application.status = OrganizationMembershipRequest.Status.CANCELLED
+        application.save(update_fields=["status", "updated_at"])
     return application
 
 

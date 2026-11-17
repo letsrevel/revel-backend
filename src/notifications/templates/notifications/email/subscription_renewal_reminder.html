@@ -19,7 +19,7 @@
 {% else %}
 {% if context.payment_instructions %}
 <p>{% blocktranslate with org=context.organization_name %}To renew, pay {{ org }} directly.{% endblocktranslate %}</p>
-<div class="card card--info">{{ context.payment_instructions|strip_leading_heading|markdown }}</div>
+<div class="card card--info">{{ context.payment_instructions|markdown }}</div>
 {% else %}
 <p>{% blocktranslate with org=context.organization_name url=context.organization_contact_url %}To renew, pay {{ org }} directly. <a href="{{ url }}">Contact {{ org }}</a> to find out how.{% endblocktranslate %}</p>
 {% endif %}

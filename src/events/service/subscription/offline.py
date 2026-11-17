@@ -68,9 +68,12 @@ def activate_on_first_payment(subscription: MembershipSubscription, *, send_rece
     from events.service.subscription.stripe.sync import settle_originating_application
 
     plan = subscription.plan
-    member = OrganizationMember.objects.filter(
-        organization_id=subscription.organization_id, user_id=subscription.user_id
-    ).first()
+    # Locked so a concurrent ban/pause is not overwritten with ACTIVE.
+    member = (
+        OrganizationMember.objects.select_for_update(of=("self",))
+        .filter(organization_id=subscription.organization_id, user_id=subscription.user_id)
+        .first()
+    )
     # A member always exists for an offline join (held as AWAITING_PAYMENT); if one is somehow
     # missing there is nothing to activate, so only the application is settled.
     if member is not None and is_payment_held_status(member.status):
@@ -180,9 +183,13 @@ def open_offline_subscription(
 def _held_member(subscription: MembershipSubscription, *, include_awaiting: bool) -> OrganizationMember | None:
     """The subscriber's member row when it was held *for this subscription* (no other live subscription).
 
-    AWAITING_PAYMENT is held by definition; ACTIVE only counts at the plan's tier (a legacy row: the
-    member was created ACTIVE before the awaiting state existed), never an upgrading free member.
+    ``held_member`` is authoritative: False means the member pre-existed and is never touched. True
+    means this subscription held it. NULL (a legacy row) falls back to a heuristic: AWAITING_PAYMENT is
+    held by definition; ACTIVE only counts at the plan's tier (the member was created ACTIVE before the
+    awaiting state existed), never an upgrading free member.
     """
+    if subscription.held_member is False:
+        return None
     candidates = payment_held_memberships() if include_awaiting else eligible_memberships()
     member = (
         candidates.select_for_update(of=("self",))
@@ -191,7 +198,11 @@ def _held_member(subscription: MembershipSubscription, *, include_awaiting: bool
     )
     if member is None:
         return None
-    if is_eligible_status(member.status) and member.tier_id != subscription.plan.tier_id:
+    if (
+        subscription.held_member is None
+        and is_eligible_status(member.status)
+        and member.tier_id != subscription.plan.tier_id
+    ):
         return None
     other_live = (
         MembershipSubscription.objects.filter(
