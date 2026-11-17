@@ -599,7 +599,7 @@ class _BaseSubscriptionSchema(ModelSchema):
 
     @staticmethod
     def resolve_payment_due_by(obj: MembershipSubscription) -> datetime | None:
-        """When the expiry sweep cancels an unpaid OFFLINE request (``None`` otherwise); same rule as the sweep."""
+        """When the sweep cancels an unpaid OFFLINE request (``None`` otherwise); see ``payment_due_by``."""
         return payment_due_by(obj)
 
     @staticmethod

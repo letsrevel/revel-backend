@@ -139,6 +139,11 @@ def open_offline_subscription(
             ensure_plan_on_sale(plan)
         subscription = create_subscription(plan, user)
     assert subscription is not None  # noqa: S101
+    # "<org> accepted your application" only when the organization did: staff paths, or an application that
+    # was already APPROVED. A member-facing join approving its own PENDING application is not an acceptance.
+    application_accepted = application is not None and (
+        application.status == OrganizationMembershipRequest.Status.APPROVED or not member_facing
+    )
     if application is not None:
         update_fields: list[str] = []
         if application.subscription_id is None:
@@ -154,7 +159,9 @@ def open_offline_subscription(
         if update_fields:
             application.save(update_fields=[*update_fields, "updated_at"])
     if created:
-        transaction.on_commit(lambda: dispatch_membership_payment_requested(subscription))
+        transaction.on_commit(
+            lambda: dispatch_membership_payment_requested(subscription, application_accepted=application_accepted)
+        )
         if member_facing and application is None:
             # A direct join (no application to approve): staff would otherwise never learn of it.
             transaction.on_commit(lambda: dispatch_membership_offline_joined(subscription))

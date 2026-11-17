@@ -583,10 +583,6 @@ def resync_org_subscription_fees(org_id: str) -> "FeeResyncCounters":
     return resync_subscription_application_fees(org)
 
 
-# APPLICATION_PAYMENT_WINDOW_DAYS (imported above): how long an APPROVED plan-bearing application, and a
-# never-paid OFFLINE subscription, waits for payment before the sweeps cancel it.
-
-
 @shared_task(name="events.expire_stale_approved_applications")
 def expire_stale_approved_applications() -> int:
     """Cancel plan-bearing APPROVED applications whose payment window lapsed.

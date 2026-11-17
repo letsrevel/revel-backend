@@ -463,7 +463,8 @@ def remove_member(organization: Organization, user: RevelUser) -> None:
     member_register_service.close_standard_record(
         organization.pk, user.pk, reason=models.MembershipRecord.EndedReason.REMOVED
     )
-    subscription_lifecycle.cancel_subscriptions_for_membership_loss(user, organization)
+    # A removed person is not barred: they may join or apply again.
+    subscription_lifecycle.cancel_subscriptions_for_membership_loss(user, organization, rejoinable=True)
     member.delete()
 
 
@@ -491,7 +492,9 @@ def _mirror_status_to_subscriptions(member: OrganizationMember, status: Organiza
     from events.service.subscription import lifecycle as subscription_lifecycle  # lazy: avoid cycle
 
     if status in (OrganizationMember.MembershipStatus.BANNED, OrganizationMember.MembershipStatus.CANCELLED):
-        subscription_lifecycle.cancel_subscriptions_for_membership_loss(member.user, member.organization)
+        subscription_lifecycle.cancel_subscriptions_for_membership_loss(
+            member.user, member.organization, rejoinable=status != OrganizationMember.MembershipStatus.BANNED
+        )
         return
 
     if status != OrganizationMember.MembershipStatus.PAUSED:

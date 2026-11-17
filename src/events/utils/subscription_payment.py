@@ -9,6 +9,7 @@ from django.db.models.functions import Greatest
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
 
 #: Days a never-paid OFFLINE subscription may wait for its first payment before the daily sweep cancels it.
+#: It also drives the approved-application sweep (``expire_stale_approved_applications``).
 APPLICATION_PAYMENT_WINDOW_DAYS: t.Final[int] = 30
 
 _QS = t.TypeVar("_QS", bound="QuerySet[MembershipSubscription]")
@@ -27,14 +28,19 @@ def annotate_last_payment_updated_at(qs: _QS) -> _QS:
 
 
 def annotate_payment_progress(qs: _QS) -> _QS:
-    """Annotate ``has_succeeded_payment`` and ``last_payment_updated_at``, which the schemas read per row.
+    """Annotate ``has_succeeded_payment``, ``has_refunded_payment`` and ``last_payment_updated_at`` (read per row).
 
     Use it on every queryset (or nested prefetch) that serialises ``MySubscriptionSchema`` / ``SubscriptionSchema``.
     """
     succeeded = MembershipPayment.objects.filter(
         subscription=OuterRef("pk"), status=MembershipPayment.PaymentStatus.SUCCEEDED
     )
-    return annotate_last_payment_updated_at(qs).annotate(has_succeeded_payment=Exists(succeeded))
+    refunded = MembershipPayment.objects.filter(
+        subscription=OuterRef("pk"), status=MembershipPayment.PaymentStatus.REFUNDED
+    )
+    return annotate_last_payment_updated_at(qs).annotate(
+        has_succeeded_payment=Exists(succeeded), has_refunded_payment=Exists(refunded)
+    )
 
 
 def payment_anchor_expression() -> Expression:
@@ -50,11 +56,21 @@ def payment_anchor_expression() -> Expression:
 def payment_due_by(subscription: MembershipSubscription) -> datetime.datetime | None:
     """When a never-paid OFFLINE PENDING subscription is swept: its anchor plus the payment window.
 
-    ``None`` for anything else. Same rule as ``expire_unpaid_offline_subscriptions`` (see
-    :func:`payment_anchor_expression`): ``created_at + window``, postponed to the last payment's
-    ``updated_at + window`` when that is later.
+    ``None`` for anything else, including a REFUNDED payment (money moved: the sweep never touches it).
+    Not modelled: the sweep also spares a legacy ACTIVE member at the plan's tier; that needs a member lookup
+    per row, so such a row still reports a date it will never be swept at.
+
+    Same rule as ``expire_unpaid_offline_subscriptions`` (see :func:`payment_anchor_expression`):
+    ``created_at + window``, postponed to the last payment's ``updated_at + window`` when that is later.
     """
     if not is_never_paid_offline(subscription):
+        return None
+    refunded = getattr(subscription, "has_refunded_payment", None)
+    if refunded is None:
+        refunded = MembershipPayment.objects.filter(
+            subscription=subscription, status=MembershipPayment.PaymentStatus.REFUNDED
+        ).exists()
+    if refunded:
         return None
     if hasattr(subscription, "last_payment_updated_at"):
         last = subscription.last_payment_updated_at

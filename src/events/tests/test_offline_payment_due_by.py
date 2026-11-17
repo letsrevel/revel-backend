@@ -22,6 +22,7 @@ from events.tasks.subscriptions import expire_unpaid_offline_subscriptions
 from events.utils.subscription_payment import (
     APPLICATION_PAYMENT_WINDOW_DAYS,
     annotate_last_payment_updated_at,
+    annotate_payment_progress,
     payment_due_by,
 )
 
@@ -101,3 +102,19 @@ def test_payment_due_by_is_none_when_not_a_pending_offline_sub(plan: MembershipS
     lifecycle.record_payment(sub, amount=Decimal("50.00"), currency="EUR", recorded_by=None)
     sub.refresh_from_db()
     assert payment_due_by(sub) is None
+
+
+def test_payment_due_by_is_none_after_a_refunded_payment(plan: MembershipSubscriptionPlan) -> None:
+    """The sweep never touches a subscription whose money was refunded, so no due date is promised."""
+    user = RevelUser.objects.create_user(username="r@example.com", email="r@example.com", password="x")
+    sub = open_offline_subscription(plan, user)
+    MembershipPayment.objects.create(
+        subscription=sub,
+        amount=Decimal("50.00"),
+        currency="EUR",
+        status=MembershipPayment.PaymentStatus.REFUNDED,
+        period_start=timezone.now(),
+        period_end=timezone.now() + WINDOW,
+    )
+    assert payment_due_by(MembershipSubscription.objects.get(pk=sub.pk)) is None
+    assert payment_due_by(annotate_payment_progress(MembershipSubscription.objects.all()).get(pk=sub.pk)) is None

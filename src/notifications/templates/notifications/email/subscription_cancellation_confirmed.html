@@ -8,7 +8,7 @@
 <div class="card">
     <div class="info-row"><span class="label">{% trans "Plan:" %}</span> {{ context.plan_name }}</div>
 </div>
-<p>{% trans "You can join or apply again at any time." %}</p>
+{% if context.rejoinable %}<p>{% trans "You can join or apply again at any time." %}</p>{% endif %}
 {% else %}
 {% if context.immediate %}
 <p style="font-size:18px;">{% blocktranslate with plan=context.plan_name org=context.organization_name %}Your <strong>{{ plan }}</strong> subscription at <strong>{{ org }}</strong> has been cancelled effective immediately.{% endblocktranslate %}</p>

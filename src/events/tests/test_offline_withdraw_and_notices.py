@@ -1,11 +1,13 @@
 """Offline join: member withdraw, staff notice on direct joins, and the never-paid cancel notification."""
 
 import typing as t
+from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
 from unittest.mock import patch
 
 import pytest
+from django.template.loader import render_to_string
 from django.test.client import Client
 from django.urls import reverse
 from django.utils import translation
@@ -19,6 +21,9 @@ from events.models import (
     Organization,
     OrganizationMember,
     OrganizationMembershipRequest,
+    OrganizationStaff,
+    PermissionMap,
+    PermissionsSchema,
     SubscriptionPaymentMethod,
 )
 from events.service.subscription import lifecycle as subscription_lifecycle
@@ -294,8 +299,10 @@ def test_cancellation_renders_branch_in_every_channel(
         patch(
             "events.service.subscription.notifications.is_never_paid_on_offline_plan", return_value=request_cancelled
         ),
-    ):
-        subscription_notifications._dispatch_cancellation_confirmed(sub, immediate=True)  # noqa: SLF001
+    ):  # prior_status PENDING below, so the predicate alone decides the variant
+        subscription_notifications._dispatch_cancellation_confirmed(  # noqa: SLF001
+            sub, immediate=True, prior_status=Sub.PENDING, rejoinable=True
+        )
     notification = Notification.objects.get(
         user=nonmember_user, notification_type=NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED
     )
@@ -315,3 +322,159 @@ def test_cancellation_renders_branch_in_every_channel(
         assert ("membership request" in body) is request_cancelled, channel
         if channel in ("html", "txt"):
             assert ("Access ends" in body) is (not request_cancelled), channel
+
+
+# ---- review fixes: rejoin copy, request-cancel scoping, accepted lead, recipients -------------------------------
+
+
+def _rendered_cancellation(user: RevelUser) -> dict[str, str]:
+    notification = Notification.objects.filter(
+        user=user, notification_type=NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED
+    ).latest("created_at")
+    template = get_template(notification.notification_type)
+    with translation.override("en"):
+        return {
+            "html": template.get_email_html_body(notification) or "",
+            "txt": template.get_email_text_body(notification),
+        }
+
+
+def test_staff_cancel_of_a_request_tells_the_person_they_can_rejoin(
+    plan: MembershipSubscriptionPlan, nonmember_user: RevelUser
+) -> None:
+    sub = open_offline_subscription(plan, nonmember_user)
+    with patch("notifications.tasks.dispatch_notification.delay"):
+        subscription_lifecycle.cancel_subscription(sub)
+
+    for channel, body in _rendered_cancellation(nonmember_user).items():
+        assert "membership request" in body, channel
+        assert "join or apply again" in body, channel
+
+
+def test_ban_of_a_held_member_does_not_invite_them_back(
+    org: Organization, plan: MembershipSubscriptionPlan, nonmember_user: RevelUser, sent: list[dict[str, t.Any]]
+) -> None:
+    sub = open_offline_subscription(plan, nonmember_user)
+    sent.clear()
+    subscription_lifecycle.cancel_subscriptions_for_membership_loss(nonmember_user, org)  # ban / blacklist default
+
+    (cancelled,) = _cancellations(sent)
+    assert cancelled["context"]["request_cancelled"] is True
+    assert cancelled["context"]["rejoinable"] is False
+    sub.refresh_from_db()
+    # Render the exact context for each channel.
+    for channel, body in _render_cancellation_context(nonmember_user, cancelled["context"]).items():
+        assert "membership request" in body, channel
+        assert "join or apply again" not in body, channel
+
+
+def test_removal_keeps_the_rejoin_line(
+    org: Organization, plan: MembershipSubscriptionPlan, nonmember_user: RevelUser, sent: list[dict[str, t.Any]]
+) -> None:
+    open_offline_subscription(plan, nonmember_user)
+    sent.clear()
+    subscription_lifecycle.cancel_subscriptions_for_membership_loss(nonmember_user, org, rejoinable=True)
+
+    (cancelled,) = _cancellations(sent)
+    assert cancelled["context"]["rejoinable"] is True
+
+
+def _render_cancellation_context(user: RevelUser, context: dict[str, t.Any]) -> dict[str, str]:
+    from common.utils import render_plain_text
+
+    with translation.override("en"):
+        data = {"user": user, "context": context}
+        return {
+            "html": render_to_string("notifications/email/subscription_cancellation_confirmed.html", data),
+            "txt": render_plain_text("notifications/email/subscription_cancellation_confirmed.txt", data),
+        }
+
+
+@pytest.mark.parametrize("immediate", [True, False])
+def test_active_offline_sub_with_only_a_voided_payment_is_not_a_request_cancel(
+    plan: MembershipSubscriptionPlan, nonmember_user: RevelUser, sent: list[dict[str, t.Any]], immediate: bool
+) -> None:
+    """Never-paid by payments, but ACTIVE (staff activated it): leaving is a membership ending, not a request."""
+    from django.utils import timezone
+
+    from events.models import MembershipPayment
+
+    now = timezone.now()
+    sub = MembershipSubscription.objects.create(
+        user=nonmember_user,
+        organization=plan.tier.organization,
+        plan=plan,
+        status=Sub.ACTIVE,
+        current_period_start=now,
+        current_period_end=now + timedelta(days=30),
+    )
+    MembershipPayment.objects.create(
+        subscription=sub,
+        amount=Decimal("50.00"),
+        currency="EUR",
+        status=MembershipPayment.PaymentStatus.VOIDED,
+        period_start=now,
+        period_end=now + timedelta(days=30),
+    )
+    sent.clear()
+
+    subscription_lifecycle.cancel_subscription(sub, immediate=immediate)
+
+    (cancelled,) = _cancellations(sent)
+    assert cancelled["context"]["request_cancelled"] is False
+
+
+@pytest.mark.parametrize(
+    ("status", "member_facing", "accepted"),
+    [
+        (Omr.PENDING, True, False),  # /subscribe approving its own pending application
+        (Omr.APPROVED, True, True),  # staff already approved it
+        (Omr.PENDING, False, True),  # staff approval path
+    ],
+)
+def test_accepted_lead_only_when_the_organization_accepted(
+    org: Organization,
+    tier: MembershipTier,
+    plan: MembershipSubscriptionPlan,
+    nonmember_user: RevelUser,
+    django_capture_on_commit_callbacks: t.Any,
+    status: str,
+    member_facing: bool,
+    accepted: bool,
+) -> None:
+    application = OrganizationMembershipRequest.objects.create(
+        user=nonmember_user, organization=org, tier=tier, plan=plan, status=status
+    )
+    with (
+        patch("events.service.subscription.offline.dispatch_membership_payment_requested") as dispatch,
+        patch("events.service.subscription.offline.dispatch_membership_offline_joined"),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        open_offline_subscription(plan, nonmember_user, application=application, member_facing=member_facing)
+
+    assert dispatch.call_args.kwargs == {"application_accepted": accepted}
+
+
+def test_staff_notice_goes_to_staff_with_manage_subscriptions_only(
+    org: Organization,
+    plan: MembershipSubscriptionPlan,
+    nonmember_user: RevelUser,
+    organization_owner_user: RevelUser,
+    django_user_model: t.Type[RevelUser],
+    sent: list[dict[str, t.Any]],
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    allowed = django_user_model.objects.create_user(username="allowed", email="allowed@example.com", password="x")
+    denied = django_user_model.objects.create_user(username="denied", email="denied@example.com", password="x")
+    for user, flag in ((allowed, True), (denied, False)):
+        OrganizationStaff.objects.create(
+            organization=org,
+            user=user,
+            permissions=PermissionsSchema(default=PermissionMap(manage_subscriptions=flag)).model_dump(mode="json"),
+        )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assert _subscribe(nonmember_user, org, plan).status_code == 201
+
+    recipients = {c["user"] for c in _joined(sent)}
+    assert recipients == {organization_owner_user, allowed}

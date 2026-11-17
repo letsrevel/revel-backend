@@ -153,9 +153,9 @@ def offline_sub(
     )
 
 
-def _payment_requested(sub: MembershipSubscription) -> Notification:
+def _payment_requested(sub: MembershipSubscription, *, application_accepted: bool = False) -> Notification:
     with patch("notifications.tasks.dispatch_notification.delay"):
-        subscription_notifications.dispatch_membership_payment_requested(sub)
+        subscription_notifications.dispatch_membership_payment_requested(sub, application_accepted=application_accepted)
     return Notification.objects.get(user=sub.user, notification_type=NotificationType.MEMBERSHIP_PAYMENT_REQUESTED)
 
 
@@ -303,7 +303,7 @@ def test_payment_requested_leads_with_accepted_application(
         subscription=offline_sub,
         status=OrganizationMembershipRequest.Status.APPROVED,
     )
-    notif = _payment_requested(offline_sub)
+    notif = _payment_requested(offline_sub, application_accepted=True)
     assert notif.context["application_accepted"] is True
     for channel, body in _bodies(notif).items():
         assert f"{organization.name}" in body.split("accepted your application")[0], channel

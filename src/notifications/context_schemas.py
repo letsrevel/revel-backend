@@ -853,7 +853,8 @@ class SubscriptionCancellationConfirmedContext(BaseNotificationContext):
     plan_name: str
     immediate: bool
     access_ends_at: str
-    request_cancelled: t.NotRequired[bool]  # never-paid OFFLINE: the membership request was cancelled
+    request_cancelled: t.NotRequired[bool]  # PENDING never-paid OFFLINE: the membership request was cancelled
+    rejoinable: t.NotRequired[bool]  # request_cancelled only: False after a ban (no "join again" line)
 
 
 class SubscriptionRenewalReminderContext(BaseNotificationContext):

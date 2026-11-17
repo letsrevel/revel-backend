@@ -6,8 +6,8 @@
 
 {%trans "Plan:"%} {{context.plan_name}}
 
-{%trans "You can join or apply again at any time."%}
-{%else%}{%trans "Subscription Cancelled"%}
+{%if context.rejoinable%}{%trans "You can join or apply again at any time."%}
+{%endif%}{%else%}{%trans "Subscription Cancelled"%}
 
 {%if context.immediate%}{%blocktranslate with plan=context.plan_name org=context.organization_name %}Your {{ plan }} subscription at {{ org }} has been cancelled effective immediately.{%endblocktranslate%}
 {%else%}{%blocktranslate with plan=context.plan_name org=context.organization_name date=context.access_ends_at %}Your {{ plan }} subscription at {{ org }} will end on {{ date }}.{%endblocktranslate%}
