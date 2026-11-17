@@ -224,7 +224,7 @@ object in the metadata. It passes `mypy --strict` without a `# type: ignore[type
 the OpenAPI constraints.
 
 ```python
-params: t.Annotated[EventFilterSchema, Query(...)]          # not: params: EventFilterSchema = Query(...)
+params: t.Annotated[EventFilterSchema, Query(...)]  # not: params: EventFilterSchema = Query(...)
 month: t.Annotated[int | None, Query(ge=1, le=12)] = None
 payload: t.Annotated[ItemSchema | None, Body(None)] = None  # optional JSON body
 ```
