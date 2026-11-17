@@ -239,6 +239,6 @@ class MeMembershipApplicationsController(UserAwareController):
         qs = OrganizationMembershipRequest.objects.filter(user=self.user())
         if organization is not None:
             qs = qs.filter(organization_id=organization)
-        return qs.select_related("organization", "tier", "plan", "subscription", "questionnaire_submission").order_by(
-            "-created_at"
-        )
+        return qs.select_related(
+            "organization", "tier", "plan__tier", "subscription", "questionnaire_submission"
+        ).order_by("-created_at")

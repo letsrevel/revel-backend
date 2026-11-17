@@ -306,6 +306,9 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         via ``POST /api/me/organizations/{org_id}/subscribe`` so the user can
         confirm the first payment.
 
+        An OFFLINE plan opens the subscription awaiting payment: the membership
+        starts at the first recorded payment, not at creation.
+
         A FREE plan may be created here (it is the staff equivalent of the
         member's self-serve subscribe) but never with an initial payment —
         there is nothing to collect on a zero-price plan.

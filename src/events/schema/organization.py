@@ -495,8 +495,20 @@ class MembershipApplicationSubmissionInfo(Schema):
     evaluation_status: QuestionnaireEvaluation.QuestionnaireEvaluationStatus | None = None
 
 
+class MembershipRequestPlanSchema(ModelSchema):
+    """The plan an applicant asked for, as shown to staff reviewing the request."""
+
+    period_unit: models.MembershipSubscriptionPlan.PeriodUnit
+    payment_method: models.SubscriptionPaymentMethod
+
+    class Meta:
+        model = models.MembershipSubscriptionPlan
+        fields = ["id", "name", "price", "currency", "period_count"]
+
+
 class OrganizationMembershipRequestRetrieve(ModelSchema):
     user: MinimalRevelUserSchema
+    plan: MembershipRequestPlanSchema | None = None
     status: MembershipRequestStatus
     tier: "MembershipTierSchema | None" = None
     questionnaire_submission: MembershipApplicationSubmissionInfo | None = None

@@ -24,6 +24,7 @@ from events.service.membership_manager.resolvers import (
     resolve_requires_membership_approval,
 )
 from events.utils.membership_payment_rules import payment_edit_flags
+from events.utils.subscription_payment import is_never_paid_offline
 from events.utils.subscription_plan_rules import validate_plan_shape
 
 from .mixins import get_image_field_url
@@ -620,6 +621,12 @@ class MySubscriptionSchema(_BaseSubscriptionSchema):
     organization_slug: str
     organization_logo_url: str | None = None
     grace_deadline: AwareDatetime | None = None
+    payment_instructions: str | None = None
+
+    @staticmethod
+    def resolve_payment_instructions(obj: MembershipSubscription) -> str | None:
+        """How to pay, only while the subscription is an unpaid OFFLINE one awaiting payment."""
+        return obj.plan.effective_payment_instructions if is_never_paid_offline(obj) else None
 
     @staticmethod
     def resolve_grace_deadline(obj: MembershipSubscription) -> datetime | None:
@@ -972,28 +979,3 @@ class MigrationAcceptedSchema(Schema):
     """
 
     queued: int
-
-
-class SubscriptionStatusBreakdownSchema(Schema):
-    """Per-status count breakdown for subscription metrics."""
-
-    pending: int
-    active: int
-    paused: int
-    past_due: int
-    cancelled: int
-    expired: int
-
-
-class SubscriptionMetricsSchema(Schema):
-    """Aggregated subscription metrics for an organization."""
-
-    as_of: AwareDatetime
-    active_count: int
-    mrr: Decimal
-    mrr_currency: str
-    mixed_currency_warning: bool
-    new_subscribers_30d: int
-    churned_30d: int
-    churn_rate_30d: float
-    status_breakdown: SubscriptionStatusBreakdownSchema

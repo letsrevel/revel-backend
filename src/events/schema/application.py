@@ -5,11 +5,12 @@ import typing as t
 from ninja import ModelSchema, Schema
 from pydantic import UUID4, AwareDatetime, Field
 
-from events.models import MembershipRequestStatus, OrganizationMembershipRequest
+from events.models import MembershipRequestStatus, MembershipSubscription, OrganizationMembershipRequest
 from events.service.membership_manager import MembershipEligibility, MembershipNextStep
 from events.service.membership_manager.enums import MembershipReasonCode
 
 from .mixins import get_image_field_url
+from .subscription import MemberPlanSchema
 
 
 class JoinEligibilityQuery(Schema):
@@ -58,7 +59,9 @@ class MembershipApplicationSchema(ModelSchema):
     tier_id: UUID4 | None = None
     tier_name: str | None = None
     plan_id: UUID4 | None = None
+    plan: MemberPlanSchema | None = None
     subscription_id: UUID4 | None = None
+    subscription_status: MembershipSubscription.SubscriptionStatus | None = None
     questionnaire_submission_id: UUID4 | None = None
     status: MembershipRequestStatus
 
@@ -85,6 +88,13 @@ class MembershipApplicationSchema(ModelSchema):
     def resolve_tier_name(obj: OrganizationMembershipRequest) -> str | None:
         """Return the requested tier's name, or ``None`` for tier-less applications."""
         return obj.tier.name if obj.tier else None
+
+    @staticmethod
+    def resolve_subscription_status(
+        obj: OrganizationMembershipRequest,
+    ) -> MembershipSubscription.SubscriptionStatus | None:
+        """Return the linked subscription's status, or ``None`` when no subscription is linked."""
+        return MembershipSubscription.SubscriptionStatus(obj.subscription.status) if obj.subscription else None
 
 
 class ApplyResponseSchema(Schema):

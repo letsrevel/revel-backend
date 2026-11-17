@@ -54,7 +54,7 @@ class MeSubscriptionsController(UserAwareController):
         qs = MembershipSubscription.objects.filter(user=self.user())
         if organization is not None:
             qs = qs.filter(organization_id=organization)
-        return qs.select_related("plan", "plan__tier", "organization").order_by("-created_at")
+        return qs.select_related("plan", "plan__tier__organization", "organization").order_by("-created_at")
 
     @route.get(
         "/memberships",
@@ -74,7 +74,7 @@ class MeSubscriptionsController(UserAwareController):
         active_subs = (
             MembershipSubscription.objects.filter(user=user)
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-            .select_related("plan", "plan__tier", "organization")
+            .select_related("plan", "plan__tier__organization", "organization")
             .order_by("-created_at")
         )
         qs = OrganizationMember.objects.filter(user=user)
@@ -105,7 +105,7 @@ class MeSubscriptionsController(UserAwareController):
         qs = (
             MembershipSubscription.objects.filter(user=self.user(), organization_id=org_id)
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-            .select_related("plan", "plan__tier", "organization")
+            .select_related("plan", "plan__tier__organization", "organization")
             .order_by("-created_at")
         )
         return get_object_or_404(qs)
@@ -230,7 +230,7 @@ class MeSubscriptionsController(UserAwareController):
         qs = (
             MembershipSubscription.objects.filter(user=self.user(), organization_id=org_id)
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-            .select_related("plan", "plan__tier", "organization")
+            .select_related("plan", "plan__tier__organization", "organization")
             .order_by("-created_at")
         )
         subscription = get_object_or_404(qs)
@@ -260,7 +260,7 @@ class MeSubscriptionsController(UserAwareController):
         qs = (
             MembershipSubscription.objects.filter(user=self.user(), organization_id=org_id)
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-            .select_related("plan", "plan__tier", "organization")
+            .select_related("plan", "plan__tier__organization", "organization")
             .order_by("-created_at")
         )
         subscription = get_object_or_404(qs)
@@ -295,7 +295,7 @@ class MeSubscriptionsController(UserAwareController):
         qs = (
             MembershipSubscription.objects.filter(user=self.user(), organization_id=org_id)
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-            .select_related("plan", "plan__tier", "organization")
+            .select_related("plan", "plan__tier__organization", "organization")
             .order_by("-created_at")
         )
         subscription = get_object_or_404(qs)
@@ -354,7 +354,7 @@ class MeSubscriptionsController(UserAwareController):
                 organization_id=org_id,
                 status=MembershipSubscription.SubscriptionStatus.EXPIRED,
             )
-            .select_related("plan", "plan__tier", "organization")
+            .select_related("plan", "plan__tier__organization", "organization")
             .order_by(F("expired_at").desc(nulls_last=True))
         )
         subscription = qs.first()
