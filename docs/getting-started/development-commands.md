@@ -181,7 +181,7 @@ All test targets depend on `make compilemessages`, because the i18n tests assert
 | `make db-diagram` | Generate a database entity-relationship diagram (requires `django-extensions`) |
 | `make demo-video` | Create pre-arranged scenarios for recording product demo videos (`bootstrap_demo_video`; idempotent) |
 | `make bootstrap-tests` | Run only the `bootstrap_test_events` management command (test events for eligibility gates) |
-| `make check-version` | **Legacy**: curls `main.api.revel.io` / `dev.api.revel.io` `/api/v1/version`, domains that no longer apply |
+| `make check-version` | Print the deployed prod and demo versions (`/api/version` on `api.letsrevel.io` and `demo-api.letsrevel.io`) |
 | `make count-lines` | Count non-blank, non-comment Python lines in `src/` |
 | `make tree` | Print the project directory tree (excludes `__pycache__`, images, htmlcov) |
 | `make dump-openapi` | Dump the OpenAPI schema to a file |
