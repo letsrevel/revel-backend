@@ -4,7 +4,13 @@ from events.models import MembershipPayment, MembershipSubscription, MembershipS
 
 
 def is_never_paid(subscription: MembershipSubscription) -> bool:
-    """True when the subscription has no SUCCEEDED payment yet."""
+    """True when the subscription has no SUCCEEDED payment yet.
+
+    List endpoints annotate ``has_succeeded_payment`` on the queryset to avoid one query per row.
+    """
+    annotated = getattr(subscription, "has_succeeded_payment", None)
+    if annotated is not None:
+        return not annotated
     return not MembershipPayment.objects.filter(
         subscription=subscription, status=MembershipPayment.PaymentStatus.SUCCEEDED
     ).exists()

@@ -3,7 +3,7 @@
 import typing as t
 from uuid import UUID
 
-from django.db.models import F, Prefetch, QuerySet
+from django.db.models import Exists, F, OuterRef, Prefetch, QuerySet
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext as _
@@ -54,7 +54,14 @@ class MeSubscriptionsController(UserAwareController):
         qs = MembershipSubscription.objects.filter(user=self.user())
         if organization is not None:
             qs = qs.filter(organization_id=organization)
-        return qs.select_related("plan", "plan__tier__organization", "organization").order_by("-created_at")
+        succeeded = MembershipPayment.objects.filter(
+            subscription=OuterRef("pk"), status=MembershipPayment.PaymentStatus.SUCCEEDED
+        )
+        return (
+            qs.select_related("plan", "plan__tier__organization", "organization")
+            .annotate(has_succeeded_payment=Exists(succeeded))
+            .order_by("-created_at")
+        )
 
     @route.get(
         "/memberships",

@@ -5,7 +5,9 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from django.db import connection
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
@@ -159,3 +161,50 @@ def test_members_filter_awaiting_payment(
     assert response.status_code == 200, response.content
     results = response.json()["results"]
     assert [r["user"]["email"] for r in results] == [nonmember_user.email]
+
+
+def test_my_subscriptions_query_count_does_not_grow_with_rows(
+    org: Organization,
+    plan: MembershipSubscriptionPlan,
+    nonmember_user: RevelUser,
+    django_assert_max_num_queries: t.Any,
+) -> None:
+    """Pending never-paid offline subs falling back to org instructions must not add per-row queries."""
+    url = reverse("api:list_my_membership_subscriptions")
+    client = _client(nonmember_user)
+
+    def _add_sub() -> None:
+        other_org = Organization.objects.create(
+            name=f"Org {MembershipSubscription.objects.count()}",
+            slug=f"org-{MembershipSubscription.objects.count()}",
+            owner=org.owner,
+            membership_payment_instructions="Pay the org by IBAN",
+        )
+        other_tier = MembershipTier.objects.create(organization=other_org, name="Open")
+        other_plan = MembershipSubscriptionPlan.objects.create(
+            tier=other_tier,
+            name="Annual",
+            price=Decimal("50.00"),
+            currency="EUR",
+            period_unit="year",
+            payment_method=SubscriptionPaymentMethod.OFFLINE,
+        )
+        MembershipSubscription.objects.create(
+            user=nonmember_user,
+            organization=other_org,
+            plan=other_plan,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+        )
+
+    _add_sub()
+    with CaptureQueriesContext(connection) as one_row:
+        response = client.get(url)
+    assert len(response.json()["results"]) == 1
+
+    _add_sub()
+    _add_sub()
+    with django_assert_max_num_queries(len(one_row)):
+        response = client.get(url)
+    results = response.json()["results"]
+    assert len(results) == 3
+    assert {r["payment_instructions"] for r in results} == {"Pay the org by IBAN"}

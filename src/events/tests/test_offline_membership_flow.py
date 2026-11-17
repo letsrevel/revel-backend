@@ -429,3 +429,42 @@ def test_advance_on_read_skips_privileged_user(
 
     assert response.status_code == 200, response.content
     assert not MembershipSubscription.objects.filter(user=organization_owner_user).exists()
+
+
+def test_open_offline_subscription_never_relinks_an_already_linked_application(
+    org: Organization, gated_tier: MembershipTier, nonmember_user: RevelUser
+) -> None:
+    """A PENDING application linked to another subscription keeps that link and stays PENDING."""
+    from events.service.subscription.offline import open_offline_subscription
+
+    plan = _offline_plan(gated_tier)
+    other = MembershipSubscription.objects.create(
+        user=nonmember_user, organization=org, plan=plan, status=Sub.CANCELLED
+    )
+    application = OrganizationMembershipRequest.objects.create(
+        organization=org, user=nonmember_user, tier=gated_tier, plan=plan, subscription=other
+    )
+
+    subscription = open_offline_subscription(plan, nonmember_user, application=application)
+
+    application.refresh_from_db()
+    assert subscription.pk != other.pk
+    assert (application.subscription_id, application.status) == (other.pk, Omr.PENDING)
+
+
+def test_open_offline_subscription_approves_application_already_linked_to_it(
+    org: Organization, gated_tier: MembershipTier, nonmember_user: RevelUser
+) -> None:
+    """Idempotent re-open: an application linked to the live subscription is approved without a relink."""
+    from events.service.subscription.offline import open_offline_subscription
+
+    plan = _offline_plan(gated_tier)
+    subscription = open_offline_subscription(plan, nonmember_user)
+    application = OrganizationMembershipRequest.objects.create(
+        organization=org, user=nonmember_user, tier=gated_tier, plan=plan, subscription=subscription
+    )
+
+    assert open_offline_subscription(plan, nonmember_user, application=application).pk == subscription.pk
+
+    application.refresh_from_db()
+    assert (application.subscription_id, application.status) == (subscription.pk, Omr.APPROVED)

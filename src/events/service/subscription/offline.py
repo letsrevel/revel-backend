@@ -132,12 +132,20 @@ def open_offline_subscription(
             ensure_plan_on_sale(plan)
         subscription = create_subscription(plan, user)
     assert subscription is not None  # noqa: S101
-    if application is not None and (
-        application.subscription_id is None or application.status != OrganizationMembershipRequest.Status.APPROVED
-    ):
-        application.subscription = subscription
-        application.status = OrganizationMembershipRequest.Status.APPROVED
-        application.save(update_fields=["subscription", "status", "updated_at"])
+    if application is not None:
+        update_fields: list[str] = []
+        if application.subscription_id is None:
+            application.subscription = subscription
+            update_fields.append("subscription")
+        # Never re-point an application already linked elsewhere; approve it only when it is this subscription's.
+        if (
+            application.subscription_id == subscription.pk
+            and application.status != OrganizationMembershipRequest.Status.APPROVED
+        ):
+            application.status = OrganizationMembershipRequest.Status.APPROVED
+            update_fields.append("status")
+        if update_fields:
+            application.save(update_fields=[*update_fields, "updated_at"])
     if created:
         transaction.on_commit(lambda: dispatch_membership_payment_requested(subscription))
     return subscription

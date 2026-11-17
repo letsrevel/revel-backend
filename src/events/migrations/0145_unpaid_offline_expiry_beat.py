@@ -39,7 +39,7 @@ def delete_unpaid_offline_sweep_task(apps: t.Any, schema_editor: t.Any) -> None:
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("events", "0145_offline_payment_instructions"),
+        ("events", "0144_offline_membership_flow"),
         ("django_celery_beat", "0019_alter_periodictasks_options"),
     ]
 

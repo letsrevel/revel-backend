@@ -7835,8 +7835,6 @@ msgstr "Per rinnovare, paga direttamente %(org)s."
 msgid "To renew, pay %(org)s directly. <a href=\"%(url)s\">Contact %(org)s</a> to find out how."
 msgstr "Per rinnovare, paga direttamente %(org)s. <a href=\"%(url)s\">Contatta %(org)s</a> per sapere come."
 
-
-
 msgid "paid directly to the organization"
 msgstr "pagato direttamente all'organizzazione"
 
