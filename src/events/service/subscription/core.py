@@ -159,8 +159,9 @@ def create_subscription(
 
     Refuses if the user is BANNED in the organization, or already has a
     non-terminal subscription there, or the plan's subscription cap is
-    reached. Ensures an :class:`OrganizationMember` exists at the plan's
-    tier in the same transaction.
+    reached. In the same transaction it materializes the member for a FREE plan
+    (ACTIVE at the plan's tier) and holds them as AWAITING_PAYMENT for an OFFLINE
+    plan; an ONLINE plan creates no member until Stripe's first paid invoice.
     """
     organization = plan.tier.organization
 
