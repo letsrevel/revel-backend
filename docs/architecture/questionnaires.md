@@ -151,6 +151,26 @@ erDiagram
 !!! note "Sections are optional"
     Questions can belong directly to a questionnaire or be organized into sections. Sections support independent shuffling for randomized question order.
 
+## OrganizationQuestionnaire: attaching a questionnaire to a context
+
+A `Questionnaire` is generic content. The events app wraps it in an `OrganizationQuestionnaire` (`src/events/models/questionnaire.py`, one-to-one with the questionnaire, unique per organization) that says **what it is for** and **where it applies**:
+
+| Field | Notes |
+|---|---|
+| `questionnaire_type` | `admission` (default), `membership`, `feedback` or `generic`. Decides which consumer reads it |
+| `events`, `event_series` | M2M attachments. A questionnaire applies to every event in `events` and to every event of a series in `event_series` |
+| `per_event` | When true, the user must complete it separately for each event (submissions are tracked per event in `EventQuestionnaireSubmission`); otherwise one submission is shared |
+| `members_exempt` | Eligible (ACTIVE) members skip it. For a membership questionnaire, any ACTIVE membership at any tier of the org is enough |
+| `max_submission_age` | How long an approved submission stays valid before the user must retake |
+| `requires_evaluation` | See [Information-Gathering Mode](#information-gathering-mode-requires_evaluation) |
+
+Consumers:
+
+- **Event gate** (`QuestionnaireGate`, `admission` type): questionnaires attached to the event or its series. See [Eligibility Pipeline](eligibility-pipeline.md).
+- **Membership gate** (`MembershipQuestionnaireGate`, `membership` type): reached through `Organization.default_membership_questionnaire` or a tier's `membership_questionnaire` override. It reads plain `QuestionnaireSubmission` rows (no event, so no `EventQuestionnaireSubmission`). A questionnaire in use as an org default or tier override cannot be retyped away from `membership` (400). See [Membership Eligibility](membership-eligibility.md).
+- **Series pass purchase** (`admission` type): the series' questionnaires plus those of the covered events, required before a pass is issued. See [Series Passes](series-passes.md#admission-questionnaires).
+- **Feedback** (`feedback` type): collected after the event; always `requires_evaluation=False`, one submission per user per event.
+
 ## Question Types
 
 | Type | Model | Description | Evaluation | Default `positive_weight` |
@@ -453,15 +473,19 @@ flowchart TD
 
 The entire evaluation runs inside a database transaction (`@transaction.atomic`) to ensure it is an all-or-nothing operation.
 
-## Service Layer (QuestionnaireService)
+## Service Layer
 
-The `QuestionnaireService` class provides CRUD operations for questionnaires and handles submission:
+The questionnaire content services live in `src/questionnaires/service/`:
 
-- **`build()`**: Constructs the questionnaire schema for API responses, applying shuffle logic for questions, options, and sections
-- **`submit()`**: Validates answers against the questionnaire, checks mandatory questions, validates file uploads, and creates the submission with all answers
-- **`create_questionnaire()`**: Creates a complete questionnaire with sections, questions, and options from a single schema
-- **`create_section()` / `create_mc_question()` / `create_ft_question()` / `create_fu_question()`**: Individual creation methods supporting nested conditional content
-- **`evaluate_submission()`**: Creates or updates a manual evaluation for a submission
+- **`questionnaire_service.py` (`QuestionnaireService`)**: CRUD for content. `create_questionnaire()` builds a complete questionnaire with sections, questions and options from a single schema; `create_section()` / `create_mc_question()` / `create_ft_question()` / `create_fu_question()` (and the matching `update_*`) support nested conditional content.
+- **`submission_service.py` (`SubmissionService`)**: the read and write path for answers. `build()` constructs the questionnaire schema for API responses, applying shuffle logic for questions, options and sections; `submit()` validates answers, checks mandatory questions, validates file uploads and creates the submission with all answers; `evaluate_submission()` creates or updates a manual evaluation.
+- **`duplication.py`**: `duplicate_questionnaire_content()` deep-copies sections, questions, options and conditional `depends_on_option` wiring into a new DRAFT questionnaire. It has no `events` imports so poll duplication reuses it.
+- **`file_service.py`**: `upload_questionnaire_file()` for the per-user file library used by file-upload questions (size and MIME checks from content, EXIF stripping, SHA-256 deduplication, malware scan scheduling).
+
+The events-app wrappers around them live in `src/events/service/`:
+
+- **`event_questionnaire_service.py`**: `submit_event_questionnaire()` (creates the `QuestionnaireSubmission` and `EventQuestionnaireSubmission` atomically), create/update of `OrganizationQuestionnaire` wrappers (including the feedback and membership-retype validations), `duplicate_organization_questionnaire()` (deep copy within the organization; `copy_associations` also links the same events and series), summary statistics and the submissions export.
+- **`membership_questionnaire_service.py`**: the org-scoped twin for membership questionnaires: `get_membership_org_questionnaire()` (a questionnaire is reachable only as the org default or a tier override) and `submit_membership_questionnaire()`.
 
 ## Security
 
@@ -493,7 +517,7 @@ Accordingly, the admin **detail** (`GET /{org_questionnaire_id}`) and **list**
 
 Answers are persisted with `bulk_create`, which **skips** Django's `Model.clean()`. So model-level
 checks (`MultipleChoiceAnswer.clean()`) are **not** a sufficient guard on the write path. The
-`QuestionnaireService` re-enforces the invariants explicitly at submission time:
+`SubmissionService` re-enforces the invariants explicitly at submission time:
 
 - **Single-answer questions** (`allow_multiple_answers=False`) may receive at most one selected
   option. Options are aggregated per question **across all answer entries** (de-duplicated), so a

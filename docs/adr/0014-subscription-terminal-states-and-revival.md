@@ -115,3 +115,13 @@ window.**
   another grandfathered cohort for reporting to carry (MRR values each
   subscriber at their latest successful non-proration payment, falling back
   to `plan.price`).
+
+## Amendments
+
+!!! note "Amended 2026-11 (v2.38.0)"
+    `uncancel_subscription` reverses a *scheduled* cancellation
+    (`cancel_at_period_end`) on a live subscription. It never resurrects a terminal
+    CANCELLED or EXPIRED row, so the terminal-state and revival rules above are
+    unchanged. A never-paid OFFLINE subscription that is cancelled, or swept after
+    30 days, is terminal like any other; the person starts over with a fresh
+    subscription.

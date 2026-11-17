@@ -130,7 +130,7 @@ stateDiagram-v2
 The defining trait of the advanced waitlist is that **pending offers count toward capacity**. Two layers compute capacity, and both apply the same arithmetic:
 
 - `AvailabilityGate` (`events/service/event_manager/gates.py`) — in-memory check on prefetched data, zero DB queries on the fast path.
-- `EventManager._assert_capacity()` (`events/service/event_manager/manager.py`) and `BatchTicketService._assert_event_capacity()` (`events/service/batch_ticket_service.py`) — final authoritative checks inside a row-locked transaction.
+- `EventManager._assert_capacity()` (`events/service/event_manager/manager.py`) and `BatchTicketService.assert_event_capacity()` (`events/service/batch_ticket_service/capacity.py`) — final authoritative checks inside a row-locked transaction.
 
 The arithmetic in both places is:
 
@@ -142,7 +142,7 @@ if attendee_count + held >= effective_capacity:
     reject
 ```
 
-Where `attendee_count` is the count of non-cancelled tickets (for ticketed events) or YES RSVPs (for RSVP events) — **unchanged** from the legacy contract.
+Where `attendee_count` is the count of non-cancelled tickets (for ticketed events) or YES RSVPs (for RSVP events) — **unchanged** from the legacy contract. (The non-cancelled count includes PENDING tickets, so an online checkout in flight holds its seat.) An invitation with `overrides_max_attendees` bypasses the RSVP-path checks (`AvailabilityGate`, `EventManager._assert_capacity`), but not `assert_event_capacity`: ticket checkout has no such bypass.
 
 ### Why a user's own offer is netted out
 
@@ -218,7 +218,7 @@ The Event row lock at the top of `process_waitlist_for_event` serializes concurr
 2. Sees `cutoff_already_processed` → returns no-op.
 3. Sees fresh capacity → creates the next batch.
 
-This is what makes the helper `enqueue_waitlist_processing(event_id)` safe to call **multiple times in a single transaction** and from any path. The Celery wrapper task (`events.process_waitlist_for_event`) is a thin shim — see [`tasks.py`](#celery-tasks).
+This is what makes the helper `enqueue_waitlist_processing(event_id)` safe to call **multiple times in a single transaction** and from any path. The Celery wrapper task (`events.process_waitlist_for_event`) is a thin shim — see [Celery tasks](#celery-tasks).
 
 ---
 
@@ -233,21 +233,20 @@ Every code path that can **free capacity** explicitly calls `enqueue_waitlist_pr
 
 | Path | Source | Reason |
 |---|---|---|
-| User cancels own ticket | `service/cancellation_service.py::cancel_ticket_by_user` | Ticket → CANCELLED frees a seat |
-| Admin refunds ticket (offline) | `controllers/event_admin/tickets.py::refund_ticket` | Same |
-| Admin cancels ticket (offline) | `controllers/event_admin/tickets.py::cancel_ticket` | Same |
-| Stripe refund webhook | `service/stripe_webhooks.py` (dedup per event) | Async cancellation path |
-| Stripe checkout cancel | `service/stripe_service.py::cancel_checkout` | Releases reserved capacity |
+| User cancels own ticket | `service/cancellation_service.py::_finalize_cancellation` (via `cancel_ticket_by_user`) | Ticket → CANCELLED frees a seat |
+| Admin marks an offline ticket refunded / cancels it | `controllers/event_admin/tickets.py` (`mark_ticket_refunded`, `cancel_ticket`) → `service/refund_service.py` → `service/ticket_service.py::_cancel_offline_ticket_core` | Shared cancellation primitive enqueues |
+| Stripe `payment_intent.canceled` webhook | `service/stripe_webhooks.py` (one enqueue per affected event) | Async cancellation path |
+| Stripe checkout cancel | `service/pending_checkout.py::cancel_pending_checkout` | Deletes the PENDING tickets and releases reserved capacity |
 | User RSVP YES → non-YES | `service/event_manager/manager.py::rsvp` | Seat freed |
 | Admin RSVP create/update YES → non-YES | `controllers/event_admin/rsvps.py` | Seat freed |
 | Admin deletes a YES RSVP | `controllers/event_admin/rsvps.py::delete_rsvp` | Seat freed |
-| Capacity increased | `controllers/event_admin/core.py::update_event` | `max_attendees` ↑ or venue capacity ↑ |
-| Event un-cancelled | `controllers/event_admin/core.py::update_event_status` | `CANCELLED` → other status restores meaningful capacity |
+| Capacity increased | `service/event_update_service.py::update_event` | `max_attendees` ↑ or venue capacity ↑ |
+| Event un-cancelled | `service/event_update_service.py::update_status` | `CANCELLED` → other status restores meaningful capacity |
 | Waitlist join (self-heal) | `controllers/event_public/attendance.py::join_waitlist` | Race with concurrent cancellation could leave the joiner first in line with seats already free |
 | Leave-waitlist while holding an offer | `controllers/event_public/attendance.py::leave_waitlist` | EXPIRES the offer, then enqueues |
-| Offer claim (defensive nudge) | `service/event_manager/manager.py::_claim_active_offer` and `service/batch_ticket_service.py::claim_waitlist_offer_if_any` | Other unclaimed offers in the batch could otherwise strand seats |
-| Offer expiry sweeper | `tasks.py::expire_waitlist_offers_task` | Per affected event after bulk EXPIRE |
-| Hourly safety net | `tasks.py::nudge_open_waitlists_task` | See [Soft-lock defense](#soft-lock-defense) |
+| Offer claim (defensive nudge) | `service/event_manager/manager.py::_claim_active_offer` and `service/batch_ticket_service/tickets.py::claim_waitlist_offer_if_any` | Other unclaimed offers in the batch could otherwise strand seats |
+| Offer expiry sweeper | `tasks/waitlist.py::expire_waitlist_offers_task` | Per affected event after bulk EXPIRE (dispatches `process_waitlist_for_event_task` directly) |
+| Hourly safety net | `tasks/waitlist.py::nudge_open_waitlists_task` | See [Soft-lock defense](#soft-lock-defense) |
 | Admin revokes a pending offer | `controllers/event_admin/waitlist_offers.py::revoke_waitlist_offer` | Returns the seat |
 | `EventWaitList` row deleted | `signals.py::handle_waitlist_entry_deleted` (`post_delete`) | REVOKES the matching PENDING offer and enqueues |
 
@@ -298,7 +297,7 @@ The advanced waitlist reuses the existing `WAITLIST_SPOT_AVAILABLE` notification
 
 ### Dispatch
 
-`process_waitlist_for_event` calls `_dispatch_offer_notifications(offer_ids)` on commit, which enqueues `events.send_waitlist_offer_notification` once per offer. The task (`tasks.py::send_waitlist_offer_notification_task`):
+`process_waitlist_for_event` calls `_dispatch_offer_notifications(offer_ids)` on commit, which enqueues `events.send_waitlist_offer_notification` once per offer. The task (`tasks/waitlist.py::send_waitlist_offer_notification_task`):
 
 1. Reloads the offer with `select_related("user", "event__organization")`.
 2. **Skips** if status is no longer PENDING (race with sweeper/claim/revoke) or if `expires_at <= now`.
@@ -353,7 +352,7 @@ event = Event.objects.select_for_update().get(pk=event_id)
 offer = WaitlistOffer.objects.select_for_update().get(pk=offer_id, event_id=event_id)
 ```
 
-This matches the lock order in every other writer in this module (`process_waitlist_for_event`, `_assert_capacity`, `_assert_event_capacity`, `create_admin_offer`) and avoids deadlock with concurrent claim flows. See [Race-safety](#race-safety).
+This matches the lock order in every other writer in this module (`process_waitlist_for_event`, `_assert_capacity`, `assert_event_capacity`, `create_admin_offer`) and avoids deadlock with concurrent claim flows. See [Race-safety](#race-safety).
 
 ---
 
@@ -407,7 +406,7 @@ A **soft-lock** is a state where the waitlist has eligible members and the event
 
 ### Hourly nudge task
 
-`tasks.py::nudge_open_waitlists_task` runs hourly at minute 30 (offset from the expiry sweeper at minute 0 to avoid lock contention) and enqueues `process_waitlist_for_event_task` for every event with `waitlist_open=True AND waitlist_time_window IS NOT NULL`. The processor is idempotent, so this is a cheap safety net that catches any soft-lock within an hour.
+`tasks/waitlist.py::nudge_open_waitlists_task` runs hourly at minute 30 (offset from the expiry sweeper at minute 0 to avoid lock contention) and enqueues `process_waitlist_for_event_task` for every event with `waitlist_open=True AND waitlist_time_window IS NOT NULL`. The processor is idempotent, so this is a cheap safety net that catches any soft-lock within an hour.
 
 !!! warning "Both layers are needed"
     The claim-time nudge handles the common case (a batch with mixed claim/expiry). The hourly task is the **belt-and-suspenders** for unanticipated state — code paths added later that forget to enqueue, manual DB edits, anything we didn't think of. Removing either layer is not safe.
@@ -440,8 +439,8 @@ Because the Event row is the **single common ancestor** of all concurrent flows,
 
 The cutoff batch deliberately notifies **every** eligible waitlist member, which can exceed available seats. This works because:
 
-- Cutoff offers are excluded from the reserved `held` count (the `is_cutoff_batch=False` filter in `_pending_offer_count_for_check`, `_assert_capacity`, `_assert_event_capacity`, and `process_waitlist_for_event`).
-- Concurrent claims serialize on the Event row lock in `_assert_capacity` / `_assert_event_capacity`.
+- Cutoff offers are excluded from the reserved `held` count (the `is_cutoff_batch=False` filter in `_pending_offer_count_for_check`, `_assert_capacity`, `assert_event_capacity`, and `process_waitlist_for_event`).
+- Concurrent claims serialize on the Event row lock in `_assert_capacity` / `assert_event_capacity`.
 - The first N claimers (where N = real available seats) pass. The (N+1)th sees `attendee_count >= effective_capacity` and gets `EVENT_IS_FULL`.
 
 The cutoff batch is therefore a controlled FCFS race, not a reservation.
@@ -450,7 +449,7 @@ The cutoff batch is therefore a controlled FCFS race, not a reservation.
 
 ## Celery tasks
 
-All defined in `src/events/tasks.py`.
+All defined in `src/events/tasks/waitlist.py`.
 
 | Task | Schedule | Purpose |
 |---|---|---|

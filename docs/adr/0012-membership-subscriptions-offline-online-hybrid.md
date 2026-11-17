@@ -87,3 +87,18 @@ Key consequences of the split:
 - **Con:** The duplicated `stripe_account_kwargs` helper in
   `subscription/stripe/plan_change.py` exists to avoid an import cycle with
   `subscription.stripe.checkout`. Accepted as a small, contained price.
+
+## Amendments
+
+!!! note "Amended 2026-11 (v2.38.0)"
+    OFFLINE plans became **self-joinable**: members can now subscribe to (or apply
+    for) an OFFLINE plan themselves, where before only staff could create those
+    subscriptions. Creating an OFFLINE subscription no longer ensures an active
+    member up front. It parks the person as `AWAITING_PAYMENT` (an existing member
+    keeps their tier) and leaves the subscription PENDING until the first payment
+    is recorded, which activates both; a never-paid request is cancelled after 30
+    days. The `FREE` note above ("members self-serve, unlike OFFLINE") describes the
+    original rationale and no longer separates the two on who may create them. See
+    [Offline join flow](../architecture/membership-subscriptions.md#offline-join-flow).
+    The decision itself (one local state machine, `payment_method` picking the
+    driver) is unchanged.
