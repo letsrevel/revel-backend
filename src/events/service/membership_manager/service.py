@@ -342,7 +342,12 @@ def advance_application(
             if application.plan_id is None and application.tier_id is not None:
                 _complete_free_application(application)
             elif application.plan is not None:
-                if application.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+                if (
+                    application.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE
+                    and eligibility.next_step == MembershipNextStep.PROCEED_TO_PAYMENT
+                ):
+                    # Only on PROCEED_TO_PAYMENT: other allowing verdicts (ALREADY_MEMBER, privileged) must
+                    # not mint a subscription or ask an existing member to pay.
                     # Opens the awaiting-payment subscription and links/approves the row; the verdict
                     # is recomputed so the caller sees WAIT_FOR_OFFLINE_PAYMENT, not allowed-with-no-step.
                     open_offline_subscription(application.plan, application.user, application=application)

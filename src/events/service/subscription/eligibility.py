@@ -90,7 +90,7 @@ def subscribe_to_plan(plan: MembershipSubscriptionPlan, user: RevelUser) -> tupl
     checkout_url: str | None = None
     if payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
         # Opens the awaiting-payment subscription and links/approves the application itself.
-        return open_offline_subscription(plan, user, application=application), None
+        return open_offline_subscription(plan, user, application=application, member_facing=True), None
     if payment_method == MembershipSubscriptionPlan.PaymentMethod.FREE:
         subscription = create_subscription(plan, user)
     else:

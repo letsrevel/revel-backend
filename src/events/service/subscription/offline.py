@@ -27,6 +27,7 @@ from events.service.subscription.notifications import (
     _dispatch_renewal_succeeded,
     dispatch_membership_payment_requested,
 )
+from events.service.subscription.sales import ensure_plan_on_sale
 from events.utils.subscription_payment import is_never_paid_offline
 
 logger = structlog.get_logger(__name__)
@@ -101,6 +102,7 @@ def open_offline_subscription(
     user: RevelUser,
     *,
     application: OrganizationMembershipRequest | None = None,
+    member_facing: bool = False,
 ) -> MembershipSubscription:
     """Open (or return) the PENDING subscription of a user joining an OFFLINE plan, and ask them to pay.
 
@@ -108,13 +110,16 @@ def open_offline_subscription(
     (no second subscription, no second MEMBERSHIP_PAYMENT_REQUESTED). Otherwise
     :func:`create_subscription` creates it and holds the person as ``AWAITING_PAYMENT``.
 
-    When ``application`` is given it is linked to the subscription and ends APPROVED.
+    When ``application`` is given it is linked to the subscription and ends APPROVED. ``member_facing``
+    (the subscriber is the caller) refuses a paused plan; staff paths bypass it.
     """
     # lazy: subscription.core imports this module.
     from events.service.subscription.core import create_subscription
 
     if plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
         raise ValueError("open_offline_subscription requires an OFFLINE plan")
+    # Serialize concurrent opens per user (same lock link_record takes): the second caller finds the first's row.
+    RevelUser.objects.select_for_update(no_key=True).get(pk=user.pk)
     subscription = (
         MembershipSubscription.objects.filter(user=user, organization_id=plan.tier.organization_id, plan=plan)
         .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
@@ -122,11 +127,12 @@ def open_offline_subscription(
     )
     created = subscription is None or not is_never_paid_offline(subscription)
     if created:
+        if member_facing:
+            ensure_plan_on_sale(plan)
         subscription = create_subscription(plan, user)
     assert subscription is not None  # noqa: S101
     if application is not None and (
-        application.subscription_id != subscription.pk
-        or application.status != OrganizationMembershipRequest.Status.APPROVED
+        application.subscription_id is None or application.status != OrganizationMembershipRequest.Status.APPROVED
     ):
         application.subscription = subscription
         application.status = OrganizationMembershipRequest.Status.APPROVED

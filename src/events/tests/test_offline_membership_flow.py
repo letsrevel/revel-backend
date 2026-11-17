@@ -218,6 +218,7 @@ def test_reapply_while_awaiting_returns_existing(
     nonmember_user: RevelUser,
     organization_owner_user: RevelUser,
     sent: list[dict[str, t.Any]],
+    django_capture_on_commit_callbacks: t.Any,
 ) -> None:
     plan = _offline_plan(gated_tier)
     client = _client(nonmember_user)
@@ -227,7 +228,8 @@ def test_reapply_while_awaiting_returns_existing(
     membership_service.approve_membership_request(application, organization_owner_user)
     sent.clear()
 
-    response = _apply(client, org, gated_tier, plan)
+    with django_capture_on_commit_callbacks(execute=True):
+        response = _apply(client, org, gated_tier, plan)
 
     assert response.status_code == 200, response.content
     body = response.json()
@@ -393,3 +395,37 @@ def test_online_paid_approval_sends_approved_notification(
     assert _types(sent) == [NotificationType.MEMBERSHIP_REQUEST_APPROVED]
     assert sent[0]["context"]["frontend_url"].endswith(f"/org/{org.slug}/membership")
     assert not MembershipSubscription.objects.filter(user=nonmember_user).exists()
+
+
+def test_advance_on_read_skips_user_who_became_member(
+    org: Organization, open_tier: MembershipTier, nonmember_user: RevelUser
+) -> None:
+    """ALREADY_MEMBER is an allowing verdict, but it must not open a subscription or ask the member to pay."""
+    plan = _offline_plan(open_tier)
+    application = OrganizationMembershipRequest.objects.create(
+        user=nonmember_user, organization=org, tier=open_tier, plan=plan
+    )
+    OrganizationMember.objects.create(organization=org, user=nonmember_user, tier=open_tier, status=S.ACTIVE)
+
+    response = _client(nonmember_user).get(
+        reverse("api:get_membership_application", kwargs={"application_id": application.pk})
+    )
+
+    assert response.status_code == 200, response.content
+    assert not MembershipSubscription.objects.filter(user=nonmember_user).exists()
+
+
+def test_advance_on_read_skips_privileged_user(
+    org: Organization, open_tier: MembershipTier, organization_owner_user: RevelUser
+) -> None:
+    plan = _offline_plan(open_tier)
+    application = OrganizationMembershipRequest.objects.create(
+        user=organization_owner_user, organization=org, tier=open_tier, plan=plan
+    )
+
+    response = _client(organization_owner_user).get(
+        reverse("api:get_membership_application", kwargs={"application_id": application.pk})
+    )
+
+    assert response.status_code == 200, response.content
+    assert not MembershipSubscription.objects.filter(user=organization_owner_user).exists()
