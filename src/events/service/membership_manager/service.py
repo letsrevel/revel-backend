@@ -351,7 +351,12 @@ def advance_application(
                     # not mint a subscription or ask an existing member to pay.
                     # Opens the awaiting-payment subscription and links/approves the row; the verdict
                     # is recomputed so the caller sees WAIT_FOR_OFFLINE_PAYMENT, not allowed-with-no-step.
-                    open_offline_subscription(application.plan, application.user, application=application)
+                    # Self-serve (approval is off): nobody accepted anything, and staff already saw the application,
+                    # so no "accepted" lead and no staff notice (``member_facing`` would add one); the gates above
+                    # already require the plan to be on sale.
+                    open_offline_subscription(
+                        application.plan, application.user, application=application, application_accepted=False
+                    )
                     eligibility = MembershipEligibilityService(
                         user=application.user,
                         organization=application.organization,

@@ -340,13 +340,14 @@ def record_payment(
     if not advance:
         return payment
 
+    update_fields = ["current_period_start", "current_period_end", "updated_at"]
+    # Set before activation: the receipt it sends to an upgrading ACTIVE member quotes the new period_end.
+    subscription.current_period_start = period_start
+    subscription.current_period_end = period_end
+
     if first_offline_payment:
         # Before the save below: the PENDING -> ACTIVE save fires sync_member_from_subscription.
         activate_on_first_payment(subscription, send_receipt=dispatch_renewal_notification and not is_initial)
-
-    update_fields = ["current_period_start", "current_period_end", "updated_at"]
-    subscription.current_period_start = period_start
-    subscription.current_period_end = period_end
 
     revivable = {
         MembershipSubscription.SubscriptionStatus.PENDING.value,

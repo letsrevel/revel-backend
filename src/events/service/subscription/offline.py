@@ -104,6 +104,23 @@ def activate_on_first_payment(subscription: MembershipSubscription, *, send_rece
     settle_originating_application(subscription)
 
 
+def _link_and_approve(application: OrganizationMembershipRequest, subscription: MembershipSubscription) -> None:
+    """Link *application* to *subscription* when unlinked, and approve it when the link is this subscription's."""
+    update_fields: list[str] = []
+    if application.subscription_id is None:
+        application.subscription = subscription
+        update_fields.append("subscription")
+    # Never re-point an application already linked elsewhere; approve it only when it is this subscription's.
+    if (
+        application.subscription_id == subscription.pk
+        and application.status != OrganizationMembershipRequest.Status.APPROVED
+    ):
+        application.status = OrganizationMembershipRequest.Status.APPROVED
+        update_fields.append("status")
+    if update_fields:
+        application.save(update_fields=[*update_fields, "updated_at"])
+
+
 @transaction.atomic
 def open_offline_subscription(
     plan: MembershipSubscriptionPlan,
@@ -111,6 +128,7 @@ def open_offline_subscription(
     *,
     application: OrganizationMembershipRequest | None = None,
     member_facing: bool = False,
+    application_accepted: bool | None = None,
 ) -> MembershipSubscription:
     """Open (or return) the PENDING subscription of a user joining an OFFLINE plan, and ask them to pay.
 
@@ -120,6 +138,8 @@ def open_offline_subscription(
 
     When ``application`` is given it is linked to the subscription and ends APPROVED. ``member_facing``
     (the subscriber is the caller) refuses a paused plan; staff paths bypass it.
+    ``application_accepted`` overrides the derived "<org> accepted your application" lead (the self-serve
+    approval-off apply passes ``False``: nothing was accepted by anyone).
     """
     # lazy: subscription.core imports this module.
     from events.service.subscription.core import create_subscription
@@ -141,23 +161,12 @@ def open_offline_subscription(
     assert subscription is not None  # noqa: S101
     # "<org> accepted your application" only when the organization did: staff paths, or an application that
     # was already APPROVED. A member-facing join approving its own PENDING application is not an acceptance.
-    application_accepted = application is not None and (
-        application.status == OrganizationMembershipRequest.Status.APPROVED or not member_facing
-    )
+    if application_accepted is None:
+        application_accepted = application is not None and (
+            application.status == OrganizationMembershipRequest.Status.APPROVED or not member_facing
+        )
     if application is not None:
-        update_fields: list[str] = []
-        if application.subscription_id is None:
-            application.subscription = subscription
-            update_fields.append("subscription")
-        # Never re-point an application already linked elsewhere; approve it only when it is this subscription's.
-        if (
-            application.subscription_id == subscription.pk
-            and application.status != OrganizationMembershipRequest.Status.APPROVED
-        ):
-            application.status = OrganizationMembershipRequest.Status.APPROVED
-            update_fields.append("status")
-        if update_fields:
-            application.save(update_fields=[*update_fields, "updated_at"])
+        _link_and_approve(application, subscription)
     if created:
         transaction.on_commit(
             lambda: dispatch_membership_payment_requested(subscription, application_accepted=application_accepted)

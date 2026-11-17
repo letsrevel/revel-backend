@@ -49,6 +49,7 @@ class MembershipReasonCode(StrEnum):
     MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED = "membership_questionnaire_attempts_exhausted"
     REQUIRES_APPROVAL = "requires_approval"
     TIER_REQUIRES_SUBSCRIPTION = "tier_requires_subscription"
+    # No longer emitted (OFFLINE plans are allowed); kept for API and client compatibility.
     PLAN_NOT_ONLINE = "plan_not_online"
     ORG_NOT_STRIPE_CONNECTED = "org_not_stripe_connected"
     DUPLICATE_ACTIVE_SUBSCRIPTION = "duplicate_active_subscription"
@@ -99,6 +100,7 @@ class Reasons(StrEnum):
     MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED = gettext_noop("You have reached the maximum number of attempts.")
     REQUIRES_APPROVAL = gettext_noop("Your application is awaiting staff approval.")
     TIER_REQUIRES_SUBSCRIPTION = gettext_noop("This tier requires a paid subscription. Subscribe to a plan to join.")
+    # No longer emitted (OFFLINE plans are allowed); kept for API and client compatibility.
     PLAN_NOT_ONLINE = gettext_noop("This plan is not configured for online checkout.")
     ORG_NOT_STRIPE_CONNECTED = gettext_noop("This organization cannot accept online payments yet.")
     DUPLICATE_ACTIVE_SUBSCRIPTION = gettext_noop("You already have an active subscription in this organization.")

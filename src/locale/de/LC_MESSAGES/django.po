@@ -7849,12 +7849,12 @@ msgid "Pay to activate your %(tier)s membership at %(org)s"
 msgstr "Bezahle, um deine %(tier)s-Mitgliedschaft bei %(org)s zu aktivieren"
 
 #, python-format
-msgid "To activate your %(tier)s membership (%(plan)s, %(amount)s), pay %(org)s directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
-msgstr "Um deine %(tier)s-Mitgliedschaft (%(plan)s, %(amount)s) zu aktivieren, bezahle %(org)s direkt. Deine Mitgliedschaft beginnt, sobald die Zahlung bestätigt wurde. Wird innerhalb von 30 Tagen keine Zahlung erfasst, wird deine Anfrage storniert."
+msgid "To activate your %(tier)s membership (%(plan)s, %(amount)s), pay %(org)s directly. Your membership starts once they confirm your payment. If no payment is recorded within %(days)s days, your request is cancelled."
+msgstr "Um deine %(tier)s-Mitgliedschaft (%(plan)s, %(amount)s) zu aktivieren, bezahle %(org)s direkt. Deine Mitgliedschaft beginnt, sobald die Zahlung bestätigt wurde. Wird innerhalb von %(days)s Tagen keine Zahlung erfasst, wird deine Anfrage storniert."
 
 #, python-format
-msgid "To activate your <strong>%(tier)s</strong> membership (%(plan)s, %(amount)s), pay <strong>%(org)s</strong> directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
-msgstr "Um deine <strong>%(tier)s</strong>-Mitgliedschaft (%(plan)s, %(amount)s) zu aktivieren, bezahle <strong>%(org)s</strong> direkt. Deine Mitgliedschaft beginnt, sobald die Zahlung bestätigt wurde. Wird innerhalb von 30 Tagen keine Zahlung erfasst, wird deine Anfrage storniert."
+msgid "To activate your <strong>%(tier)s</strong> membership (%(plan)s, %(amount)s), pay <strong>%(org)s</strong> directly. Your membership starts once they confirm your payment. If no payment is recorded within %(days)s days, your request is cancelled."
+msgstr "Um deine <strong>%(tier)s</strong>-Mitgliedschaft (%(plan)s, %(amount)s) zu aktivieren, bezahle <strong>%(org)s</strong> direkt. Deine Mitgliedschaft beginnt, sobald die Zahlung bestätigt wurde. Wird innerhalb von %(days)s Tagen keine Zahlung erfasst, wird deine Anfrage storniert."
 
 #, python-format
 msgid "To renew, pay %(org)s directly."
@@ -7868,12 +7868,12 @@ msgid "paid directly to the organization"
 msgstr "direkt an die Organisation bezahlt"
 
 #, python-format
-msgid "To activate your **%(tier)s** membership (%(plan)s, %(amount)s), pay **%(org)s** directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
-msgstr "Um deine **%(tier)s**-Mitgliedschaft (%(plan)s, %(amount)s) zu aktivieren, bezahle **%(org)s** direkt. Deine Mitgliedschaft beginnt, sobald die Zahlung bestätigt wurde. Wird innerhalb von 30 Tagen keine Zahlung erfasst, wird deine Anfrage storniert."
+msgid "To activate your **%(tier)s** membership (%(plan)s, %(amount)s), pay **%(org)s** directly. Your membership starts once they confirm your payment. If no payment is recorded within %(days)s days, your request is cancelled."
+msgstr "Um deine **%(tier)s**-Mitgliedschaft (%(plan)s, %(amount)s) zu aktivieren, bezahle **%(org)s** direkt. Deine Mitgliedschaft beginnt, sobald die Zahlung bestätigt wurde. Wird innerhalb von %(days)s Tagen keine Zahlung erfasst, wird deine Anfrage storniert."
 
 #, python-format
-msgid "To activate your <b>%(tier)s</b> membership (%(plan)s, %(amount)s), pay <b>%(org)s</b> directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
-msgstr "Um deine <b>%(tier)s</b>-Mitgliedschaft (%(plan)s, %(amount)s) zu aktivieren, bezahle <b>%(org)s</b> direkt. Deine Mitgliedschaft beginnt, sobald die Zahlung bestätigt wurde. Wird innerhalb von 30 Tagen keine Zahlung erfasst, wird deine Anfrage storniert."
+msgid "To activate your <b>%(tier)s</b> membership (%(plan)s, %(amount)s), pay <b>%(org)s</b> directly. Your membership starts once they confirm your payment. If no payment is recorded within %(days)s days, your request is cancelled."
+msgstr "Um deine <b>%(tier)s</b>-Mitgliedschaft (%(plan)s, %(amount)s) zu aktivieren, bezahle <b>%(org)s</b> direkt. Deine Mitgliedschaft beginnt, sobald die Zahlung bestätigt wurde. Wird innerhalb von %(days)s Tagen keine Zahlung erfasst, wird deine Anfrage storniert."
 
 #, python-format
 msgid "Contact %(org)s"

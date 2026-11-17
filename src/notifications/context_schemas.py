@@ -528,6 +528,7 @@ class MembershipPaymentRequestedContext(BaseNotificationContext):
     payment_instructions: str  # "" when neither plan nor organization defines any
     memberships_url: str
     application_accepted: t.NotRequired[bool]  # lead with "<org> accepted your application."
+    payment_window_days: int  # days before a never-paid request is cancelled (APPLICATION_PAYMENT_WINDOW_DAYS)
 
 
 # ===== Account Contexts =====

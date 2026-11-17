@@ -643,7 +643,6 @@ def expire_unpaid_offline_subscriptions() -> int:
     from accounts.models import RevelUser
     from events.models import OrganizationMember
     from events.service.subscription.notifications import dispatch_unpaid_offline_lapsed
-    from events.service.subscription.offline import close_unpaid_offline
     from events.utils.membership_access import awaiting_payment_memberships, eligible_memberships
     from events.utils.subscription_payment import is_never_paid_offline, is_never_paid_on_offline_plan
 
@@ -694,7 +693,6 @@ def expire_unpaid_offline_subscriptions() -> int:
             sub.status = MembershipSubscription.SubscriptionStatus.CANCELLED
             sub.cancelled_at = timezone.now()
             sub.save(update_fields=["status", "cancelled_at", "updated_at"])
-            close_unpaid_offline(sub)
             transaction.on_commit(functools.partial(dispatch_unpaid_offline_lapsed, sub))
             cancelled += 1
     if cancelled:

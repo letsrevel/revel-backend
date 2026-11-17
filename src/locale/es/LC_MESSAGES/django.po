@@ -7786,12 +7786,12 @@ msgid "Pay to activate your %(tier)s membership at %(org)s"
 msgstr "Paga para activar tu membresía %(tier)s en %(org)s"
 
 #, python-format
-msgid "To activate your %(tier)s membership (%(plan)s, %(amount)s), pay %(org)s directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
-msgstr "Para activar tu membresía %(tier)s (%(plan)s, %(amount)s), paga directamente a %(org)s. Tu membresía comienza cuando confirmen tu pago. Si no se registra ningún pago en 30 días, tu solicitud se cancela."
+msgid "To activate your %(tier)s membership (%(plan)s, %(amount)s), pay %(org)s directly. Your membership starts once they confirm your payment. If no payment is recorded within %(days)s days, your request is cancelled."
+msgstr "Para activar tu membresía %(tier)s (%(plan)s, %(amount)s), paga directamente a %(org)s. Tu membresía comienza cuando confirmen tu pago. Si no se registra ningún pago en %(days)s días, tu solicitud se cancela."
 
 #, python-format
-msgid "To activate your <strong>%(tier)s</strong> membership (%(plan)s, %(amount)s), pay <strong>%(org)s</strong> directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
-msgstr "Para activar tu membresía <strong>%(tier)s</strong> (%(plan)s, %(amount)s), paga directamente a <strong>%(org)s</strong>. Tu membresía comienza cuando confirmen tu pago. Si no se registra ningún pago en 30 días, tu solicitud se cancela."
+msgid "To activate your <strong>%(tier)s</strong> membership (%(plan)s, %(amount)s), pay <strong>%(org)s</strong> directly. Your membership starts once they confirm your payment. If no payment is recorded within %(days)s days, your request is cancelled."
+msgstr "Para activar tu membresía <strong>%(tier)s</strong> (%(plan)s, %(amount)s), paga directamente a <strong>%(org)s</strong>. Tu membresía comienza cuando confirmen tu pago. Si no se registra ningún pago en %(days)s días, tu solicitud se cancela."
 
 #, python-format
 msgid "To renew, pay %(org)s directly."
@@ -7805,12 +7805,12 @@ msgid "paid directly to the organization"
 msgstr "pagado directamente a la organización"
 
 #, python-format
-msgid "To activate your **%(tier)s** membership (%(plan)s, %(amount)s), pay **%(org)s** directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
-msgstr "Para activar tu membresía **%(tier)s** (%(plan)s, %(amount)s), paga directamente a **%(org)s**. Tu membresía comienza cuando confirmen tu pago. Si no se registra ningún pago en 30 días, tu solicitud se cancela."
+msgid "To activate your **%(tier)s** membership (%(plan)s, %(amount)s), pay **%(org)s** directly. Your membership starts once they confirm your payment. If no payment is recorded within %(days)s days, your request is cancelled."
+msgstr "Para activar tu membresía **%(tier)s** (%(plan)s, %(amount)s), paga directamente a **%(org)s**. Tu membresía comienza cuando confirmen tu pago. Si no se registra ningún pago en %(days)s días, tu solicitud se cancela."
 
 #, python-format
-msgid "To activate your <b>%(tier)s</b> membership (%(plan)s, %(amount)s), pay <b>%(org)s</b> directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
-msgstr "Para activar tu membresía <b>%(tier)s</b> (%(plan)s, %(amount)s), paga directamente a <b>%(org)s</b>. Tu membresía comienza cuando confirmen tu pago. Si no se registra ningún pago en 30 días, tu solicitud se cancela."
+msgid "To activate your <b>%(tier)s</b> membership (%(plan)s, %(amount)s), pay <b>%(org)s</b> directly. Your membership starts once they confirm your payment. If no payment is recorded within %(days)s days, your request is cancelled."
+msgstr "Para activar tu membresía <b>%(tier)s</b> (%(plan)s, %(amount)s), paga directamente a <b>%(org)s</b>. Tu membresía comienza cuando confirmen tu pago. Si no se registra ningún pago en %(days)s días, tu solicitud se cancela."
 
 #, python-format
 msgid "Contact %(org)s"

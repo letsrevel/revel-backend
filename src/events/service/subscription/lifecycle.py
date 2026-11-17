@@ -54,6 +54,7 @@ from events.service.subscription.notifications import (
     _dispatch_cancellation_confirmed,
     _dispatch_revival_checkout,
 )
+from events.service.subscription.offline import open_offline_subscription
 from events.service.subscription.sales import (
     ensure_member_not_excluded,
     ensure_plan_on_sale,
@@ -196,11 +197,22 @@ def _expire_open_checkout_best_effort(subscription: MembershipSubscription) -> N
     )
 
 
-def _close_unpaid_offline(subscription: MembershipSubscription) -> None:
-    # lazy: subscription.offline imports modules that import this one.
-    from events.service.subscription.offline import close_unpaid_offline
+@transaction.atomic
+def create_staff_subscription(
+    plan: MembershipSubscriptionPlan,
+    user: RevelUser,
+    *,
+    initial_payment: InitialPayment | None = None,
+) -> MembershipSubscription:
+    """Staff-created subscription: the entry point that routes by payment method.
 
-    close_unpaid_offline(subscription)
+    An OFFLINE plan without a first payment goes through :func:`open_offline_subscription` (the person is
+    held as AWAITING_PAYMENT and asked to pay; idempotent). Every other case is plain ``create_subscription``,
+    which on its own would leave an OFFLINE member awaiting payment with no payment request.
+    """
+    if initial_payment is None and plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+        return open_offline_subscription(plan, user)
+    return create_subscription(plan, user, initial_payment=initial_payment)
 
 
 @transaction.atomic
@@ -276,7 +288,6 @@ def cancel_subscription(
     elif not immediate and not prior_cap and subscription.cancel_at_period_end:
         _dispatch_cancellation_confirmed(subscription, immediate=False, prior_status=prior_status)
 
-    _close_unpaid_offline(subscription)
     return subscription
 
 
@@ -351,7 +362,6 @@ def cancel_subscriptions_for_membership_loss(
                 # outlive the ban. Kill it.
                 transaction.on_commit(functools.partial(_expire_open_checkout_best_effort, subscription))
         _dispatch_cancellation_confirmed(subscription, immediate=True, prior_status=prior_status, rejoinable=rejoinable)
-        _close_unpaid_offline(subscription)
         cancelled += 1
     return cancelled
 

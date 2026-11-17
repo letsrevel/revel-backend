@@ -23,7 +23,7 @@ from common.models import SiteSettings
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
 from events.utils import format_organization_datetime
 from events.utils.frontend_urls import frontend_base_url_for
-from events.utils.subscription_payment import is_never_paid_on_offline_plan
+from events.utils.subscription_payment import APPLICATION_PAYMENT_WINDOW_DAYS, is_never_paid_on_offline_plan
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
@@ -136,6 +136,7 @@ def dispatch_membership_payment_requested(
         # /account/* is the platform account area, never an org (tenant) route.
         memberships_url=f"{SiteSettings.get_solo().frontend_base_url}{MEMBERSHIPS_PATH}",
         application_accepted=application_accepted,
+        payment_window_days=APPLICATION_PAYMENT_WINDOW_DAYS,
     )
     notification_requested.send(
         sender=MembershipSubscription,

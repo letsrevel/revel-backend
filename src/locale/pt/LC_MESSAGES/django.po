@@ -7565,12 +7565,12 @@ msgid "Pay to activate your %(tier)s membership at %(org)s"
 msgstr "Pague para ativar a sua adesão %(tier)s em %(org)s"
 
 #, python-format
-msgid "To activate your %(tier)s membership (%(plan)s, %(amount)s), pay %(org)s directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
-msgstr "Para ativar a sua adesão %(tier)s (%(plan)s, %(amount)s), pague diretamente a %(org)s. A sua adesão começa assim que confirmarem o pagamento. Se não for registado nenhum pagamento em 30 dias, o seu pedido é cancelado."
+msgid "To activate your %(tier)s membership (%(plan)s, %(amount)s), pay %(org)s directly. Your membership starts once they confirm your payment. If no payment is recorded within %(days)s days, your request is cancelled."
+msgstr "Para ativar a sua adesão %(tier)s (%(plan)s, %(amount)s), pague diretamente a %(org)s. A sua adesão começa assim que confirmarem o pagamento. Se não for registado nenhum pagamento em %(days)s dias, o seu pedido é cancelado."
 
 #, python-format
-msgid "To activate your <strong>%(tier)s</strong> membership (%(plan)s, %(amount)s), pay <strong>%(org)s</strong> directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
-msgstr "Para ativar a sua adesão <strong>%(tier)s</strong> (%(plan)s, %(amount)s), pague diretamente a <strong>%(org)s</strong>. A sua adesão começa assim que confirmarem o pagamento. Se não for registado nenhum pagamento em 30 dias, o seu pedido é cancelado."
+msgid "To activate your <strong>%(tier)s</strong> membership (%(plan)s, %(amount)s), pay <strong>%(org)s</strong> directly. Your membership starts once they confirm your payment. If no payment is recorded within %(days)s days, your request is cancelled."
+msgstr "Para ativar a sua adesão <strong>%(tier)s</strong> (%(plan)s, %(amount)s), pague diretamente a <strong>%(org)s</strong>. A sua adesão começa assim que confirmarem o pagamento. Se não for registado nenhum pagamento em %(days)s dias, o seu pedido é cancelado."
 
 #, python-format
 msgid "To renew, pay %(org)s directly."
@@ -7584,12 +7584,12 @@ msgid "paid directly to the organization"
 msgstr "pago diretamente à organização"
 
 #, python-format
-msgid "To activate your **%(tier)s** membership (%(plan)s, %(amount)s), pay **%(org)s** directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
-msgstr "Para ativar a sua adesão **%(tier)s** (%(plan)s, %(amount)s), pague diretamente a **%(org)s**. A sua adesão começa assim que confirmarem o pagamento. Se não for registado nenhum pagamento em 30 dias, o seu pedido é cancelado."
+msgid "To activate your **%(tier)s** membership (%(plan)s, %(amount)s), pay **%(org)s** directly. Your membership starts once they confirm your payment. If no payment is recorded within %(days)s days, your request is cancelled."
+msgstr "Para ativar a sua adesão **%(tier)s** (%(plan)s, %(amount)s), pague diretamente a **%(org)s**. A sua adesão começa assim que confirmarem o pagamento. Se não for registado nenhum pagamento em %(days)s dias, o seu pedido é cancelado."
 
 #, python-format
-msgid "To activate your <b>%(tier)s</b> membership (%(plan)s, %(amount)s), pay <b>%(org)s</b> directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
-msgstr "Para ativar a sua adesão <b>%(tier)s</b> (%(plan)s, %(amount)s), pague diretamente a <b>%(org)s</b>. A sua adesão começa assim que confirmarem o pagamento. Se não for registado nenhum pagamento em 30 dias, o seu pedido é cancelado."
+msgid "To activate your <b>%(tier)s</b> membership (%(plan)s, %(amount)s), pay <b>%(org)s</b> directly. Your membership starts once they confirm your payment. If no payment is recorded within %(days)s days, your request is cancelled."
+msgstr "Para ativar a sua adesão <b>%(tier)s</b> (%(plan)s, %(amount)s), pague diretamente a <b>%(org)s</b>. A sua adesão começa assim que confirmarem o pagamento. Se não for registado nenhum pagamento em %(days)s dias, o seu pedido é cancelado."
 
 #, python-format
 msgid "Contact %(org)s"

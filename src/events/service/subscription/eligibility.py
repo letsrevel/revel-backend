@@ -23,7 +23,9 @@ from events.service.subscription.offline import open_offline_subscription
 from events.service.subscription.stripe import checkout as stripe_checkout
 
 
-def _ensure_plan_eligibility(user: RevelUser, plan: MembershipSubscriptionPlan) -> MembershipEligibilityService:
+def _ensure_plan_eligibility(
+    user: RevelUser, plan: MembershipSubscriptionPlan, *, changing_plan: bool = False
+) -> MembershipEligibilityService:
     """Run the gate stack for *user* against *plan*'s tier; raise on refusal.
 
     ``DUPLICATE_ACTIVE_SUBSCRIPTION`` falls through on purpose: the
@@ -31,6 +33,10 @@ def _ensure_plan_eligibility(user: RevelUser, plan: MembershipSubscriptionPlan) 
     checkout resumes (409 + fresh checkout_url) instead of dead-ending, a
     genuine duplicate still 400s in ``create_subscription``, and a change-plan
     caller necessarily holds a live subscription.
+
+    OFFLINE plans are the exception: nothing downstream reuses a subscription held on another plan, so a
+    duplicate is refused here with the structured verdict (only ``AWAITING_OFFLINE_PAYMENT`` falls through).
+    A plan change (``changing_plan``) always holds a live subscription, so it keeps the fall-through.
 
     Raises:
         MembershipApplicationIneligibleError: Rendered by the registered
@@ -43,10 +49,10 @@ def _ensure_plan_eligibility(user: RevelUser, plan: MembershipSubscriptionPlan) 
     verdict = eligibility_service.check_eligibility()
     # AWAITING_OFFLINE_PAYMENT on an OFFLINE plan also falls through: a repeated /subscribe returns
     # the same awaiting subscription (``open_offline_subscription`` is idempotent).
-    passes_through = verdict.reason_code == MembershipReasonCode.DUPLICATE_ACTIVE_SUBSCRIPTION or (
-        verdict.reason_code == MembershipReasonCode.AWAITING_OFFLINE_PAYMENT
-        and plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE
-    )
+    is_offline = plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE
+    passes_through = (
+        verdict.reason_code == MembershipReasonCode.DUPLICATE_ACTIVE_SUBSCRIPTION and (changing_plan or not is_offline)
+    ) or (verdict.reason_code == MembershipReasonCode.AWAITING_OFFLINE_PAYMENT and is_offline)
     if not verdict.allowed and not passes_through:
         raise MembershipApplicationIneligibleError(
             verdict.reason or "Refused by the membership eligibility gates.", verdict
@@ -121,4 +127,4 @@ def ensure_tier_change_allowed(subscription: MembershipSubscription, new_plan: M
     """
     if new_plan.tier_id == subscription.plan.tier_id:
         return
-    _ensure_plan_eligibility(subscription.user, new_plan)
+    _ensure_plan_eligibility(subscription.user, new_plan, changing_plan=True)

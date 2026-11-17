@@ -213,6 +213,7 @@ TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
         NotificationType.SUBSCRIPTION_PAYMENT_FAILED,
         NotificationType.SUBSCRIPTION_EXPIRED,
         NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
+        NotificationType.MEMBERSHIP_PAYMENT_REQUESTED,
         NotificationType.SUBSCRIPTION_REVIVAL_CHECKOUT,
     }
 )
@@ -231,6 +232,7 @@ MANDATORY_TYPES: frozenset[str] = frozenset(
         NotificationType.SUBSCRIPTION_PAYMENT_FAILED,
         NotificationType.SUBSCRIPTION_EXPIRED,
         NotificationType.SUBSCRIPTION_CANCELLATION_CONFIRMED,
+        NotificationType.MEMBERSHIP_PAYMENT_REQUESTED,
         NotificationType.SUBSCRIPTION_REVIVAL_CHECKOUT,
         NotificationType.ACCOUNT_BANNED,
         NotificationType.SYSTEM_ANNOUNCEMENT,
