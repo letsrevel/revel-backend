@@ -174,6 +174,8 @@ def test_flags_on_list_detail_and_put(
     assert row["tier_locked_by_subscription"] is True
     assert row["subscription_id"] == str(sub.id)
 
+    # An awaiting-payment member can only be cancelled or banned by staff; make them active first.
+    OrganizationMember.objects.filter(organization=organization, user=subscriber).update(status="active")
     put = _put(organization_owner_client, organization, subscriber, {"status": "active"}).json()
     assert put["tier_locked_by_subscription"] is True
     assert put["subscription_id"] == str(sub.id)
