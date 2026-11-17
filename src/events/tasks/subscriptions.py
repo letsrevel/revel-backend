@@ -637,6 +637,7 @@ def expire_unpaid_offline_subscriptions() -> int:
     Returns:
         Number of subscriptions cancelled.
     """
+    from accounts.models import RevelUser
     from events.models import OrganizationMember
     from events.service.subscription.notifications import dispatch_unpaid_offline_lapsed
     from events.service.subscription.offline import close_unpaid_offline
@@ -665,11 +666,14 @@ def expire_unpaid_offline_subscriptions() -> int:
             | models.Exists(members.filter(status=Status.AWAITING_PAYMENT))
             | models.Exists(members.filter(status=Status.ACTIVE).exclude(tier_id=models.OuterRef("plan__tier_id")))
         )
-        .values_list("pk", flat=True)
+        .order_by("created_at", "pk")
+        .values_list("pk", "user_id")
     )
     cancelled = 0
-    for sub_id in candidate_ids:
+    for sub_id, user_id in candidate_ids:
         with transaction.atomic():
+            # Same lock order as open_offline_subscription: user first, then the subscription.
+            RevelUser.objects.select_for_update(no_key=True).get(pk=user_id)
             sub = (
                 MembershipSubscription.objects.select_for_update(of=("self",))
                 .select_related("plan__tier", "organization", "user")

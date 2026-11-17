@@ -20,7 +20,14 @@ def is_never_paid_offline(subscription: MembershipSubscription) -> bool:
 
 
 def is_never_paid_on_offline_plan(subscription: MembershipSubscription) -> bool:
-    """True for a never-paid subscription on an OFFLINE plan, whatever status it has now (e.g. just terminalised)."""
-    return subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE and is_never_paid(
-        subscription
+    """True when no money ever changed hands on an OFFLINE plan's subscription, whatever its status now.
+
+    Stricter than :func:`is_never_paid`: a REFUNDED payment counts as money moved (a refunded-then-cancelled
+    subscription is a paid member leaving, not an unpaid request lapsing). VOIDED payments never count.
+    """
+    return subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE and not (
+        MembershipPayment.objects.filter(
+            subscription=subscription,
+            status__in=(MembershipPayment.PaymentStatus.SUCCEEDED, MembershipPayment.PaymentStatus.REFUNDED),
+        ).exists()
     )

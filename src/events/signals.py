@@ -701,6 +701,21 @@ def _subscription_cannot_move(member: OrganizationMember, target_status: str) ->
     )
 
 
+def _never_paid_offline_handled(instance: MembershipSubscription) -> bool:
+    """True when a never-paid OFFLINE subscription must not drive its member through the generic sync.
+
+    PENDING ones never move the member. A terminal one would take a free member's existing membership with it,
+    so :func:`close_unpaid_offline` releases exactly the member held for it instead (any terminal save, even an
+    admin status edit, closes it).
+    """
+    if instance.is_terminal and is_never_paid_on_offline_plan(instance):
+        from events.service.subscription.offline import close_unpaid_offline  # lazy: services import models
+
+        close_unpaid_offline(instance)
+        return True
+    return is_never_paid_offline(instance)
+
+
 @receiver(post_save, sender=MembershipSubscription)
 def sync_member_from_subscription(
     sender: type[MembershipSubscription],
@@ -757,9 +772,7 @@ def sync_member_from_subscription(
     ):
         return
 
-    # PENDING never-paid OFFLINE must not move its member; neither must a cancelled one (it must not take a
-    # free member's existing membership with it: ``close_unpaid_offline`` releases exactly the member held for it).
-    if is_never_paid_offline(instance) or (instance.is_terminal and is_never_paid_on_offline_plan(instance)):
+    if _never_paid_offline_handled(instance):
         return
 
     # If a newer non-terminal subscription exists, it owns the member state.

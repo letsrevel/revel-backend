@@ -6,8 +6,11 @@ from decimal import Decimal
 from unittest import mock
 
 import pytest
+from django.test.client import Client
+from django.urls import reverse
 from django.utils import timezone
 from ninja.errors import HttpError
+from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
 from accounts.tasks import gdpr as gdpr_tasks
@@ -25,7 +28,7 @@ from events.service import blacklist_service
 from events.service.membership_manager import service as membership_manager_service
 from events.service.organization_service import membership as membership_service
 from events.service.subscription import lifecycle as subscription_lifecycle
-from events.service.subscription import payment_edits
+from events.service.subscription import payment_edits, refunds
 from events.service.subscription import plans as subscription_plans
 from events.service.subscription.offline import open_offline_subscription
 from events.tasks.subscriptions import APPLICATION_PAYMENT_WINDOW_DAYS, expire_unpaid_offline_subscriptions
@@ -106,6 +109,17 @@ def _member_cancel_application(sub: MembershipSubscription, user: RevelUser, org
     membership_manager_service.cancel_application(sub.originating_application.get())
 
 
+def _member_cancel_subscription(sub: MembershipSubscription, user: RevelUser, org: Organization) -> None:
+    client = Client()
+    client.defaults["HTTP_AUTHORIZATION"] = f"Bearer {RefreshToken.for_user(user).access_token}"  # type: ignore[attr-defined]
+    response = client.post(
+        reverse("api:cancel_my_membership_subscription", kwargs={"org_id": org.id}),
+        data={"immediate": True},
+        content_type="application/json",
+    )
+    assert response.status_code == 200, response.content
+
+
 def _remove_member(sub: MembershipSubscription, user: RevelUser, org: Organization) -> None:
     membership_service.remove_member(org, user)
 
@@ -121,6 +135,7 @@ def _update_member_cancelled(sub: MembershipSubscription, user: RevelUser, org: 
         pytest.param(_blacklist, S.BANNED, False, id="blacklist"),
         pytest.param(_gdpr, S.CANCELLED, True, id="gdpr"),
         pytest.param(_member_cancel_application, S.CANCELLED, True, id="member-cancel-application"),
+        pytest.param(_member_cancel_subscription, S.CANCELLED, True, id="member-cancel-subscription"),
         pytest.param(_remove_member, None, True, id="remove-member"),
         pytest.param(_update_member_cancelled, S.CANCELLED, True, id="update-member-cancelled"),
     ],
@@ -346,3 +361,33 @@ def test_sweep_skips_paid_and_legacy_active(
     for sub, status in ((paid, Sub.ACTIVE), (legacy, Sub.PENDING), (fresh, Sub.PENDING)):
         sub.refresh_from_db()
         assert sub.status == status
+
+
+def test_refunding_only_offline_payment_cancels_member(
+    plan: MembershipSubscriptionPlan, nonmember_user: RevelUser, sent: list[dict[str, t.Any]]
+) -> None:
+    """Money moved then came back: the paid member leaves with the refunded subscription (not stuck ACTIVE)."""
+    sub, _ = _join(plan, nonmember_user, with_application=False)
+    payment = _pay(sub)
+    assert _member(sub).status == S.ACTIVE  # type: ignore[union-attr]
+
+    refunds.refund_payment(payment, recorded_by=None)
+
+    sub.refresh_from_db()
+    assert sub.status == Sub.CANCELLED
+    assert _member(sub).status == S.CANCELLED  # type: ignore[union-attr]
+
+
+def test_direct_terminal_save_closes_held_member_and_application(
+    plan: MembershipSubscriptionPlan, nonmember_user: RevelUser, sent: list[dict[str, t.Any]]
+) -> None:
+    """Any path that saves the row terminal (Django admin, a future flow) closes it, via the signal."""
+    sub, application = _join(plan, nonmember_user)
+    assert application is not None
+
+    sub.status = Sub.CANCELLED
+    sub.save()
+
+    application.refresh_from_db()
+    assert application.status == Omr.CANCELLED
+    assert _member(sub).status == S.CANCELLED  # type: ignore[union-attr]
