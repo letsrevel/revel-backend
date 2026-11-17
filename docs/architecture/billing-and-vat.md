@@ -39,6 +39,9 @@ flowchart TD
     checkout events arrive via the platform endpoint, while Connect orgs' events arrive
     via the Connect endpoint. Application fees are not collected for the host org
     (Stripe does not permit application fees on own-account charges).
+    The endpoints' event lists live in `PLATFORM_EVENTS` / `CONNECT_EVENTS` in that command;
+    after a release adds event types, `provision_stripe_webhooks --sync` (preview with
+    `--dry-run`) updates the existing pair instead of recreating it.
     See the [webhook endpoints runbook](../runbooks/stripe-webhook-endpoints.md) for the
     steady-state reference.
 
@@ -46,15 +49,21 @@ flowchart TD
 
 VAT is calculated at **purchase time** and persisted on each `Payment` record. This snapshot approach means invoices always reflect the VAT rules that were in effect when each payment was made, even if the organization's VAT status changes later.
 
-### Service: `events.service.vat_service`
+### Services: `events.service.vat_service` and `common.service.vat_utils`
 
-Three core functions handle all VAT math:
+The arithmetic primitives live in `common/service/vat_utils.py` (shared with the accounts app):
+`calculate_vat_inclusive(gross, rate)` extracts net + VAT from a VAT-inclusive price,
+`calculate_vat_exclusive(net, rate)` adds VAT on top, and `calculate_b2b_fee_vat` /
+`b2b_fee_vat_from_gross` apply the B2B reverse-charge rules to a fee.
+
+`events.service.vat_service` holds the event-specific functions:
 
 | Function | Purpose |
 |---|---|
-| `calculate_vat_inclusive(gross, rate)` | Extract net + VAT from a VAT-inclusive price |
 | `calculate_platform_fee_vat(net_platform_fee, org, platform_country, platform_rate)` | Determine VAT treatment of the platform fee (VAT-exclusive: adds VAT on top) |
 | `get_effective_vat_rate(tier_rate, org_rate)` | Resolve tier-level override vs. org default |
+| `distribute_amount_across_items(total, count)` | Split a total into `count` shares without rounding drift |
+| `distribute_amount_pro_rata(total, weights)` | Split a total in proportion to weights, same guarantee |
 
 ### Ticket Sale VAT
 
@@ -126,14 +135,22 @@ sequenceDiagram
         API-->>Org: 400 "VAT ID not valid"
     else VIES unavailable
         VIES-->>API: timeout / error
-        API-->>Org: 503 "Saved but pending validation"
+        API-->>Org: 503 {detail, code}
     end
 ```
 
 **Key behaviors:**
 
 - `validate_and_update_organization()` auto-fills `vat_country_code` from the VAT ID prefix, and `billing_name` and `billing_address` from the VIES response (if currently empty)
-- On VIES unavailability, the VAT ID is saved as **pending** and will be validated on the next monthly revalidation cycle
+- On VIES unavailability the response is a `503` with `{"detail": ..., "code": ...}`. `code` is a `VIESUnavailableCode` (`common/exceptions.py`); clients should branch on it, not on the message:
+
+    | `code` | Meaning |
+    |---|---|
+    | `vies_unavailable_saved_pending` | Organization VAT ID saved unvalidated; a revalidation (`revalidate_single_vat_id_task`) is queued right away (after commit), not left for the monthly sweep |
+    | `vies_unavailable_saved_unvalidated` | Saved unvalidated and **nothing** retries it, so the client should retry later (personal billing profiles) |
+    | `vies_unavailable_not_saved` | The change was refused and nothing was written |
+
+- The small-business scheme guard (an organizer whose identity is the VAT ID itself) looks the ID up before saving: a VIES-rejected ID answers `422` with nothing written, and VIES being down answers `503 vies_unavailable_not_saved`
 - VIES addresses containing only `"---"` are ignored
 
 ### Periodic Revalidation
@@ -209,17 +226,21 @@ The `Organization` model stores:
 | `tax_registration_number` | CharField | National tax number (EN 16931 BT-32, e.g. the German *Steuernummer*) for organizers without a VAT ID; format-checked only ([#1244](https://github.com/letsrevel/revel-backend/issues/1244)) |
 | `small_business_scheme` | CharField | `none` (default), `de_19` (§ 19 UStG) or `at_6_1_27` (§ 6 Abs. 1 Z 27 UStG). Declares a small-business VAT scheme: no VAT charged, every attendee-invoice line exempt (E), no reverse charge. For `at_6_1_27` the tax number replaces the VIES-validated VAT ID as an invoicing prerequisite; `de_19` requires the VIES-validated USt-IdNr. (the platform fee is reverse-charged, [#1258](https://github.com/letsrevel/revel-backend/issues/1258)) and the tax number is optional. See [compliance/eu](../compliance/eu/index.md#attendee-vat-handling) |
 | `billing_name` | CharField | Legal entity name for invoices (auto-filled from VIES if empty; falls back to org name) |
-| `billing_address` | TextField | Billing address (auto-filled from VIES if empty) |
+| `billing_address` | TextField | **Legacy** free-text address (auto-filled from VIES if empty); still part of the online-tier prerequisite |
+| `billing_address_line1`, `billing_address_line2`, `billing_postal_code`, `billing_city`, `billing_subdivision`, `billing_country_code` | CharFields | Structured postal address (`BillingPostalAddressMixin`, `common/models/address.py`), required to turn attendee invoicing on and used by e-invoices. Personal buyer billing profiles carry the same six fields (`StructuredBillingAddressMixin` in the schemas) |
+| `vat_exemption_reason` | CharField | Default legal basis printed for 0% / exempt invoice lines. A tier's own `vat_exemption_reason` wins over it |
 | `billing_email` | EmailField | Billing contact (falls back to contact_email for invoices) |
 | `revenue_report_cadence` | CharField | Scheduled revenue-report cadence (`NONE`/`QUARTERLY`/`MONTHLY`, default `NONE`). **Owner-only to write** (as of 1.65.0); requires `billing_email` when not `NONE` |
 | `last_revenue_report_sent_period` | CharField | Internal scheduling bookkeeping — the last period emailed (e.g. `2026-Q1` or `2026-03`); prevents double-sends |
 
 !!! note "Online tier & plan prerequisite"
-    Creating an online (Stripe) ticket tier — or an ONLINE subscription plan — requires `billing_name`, `vat_country_code`, and `billing_address` to be set on the organization (when platform fees are configured). This ensures invoices can be generated correctly from the first sale. Shared check: `ticket_service.check_online_payment_prerequisites()`.
+    Creating an online (Stripe) ticket tier — or an ONLINE subscription plan — requires `billing_name`, `vat_country_code`, and the legacy text `billing_address` to be set on the organization (when platform fees are configured). This ensures invoices can be generated correctly from the first sale. Shared check: `ticket_service.check_online_payment_prerequisites()`.
 
 ### Ticket Tier VAT Override
 
-Each `TicketTier` has an optional `vat_rate` field. If set, it overrides the organization default for that tier. This supports scenarios like reduced VAT rates for specific ticket categories.
+Each `TicketTier` has an optional `vat_rate` field. If set, it overrides the organization default for that tier. This supports scenarios like reduced VAT rates for specific ticket categories. A tier can also carry its own `vat_exemption_reason`; a paid online tier at 0% needs a reason on the tier or the organization default before invoicing can be switched on (`zero_rate_guard_service.py`).
+
+The billing-info response includes `tiers_charging_vat`: the tiers of live, ticketed events (not ended, not cancelled; RSVP-only events never charge VAT and are left out) whose own VAT rate is above 0%. It lists what blocks declaring a small-business scheme (`small_business_scheme_service.live_tiers_charging_vat`) and is empty once a scheme is declared. Attendee invoices and credit notes a country policy or a scheme guard refuses are recorded as skipped documents; see [Compliance → Skipped documents](../compliance/index.md#skipped-documents).
 
 ## Platform Billing Settings
 
@@ -233,6 +254,19 @@ Each `TicketTier` has an optional `vat_rate` field. If set, it overrides the org
 | `platform_vat_country` | Platform's VAT country code |
 | `platform_vat_rate` | Platform's domestic VAT rate |
 | `platform_invoice_bcc_email` | BCC address for all outgoing invoices |
+| `einvoice_facturx_enabled` | Embed EN 16931 XML (Factur-X / ZUGFeRD) into eligible attendee invoice PDFs (default on). Off: plain PDFs only. See [E-invoicing](#e-invoicing-factur-x-zugferd-en-16931) |
+
+### Platform revenue on the admin dashboard
+
+`events/service/platform_revenue_service.py` computes Revel's own income for the Django admin
+dashboard: platform fee totals for **Today**, **This week** and **This month** (windows start at
+Europe/Vienna midnight; the week starts Monday) and the membership-fee **MRR**. A fee counts as
+collected when its payment is `SUCCEEDED` or `REFUNDED`, because the platform fee is never refunded;
+`PENDING`, `FAILED` and `VOIDED` rows and zero fees are excluded. Totals are per currency, split into
+net, VAT and gross (rows from before the net/VAT breakdown fall back to gross and are counted as
+legacy). Ticket and series-pass fees come from `Payment`, membership fees from `MembershipPayment`;
+MRR normalizes live (`ACTIVE`/`PAST_DUE`) subscriptions to a 30-day month. Platform fee credit notes
+are not subtracted. The same totals feed the [daily admin recap](notifications.md#daily-admin-recap).
 
 ## Revenue & VAT Reporting
 
@@ -409,11 +443,12 @@ Organizations opt in to attendee invoicing by setting `Organization.invoicing_mo
 | `HYBRID` | `DRAFT` | All fields except seller info | No — manual issue by org admin | Org needs review/control |
 | `AUTO` | `ISSUED` | Immutable | Yes | Hands-off automation |
 
-**Prerequisites** (same as enabling Stripe ticket sales):
+**Prerequisites** (`validate_invoicing_prerequisites` in `attendee_invoice_service.py`; a failure is a `422` listing everything missing). The country must also allow Revel-issued invoices (see [Compliance](../compliance/index.md)):
 
-- EU-based (`vat_country_code` in EU member states)
-- VIES-validated VAT ID
-- `billing_name` and `billing_address` set
+- The seller can be identified. Normally that is an EU `vat_country_code` and a **VIES-validated VAT ID**. A small-business organizer (`small_business_scheme`) must have a scheme that matches its country of establishment: under `at_6_1_27` a format-valid `tax_registration_number` replaces the VAT ID, while `de_19` still needs the validated USt-IdNr. (`small_business_scheme_service.seller_identity_errors`)
+- `billing_name` is set
+- A **complete structured billing address** (street, postal code, city and country). Only turning invoicing on needs it: an organization that already invoices may keep a legacy text address
+- No paid online tier at 0% lacks a VAT exemption reason (tier or organization default). Also only checked when turning invoicing on; later edits are guarded where tiers and the org default change (`zero_rate_guard_service.py`)
 
 Setting to `NONE` is always allowed.
 
@@ -486,6 +521,41 @@ DRAFT → [org edits] → DRAFT → [org issues] → ISSUED → [refund] → CAN
 !!! warning "Attendee invoices vs. platform fee invoices"
     Attendee invoice content is independent of platform fee calculations. If an org edits a draft invoice, it does not affect Revel's platform fee invoices, which are always based on actual `Payment` records.
 
+### E-invoicing (Factur-X / ZUGFeRD EN 16931)
+
+Eligible attendee invoices and credit notes are rendered as **Factur-X / ZUGFeRD EN 16931** PDFs:
+a PDF/A-3 with the CII XML embedded, produced with the `euinvoice` library (#1235).
+
+- **Boundary:** `einvoice_service.facturx_pdf_for(document, render)` is the one entry point.
+  `einvoice_mapping.py` maps the stored invoice snapshot to an EN 16931 draft (every line has
+  quantity 1 and `item_net_price` equal to the stored net) and decides eligibility; `euinvoice`
+  computes the totals, which must agree with ours, and runs its pre-flight checks. Anything that goes
+  wrong, or any ineligible document (a draft, a legacy row, a missing seller VAT ID or tax number,
+  missing country, a mixed out-of-scope line), falls back to the **plain PDF**, so issuing and
+  sending an invoice is never blocked by e-invoicing. `SiteSettings.einvoice_facturx_enabled` turns
+  the XML off globally.
+- **Totals:** `en16931_totals_service.py` keeps the grosses Stripe already charged. EN 16931 derives
+  VAT per `(category, rate)` group, and some grosses are unreachable from any 2-dp net, so the
+  unavoidable cent is booked as the document's rounding amount (BT-114) and
+  `total_net + total_vat + rounding_amount == total_gross` always holds. Rows carry
+  `totals_method` (`legacy` for invoices from before this, `en16931` for new ones).
+- **Line VAT category:** each line stores an EN 16931 category from
+  `events/utils/vat_category.py`: `S` standard, `AE` reverse charge, `E` exempt, `O` out of scope
+  (`G` export survives only on old rows). The exemption text and code come from the tier's or
+  organization's `vat_exemption_reason`.
+- **Line provenance:** each line snapshots a server-issued `line_id`, the `payment_id` it charges and
+  the ticket's `tier_id` (#1242, #1250). Lines an organizer adds to a draft, and lines from before
+  these ids existed, carry none.
+- **Payment means:** `payment_means_service.py` reads the PaymentIntent's latest charge on the
+  organizer's connected account once at generation and stores BT-81/BT-82 (and the card's last four
+  digits) on the invoice; unknown methods fall back to code `ZZZ` ("Paid online via Stripe").
+- **Small-business schemes:** invoices of a scheme organizer (`de_19`, `at_6_1_27`) charge no VAT;
+  every line is category `E` with the statutory note, and the seller is identified by the VAT ID or,
+  under the Austrian scheme, by the tax registration number (BT-32).
+- **Conformance:** the `einvoice_conformance` pytest marker validates the generated XML against the
+  official CEN rules (it needs `python -m euinvoice artifacts fetch`, otherwise it is skipped). It is
+  excluded from the main test job and runs as its own CI job.
+
 ### Credit Notes
 
 Generated on the `charge.refunded` webhook, keyed on the specific [`Refund`](#refunds) row(s) that
@@ -493,19 +563,34 @@ webhook call just applied — not the whole `Payment` — so two separate partia
 payment each produce their own credit note:
 
 - If the invoice is `DRAFT` → delete the draft (nothing was issued)
-- If the invoice is `ISSUED` → create a credit note for `sum(refund.amount)`, with VAT pro-rated per
-  row from the original payment's VAT ratio (`refund.amount × payment.vat_amount / payment.amount`,
-  rounded half-up to the cent)
+- If the invoice is `ISSUED` → create a credit note for `sum(refund.amount)`
 - If total credited across all credit notes ≥ invoice total → mark invoice as `CANCELLED`
+
+A credit note reverses what **the invoice shows**, not what the `Payment` rows say: an organizer may
+have edited a draft's rates, descriptions or reverse-charge flag before issuing it. So the lines are
+copied from the invoice's own lines, matched by the `payment_id` each line snapshots, with their
+rate, category and description, and prorated for a partial refund (`credit_note_lines.py`). The
+payment-based builders in `attendee_invoice_lines.py` (VAT pro-rated per row from the payment's VAT
+ratio, `refund.amount × payment.vat_amount / payment.amount`, rounded half-up to the cent) are only
+the **fallback** for a payment whose invoice carries no line for it (an invoice generated before the
+ids existed, or a line the organizer removed or added by hand).
+
+Totals follow the invoice's `totals_method` (`credit_note_totals.py`): a `legacy` invoice gets the
+old arithmetic; an `en16931` invoice gets **telescoping** per-group totals. For each
+`(category, rate)` group, the cumulative gross credited so far (earlier notes plus this one) is
+turned into a cumulative net and VAT, and the note carries the difference from what earlier notes
+already credited. The group therefore closes exactly when its last cent is credited, whatever the
+refund order, and the notes never add up to more than the invoice (the cumulative cap).
 
 Idempotency is enforced by checking for an existing credit note covering the exact same set of
 refund ids (falling back to the legacy payment-id set for credit notes generated before this
 refund-row-keyed path existed).
 
-!!! note "±1 cent per split"
-    Each `Refund` row's VAT portion is rounded independently, so N partial refunds on the same
-    payment can sum to a cent or two off what a single full refund would have produced. This is an
-    accepted rounding characteristic, not a bug — see `_refund_vat_portion()`.
+!!! note "±1 cent per split (legacy path)"
+    On the payment-based fallback and on `legacy` invoices, each `Refund` row's VAT portion is rounded
+    independently, so N partial refunds on the same payment can sum to a cent or two off what a
+    single full refund would have produced. This is an accepted rounding characteristic, not a bug —
+    see `_refund_vat_portion()`. EN 16931 invoices avoid it through the telescoping totals above.
 
 ### Email Delivery
 
@@ -619,6 +704,26 @@ the charge to its ticket `Payment` row(s), first match wins:
 A Stripe-dashboard refund that matches lands as a `Refund` row with `source=stripe_dashboard` — the
 ticket stays valid until the organizer cancels it separately.
 
+## Disputes
+
+Card disputes (chargebacks) are mirrored record-only, like refunds. `events.models.Dispute`
+(`events/models/dispute.py`) holds one row per Stripe dispute: `stripe_dispute_id` (unique), charge
+and payment-intent ids, amount, currency, `reason`, `status`, `evidence_due_by` and `closed_at`. It
+links to its organization (null when neither the connected account nor a matching `Payment`
+identifies it) and to `Payment` rows by payment-intent id, because one charge can back several
+`Payment` rows in a batch checkout.
+
+The `charge.dispute.created`, `charge.dispute.updated` and `charge.dispute.closed` webhooks all go
+through one idempotent upsert, `DisputeHandlersMixin.handle_charge_dispute`
+(`events/service/stripe_webhook_disputes.py`, #1245). The row is keyed on `stripe_dispute_id` and
+locked while updated; a final status (`won`, `lost`, `prevented`) is never overwritten by a stale
+delivery. Staff get a `staff_payment_disputed` notification
+([transactional, not mandatory](notifications.md#transactional-types-bypass-the-digest)) when a
+dispute is first recorded, when an inquiry (`warning_*`) escalates into a dispute awaiting a
+response, when the organization only becomes known later, and when the dispute closes. Other updates
+are silent. The disputes events must be subscribed on both endpoints; see the
+[webhook endpoints runbook](../runbooks/stripe-webhook-endpoints.md#adding-event-types-to-existing-endpoints).
+
 ## Referral Payout Statements
 
 When referral payouts are disbursed, Revel generates a document for each payout. The document type depends on whether the referrer is a B2B entity (has a validated VAT ID) or a B2C individual.
@@ -693,11 +798,13 @@ Both are configured via environment variables and fall back to `DEFAULT_FROM_EMA
 
 | Task | Schedule | Purpose |
 |---|---|---|
-| `events.generate_monthly_invoices` | 1st of month, 06:00 UTC | Generate invoices + dispatch emails |
+| `events.generate_monthly_invoices` | 1st of month, 02:00 UTC | Generate invoices + dispatch emails |
 | `events.calculate_referral_payouts` | 1st of month, 06:00 UTC | Calculate referral payout amounts |
 | `accounts.process_referral_payouts` | 1st of month, 06:30 UTC | Stripe transfers + statement PDFs + emails |
-| `events.revalidate_vat_ids` | 15th of month, 03:00 UTC | Re-validate all org VAT IDs via VIES |
+| `events.revalidate_vat_ids` | 15th of month, 04:00 UTC | Re-validate all org VAT IDs via VIES |
 | `events.send_scheduled_revenue_reports` | 5th of month, 06:00 UTC | Email the just-closed period's report ZIP to `billing_email` + owner for opted-in orgs (period computed in org timezone; skips empty periods) |
+| `events.notify_skipped_fiscal_documents` | Daily, 07:00 UTC | Digest to owners and staff of invoices and credit notes a country policy made Revel skip |
+| `events.redispatch_undelivered_invoices` | Every 15 min | Backstop: re-dispatch delivery of issued invoices and credit notes whose email was never sent |
 
 Tasks are registered via data migrations.
 

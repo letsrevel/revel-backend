@@ -83,7 +83,7 @@ a territorial ticketing rule applies on `{VENUE}`.
 | Mixin | Effect | Class attributes |
 |---|---|---|
 | `FiscalizedInvoicingMixin` | Blocks Revel-issued attendee invoices for every buyer. | `fiscal_system`; `fiscal_invoicing_applies_on` (default `{ESTABLISHMENT}`); `fiscal_invoicing_from` (default `None`) |
-| `B2BEInvoicingMixin` | Blocks attendee invoices to business buyers (VAT ID valid in VIES or unverifiable). `b2b_buyer_scope`: `DOMESTIC` (same-country VAT ID only, e.g. Belgium) or `ANY_BUSINESS` (e.g. Poland). Applies to `ESTABLISHMENT` only. | `e_invoicing_network`; `b2b_buyer_scope` (default `DOMESTIC`); `e_invoicing_from` (default `None`) |
+| `B2BEInvoicingMixin` | Blocks attendee invoices to business buyers (VAT ID valid in VIES or unverifiable). `b2b_buyer_scope`: `DOMESTIC` (the buyer's VAT country must equal the policy's `country`, e.g. Belgium, France) or `ANY_BUSINESS` (e.g. Poland). Applies to `ESTABLISHMENT` only. | `e_invoicing_network`; `b2b_buyer_scope` (default `DOMESTIC`); `e_invoicing_from` (default `None`) |
 | `CertifiedOnlineTicketingMixin` | Blocks online (Stripe card) payment for paid tickets and series passes. Offline and at-the-door payments, free tickets, RSVPs and memberships are unaffected. | `certified_system`; `online_ticketing_applies_on` (default `{VENUE}`); `online_ticketing_from` (default `None`) |
 
 The system or network attribute is interpolated into the translated refusal message, together with
@@ -94,15 +94,21 @@ article: the translations put it in brackets, as in French "dans ce pays ({count
 
 ### Capabilities are derived
 
-The organization admin API exposes `compliance: {country, attendee_invoicing, online_payment,
-offline_payment}`. These values come from the final methods `attendee_invoicing_capability()`,
+The organization admin API exposes `compliance: {country, region, attendee_invoicing, online_payment,
+offline_payment, notices}` (`region` and `notices` come from the jurisdiction and `organizer_notices`;
+the event object carries `notices` too). The three capabilities values come from the final methods `attendee_invoicing_capability()`,
 `online_payment_capability()` and `offline_payment_capability()` on `CountryCompliancePolicy`, which
 evaluate the hooks for the organization's own country at today's date. **Do not override them**: they
 are derived from the hooks so that they can never disagree with what is enforced, and a future-dated
 restriction reads `allowed` until it starts.
 
-A country with no restriction but with a page and later plans (for example France) can register a
-plain `DefaultEUPolicy` subclass, which gives later layers a place to hook in.
+A country with no restriction yet but with a page and later plans can register a plain
+`DefaultEUPolicy` subclass, which gives later layers a place to hook in.
+
+`attendee_invoicing_capability()` can return `allowed`, `blocked` or `blocked_for_business_buyers`
+(a policy that refuses a domestic business buyer but not a consumer). A fourth value,
+`blocked_for_foreign_buyers`, is not produced by a country policy: `enforcement.event_compliance`
+returns it for a small-business-scheme organizer's virtual event, decided per buyer.
 
 ### Country-specific behaviour
 
@@ -122,7 +128,12 @@ If no mixin fits, override the hooks directly:
   should reach the same sales: `FiscalizedInvoicingMixin.fiscal_invoicing_in_force(nexus)` gives that
   scope.
 
-Return `Decision.block(reason)` with a translated, user-facing reason when refusing.
+Return `Decision.block(reason, code=..., country=...)` with a translated, user-facing reason when
+refusing. `Decision` carries a stable machine `code` and the refusing `country`, which a skipped
+document records (`reason_code`, `policy_country`). For an `attendee_invoicing` refusal, the `code`
+**must equal a `SkippedFiscalDocumentReason` value** (`events/models/skipped_fiscal_document.py`):
+the mixins use `b2b_e_invoicing` and `fiscalized_invoicing`. Adding a new refusal code means adding
+the matching enum value (and a migration for the choices) in the same change.
 
 `extra_ticket_fields` adds country-specific lines to ticket PDFs and wallet passes. The policy has no
 `ticket_fields` method: the module-level `events.compliance.enforcement.ticket_fields(ticket)` builds

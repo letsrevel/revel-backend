@@ -1,12 +1,12 @@
 # Exports
 
-Revel supports asynchronous data exports for attendee lists, questionnaire submissions, and
-revenue & VAT reports. Exports are generated as background Celery tasks, tracked through a
+Revel supports asynchronous data exports for attendee lists, questionnaire submissions, member
+registers, and revenue & VAT reports. Exports are generated as background Celery tasks, tracked through a
 `FileExport` row, and delivered via a time-limited signed download link (and, for some types,
 email).
 
-Not every export is a single `.xlsx`: the attendee and questionnaire exports produce one XLSX
-workbook, while the **revenue & VAT report** is a multi-file **ZIP** (XLSX Summary +
+Not every export is a single `.xlsx`: the attendee, questionnaire and member register exports
+produce one XLSX workbook, while the **revenue & VAT report** is a multi-file **ZIP** (XLSX Summary +
 Transactions, plus a per-VAT-rate PDF). See [Revenue & VAT Export](#revenue-vat-export).
 
 !!! info "Mechanics vs. narrative"
@@ -27,12 +27,12 @@ flowchart LR
 
 ## FileExport Model
 
-The `FileExport` model (`common/models.py`) tracks the lifecycle of every export job:
+The `FileExport` model (`common/models/files.py`) tracks the lifecycle of every export job:
 
 | Field | Description |
 |---|---|
 | `requested_by` | User who requested the export |
-| `export_type` | `questionnaire_submissions`, `attendee_list`, or `revenue_vat_report` |
+| `export_type` | `questionnaire_submissions`, `attendee_list`, `revenue_vat_report`, or `member_register` |
 | `status` | `PENDING` → `PROCESSING` → `READY` or `FAILED` |
 | `file` | `ProtectedFileField` — the generated artifact (a `.xlsx` workbook or a `.zip` bundle), served via HMAC-signed URLs |
 | `parameters` | JSON dict with export-specific inputs (event ID, questionnaire ID, etc.) |
@@ -64,6 +64,26 @@ Generates a workbook with two sheets:
 
 - **Summary** — submission statistics (total, unique users, approved/rejected/pending), score distribution (avg/min/max), pronoun distribution
 - **Submissions** — one row per submission: user info, evaluation status/score/comments, and one column per question (MC options joined with `;`, free-text answers, file upload filenames)
+
+### Member Register Export
+
+**Location:** `events/service/export/member_register_export.py` (task
+`events.tasks.generate_member_register_export_task`, started by `start_member_register_export`
+from `POST /organization-admin/{slug}/member-register/export`; poll `GET /exports/{id}`). The
+register itself is described in [Member register](member-register.md).
+
+`parameters` holds `org_id`, `active_on` (an ISO date or `null`) and `include_merged`. The workbook
+has two sheets:
+
+- **Summary**: organization, generation time, the "Members on" date (in the organization's
+  timezone) or "All records", and counts of total, open, standard and temporary records
+- **Register**: one row per `MembershipRecord`: name, email, kind, tier, valid from/until, ended
+  reason, source, approximate dates, has account, questionnaire, accepted at, created at
+
+With `active_on`, only records overlapping that calendar day (in the organization's timezone) are
+exported, and merged entries are always excluded. Without it, merged entries (absorbed by a
+duplicate merge) are left out unless `include_merged` is set, which adds a **Merged Into** column.
+Enum labels are written in English.
 
 ### Revenue & VAT Export
 
