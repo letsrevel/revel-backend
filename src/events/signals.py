@@ -734,8 +734,9 @@ def sync_member_from_subscription(
     Rules:
     - Never creates an :class:`OrganizationMember`. Creation lives in
       :func:`events.service.subscription.core.create_subscription` for the
-      FREE and OFFLINE flows (OFFLINE holds the person as AWAITING_PAYMENT,
-      activated by ``offline.activate_on_first_payment``), and in
+      FREE and OFFLINE flows (OFFLINE holds a new or CANCELLED person as
+      AWAITING_PAYMENT, activated by ``offline.activate_on_first_payment``;
+      any other existing member is left unchanged), and in
       :func:`events.service.subscription.stripe.sync._ensure_active_member`
       for the ONLINE flow (gated on Stripe's first paid invoice / ``active``
       status, so members don't get tier benefits before paying).
