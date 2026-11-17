@@ -43,7 +43,6 @@ from events.service.blacklist_service import apply_blacklist_consequences, link_
 from events.service.follow_service import get_followers_for_new_event_notification
 from events.service.member_register_linking import notify_membership_granted
 from events.service.potluck_service import release_potluck_claims_unless_entitled, unclaim_user_potluck_items
-from events.service.subscription.offline import is_never_paid_offline
 from events.service.tenant_service import invalidate_tenant_cache, tenant_host_from_origin
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
 from events.tasks import (
@@ -56,6 +55,7 @@ from events.tasks.member_register import auto_link_member_records
 from events.utils import format_event_datetime, get_invitation_message
 from events.utils.frontend_urls import frontend_base_url_for
 from events.utils.reserved_slug_tokens import invalidate_reserved_tokens_cache
+from events.utils.subscription_payment import is_never_paid_offline
 from notifications.enums import NotificationType
 from notifications.service.eligibility import BatchParticipationChecker
 from notifications.signals import notification_requested

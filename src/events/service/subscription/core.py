@@ -34,11 +34,11 @@ from events.service.blacklist_service import check_user_hard_blacklisted
 from events.service.subscription.notifications import _dispatch_renewal_succeeded
 from events.service.subscription.offline import (
     activate_on_first_payment,
-    is_never_paid_offline,
     refuse_blacklisted_first_payment,
 )
 from events.service.subscription.sales import ensure_plan_sales_capacity
 from events.utils.membership_access import banned_memberships
+from events.utils.subscription_payment import is_never_paid_offline
 from events.utils.subscription_periods import calculate_period_end
 
 logger = structlog.get_logger(__name__)

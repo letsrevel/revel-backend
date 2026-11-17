@@ -15,31 +15,15 @@ from events.models import (
     MembershipPayment,
     MembershipRecord,
     MembershipSubscription,
-    MembershipSubscriptionPlan,
     OrganizationMember,
 )
 from events.service import member_register_service
 from events.service.blacklist_service import check_user_hard_blacklisted
 from events.service.member_register_linking import notify_membership_granted
 from events.service.subscription.notifications import _dispatch_renewal_succeeded
+from events.utils.subscription_payment import is_never_paid_offline
 
 logger = structlog.get_logger(__name__)
-
-
-def is_never_paid(subscription: MembershipSubscription) -> bool:
-    """True when the subscription has no SUCCEEDED payment yet."""
-    return not MembershipPayment.objects.filter(
-        subscription=subscription, status=MembershipPayment.PaymentStatus.SUCCEEDED
-    ).exists()
-
-
-def is_never_paid_offline(subscription: MembershipSubscription) -> bool:
-    """True for a PENDING, never-paid subscription on an OFFLINE plan (the one predicate for "first payment")."""
-    return (
-        subscription.status == MembershipSubscription.SubscriptionStatus.PENDING
-        and subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE
-        and is_never_paid(subscription)
-    )
 
 
 def refuse_blacklisted_first_payment(subscription: MembershipSubscription) -> None:

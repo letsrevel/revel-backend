@@ -21,6 +21,7 @@ from events.models import (
     MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
+    OrganizationMember,
     OrganizationMembershipRequest,
     SubscriptionPaymentMethod,
 )
@@ -444,3 +445,22 @@ def test_online_pending_subscription_is_duplicate_not_awaiting(
     _awaiting_sub(user, organization, plan)
     result = _verdict(user, organization, tier, plan)
     assert result.reason_code == MembershipReasonCode.DUPLICATE_ACTIVE_SUBSCRIPTION
+
+
+def test_existing_free_member_awaiting_outranks_sold_out(
+    user: RevelUser, organization: Organization, tier: MembershipTier, offline_plan: MembershipSubscriptionPlan
+) -> None:
+    """A free-tier member awaiting a capped paid tier keeps their slot and still sees the awaiting verdict."""
+    free_tier = MembershipTier.objects.create(organization=organization, name="Free")
+    OrganizationMember.objects.create(
+        organization=organization,
+        user=user,
+        tier=free_tier,
+        status=OrganizationMember.MembershipStatus.ACTIVE,
+    )
+    offline_plan.max_subscriptions = 1
+    offline_plan.save(update_fields=["max_subscriptions"])
+    _awaiting_sub(user, organization, offline_plan)  # fills the cap
+    result = _verdict(user, organization, tier, offline_plan)
+    assert result.allowed is False
+    assert result.reason_code == MembershipReasonCode.AWAITING_OFFLINE_PAYMENT

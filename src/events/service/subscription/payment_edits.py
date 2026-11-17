@@ -21,10 +21,10 @@ from events.models import MembershipPayment, MembershipSubscription, MembershipS
 from events.service.subscription.core import _payment_period, _refuse_lapsed_period, _validate_occurred_at
 from events.service.subscription.offline import (
     activate_on_first_payment,
-    is_never_paid_offline,
     refuse_blacklisted_first_payment,
 )
 from events.utils.membership_payment_rules import edit_refusal, non_voided_payments, period_edit_refusal
+from events.utils.subscription_payment import is_never_paid_offline
 
 logger = structlog.get_logger(__name__)
 

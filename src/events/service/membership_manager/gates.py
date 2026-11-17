@@ -21,6 +21,7 @@ from events.models import (
     WhitelistRequest,
 )
 from events.utils.membership_access import is_eligible_status
+from events.utils.subscription_payment import is_never_paid_offline
 from questionnaires.models import QuestionnaireEvaluation, QuestionnaireSubmission
 from questionnaires.utils.retake_policy import RetakeVerdict, approval_is_stale, evaluate_retake_policy
 
@@ -444,16 +445,19 @@ class PaymentReadyGate(BaseMembershipEligibilityGate):
     *allowing* ``PROCEED_TO_PAYMENT`` verdict — ``/subscribe`` opens Checkout on
     it (OFFLINE plans: opens the awaiting-payment subscription). A never-paid
     offline subscription on this plan blocks first with ``AWAITING_OFFLINE_PAYMENT``.
-    Blocks when the plan is not actually payable (ONLINE org not
+    Blocks when the plan is not actually payable (ONLINE plan with an org not
     Stripe-connected, plan paused or at its sales cap, duplicate non-terminal
     subscription), or when approval is required but the user has nothing on
     file yet (``SUBMIT_APPLICATION``: :class:`ManualApprovalGate` deliberately
     falls through in that state so the free path can apply — the paid path must
     not slip past staff approval through the same hole).
 
+    **OFFLINE plans** are joinable: the member calls ``/subscribe`` and the
+    subscription waits for staff to record the first payment. They skip the
+    Stripe-connected requirement and otherwise follow the ONLINE checks.
+
     **FREE plans** are self-serve like ONLINE ones but involve no Stripe object
-    at all, so they skip both the ``PLAN_NOT_ONLINE`` block and the
-    Stripe-connected requirement. Every other check — sales status, cap,
+    at all, so they skip the Stripe-connected requirement. Every other check — sales status, cap,
     duplicate subscription, the approval annotation — applies to them
     unchanged. They keep the ``PROCEED_TO_PAYMENT`` next step: the frontend
     calls the same ``/subscribe`` endpoint, which simply answers with a null
@@ -462,9 +466,6 @@ class PaymentReadyGate(BaseMembershipEligibilityGate):
 
     def _awaiting_offline_subscription(self) -> MembershipSubscription | None:
         """The user's never-paid offline subscription on this plan, if any (one query, OFFLINE plans only)."""
-        # Lazy: events.service.subscription imports this package (circular at module level).
-        from events.service.subscription.offline import is_never_paid_offline
-
         candidates = MembershipSubscription.objects.filter(
             user=self.user,
             plan=self.plan,
