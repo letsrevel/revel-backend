@@ -186,11 +186,11 @@ All test targets depend on `make compilemessages`, because the i18n tests assert
 | `make tree` | Print the project directory tree (excludes `__pycache__`, images, htmlcov) |
 | `make dump-openapi` | Dump the OpenAPI schema to a file |
 | `make dump-issues` | Export all open GitHub issues to `issues.md` |
-| `make release` | **Legacy**: creates a GitHub release by hand from the current `pyproject.toml` version. Use the release flow below instead |
+| `make release` | Manual fallback: creates the GitHub release `vX.Y.Z` from the current `pyproject.toml` version (`gh release create --generate-notes`). Normally the release workflow below does this |
 
 ## Releases
 
-Releases are PR-driven, not made with `make release`. The `/release` skill reconciles `CHANGELOG.md`, bumps the version with `uv version --bump <part>` (never hand-edit `version` in `pyproject.toml`, so `uv.lock` stays in sync) and opens a `release/vX.Y.Z` PR. When that PR merges, `.github/workflows/release.yaml` tags and creates the GitHub release, which triggers `publish.yaml` to build and push the image.
+Releases are PR-driven; `make release` is only the manual fallback. The `/release` skill reconciles `CHANGELOG.md`, bumps the version with `uv version --bump <part>` (never hand-edit `version` in `pyproject.toml`, so `uv.lock` stays in sync) and opens a `release/vX.Y.Z` PR. When that PR merges, `.github/workflows/release.yaml` tags and creates the GitHub release, which triggers `publish.yaml` to build and push the image.
 
 ## Common Workflows
 
