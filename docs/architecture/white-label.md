@@ -500,7 +500,7 @@ domain in the Django cache: 1 hour for a completed lookup, 5 minutes when the lo
 owner's refresh endpoint calls it on demand. Without Cloudflare configured nothing is provisioned
 and the task is a no-op; staff activate by hand.
 
-**Hostname release** (#1168). A PENDING or FAILED row reserves its hostname against every other
+<a id="hostname-release"></a>**Hostname release** (#1168). A PENDING or FAILED row reserves its hostname against every other
 organization, so the sweep (`events.sync_custom_domains`) ends both, with two service functions the task
 calls after the Cloudflare sync, whether or not Cloudflare is configured. The uniqueness constraint is
 unchanged. Both skip organizations with the kill switch off, as the sync does, and isolate errors per domain.

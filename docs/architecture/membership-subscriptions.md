@@ -198,7 +198,7 @@ Key invariants:
   (`_terminalize_cancelled_row`), so the member is never offered a "revive?"
   CTA for a cancellation they asked for.
 - Subscription tier wins over member tier on the `OrganizationMember` sync
-  signal — see [Member Sync](#member-sync).
+  signal — see [Member Sync](#member-sync-signal).
 - ONLINE subscriptions in PENDING do **not** grant ACTIVE membership. The
   member is only synced ACTIVE once Stripe confirms the first invoice (or
   the Stripe webhook reports `status=active`).

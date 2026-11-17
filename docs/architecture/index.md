@@ -28,16 +28,22 @@ graph LR
 | [Service Layer](service-layer.md) | When to use functions vs. classes, controller integration |
 | [Controllers](controllers.md) | Django Ninja Extra patterns, auth, throttling |
 | [Permissions & Roles](permissions.md) | Organization roles, event-level access control |
+| [Authentication & Sessions](auth-sessions.md) | JWT refresh rotation, logout, revocation, reuse grace, Turnstile, secret-key rotation |
 | [Eligibility Pipeline](eligibility-pipeline.md) | The gate-by-gate system that determines event access |
 | [Membership Eligibility](membership-eligibility.md) | The gate-by-gate pipeline behind joining an organization, with the advance-on-read application state machine |
+| [Recurring Series](recurring-series.md) | Event series templates and generated occurrences |
 | [Advanced Waitlist](waitlist.md) | Batched, time-limited offers with reserved capacity for waitlist members |
 | [Series Passes](series-passes.md) | Season tickets covering every event in a series, with pro-rata pricing |
 | [Protected Files](protected-files.md) | HMAC-signed URLs with Caddy (and why not S3) |
+| [Scheduled Announcements](scheduled-announcements.md) | Organizer announcements queued for later delivery |
 | [Notifications](notifications.md) | Multi-channel delivery: in-app, email, Telegram |
 | [Email Sending & Opt-Out](email-sending.md) | Organization sender, mail users can't opt out of, one-click unsubscribe, per-org mute, suppression list |
 | [File Security](security.md) | EXIF stripping, ClamAV malware scanning, quarantine |
 | [Questionnaires](questionnaires.md) | LLM-powered evaluation, prompt injection protection |
+| [Polls](polls.md) | Organization polls with audience rules and tier targeting |
+| [Content Moderation](moderation.md) | Blocklist guard for user-generated content |
 | [Billing & VAT](billing-and-vat.md) | VAT calculations, VIES validation, invoice generation, PDF rendering |
 | [Membership Subscriptions](membership-subscriptions.md) | Recurring membership billing — OFFLINE/ONLINE hybrid, Stripe Connect, dunning, revival |
+| [Member Register & Day Memberships](member-register.md) | Legal register of membership periods, temporary tiers granted by tickets, private organizer notes |
 | [White-Label](white-label.md) | Tenant resolution, custom-domain lifecycle, dynamic CORS, brand-theme derivation, org-aware URLs and the account-token security rule |
 | [XLSX Exports](exports.md) | Async Excel exports with FileExport lifecycle and email delivery |
