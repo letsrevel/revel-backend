@@ -1,6 +1,6 @@
 {% load i18n %}📝 {% blocktranslate %}<b>New Questionnaire Submission</b>{% endblocktranslate %}
 
-<b>{{ context.submitter_name }}</b> {% trans "submitted" %} <b>{{ context.questionnaire_name }}</b>
+{% blocktranslate with name=context.submitter_name questionnaire=context.questionnaire_name %}<b>{{ name }}</b> submitted the questionnaire <b>{{ questionnaire }}</b>.{% endblocktranslate %}
 
 {% trans "Submitted by:" %} {{ context.submitter_email }}
 {% trans "Organization:" %} {{ context.organization_name }}

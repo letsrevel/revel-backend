@@ -16,3 +16,19 @@ def test_in_app_md_template_uses_the_german_catalog_entry() -> None:
 
 def test_telegram_md_template_uses_the_french_catalog_entry() -> None:
     assert "Rappel : <b>Summer Fest</b> est demain !" in _render("telegram", "fr")
+
+
+def test_whole_sentence_template_is_translated_with_natural_word_order() -> None:
+    """The verb phrase is one msgid, so German puts the organization before the verb (#1400)."""
+    context = {"requester_name": "Ada", "organization_name": "Chess Club", "frontend_url": "https://example.test/r"}
+    with override("de"):
+        rendered = render_to_string("notifications/in_app/membership_request_created.md", {"context": context})
+    assert "**Ada** hat eine Mitgliedschaft bei **Chess Club** beantragt." in rendered
+
+
+def test_contextual_single_word_is_translated() -> None:
+    """Single-word headings carry a msgctxt, and the .po entry matches it."""
+    context = {"event_url": "https://example.test/e", "item_name": "Cake", "event_name": "Fest"}
+    with override("de"):
+        rendered = render_to_string("notifications/in_app/potluck_item_claimed.md", {"context": context})
+    assert "Beansprucht" in rendered

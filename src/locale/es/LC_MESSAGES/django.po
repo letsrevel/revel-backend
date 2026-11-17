@@ -7984,11 +7984,9 @@ msgstr "Mensaje de la organización:"
 msgid "You're Invited"
 msgstr "Tienes una invitación"
 
+msgctxt "link text pointing to the notification's target"
 msgid "View"
 msgstr "Ver"
-
-msgid "requested an invitation to"
-msgstr "ha solicitado una invitación a"
 
 #, python-format
 msgid ""
@@ -8001,9 +7999,6 @@ msgstr ""
 #, python-format
 msgid "You are now a **%(role)s** of **%(org)s**!"
 msgstr "¡Ahora eres **%(role)s** de **%(org)s**!"
-
-msgid "requested to join"
-msgstr "ha solicitado unirse a"
 
 #, python-format
 msgid "**%(org)s** created a new event: **%(event)s**"
@@ -8025,6 +8020,7 @@ msgstr "**%(follower)s** ha empezado a seguir a **%(org)s**."
 msgid "Thank you! Your payment for **%(event)s** has been confirmed. ✅"
 msgstr "¡Gracias! Tu pago para **%(event)s** ha sido confirmado. ✅"
 
+msgctxt "potluck item status: someone claimed it"
 msgid "Claimed"
 msgstr "Reservado"
 
@@ -8039,9 +8035,11 @@ msgstr ""
 "🍽️✅ Nueva aportación **\"%(item)s\"** añadida y reservada para "
 "**%(event)s**."
 
+msgctxt "potluck item status: free to claim again"
 msgid "Available"
 msgstr "Disponible"
 
+msgctxt "potluck item status: details changed"
 msgid "Updated"
 msgstr "Actualizado"
 
@@ -8310,12 +8308,6 @@ msgstr "¡Tu entrada para **%(event)s** ha sido confirmada! 🎉"
 msgid "Your ticket for **%(event)s** has been updated. 🔄"
 msgstr "Tu entrada para **%(event)s** ha sido actualizada. 🔄"
 
-msgid "Spot Available!"
-msgstr "¡Plaza disponible!"
-
-msgid "for"
-msgstr "para"
-
 msgid "Final call — the waitlist has opened to everyone."
 msgstr "Última llamada: la lista de espera se ha abierto para todo el mundo."
 
@@ -8328,9 +8320,6 @@ msgstr "Reserva tu plaza"
 #, python-format
 msgid "Your verification for **%(org)s** has been approved"
 msgstr "Tu verificación para **%(org)s** ha sido aprobada"
-
-msgid "requested verification for"
-msgstr "ha solicitado la verificación de"
 
 #, python-format
 msgid "Your verification for **%(org)s** was not approved"
@@ -8486,9 +8475,6 @@ msgstr "<b>Tu cuestionario %(questionnaire)s no ha sido aprobado.</b>"
 
 msgid "<b>New Questionnaire Submission</b>"
 msgstr "<b>Nuevo envío de cuestionario</b>"
-
-msgid "submitted"
-msgstr "ha enviado"
 
 #, python-format
 msgid "<b>%(user)s</b> has cancelled their RSVP for <b>%(event)s</b>."
@@ -8689,3 +8675,21 @@ msgstr ""
 #, python-format
 msgid "Your verification for **%(org)s** was not approved at this time."
 msgstr "Tu verificación para **%(org)s** no ha sido aprobada por el momento."
+
+msgid "**%(name)s** requested to join **%(org)s**."
+msgstr "**%(name)s** ha solicitado unirse a **%(org)s**."
+
+msgid "**%(email)s** requested an invitation to **%(event)s**."
+msgstr "**%(email)s** ha solicitado una invitación a **%(event)s**."
+
+msgid "**%(name)s** requested verification for **%(org)s**."
+msgstr "**%(name)s** ha solicitado la verificación de **%(org)s**."
+
+msgid "**Spot Available!** for **%(event)s**"
+msgstr "**¡Plaza disponible!** para **%(event)s**"
+
+msgid "<b>Spot Available!</b> for <b>%(event)s</b>"
+msgstr "<b>¡Plaza disponible!</b> para <b>%(event)s</b>"
+
+msgid "<b>%(name)s</b> submitted the questionnaire <b>%(questionnaire)s</b>."
+msgstr "<b>%(name)s</b> ha enviado el cuestionario <b>%(questionnaire)s</b>."

@@ -1,6 +1,6 @@
 {% load i18n %}**{% trans "New Verification Request" %}**
 
-**{{ context.requester_name }}** {% trans "requested verification for" %} **{{ context.organization_name }}**
+{% blocktranslate with name=context.requester_name org=context.organization_name %}**{{ name }}** requested verification for **{{ org }}**.{% endblocktranslate %}
 
 {% trans "Email:" %} {{ context.requester_email }}
 {% trans "Matched Entries:" %} {{ context.matched_entries_count }}

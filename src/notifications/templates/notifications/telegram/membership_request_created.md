@@ -1,6 +1,6 @@
 {% load i18n %}**{% trans "New Membership Request" %}**
 
-**{{ context.requester_name }}** {% trans "requested to join" %} **{{ context.organization_name }}**
+{% blocktranslate with name=context.requester_name org=context.organization_name %}**{{ name }}** requested to join **{{ org }}**.{% endblocktranslate %}
 
 {% trans "Email:" %} {{ context.requester_email }}
 {% if context.tier_name %}{% trans "Tier:" %} {{ context.tier_name }}
