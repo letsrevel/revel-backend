@@ -7,7 +7,6 @@ from unittest import mock
 
 import pytest
 import stripe
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from freezegun import freeze_time
 from ninja.errors import HttpError
@@ -250,41 +249,31 @@ class TestCreateSubscription:
         sub = subscription_lifecycle.create_subscription(plan, subscriber)
         # No initial payment yet: subscription stays PENDING until first record_payment.
         assert sub.status == MembershipSubscription.SubscriptionStatus.PENDING
-        # The signal still syncs the member to ACTIVE (PENDING maps to ACTIVE).
+        # The member is held at the plan's tier until the first payment activates it.
         member = OrganizationMember.objects.get(organization=plan.tier.organization, user=subscriber)
         assert member.tier_id == tier.pk
-        assert member.status == OrganizationMember.MembershipStatus.ACTIVE
+        assert member.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT
 
-    def test_survives_lost_member_creation_race(
+    def test_cancelled_member_is_held_awaiting_at_plan_tier(
         self,
         plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
         organization: Organization,
         tier: MembershipTier,
     ) -> None:
-        """A membership row committed concurrently must not 500 the OFFLINE subscribe.
-
-        ``(organization, user)`` is unique and ``TimeStampedModel.save`` runs
-        ``full_clean``, so a row created between our lookup and our INSERT surfaces
-        as ``ValidationError`` — which Django's ``update_or_create`` does not absorb.
-        """
+        """An existing CANCELLED row is reused (``(organization, user)`` is unique), not duplicated."""
         existing = OrganizationMember.objects.create(
             organization=organization,
             user=subscriber,
             status=OrganizationMember.MembershipStatus.CANCELLED,
         )
 
-        with mock.patch.object(
-            OrganizationMember.objects,
-            "update_or_create",
-            side_effect=DjangoValidationError("Organization member with this Organization and User already exists."),
-        ):
-            sub = subscription_lifecycle.create_subscription(plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(plan, subscriber)
 
         assert sub.status == MembershipSubscription.SubscriptionStatus.PENDING
         existing.refresh_from_db()
         assert existing.tier_id == tier.pk
-        assert existing.status == OrganizationMember.MembershipStatus.ACTIVE
+        assert existing.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT
 
     def test_refuses_when_user_banned(
         self,

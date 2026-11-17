@@ -306,6 +306,9 @@ def advance_application(
     a fresh verdict computed against the current state (still useful for the
     response payload), but no state mutation is performed.
     """
+    # lazy: events.service.subscription imports this package (membership_manager) at import time.
+    from events.service.subscription.offline import open_offline_subscription
+
     with transaction.atomic():
         # Re-fetch under lock so we never miss a concurrent update.
         # ``of=("self",)`` so FOR UPDATE locks only the OMR row — the nullable FK joins
@@ -338,11 +341,22 @@ def advance_application(
         if application.status == OrganizationMembershipRequest.Status.PENDING and eligibility.allowed:
             if application.plan_id is None and application.tier_id is not None:
                 _complete_free_application(application)
-            elif application.plan_id is not None:
-                # Paid path: APPROVED awaiting payment via /subscribe; the Stripe
-                # activation settles the row COMPLETED.
-                application.status = OrganizationMembershipRequest.Status.APPROVED
-                application.save(update_fields=["status", "updated_at"])
+            elif application.plan is not None:
+                if application.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+                    # Opens the awaiting-payment subscription and links/approves the row; the verdict
+                    # is recomputed so the caller sees WAIT_FOR_OFFLINE_PAYMENT, not allowed-with-no-step.
+                    open_offline_subscription(application.plan, application.user, application=application)
+                    eligibility = MembershipEligibilityService(
+                        user=application.user,
+                        organization=application.organization,
+                        tier=application.tier,
+                        plan=application.plan,
+                    ).check_eligibility()
+                else:
+                    # Paid path: APPROVED awaiting payment via /subscribe; the Stripe
+                    # activation settles the row COMPLETED.
+                    application.status = OrganizationMembershipRequest.Status.APPROVED
+                    application.save(update_fields=["status", "updated_at"])
             # else: tier-less, plan-less application → stays PENDING until staff approves
             # (legacy /membership-requests path).
 

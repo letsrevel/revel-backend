@@ -11,16 +11,22 @@ from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
+from accounts.models import RevelUser
 from events.models import (
     MembershipPayment,
     MembershipRecord,
     MembershipSubscription,
+    MembershipSubscriptionPlan,
     OrganizationMember,
+    OrganizationMembershipRequest,
 )
 from events.service import member_register_service
 from events.service.blacklist_service import check_user_hard_blacklisted
 from events.service.member_register_linking import notify_membership_granted
-from events.service.subscription.notifications import _dispatch_renewal_succeeded
+from events.service.subscription.notifications import (
+    _dispatch_renewal_succeeded,
+    dispatch_membership_payment_requested,
+)
 from events.utils.subscription_payment import is_never_paid_offline
 
 logger = structlog.get_logger(__name__)
@@ -87,3 +93,44 @@ def activate_on_first_payment(subscription: MembershipSubscription, *, send_rece
                 currency=payment.currency if payment else "",
             )
     settle_originating_application(subscription)
+
+
+@transaction.atomic
+def open_offline_subscription(
+    plan: MembershipSubscriptionPlan,
+    user: RevelUser,
+    *,
+    application: OrganizationMembershipRequest | None = None,
+) -> MembershipSubscription:
+    """Open (or return) the PENDING subscription of a user joining an OFFLINE plan, and ask them to pay.
+
+    Idempotent: a never-paid subscription the user already holds on this plan is returned as is
+    (no second subscription, no second MEMBERSHIP_PAYMENT_REQUESTED). Otherwise
+    :func:`create_subscription` creates it and holds the person as ``AWAITING_PAYMENT``.
+
+    When ``application`` is given it is linked to the subscription and ends APPROVED.
+    """
+    # lazy: subscription.core imports this module.
+    from events.service.subscription.core import create_subscription
+
+    if plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+        raise ValueError("open_offline_subscription requires an OFFLINE plan")
+    subscription = (
+        MembershipSubscription.objects.filter(user=user, organization_id=plan.tier.organization_id, plan=plan)
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .first()
+    )
+    created = subscription is None or not is_never_paid_offline(subscription)
+    if created:
+        subscription = create_subscription(plan, user)
+    assert subscription is not None  # noqa: S101
+    if application is not None and (
+        application.subscription_id != subscription.pk
+        or application.status != OrganizationMembershipRequest.Status.APPROVED
+    ):
+        application.subscription = subscription
+        application.status = OrganizationMembershipRequest.Status.APPROVED
+        application.save(update_fields=["subscription", "status", "updated_at"])
+    if created:
+        transaction.on_commit(lambda: dispatch_membership_payment_requested(subscription))
+    return subscription

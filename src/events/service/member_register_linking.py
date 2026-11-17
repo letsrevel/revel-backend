@@ -97,6 +97,10 @@ def _make_access_row_agree(
         member.save(update_fields=["status", "tier", "updated_at"])
         transaction.on_commit(lambda: notify_membership_granted(member))
         return member
+    if member.status == Status.AWAITING_PAYMENT:
+        # Held until the first payment: the claim keeps the linked record open and never touches the access row
+        # (a save would make the mirror close the record). Activation reconciles tier and entry.
+        return member
     # Legacy member without an open record (ACTIVE/PAUSED): keep tier and status, let the mirror reconcile.
     member.save(update_fields=["updated_at"])
     return member

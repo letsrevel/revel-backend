@@ -127,6 +127,22 @@ def _refuse_lapsed_period(period_end: datetime.datetime | None, now: datetime.da
         )
 
 
+def _hold_member_awaiting_payment(plan: MembershipSubscriptionPlan, user: RevelUser) -> None:
+    """Make sure an OFFLINE joiner has an access row: AWAITING_PAYMENT when new or CANCELLED, else untouched."""
+    organization = plan.tier.organization
+    Status = OrganizationMember.MembershipStatus
+    with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
+        member, created = get_or_create_with_race_protection(
+            OrganizationMember,
+            Q(organization=organization, user=user),
+            {"organization": organization, "user": user, "tier": plan.tier, "status": Status.AWAITING_PAYMENT},
+        )
+        if not created and member.status == Status.CANCELLED:
+            member.status = Status.AWAITING_PAYMENT
+            member.tier = plan.tier
+            member.save(update_fields=["status", "tier", "updated_at"])
+
+
 @transaction.atomic
 def create_subscription(
     plan: MembershipSubscriptionPlan,
@@ -172,10 +188,11 @@ def create_subscription(
     # ONLINE plans gate ACTIVE membership on the first successful Stripe payment,
     # so we don't grant tier benefits up front: that work moves into the
     # ``invoice.paid`` / ``customer.subscription.updated`` webhook handlers.
-    # OFFLINE and FREE plans have no Stripe payment to wait for, so the member
-    # is materialized here — for FREE that is the *only* place it can happen.
+    # OFFLINE plans hold the person as AWAITING_PAYMENT until the first recorded payment
+    # (``activate_on_first_payment``); an existing member keeps their tier and status until then.
+    # FREE plans have nothing to wait for, so the member is materialized ACTIVE here.
     is_free = plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.FREE
-    if plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+    if is_free:
         with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
             update_or_create_with_race_protection(
                 OrganizationMember,
@@ -185,6 +202,8 @@ def create_subscription(
                     "status": OrganizationMember.MembershipStatus.ACTIVE,
                 },
             )
+    elif plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+        _hold_member_awaiting_payment(plan, user)
 
     # The partial-unique index protects against a race where two requests both
     # pass the duplicate check above; the helper re-fetches the winner whether

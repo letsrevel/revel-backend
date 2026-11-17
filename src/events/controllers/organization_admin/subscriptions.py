@@ -26,6 +26,7 @@ from events.service.subscription import refunds as subscription_refunds
 from events.service.subscription import reporting as subscription_reporting
 from events.service.subscription import uncancel as subscription_uncancel
 from events.service.subscription.lifecycle import InitialPayment
+from events.service.subscription.offline import open_offline_subscription
 from events.utils.membership_payment_rules import with_latest_payment_id
 from oauth.permissions import RequireScope
 
@@ -357,7 +358,11 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
                 occurred_at=payload.initial_payment_occurred_at,
             )
 
-        subscription = subscription_lifecycle.create_subscription(plan, user, initial_payment=initial)
+        if initial is None and plan.payment_method == models.MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+            # Held as AWAITING_PAYMENT; the person is asked to pay (MEMBERSHIP_PAYMENT_REQUESTED).
+            subscription = open_offline_subscription(plan, user)
+        else:
+            subscription = subscription_lifecycle.create_subscription(plan, user, initial_payment=initial)
         return 201, subscription
 
     @route.get(

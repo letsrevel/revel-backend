@@ -93,6 +93,7 @@ class MeMembershipApplicationsController(UserAwareController):
         # (``MembershipApplicationIneligibleError`` — see events/exception_handlers).
         # The frontend branches on the latter to re-render the join CTA.
         response={
+            200: schema.ApplyResponseSchema,
             201: schema.ApplyResponseSchema,
             400: schema.MembershipEligibilitySchema | ErrorDetail,
             404: ErrorDetail,
@@ -148,6 +149,24 @@ class MeMembershipApplicationsController(UserAwareController):
         # means those rows permanently block deleting the tier.
         if preview.next_step == MembershipNextStep.ALREADY_MEMBER:
             raise HttpError(409, _(Reasons.ALREADY_ACTIVE_MEMBER))
+
+        # Already holding an awaiting-payment subscription for this plan: nothing to apply for.
+        # Answer with the linked application if there is one (no new row, no staff re-notification).
+        if preview.next_step == MembershipNextStep.WAIT_FOR_OFFLINE_PAYMENT:
+            linked = (
+                OrganizationMembershipRequest.objects.filter(pk=preview.application_id).first()
+                if preview.application_id
+                else None
+            )
+            if linked is None:
+                raise HttpError(409, preview.reason or _(Reasons.AWAITING_OFFLINE_PAYMENT))
+            return 200, t.cast(
+                schema.ApplyResponseSchema,
+                {
+                    "application": linked,
+                    "eligibility": schema.MembershipEligibilitySchema.from_eligibility(preview),
+                },
+            )
 
         application, eligibility = apply_for_membership(
             user=user,

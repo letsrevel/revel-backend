@@ -45,6 +45,7 @@ if t.TYPE_CHECKING:
 # cannot be renamed without breaking historical migrations.
 from events.models.organization import _get_default_permissions
 from events.service import blacklist_service, member_register_service
+from events.service.subscription.offline import open_offline_subscription
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 
@@ -264,6 +265,26 @@ def _link_register_entry_to_applicant(
     transfer_record_note(locked, to_user_id=applicant.pk)
 
 
+def _approve_paid_application(
+    membership_request: models.OrganizationMembershipRequest,
+    plan: models.MembershipSubscriptionPlan,
+    effective_tier: MembershipTier,
+) -> None:
+    """Paid path: mark the application APPROVED.
+
+    ONLINE awaits the member's /subscribe + checkout; OFFLINE opens the awaiting-payment subscription
+    now (capacity/sales HttpErrors raise before any write).
+    """
+    if plan.payment_method == models.MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+        open_offline_subscription(plan, membership_request.user, application=membership_request)
+    membership_request.status = models.OrganizationMembershipRequest.Status.APPROVED
+    update_fields = ["status", "decided_by"]
+    if membership_request.tier_id is None:
+        membership_request.tier = effective_tier
+        update_fields.append("tier")
+    membership_request.save(update_fields=update_fields)
+
+
 @transaction.atomic
 def approve_membership_request(
     membership_request: models.OrganizationMembershipRequest,
@@ -283,9 +304,12 @@ def approve_membership_request(
 
     Behavior:
     - Application carries no plan → COMPLETED + OrganizationMember created at the chosen tier.
-    - Application carries a plan → APPROVED; the member then pays via
+    - Application carries an ONLINE plan → APPROVED; the member then pays via
       ``POST /subscribe`` (which re-runs the gates), and the Stripe activation
       settles the row COMPLETED. No membership is granted here.
+    - Application carries an OFFLINE plan → APPROVED and linked to a freshly opened PENDING
+      subscription (the member is held as AWAITING_PAYMENT); the first recorded payment
+      activates it. A capacity/sales refusal raises 400 and leaves the application PENDING.
 
     Args:
         membership_request: The application to approve.
@@ -309,8 +333,9 @@ def approve_membership_request(
     _assert_link_fits_application(membership_request, link_record)
 
     membership_request.decided_by = decided_by
+    plan = membership_request.plan
 
-    if membership_request.plan_id is None:
+    if plan is None:
         _assert_free_grant_allowed(membership_request, force=force)
         if link_record is not None:
             _link_register_entry_to_applicant(link_record, membership_request)
@@ -328,24 +353,18 @@ def approve_membership_request(
             models.MembershipRecord.Source.APPLICATION,
             questionnaire_submission=membership_request.questionnaire_submission,
         ):
-            member, created = update_or_create_with_race_protection(
+            member, _created = update_or_create_with_race_protection(
                 models.OrganizationMember,
                 {"organization": membership_request.organization, "user": membership_request.user},
                 {"tier": effective_tier, "status": OrganizationMember.MembershipStatus.ACTIVE},
             )
         member.full_clean()
     else:
-        # Paid path: mark APPROVED, awaiting the member's /subscribe + payment.
-        membership_request.status = models.OrganizationMembershipRequest.Status.APPROVED
-        update_fields = ["status", "decided_by"]
-        if membership_request.tier_id is None:
-            membership_request.tier = effective_tier
-            update_fields.append("tier")
-        membership_request.save(update_fields=update_fields)
-        created = False  # don't fire MEMBERSHIP_GRANTED on the paid branch yet
+        _approve_paid_application(membership_request, plan, effective_tier)
 
     def send_approval_notification() -> None:
         frontend_base_url = frontend_base_url_for(membership_request.organization)
+        path = "membership" if membership_request.plan_id is not None else ""
         notification_requested.send(
             sender=models.OrganizationMembershipRequest,
             user=membership_request.user,
@@ -353,11 +372,14 @@ def approve_membership_request(
             context={
                 "organization_id": str(membership_request.organization_id),
                 "organization_name": membership_request.organization.name,
-                "frontend_url": f"{frontend_base_url}/org/{membership_request.organization.slug}",
+                "frontend_url": f"{frontend_base_url}/org/{membership_request.organization.slug}/{path}".rstrip("/"),
             },
         )
 
-    if created or membership_request.plan_id is None:
+    # OFFLINE paid approvals are announced by MEMBERSHIP_PAYMENT_REQUESTED instead.
+    offline = models.MembershipSubscriptionPlan.PaymentMethod.OFFLINE
+    is_offline_paid = plan is not None and plan.payment_method == offline
+    if not is_offline_paid:
         transaction.on_commit(send_approval_notification)
 
 

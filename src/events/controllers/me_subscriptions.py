@@ -157,7 +157,7 @@ class MeSubscriptionsController(UserAwareController):
         org_id: UUID,
         payload: schema.SubscribeRequestSchema,
     ) -> tuple[int, schema.SubscribeResponseSchema]:
-        """Subscribe to an ONLINE (Stripe) or FREE (self-serve) membership plan.
+        """Subscribe to an ONLINE (Stripe), OFFLINE (pay the organization) or FREE (self-serve) membership plan.
 
         Runs the full membership eligibility gate stack first — a questionnaire
         or manual-approval requirement on the tier must be satisfied before
@@ -168,6 +168,11 @@ class MeSubscriptionsController(UserAwareController):
         for payment; when the caller has an application on file (the gated
         flow), the created subscription is linked to it so the Stripe
         activation can settle it COMPLETED.
+
+        For an OFFLINE plan ``checkout_url`` is ``null`` and the subscription is
+        ``pending``: the member is held as ``awaiting_payment`` and told how to pay
+        the organization directly; the first payment staff record activates it.
+        Repeating the call returns the same subscription (201, no second notification).
 
         For a FREE plan there is nothing to pay: ``checkout_url`` is ``null``,
         the subscription is already ACTIVE with no period end (FREE plans are
