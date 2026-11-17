@@ -48,7 +48,8 @@ _SCOPE = SimpleNamespace(
         name="Test Org",
         billing_name="Test Org e.U.",
         vat_id="ATU12345678",
-        billing_address="Testgasse 1\n1010 Wien",
+        # The template calls Organization.billing_address_text(); a callable mimics the method.
+        billing_address_text=lambda: "Testgasse 1\n1010 Wien",
     ),
 )
 
@@ -107,3 +108,10 @@ def test_revenue_report_no_legacy_accents() -> None:
     html = render_to_string("reports/revenue_vat_report.html", _CTX)
     for legacy in LEGACY_BRAND_HEXES:
         assert legacy not in html, f"Still contains legacy accent {legacy}"
+
+
+@pytest.mark.django_db
+def test_revenue_report_shows_org_billing_address() -> None:
+    """The header prints the organization's billing address (``billing_address_text``), line breaks kept."""
+    html = render_to_string("reports/revenue_vat_report.html", _CTX)
+    assert "Testgasse 1<br>1010 Wien" in html
