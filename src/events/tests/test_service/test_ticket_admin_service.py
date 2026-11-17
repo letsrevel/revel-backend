@@ -269,6 +269,67 @@ def test_check_online_tier_prerequisites_passes_when_billing_complete(organizati
     ticket_service.check_online_tier_prerequisites(organization, TicketTier.PaymentMethod.ONLINE)
 
 
+def test_check_online_tier_prerequisites_passes_with_structured_billing_only(organization: Organization) -> None:
+    """A complete structured billing address satisfies the check when the legacy free-text address is empty."""
+    organization.stripe_account_id = "acct_test"
+    organization.stripe_charges_enabled = True
+    organization.stripe_details_submitted = True
+    organization.billing_name = "Acme Ltd"
+    organization.billing_address = ""
+    organization.billing_address_line1 = "Via Roma 1"
+    organization.billing_postal_code = "00184"
+    organization.billing_city = "Roma"
+    organization.billing_country_code = "IT"
+    organization.vat_country_code = "IT"
+    organization.save(
+        update_fields=[
+            "stripe_account_id",
+            "stripe_charges_enabled",
+            "stripe_details_submitted",
+            "billing_name",
+            "billing_address",
+            "billing_address_line1",
+            "billing_postal_code",
+            "billing_city",
+            "billing_country_code",
+            "vat_country_code",
+        ]
+    )
+
+    ticket_service.check_online_tier_prerequisites(organization, TicketTier.PaymentMethod.ONLINE)
+
+
+def test_check_online_tier_prerequisites_raises_with_incomplete_structured_billing(organization: Organization) -> None:
+    """An incomplete structured billing address with an empty legacy address still raises BillingInfoRequiredError."""
+    organization.stripe_account_id = "acct_test"
+    organization.stripe_charges_enabled = True
+    organization.stripe_details_submitted = True
+    organization.billing_name = "Acme Ltd"
+    organization.billing_address = ""
+    organization.billing_address_line1 = "Via Roma 1"
+    organization.billing_postal_code = ""
+    organization.billing_city = ""
+    organization.billing_country_code = ""
+    organization.vat_country_code = "IT"
+    organization.save(
+        update_fields=[
+            "stripe_account_id",
+            "stripe_charges_enabled",
+            "stripe_details_submitted",
+            "billing_name",
+            "billing_address",
+            "billing_address_line1",
+            "billing_postal_code",
+            "billing_city",
+            "billing_country_code",
+            "vat_country_code",
+        ]
+    )
+
+    with pytest.raises(BillingInfoRequiredError):
+        ticket_service.check_online_tier_prerequisites(organization, TicketTier.PaymentMethod.ONLINE)
+
+
 # ---- start_attendee_export ---------------------------------------------------
 
 

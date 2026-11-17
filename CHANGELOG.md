@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Structured billing address counts for online sales**: an organization that filled in only the structured billing address (street, postal code, city, country) could not create online ticket tiers or subscription plans, because the check still required the old free-text address. Either address now satisfies it. The monthly platform-fee invoice and the revenue/VAT report print the structured address when the free-text one is empty, instead of leaving it blank.
+
 ## [2.38.0] - 2026-11-17
 
 ### Added

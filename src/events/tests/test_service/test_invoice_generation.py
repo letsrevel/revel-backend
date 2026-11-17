@@ -270,6 +270,47 @@ class TestGenerateInvoicesForPeriod:
         assert inv.org_address == "Musterstr. 1, 10115 Berlin"
 
     @patch("common.service.invoice_utils.HTML")
+    def test_snapshots_structured_billing_address_when_legacy_empty(
+        self,
+        mock_html_cls: MagicMock,
+        org: Organization,
+        gen_event: Event,
+        tier: TicketTier,
+        buyer: RevelUser,
+        site_settings: SiteSettings,
+    ) -> None:
+        """With no legacy free-text address, the snapshot uses the formatted structured billing address."""
+        mock_html_cls.return_value.write_pdf.return_value = None
+        org.billing_address = ""
+        org.billing_address_line1 = "Musterstr. 1"
+        org.billing_postal_code = "10115"
+        org.billing_city = "Berlin"
+        org.billing_country_code = "DE"
+        org.save(
+            update_fields=[
+                "billing_address",
+                "billing_address_line1",
+                "billing_postal_code",
+                "billing_city",
+                "billing_country_code",
+            ]
+        )
+        ticket = _create_ticket(gen_event, tier, buyer, suffix="_struct")
+        _create_payment(
+            ticket=ticket,
+            user=buyer,
+            platform_fee=Decimal("3.00"),
+            platform_fee_net=Decimal("3.00"),
+            platform_fee_vat=Decimal("0.00"),
+            created_at=timezone.make_aware(datetime(2026, 2, 10, 12, 0)),
+        )
+
+        invoices = generate_invoices_for_period(date(2026, 2, 1), date(2026, 2, 28))
+
+        assert len(invoices) == 1
+        assert invoices[0].org_address == "Musterstr. 1, 10115 Berlin, DE"
+
+    @patch("common.service.invoice_utils.HTML")
     def test_snapshots_platform_data(
         self,
         mock_html_cls: MagicMock,

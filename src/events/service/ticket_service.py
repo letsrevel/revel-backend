@@ -544,7 +544,7 @@ def check_online_payment_prerequisites(org: "Organization") -> None:
         raise StripeNotConnectedError
 
     has_platform_fees = org.platform_fee_percent > 0 or org.platform_fee_fixed > 0
-    missing_billing = not org.vat_country_code or not org.billing_address or not org.billing_name
+    missing_billing = not org.vat_country_code or not org.billing_address_text() or not org.billing_name
     if has_platform_fees and missing_billing:
         raise BillingInfoRequiredError
 
