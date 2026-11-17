@@ -8033,3 +8033,749 @@ msgstr "Votre demande d'adhésion auprès de %(org)s a été annulée"
 
 msgid "Your memberships"
 msgstr "Vos adhésions"
+
+#, python-format
+msgid "❌ **%(event)s** has been cancelled."
+msgstr "❌ **%(event)s** a été annulé."
+
+#, python-format
+msgid "**%(org)s** has published a new event: **%(event)s**!"
+msgstr "**%(org)s** a publié un nouvel événement : **%(event)s** !"
+
+#, python-format
+msgid ""
+"%(active)s tickets were still not cancelled when this summary was sent — "
+"check the event's ticket admin."
+msgstr ""
+"Au moment de l'envoi de ce récapitulatif, %(active)s tickets n'étaient "
+"toujours pas annulés. Vérifie la gestion des tickets de l'événement."
+
+#, python-format
+msgid "Reminder: **%(event)s** is tomorrow!"
+msgstr "Rappel : **%(event)s** est demain !"
+
+#, python-format
+msgid "Reminder: **%(event)s** is in **%(days)s days**"
+msgstr "Rappel : **%(event)s** a lieu dans **%(days)s jours**"
+
+#, python-format
+msgid "**%(follower)s** started following **%(series)s**."
+msgstr "**%(follower)s** a commencé à suivre **%(series)s**."
+
+#, python-format
+msgid "Important update about **%(event)s**"
+msgstr "Mise à jour importante concernant **%(event)s**"
+
+msgid "Message from Organizers:"
+msgstr "Message de l'organisation :"
+
+msgid "You're Invited"
+msgstr "Tu as reçu une invitation"
+
+msgid "View"
+msgstr "Voir"
+
+msgid "requested an invitation to"
+msgstr "a demandé une invitation à"
+
+#, python-format
+msgid ""
+"Your membership tier in **%(org)s** changed to **%(tier)s**. Re-add your "
+"wallet card to see the update."
+msgstr ""
+"Ton niveau d'adhésion chez **%(org)s** est passé à **%(tier)s**. Ajoute à "
+"nouveau ta carte à ton wallet pour voir la mise à jour."
+
+#, python-format
+msgid "You are now a **%(role)s** of **%(org)s**!"
+msgstr "Tu es maintenant **%(role)s** de **%(org)s** !"
+
+msgid "requested to join"
+msgstr "a demandé à rejoindre"
+
+#, python-format
+msgid "**%(org)s** created a new event: **%(event)s**"
+msgstr "**%(org)s** a créé un nouvel événement : **%(event)s**"
+
+#, python-format
+msgid "New event in **%(series)s**: **%(event)s**"
+msgstr "Nouvel événement dans **%(series)s** : **%(event)s**"
+
+#, python-format
+msgid "**%(sender)s** sent a message to **%(org)s**."
+msgstr "**%(sender)s** a envoyé un message à **%(org)s**."
+
+#, python-format
+msgid "**%(follower)s** started following **%(org)s**."
+msgstr "**%(follower)s** a commencé à suivre **%(org)s**."
+
+#, python-format
+msgid "Thank you! Your payment for **%(event)s** has been confirmed. ✅"
+msgstr "Merci ! Ton paiement pour **%(event)s** a été confirmé. ✅"
+
+msgid "Claimed"
+msgstr "Réservé"
+
+#, python-format
+msgid "🍽️ New potluck item **\"%(item)s\"** added to **%(event)s**."
+msgstr "🍽️ Nouvelle contribution **\"%(item)s\"** ajoutée à **%(event)s**."
+
+#, python-format
+msgid ""
+"🍽️✅ New potluck item **\"%(item)s\"** added and claimed for **%(event)s**."
+msgstr ""
+"🍽️✅ Nouvelle contribution **\"%(item)s\"** ajoutée et réservée pour "
+"**%(event)s**."
+
+msgid "Available"
+msgstr "Disponible"
+
+msgid "Updated"
+msgstr "Mis à jour"
+
+#, python-format
+msgid ""
+"Your questionnaire **%(questionnaire)s** for **%(event)s** has been "
+"approved!"
+msgstr ""
+"Ton questionnaire **%(questionnaire)s** pour **%(event)s** a été approuvé "
+"!"
+
+#, python-format
+msgid "Your questionnaire **%(questionnaire)s** has been approved!"
+msgstr "Ton questionnaire **%(questionnaire)s** a été approuvé !"
+
+#, python-format
+msgid ""
+"Your questionnaire **%(questionnaire)s** for **%(event)s** was not "
+"approved."
+msgstr ""
+"Ton questionnaire **%(questionnaire)s** pour **%(event)s** n'a pas été "
+"approuvé."
+
+#, python-format
+msgid "Your questionnaire **%(questionnaire)s** was not approved."
+msgstr "Ton questionnaire **%(questionnaire)s** n'a pas été approuvé."
+
+#, python-format
+msgid "**%(name)s** submitted the questionnaire **%(questionnaire)s**."
+msgstr "**%(name)s** a soumis le questionnaire **%(questionnaire)s**."
+
+#, python-format
+msgid "**%(user)s** has cancelled their RSVP for **%(event)s**."
+msgstr "**%(user)s** a annulé sa réponse pour **%(event)s**."
+
+#, python-format
+msgid "Your RSVP for **%(event)s** has been cancelled. ❌"
+msgstr "Ta réponse pour **%(event)s** a été annulée. ❌"
+
+#, python-format
+msgid "**%(user)s** has RSVP'd **%(response)s** for **%(event)s**."
+msgstr "**%(user)s** a répondu **%(response)s** pour **%(event)s**."
+
+msgid "RSVP ID:"
+msgstr "ID de la réponse :"
+
+#, python-format
+msgid "Your RSVP (**%(response)s**) for **%(event)s** has been confirmed! ✅"
+msgstr "Ta réponse (**%(response)s**) pour **%(event)s** a été confirmée ! ✅"
+
+#, python-format
+msgid ""
+"**%(user)s** changed RSVP from **%(old)s** to **%(new)s** for "
+"**%(event)s**."
+msgstr ""
+"**%(user)s** a changé sa réponse de **%(old)s** à **%(new)s** pour "
+"**%(event)s**."
+
+#, python-format
+msgid "**%(user)s** updated their RSVP note for **%(event)s**."
+msgstr "**%(user)s** a mis à jour sa note de réponse pour **%(event)s**."
+
+#, python-format
+msgid "Your RSVP for **%(event)s** updated from **%(old)s** to **%(new)s**. 🔄"
+msgstr ""
+"Ta réponse pour **%(event)s** est passée de **%(old)s** à **%(new)s**. 🔄"
+
+#, python-format
+msgid "%(counter)s new event scheduled for **%(series)s**"
+msgid_plural "%(counter)s new events scheduled for **%(series)s**"
+msgstr[0] "%(counter)s nouvel événement prévu pour **%(series)s**"
+msgstr[1] "%(counter)s nouveaux événements prévus pour **%(series)s**"
+
+#, python-format
+msgid ""
+"Your series pass **%(pass_name)s** for **%(series)s** has been cancelled."
+msgstr "Ton pass de série **%(pass_name)s** pour **%(series)s** a été annulé."
+
+#, python-format
+msgid ""
+"A refund of **%(amount)s %(currency)s** will be processed within 5-10 "
+"business days."
+msgstr ""
+"Un remboursement de **%(amount)s %(currency)s** sera traité sous 5 à 10 "
+"jours ouvrés."
+
+#, python-format
+msgid ""
+"Your series pass **%(pass_name)s** for **%(series)s** now covers "
+"%(counter)s new event."
+msgid_plural ""
+"Your series pass **%(pass_name)s** for **%(series)s** now covers "
+"%(counter)s new events."
+msgstr[0] ""
+"Ton pass de série **%(pass_name)s** pour **%(series)s** couvre maintenant "
+"%(counter)s nouvel événement."
+msgstr[1] ""
+"Ton pass de série **%(pass_name)s** pour **%(series)s** couvre maintenant "
+"%(counter)s nouveaux événements."
+
+#, python-format
+msgid "Your series pass **%(pass_name)s** for **%(series)s** is now active."
+msgstr ""
+"Ton pass de série **%(pass_name)s** pour **%(series)s** est maintenant "
+"actif."
+
+#, python-format
+msgid ""
+"The series pass **%(pass_name)s** for **%(series)s** held by "
+"**%(holder)s** has been cancelled."
+msgstr ""
+"Le pass de série **%(pass_name)s** pour **%(series)s** détenu par "
+"**%(holder)s** a été annulé."
+
+#, python-format
+msgid ""
+"A refund of **%(amount)s %(currency)s** has been issued to the pass "
+"holder."
+msgstr ""
+"Un remboursement de **%(amount)s %(currency)s** a été effectué à la "
+"personne titulaire du pass."
+
+#, python-format
+msgid ""
+"**%(holder)s** purchased the series pass **%(pass_name)s** for "
+"**%(series)s**."
+msgstr ""
+"**%(holder)s** a acheté le pass de série **%(pass_name)s** pour "
+"**%(series)s**."
+
+#, python-format
+msgid "**%(holder)s** cancelled their ticket for **%(event)s**."
+msgstr "**%(holder)s** a annulé son ticket pour **%(event)s**."
+
+#, python-format
+msgid ""
+"**%(holder)s**'s ticket for **%(event)s** was refunded via the Stripe "
+"dashboard."
+msgstr ""
+"Le ticket de **%(holder)s** pour **%(event)s** a été remboursé via le "
+"tableau de bord Stripe."
+
+#, python-format
+msgid "**%(holder)s**'s ticket for **%(event)s** has been cancelled."
+msgstr "Le ticket de **%(holder)s** pour **%(event)s** a été annulé."
+
+#, python-format
+msgid ""
+"A refund of **%(amount)s %(currency)s** has been issued to the ticket "
+"holder."
+msgstr ""
+"Un remboursement de **%(amount)s %(currency)s** a été effectué à la "
+"personne titulaire du ticket."
+
+#, python-format
+msgid "**%(holder)s** has registered for **%(event)s**."
+msgstr "**%(holder)s** a fait son inscription à **%(event)s**."
+
+#, python-format
+msgid "The ticket of **%(holder)s** for **%(event)s** has been refunded. 💰"
+msgstr "Le ticket de **%(holder)s** pour **%(event)s** a été remboursé. 💰"
+
+#, python-format
+msgid ""
+"Your **%(plan)s** subscription at **%(org)s** has been cancelled "
+"effective immediately."
+msgstr ""
+"Ton abonnement **%(plan)s** chez **%(org)s** a été résilié avec effet "
+"immédiat."
+
+#, python-format
+msgid "Your **%(plan)s** subscription at **%(org)s** will end on %(date)s."
+msgstr "Ton abonnement **%(plan)s** chez **%(org)s** prendra fin le %(date)s."
+
+#, python-format
+msgid "Your **%(plan)s** membership at **%(org)s** ended on %(date)s."
+msgstr "Ton adhésion **%(plan)s** chez **%(org)s** s'est terminée le %(date)s."
+
+#, python-format
+msgid ""
+"We couldn't collect payment for your **%(plan)s** membership at "
+"**%(org)s**. Resolve this by %(date)s."
+msgstr ""
+"Nous n'avons pas pu prélever le paiement de ton adhésion **%(plan)s** "
+"chez **%(org)s**. Règle cela avant le %(date)s."
+
+#, python-format
+msgid ""
+"Your **%(plan)s** subscription at **%(org)s** is moving from %(old)s to "
+"%(new)s starting %(date)s."
+msgstr ""
+"Ton abonnement **%(plan)s** chez **%(org)s** passera de %(old)s à %(new)s "
+"à partir du %(date)s."
+
+#, python-format
+msgid ""
+"Your **%(plan)s** membership at **%(org)s** renews on %(date)s for "
+"%(amount)s."
+msgstr ""
+"Ton adhésion **%(plan)s** chez **%(org)s** se renouvelle le %(date)s pour "
+"%(amount)s."
+
+#, python-format
+msgid ""
+"Your **%(plan)s** membership at **%(org)s** was renewed for %(amount)s. "
+"Next renewal: %(date)s."
+msgstr ""
+"Ton adhésion **%(plan)s** chez **%(org)s** a été renouvelée pour "
+"%(amount)s. Prochain renouvellement : %(date)s."
+
+#, python-format
+msgid ""
+"Your **%(plan)s** membership at **%(org)s** is ready to renew — complete "
+"the payment to reactivate it."
+msgstr ""
+"Ton adhésion **%(plan)s** chez **%(org)s** est prête à être renouvelée. "
+"Termine le paiement pour la réactiver."
+
+#, python-format
+msgid "Pay %(amount)s to renew"
+msgstr "Paie %(amount)s pour renouveler"
+
+msgid "Read more"
+msgstr "Lire la suite"
+
+#, python-format
+msgid "You cancelled your ticket for **%(event)s**."
+msgstr "Tu as annulé ton ticket pour **%(event)s**."
+
+#, python-format
+msgid "Your ticket for **%(event)s** has been cancelled and refunded."
+msgstr "Ton ticket pour **%(event)s** a été annulé et remboursé."
+
+#, python-format
+msgid "Your ticket for **%(event)s** has been cancelled."
+msgstr "Ton ticket pour **%(event)s** a été annulé."
+
+#, python-format
+msgid "You have been checked in for **%(event)s**! ✅"
+msgstr "Ton check-in pour **%(event)s** est effectué ! ✅"
+
+#, python-format
+msgid "Your ticket for **%(event)s** is pending payment confirmation. ⏳"
+msgstr ""
+"Ton ticket pour **%(event)s** est en attente de confirmation du paiement. "
+"⏳"
+
+#, python-format
+msgid "Your ticket for **%(event)s** is confirmed! 🎉"
+msgstr "Ton ticket pour **%(event)s** est confirmé ! 🎉"
+
+#, python-format
+msgid "Your ticket refund for **%(event)s** has been processed. 💰"
+msgstr "Le remboursement de ton ticket pour **%(event)s** a été traité. 💰"
+
+msgid ""
+"The refund will appear in your original payment method within 5-10 "
+"business days."
+msgstr ""
+"Le remboursement apparaîtra sur ton moyen de paiement d'origine sous 5 à "
+"10 jours ouvrés."
+
+#, python-format
+msgid "Your ticket for **%(event)s** has been confirmed! 🎉"
+msgstr "Ton ticket pour **%(event)s** a été confirmé ! 🎉"
+
+#, python-format
+msgid "Your ticket for **%(event)s** has been updated. 🔄"
+msgstr "Ton ticket pour **%(event)s** a été mis à jour. 🔄"
+
+msgid "Spot Available!"
+msgstr "Place disponible !"
+
+msgid "for"
+msgstr "pour"
+
+msgid "Final call — the waitlist has opened to everyone."
+msgstr ""
+"Dernier appel : la liste d'attente est maintenant ouverte à toutes et "
+"tous."
+
+msgid "Claim before"
+msgstr "À réserver avant"
+
+msgid "Claim your spot"
+msgstr "Réserve ta place"
+
+#, python-format
+msgid "Your verification for **%(org)s** has been approved"
+msgstr "Ta vérification pour **%(org)s** a été approuvée"
+
+msgid "requested verification for"
+msgstr "a demandé la vérification de"
+
+#, python-format
+msgid "Your verification for **%(org)s** was not approved"
+msgstr "Ta vérification pour **%(org)s** n'a pas été approuvée"
+
+#, python-format
+msgid "<b>%(event)s</b> has been cancelled."
+msgstr "<b>%(event)s</b> a été annulé."
+
+#, python-format
+msgid "<b>%(org)s</b> has published a new event: <b>%(event)s</b>!"
+msgstr "<b>%(org)s</b> a publié un nouvel événement : <b>%(event)s</b> !"
+
+#, python-format
+msgid "Reminder: <b>%(event)s</b> is tomorrow!"
+msgstr "Rappel : <b>%(event)s</b> est demain !"
+
+#, python-format
+msgid "Reminder: <b>%(event)s</b> is in <b>%(days)s days</b>"
+msgstr "Rappel : <b>%(event)s</b> a lieu dans <b>%(days)s jours</b>"
+
+#, python-format
+msgid "<b>%(follower)s</b> started following <b>%(series)s</b>."
+msgstr "<b>%(follower)s</b> a commencé à suivre <b>%(series)s</b>."
+
+#, python-format
+msgid "Important update about <b>%(event)s</b>"
+msgstr "Mise à jour importante concernant <b>%(event)s</b>"
+
+#, python-format
+msgid "<b>You're invited to %(event)s</b>"
+msgstr "<b>Tu as reçu une invitation à %(event)s</b>"
+
+msgid "RSVP Required"
+msgstr "Réponse requise"
+
+msgid "Tickets Required"
+msgstr "Tickets requis"
+
+#, python-format
+msgid ""
+"Your membership tier in <b>%(org)s</b> changed to <b>%(tier)s</b>. Re-add "
+"your wallet card to see the update."
+msgstr ""
+"Ton niveau d'adhésion chez <b>%(org)s</b> est passé à <b>%(tier)s</b>. "
+"Ajoute à nouveau ta carte à ton wallet pour voir la mise à jour."
+
+#, python-format
+msgid "You are now a <b>%(role)s</b> of <b>%(org)s</b>!"
+msgstr "Tu es maintenant <b>%(role)s</b> de <b>%(org)s</b> !"
+
+msgid "<b>Role Updated</b>"
+msgstr "<b>Rôle mis à jour</b>"
+
+msgid "<b>Membership Removed</b>"
+msgstr "<b>Adhésion supprimée</b>"
+
+msgid "<b>Request Approved</b>"
+msgstr "<b>Demande approuvée</b>"
+
+msgid "<b>Request Declined</b>"
+msgstr "<b>Demande refusée</b>"
+
+#, python-format
+msgid "<b>%(org)s</b> created a new event: <b>%(event)s</b>"
+msgstr "<b>%(org)s</b> a créé un nouvel événement : <b>%(event)s</b>"
+
+#, python-format
+msgid "New event in <b>%(series)s</b>: <b>%(event)s</b>"
+msgstr "Nouvel événement dans <b>%(series)s</b> : <b>%(event)s</b>"
+
+msgid "Open Revel to read the full message."
+msgstr "Ouvre Revel pour lire le message complet."
+
+#, python-format
+msgid "<b>%(follower)s</b> started following <b>%(org)s</b>."
+msgstr "<b>%(follower)s</b> a commencé à suivre <b>%(org)s</b>."
+
+#, python-format
+msgid "Payment confirmed for <b>%(event)s</b>!"
+msgstr "Paiement confirmé pour <b>%(event)s</b> !"
+
+msgid "Your ticket is now active!"
+msgstr "Ton ticket est maintenant actif !"
+
+#, python-format
+msgid "<b>%(actor)s</b> claimed <b>\"%(item)s\"</b> for %(event)s."
+msgstr "<b>%(actor)s</b> a réservé <b>\"%(item)s\"</b> pour %(event)s."
+
+#, python-format
+msgid "<b>\"%(item)s\"</b> has been claimed for %(event)s."
+msgstr "<b>\"%(item)s\"</b> a été réservée pour %(event)s."
+
+#, python-format
+msgid ""
+"<b>%(actor)s</b> added <b>\"%(item)s\"</b> to the potluck for %(event)s."
+msgstr ""
+"<b>%(actor)s</b> a ajouté <b>\"%(item)s\"</b> aux contributions pour "
+"%(event)s."
+
+#, python-format
+msgid "New potluck item <b>\"%(item)s\"</b> added to <b>%(event)s</b>."
+msgstr "Nouvelle contribution <b>\"%(item)s\"</b> ajoutée à <b>%(event)s</b>."
+
+#, python-format
+msgid "<b>%(actor)s</b> added and claimed <b>\"%(item)s\"</b> for %(event)s."
+msgstr ""
+"<b>%(actor)s</b> a ajouté et réservé <b>\"%(item)s\"</b> pour %(event)s."
+
+#, python-format
+msgid ""
+"New potluck item <b>\"%(item)s\"</b> added and claimed for "
+"<b>%(event)s</b>."
+msgstr ""
+"Nouvelle contribution <b>\"%(item)s\"</b> ajoutée et réservée pour "
+"<b>%(event)s</b>."
+
+#, python-format
+msgid "<b>\"%(item)s\"</b> has been removed from the potluck for %(event)s."
+msgstr "<b>\"%(item)s\"</b> a été retirée des contributions pour %(event)s."
+
+#, python-format
+msgid "<b>\"%(item)s\"</b> is now available for %(event)s."
+msgstr "<b>\"%(item)s\"</b> est maintenant disponible pour %(event)s."
+
+#, python-format
+msgid "<b>\"%(item)s\"</b> has been updated for %(event)s."
+msgstr "<b>\"%(item)s\"</b> a été mise à jour pour %(event)s."
+
+#, python-format
+msgid ""
+"<b>Your questionnaire %(questionnaire)s for %(event)s has been "
+"approved!</b>"
+msgstr ""
+"<b>Ton questionnaire %(questionnaire)s pour %(event)s a été approuvé !</b>"
+
+#, python-format
+msgid "<b>Your questionnaire %(questionnaire)s has been approved!</b>"
+msgstr "<b>Ton questionnaire %(questionnaire)s a été approuvé !</b>"
+
+#, python-format
+msgid ""
+"<b>Your questionnaire %(questionnaire)s for %(event)s was not "
+"approved.</b>"
+msgstr ""
+"<b>Ton questionnaire %(questionnaire)s pour %(event)s n'a pas été "
+"approuvé.</b>"
+
+#, python-format
+msgid "<b>Your questionnaire %(questionnaire)s was not approved.</b>"
+msgstr "<b>Ton questionnaire %(questionnaire)s n'a pas été approuvé.</b>"
+
+msgid "<b>New Questionnaire Submission</b>"
+msgstr "<b>Nouvelle soumission de questionnaire</b>"
+
+msgid "submitted"
+msgstr "a soumis"
+
+#, python-format
+msgid "<b>%(user)s</b> has cancelled their RSVP for <b>%(event)s</b>."
+msgstr "<b>%(user)s</b> a annulé sa réponse pour <b>%(event)s</b>."
+
+#, python-format
+msgid "Your RSVP for <b>%(event)s</b> has been cancelled."
+msgstr "Ta réponse pour <b>%(event)s</b> a été annulée."
+
+#, python-format
+msgid "<b>%(user)s</b> has RSVP'd <b>%(response)s</b> for <b>%(event)s</b>."
+msgstr "<b>%(user)s</b> a répondu <b>%(response)s</b> pour <b>%(event)s</b>."
+
+#, python-format
+msgid "Your RSVP (<b>%(response)s</b>) for <b>%(event)s</b> confirmed!"
+msgstr "Ta réponse (<b>%(response)s</b>) pour <b>%(event)s</b> est confirmée !"
+
+#, python-format
+msgid ""
+"<b>%(user)s</b> changed RSVP from %(old)s to <b>%(new)s</b> for "
+"<b>%(event)s</b>."
+msgstr ""
+"<b>%(user)s</b> a changé sa réponse de %(old)s à <b>%(new)s</b> pour "
+"<b>%(event)s</b>."
+
+#, python-format
+msgid "<b>%(user)s</b> updated their RSVP note for <b>%(event)s</b>."
+msgstr "<b>%(user)s</b> a mis à jour sa note de réponse pour <b>%(event)s</b>."
+
+msgid "Updated RSVP:"
+msgstr "Réponse mise à jour :"
+
+msgid "Previous:"
+msgstr "Avant :"
+
+msgid "New:"
+msgstr "Nouveau :"
+
+#, python-format
+msgid "RSVP for <b>%(event)s</b> updated from %(old)s to <b>%(new)s</b>."
+msgstr "Réponse pour <b>%(event)s</b> passée de %(old)s à <b>%(new)s</b>."
+
+#, python-format
+msgid "%(counter)s new event scheduled for <b>%(series)s</b>"
+msgid_plural "%(counter)s new events scheduled for <b>%(series)s</b>"
+msgstr[0] "%(counter)s nouvel événement prévu pour <b>%(series)s</b>"
+msgstr[1] "%(counter)s nouveaux événements prévus pour <b>%(series)s</b>"
+
+#, python-format
+msgid "<b>%(holder)s</b> cancelled their ticket for <b>%(event)s</b>."
+msgstr "<b>%(holder)s</b> a annulé son ticket pour <b>%(event)s</b>."
+
+#, python-format
+msgid ""
+"<b>%(holder)s</b>'s ticket for <b>%(event)s</b> was refunded via the "
+"Stripe dashboard."
+msgstr ""
+"Le ticket de <b>%(holder)s</b> pour <b>%(event)s</b> a été remboursé via "
+"le tableau de bord Stripe."
+
+#, python-format
+msgid "<b>%(holder)s</b>'s ticket for <b>%(event)s</b> has been cancelled."
+msgstr "Le ticket de <b>%(holder)s</b> pour <b>%(event)s</b> a été annulé."
+
+#, python-format
+msgid "Refund of %(amount)s %(currency)s issued to the ticket holder."
+msgstr ""
+"Remboursement de %(amount)s %(currency)s effectué à la personne titulaire "
+"du ticket."
+
+#, python-format
+msgid "<b>%(holder)s</b> has registered for <b>%(event)s</b>."
+msgstr "<b>%(holder)s</b> a fait son inscription à <b>%(event)s</b>."
+
+#, python-format
+msgid "The ticket of <b>%(holder)s</b> for <b>%(event)s</b> has been refunded."
+msgstr "Le ticket de <b>%(holder)s</b> pour <b>%(event)s</b> a été remboursé."
+
+#, python-format
+msgid ""
+"Your <b>%(plan)s</b> subscription at <b>%(org)s</b> has been cancelled "
+"effective immediately."
+msgstr ""
+"Ton abonnement <b>%(plan)s</b> chez <b>%(org)s</b> a été résilié avec "
+"effet immédiat."
+
+#, python-format
+msgid ""
+"Your <b>%(plan)s</b> subscription at <b>%(org)s</b> will end on %(date)s."
+msgstr ""
+"Ton abonnement <b>%(plan)s</b> chez <b>%(org)s</b> prendra fin le "
+"%(date)s."
+
+#, python-format
+msgid "Your <b>%(plan)s</b> membership at <b>%(org)s</b> ended on %(date)s."
+msgstr ""
+"Ton adhésion <b>%(plan)s</b> chez <b>%(org)s</b> s'est terminée le "
+"%(date)s."
+
+#, python-format
+msgid ""
+"We couldn't collect payment for your <b>%(plan)s</b> membership at "
+"<b>%(org)s</b>. Resolve this by %(date)s."
+msgstr ""
+"Nous n'avons pas pu prélever le paiement de ton adhésion <b>%(plan)s</b> "
+"chez <b>%(org)s</b>. Règle cela avant le %(date)s."
+
+#, python-format
+msgid ""
+"Your <b>%(plan)s</b> subscription at <b>%(org)s</b> is moving from "
+"%(old)s to %(new)s starting %(date)s."
+msgstr ""
+"Ton abonnement <b>%(plan)s</b> chez <b>%(org)s</b> passera de %(old)s à "
+"%(new)s à partir du %(date)s."
+
+#, python-format
+msgid ""
+"Your <b>%(plan)s</b> membership at <b>%(org)s</b> renews on %(date)s for "
+"%(amount)s."
+msgstr ""
+"Ton adhésion <b>%(plan)s</b> chez <b>%(org)s</b> se renouvelle le "
+"%(date)s pour %(amount)s."
+
+#, python-format
+msgid ""
+"Your <b>%(plan)s</b> membership at <b>%(org)s</b> was renewed for "
+"%(amount)s. Next renewal: %(date)s."
+msgstr ""
+"Ton adhésion <b>%(plan)s</b> chez <b>%(org)s</b> a été renouvelée pour "
+"%(amount)s. Prochain renouvellement : %(date)s."
+
+#, python-format
+msgid ""
+"Your <b>%(plan)s</b> membership at <b>%(org)s</b> is ready to renew — "
+"complete the payment to reactivate it."
+msgstr ""
+"Ton adhésion <b>%(plan)s</b> chez <b>%(org)s</b> est prête à être "
+"renouvelée. Termine le paiement pour la réactiver."
+
+#, python-format
+msgid "You cancelled your ticket for <b>%(event)s</b>."
+msgstr "Tu as annulé ton ticket pour <b>%(event)s</b>."
+
+#, python-format
+msgid "Your ticket for <b>%(event)s</b> has been cancelled and refunded."
+msgstr "Ton ticket pour <b>%(event)s</b> a été annulé et remboursé."
+
+#, python-format
+msgid "Your ticket for <b>%(event)s</b> has been cancelled."
+msgstr "Ton ticket pour <b>%(event)s</b> a été annulé."
+
+#, python-format
+msgid ""
+"Refund of %(amount)s %(currency)s will be processed within 5-10 business "
+"days."
+msgstr ""
+"Le remboursement de %(amount)s %(currency)s sera traité sous 5 à 10 jours "
+"ouvrés."
+
+#, python-format
+msgid "You have been checked in for <b>%(event)s</b>"
+msgstr "Ton check-in pour <b>%(event)s</b> est effectué"
+
+#, python-format
+msgid "Ticket Pending for <b>%(event)s</b>"
+msgstr "Ticket en attente pour <b>%(event)s</b>"
+
+#, python-format
+msgid "Ticket Confirmed for <b>%(event)s</b>"
+msgstr "Ticket confirmé pour <b>%(event)s</b>"
+
+#, python-format
+msgid "Your ticket refund for <b>%(event)s</b> has been processed."
+msgstr "Le remboursement de ton ticket pour <b>%(event)s</b> a été traité."
+
+msgid "Refund will appear within 5-10 business days."
+msgstr "Le remboursement apparaîtra sous 5 à 10 jours ouvrés."
+
+msgid "Your payment has been confirmed!"
+msgstr "Ton paiement a été confirmé !"
+
+#, python-format
+msgid "Ticket Update for <b>%(event)s</b>"
+msgstr "Mise à jour du ticket pour <b>%(event)s</b>"
+
+msgid "Updated Information:"
+msgstr "Informations mises à jour :"
+
+#, python-format
+msgid ""
+"Your verification for **%(org)s** has been approved. You now have full "
+"access."
+msgstr ""
+"Ta vérification pour **%(org)s** a été approuvée. Tu as maintenant un "
+"accès complet."
+
+#, python-format
+msgid "Your verification for **%(org)s** was not approved at this time."
+msgstr "Ta vérification pour **%(org)s** n'a pas été approuvée pour le moment."

@@ -126,7 +126,9 @@ def test_pause_is_refused_and_writes_nothing(
     awaiting: tuple[MembershipSubscription, OrganizationMembershipRequest, OrganizationMember],
 ) -> None:
     sub, application, member = awaiting
+    sub.refresh_from_db()
     application.refresh_from_db()
+    member.refresh_from_db()
     before = (sub.status, application.status, member.status)
     with pytest.raises(HttpError) as exc:
         membership_service.update_member(member, status=S.PAUSED)
@@ -159,15 +161,23 @@ def test_pause_through_the_endpoint_returns_400(
 def test_ban_through_the_endpoint_closes_the_request(
     awaiting: tuple[MembershipSubscription, OrganizationMembershipRequest, OrganizationMember],
     organization_owner_client: Client,
+    sent: list[dict[str, t.Any]],
+    django_capture_on_commit_callbacks: t.Any,
 ) -> None:
     sub, application, member = awaiting
+    sent.clear()
     url = reverse(
         "api:update_organization_member", kwargs={"slug": member.organization.slug, "user_id": member.user_id}
     )
-    response = organization_owner_client.put(url, data={"status": "banned"}, content_type="application/json")
+    with django_capture_on_commit_callbacks(execute=True):
+        response = organization_owner_client.put(url, data={"status": "banned"}, content_type="application/json")
 
     assert response.status_code == 200, response.content
     assert response.json()["status"] == "banned"
     sub.refresh_from_db()
     application.refresh_from_db()
+    member.refresh_from_db()
     assert (sub.status, application.status) == (Sub.CANCELLED, Omr.CANCELLED)
+    assert member.status == S.BANNED
+    (cancelled,) = _cancellations(sent)
+    assert cancelled["context"]["rejoinable"] is False

@@ -158,7 +158,7 @@ def check_keys_extracted() -> bool:
     snapshots = {po: po.read_bytes() for po in _po_files()}
     committed = {po: _key_set(parse_po(data.decode("utf-8"))) for po, data in snapshots.items()}
 
-    cmd = ["python", "manage.py", "makemessages", "--no-location", "--no-obsolete"]
+    cmd = ["python", "manage.py", "makemessages", "-e", "html,txt,py,md", "--no-location", "--no-obsolete"]
     for lang in LANGUAGES:
         cmd += ["-l", lang]
     try:
