@@ -472,6 +472,19 @@ class MembershipRequestCreatedContext(BaseNotificationContext):
     plan_payment_method: t.NotRequired[str | None]
 
 
+class MembershipOfflineJoinedContext(BaseNotificationContext):
+    """Context for MEMBERSHIP_OFFLINE_JOINED notification (to org staff: a direct offline join awaits payment)."""
+
+    subscription_id: str
+    organization_id: str
+    organization_name: str
+    member_id: str
+    member_name: str
+    member_email: str
+    tier_name: str
+    plan_name: str
+
+
 class StaffMemberRecordAutoLinkedContext(BaseNotificationContext):
     """Context for STAFF_MEMBER_RECORD_AUTO_LINKED notification (to org staff/owners)."""
 
@@ -514,6 +527,7 @@ class MembershipPaymentRequestedContext(BaseNotificationContext):
     period_label: str
     payment_instructions: str  # "" when neither plan nor organization defines any
     memberships_url: str
+    application_accepted: t.NotRequired[bool]  # lead with "<org> accepted your application."
 
 
 # ===== Account Contexts =====
@@ -827,6 +841,7 @@ class SubscriptionExpiredContext(BaseNotificationContext):
     revival_window_end: t.NotRequired[str | None]
     revival_url: t.NotRequired[str | None]
     lapsed: t.NotRequired[bool]
+    membership_url: t.NotRequired[str]  # lapsed only: org membership page to join or apply again
 
 
 class SubscriptionCancellationConfirmedContext(BaseNotificationContext):
@@ -838,6 +853,7 @@ class SubscriptionCancellationConfirmedContext(BaseNotificationContext):
     plan_name: str
     immediate: bool
     access_ends_at: str
+    request_cancelled: t.NotRequired[bool]  # never-paid OFFLINE: the membership request was cancelled
 
 
 class SubscriptionRenewalReminderContext(BaseNotificationContext):
@@ -917,6 +933,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.MEMBERSHIP_REQUEST_APPROVED: MembershipRequestApprovedContext,
     NotificationType.MEMBERSHIP_REQUEST_REJECTED: MembershipRequestRejectedContext,
     NotificationType.MEMBERSHIP_PAYMENT_REQUESTED: MembershipPaymentRequestedContext,
+    NotificationType.MEMBERSHIP_OFFLINE_JOINED: MembershipOfflineJoinedContext,
     NotificationType.STAFF_MEMBER_RECORD_AUTO_LINKED: StaffMemberRecordAutoLinkedContext,
     NotificationType.ACCOUNT_BANNED: AccountBannedContext,
     NotificationType.ORG_ANNOUNCEMENT: OrgAnnouncementContext,

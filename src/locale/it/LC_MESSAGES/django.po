@@ -7839,10 +7839,6 @@ msgid "paid directly to the organization"
 msgstr "pagato direttamente all'organizzazione"
 
 #, python-format
-msgid "Your membership at %(org)s"
-msgstr "La tua iscrizione presso %(org)s"
-
-#, python-format
 msgid "To activate your **%(tier)s** membership (%(plan)s, %(amount)s), pay **%(org)s** directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
 msgstr "Per attivare la tua iscrizione **%(tier)s** (%(plan)s, %(amount)s), paga direttamente **%(org)s**. La tua iscrizione inizia non appena confermano il pagamento. Se entro 30 giorni non viene registrato alcun pagamento, la tua richiesta viene annullata."
 
@@ -7893,3 +7889,87 @@ msgstr "La tua richiesta di iscrizione <strong>%(plan)s</strong> presso <strong>
 #, python-format
 msgid "Your %(plan)s membership request at %(org)s lapsed on %(date)s because no payment was received."
 msgstr "La tua richiesta di iscrizione %(plan)s presso %(org)s è scaduta il %(date)s perché non è stato ricevuto alcun pagamento."
+
+#, python-format
+msgid "%(name)s joined %(tier)s (%(plan)s) and is awaiting payment."
+msgstr "%(name)s ha aderito a %(tier)s (%(plan)s) e attende il pagamento."
+
+#, python-format
+msgid "<strong>%(name)s</strong> joined <strong>%(tier)s</strong> (%(plan)s) and is awaiting payment."
+msgstr "<strong>%(name)s</strong> ha aderito a <strong>%(tier)s</strong> (%(plan)s) e attende il pagamento."
+
+#, python-format
+msgid "**%(name)s** joined **%(tier)s** (%(plan)s) and is awaiting payment."
+msgstr "**%(name)s** ha aderito a **%(tier)s** (%(plan)s) e attende il pagamento."
+
+#, python-format
+msgid "%(org)s accepted your application."
+msgstr "%(org)s ha accettato la tua candidatura."
+
+#, python-format
+msgid "<strong>%(org)s</strong> accepted your application."
+msgstr "<strong>%(org)s</strong> ha accettato la tua candidatura."
+
+#, python-format
+msgid "<b>%(org)s</b> accepted your application."
+msgstr "<b>%(org)s</b> ha accettato la tua candidatura."
+
+#, python-format
+msgid "**%(org)s** accepted your application."
+msgstr "**%(org)s** ha accettato la tua candidatura."
+
+#, python-format
+msgid "Your %(plan)s membership request at %(org)s was cancelled."
+msgstr "La tua richiesta di iscrizione %(plan)s presso %(org)s è stata annullata."
+
+#, python-format
+msgid "Your <strong>%(plan)s</strong> membership request at <strong>%(org)s</strong> was cancelled."
+msgstr "La tua richiesta di iscrizione <strong>%(plan)s</strong> presso <strong>%(org)s</strong> è stata annullata."
+
+#, python-format
+msgid "Your <b>%(plan)s</b> membership request at <b>%(org)s</b> was cancelled."
+msgstr "La tua richiesta di iscrizione <b>%(plan)s</b> presso <b>%(org)s</b> è stata annullata."
+
+#, python-format
+msgid "Your **%(plan)s** membership request at **%(org)s** was cancelled."
+msgstr "La tua richiesta di iscrizione **%(plan)s** presso **%(org)s** è stata annullata."
+
+#, python-format
+msgid "%(user)s joined %(tier)s, awaiting payment"
+msgstr "%(user)s ha aderito a %(tier)s, in attesa di pagamento"
+
+msgid "Join or apply again"
+msgstr "Iscriviti o candidati di nuovo"
+
+msgid "Join or apply again:"
+msgstr "Iscriviti o candidati di nuovo:"
+
+msgid "Membership Request Cancelled"
+msgstr "Richiesta di iscrizione annullata"
+
+#, python-format
+msgid "Membership request cancelled: %(org)s"
+msgstr "Richiesta di iscrizione annullata: %(org)s"
+
+msgid "New Member Awaiting Payment"
+msgstr "Nuovo iscritto in attesa di pagamento"
+
+#, python-format
+msgid "New member awaiting payment: %(org)s"
+msgstr "Nuovo iscritto in attesa di pagamento: %(org)s"
+
+msgid "Offline membership joined"
+msgstr "Iscrizione offline avviata"
+
+msgid "View Pending Subscriptions"
+msgstr "Visualizza abbonamenti in sospeso"
+
+msgid "You can join or apply again at any time."
+msgstr "Puoi iscriverti o candidarti di nuovo in qualsiasi momento."
+
+#, python-format
+msgid "Your %(org)s membership request was cancelled"
+msgstr "La tua richiesta di iscrizione presso %(org)s è stata annullata"
+
+msgid "Your memberships"
+msgstr "Le tue iscrizioni"

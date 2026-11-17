@@ -26,6 +26,7 @@ from events.service.blacklist_service import check_user_hard_blacklisted
 from events.service.member_register_linking import notify_membership_granted
 from events.service.subscription.notifications import (
     _dispatch_renewal_succeeded,
+    dispatch_membership_offline_joined,
     dispatch_membership_payment_requested,
 )
 from events.service.subscription.sales import ensure_plan_on_sale
@@ -154,6 +155,9 @@ def open_offline_subscription(
             application.save(update_fields=[*update_fields, "updated_at"])
     if created:
         transaction.on_commit(lambda: dispatch_membership_payment_requested(subscription))
+        if member_facing and application is None:
+            # A direct join (no application to approve): staff would otherwise never learn of it.
+            transaction.on_commit(lambda: dispatch_membership_offline_joined(subscription))
     return subscription
 
 

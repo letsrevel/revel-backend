@@ -7896,10 +7896,6 @@ msgid "paid directly to the organization"
 msgstr "payé directement à l'organisation"
 
 #, python-format
-msgid "Your membership at %(org)s"
-msgstr "Votre adhésion chez %(org)s"
-
-#, python-format
 msgid "To activate your **%(tier)s** membership (%(plan)s, %(amount)s), pay **%(org)s** directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
 msgstr "Pour activer votre adhésion **%(tier)s** (%(plan)s, %(amount)s), payez directement **%(org)s**. Votre adhésion commence dès qu'il confirme votre paiement. Si aucun paiement n'est enregistré sous 30 jours, votre demande est annulée."
 
@@ -7950,3 +7946,87 @@ msgstr "Votre demande d'adhésion <strong>%(plan)s</strong> auprès de <strong>%
 #, python-format
 msgid "Your %(plan)s membership request at %(org)s lapsed on %(date)s because no payment was received."
 msgstr "Votre demande d'adhésion %(plan)s auprès de %(org)s a expiré le %(date)s faute de paiement reçu."
+
+#, python-format
+msgid "%(name)s joined %(tier)s (%(plan)s) and is awaiting payment."
+msgstr "%(name)s a rejoint %(tier)s (%(plan)s) et est en attente de paiement."
+
+#, python-format
+msgid "<strong>%(name)s</strong> joined <strong>%(tier)s</strong> (%(plan)s) and is awaiting payment."
+msgstr "<strong>%(name)s</strong> a rejoint <strong>%(tier)s</strong> (%(plan)s) et est en attente de paiement."
+
+#, python-format
+msgid "**%(name)s** joined **%(tier)s** (%(plan)s) and is awaiting payment."
+msgstr "**%(name)s** a rejoint **%(tier)s** (%(plan)s) et est en attente de paiement."
+
+#, python-format
+msgid "%(org)s accepted your application."
+msgstr "%(org)s a accepté votre candidature."
+
+#, python-format
+msgid "<strong>%(org)s</strong> accepted your application."
+msgstr "<strong>%(org)s</strong> a accepté votre candidature."
+
+#, python-format
+msgid "<b>%(org)s</b> accepted your application."
+msgstr "<b>%(org)s</b> a accepté votre candidature."
+
+#, python-format
+msgid "**%(org)s** accepted your application."
+msgstr "**%(org)s** a accepté votre candidature."
+
+#, python-format
+msgid "Your %(plan)s membership request at %(org)s was cancelled."
+msgstr "Votre demande d'adhésion %(plan)s auprès de %(org)s a été annulée."
+
+#, python-format
+msgid "Your <strong>%(plan)s</strong> membership request at <strong>%(org)s</strong> was cancelled."
+msgstr "Votre demande d'adhésion <strong>%(plan)s</strong> auprès de <strong>%(org)s</strong> a été annulée."
+
+#, python-format
+msgid "Your <b>%(plan)s</b> membership request at <b>%(org)s</b> was cancelled."
+msgstr "Votre demande d'adhésion <b>%(plan)s</b> auprès de <b>%(org)s</b> a été annulée."
+
+#, python-format
+msgid "Your **%(plan)s** membership request at **%(org)s** was cancelled."
+msgstr "Votre demande d'adhésion **%(plan)s** auprès de **%(org)s** a été annulée."
+
+#, python-format
+msgid "%(user)s joined %(tier)s, awaiting payment"
+msgstr "%(user)s a rejoint %(tier)s, en attente de paiement"
+
+msgid "Join or apply again"
+msgstr "Rejoindre ou postuler à nouveau"
+
+msgid "Join or apply again:"
+msgstr "Rejoindre ou postuler à nouveau :"
+
+msgid "Membership Request Cancelled"
+msgstr "Demande d'adhésion annulée"
+
+#, python-format
+msgid "Membership request cancelled: %(org)s"
+msgstr "Demande d'adhésion annulée : %(org)s"
+
+msgid "New Member Awaiting Payment"
+msgstr "Nouveau membre en attente de paiement"
+
+#, python-format
+msgid "New member awaiting payment: %(org)s"
+msgstr "Nouveau membre en attente de paiement : %(org)s"
+
+msgid "Offline membership joined"
+msgstr "Adhésion hors ligne rejointe"
+
+msgid "View Pending Subscriptions"
+msgstr "Voir les abonnements en attente"
+
+msgid "You can join or apply again at any time."
+msgstr "Vous pouvez rejoindre ou postuler à nouveau à tout moment."
+
+#, python-format
+msgid "Your %(org)s membership request was cancelled"
+msgstr "Votre demande d'adhésion auprès de %(org)s a été annulée"
+
+msgid "Your memberships"
+msgstr "Vos adhésions"

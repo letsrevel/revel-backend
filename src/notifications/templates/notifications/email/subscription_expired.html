@@ -13,6 +13,13 @@
 <center>
     <a href="{{ context.revival_url }}" class="button">{% blocktranslate with date=context.revival_window_end %}Reactivate by {{ date }}{% endblocktranslate %}</a>
 </center>
+{% elif context.lapsed %}
+<p>{% trans "You can join or apply again at any time." %}</p>
+{% if context.membership_url %}
+<center>
+    <a href="{{ context.membership_url }}" class="button">{% trans "Join or apply again" %}</a>
+</center>
+{% endif %}
 {% else %}
 <p>{% trans "If you'd like to continue, you can start a new subscription at any time." %}</p>
 {% endif %}

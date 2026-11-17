@@ -148,7 +148,8 @@ def test_direct_join_creates_awaiting_member_and_pending_sub(
     assert body["subscription"]["status"] == "pending"
     member = OrganizationMember.objects.get(organization=org, user=nonmember_user)
     assert (member.status, member.tier_id) == (S.AWAITING_PAYMENT, tier.id)
-    assert _types(sent) == [NotificationType.MEMBERSHIP_PAYMENT_REQUESTED]
+    # The person is asked to pay; the org owner (staff) hears about the direct join.
+    assert _types(sent) == [NotificationType.MEMBERSHIP_PAYMENT_REQUESTED, NotificationType.MEMBERSHIP_OFFLINE_JOINED]
 
 
 def test_resubscribe_while_awaiting_is_idempotent(
@@ -169,7 +170,8 @@ def test_resubscribe_while_awaiting_is_idempotent(
     assert (first.status_code, second.status_code) == (201, 201), second.content
     assert first.json()["subscription"]["id"] == second.json()["subscription"]["id"]
     assert MembershipSubscription.objects.filter(user=nonmember_user).count() == 1
-    assert _types(sent) == [NotificationType.MEMBERSHIP_PAYMENT_REQUESTED]
+    # The repeat sends neither the payment request nor the staff notice a second time.
+    assert _types(sent) == [NotificationType.MEMBERSHIP_PAYMENT_REQUESTED, NotificationType.MEMBERSHIP_OFFLINE_JOINED]
 
 
 def test_existing_member_keeps_status_and_tier_until_paid(

@@ -175,9 +175,10 @@ def test_payment_requested_renders_instructions_all_channels(
         assert "Yearly" in body, channel
         assert "50.00 EUR" in body, channel
         assert "30 days" in body, channel
-        assert f"Your membership at {organization.name}" in body, channel
+        assert "Your memberships" in body, channel
         assert "Wire to IBAN AT00 1234" in body, channel
-        assert f"/org/{organization.slug}/membership" in body, channel
+        assert "/account/memberships" in body, channel
+        assert "accepted your application" not in body, channel
 
 
 def test_payment_requested_contact_fallback(offline_sub: MembershipSubscription, organization: Organization) -> None:
@@ -276,3 +277,46 @@ def test_offline_reminder_includes_instructions(offline_sub: MembershipSubscript
             assert "To renew, pay" in body, channel
             assert "don't want to renew" not in body, channel
         assert "Pay cash at the bar" in body, channel
+
+
+def test_payment_requested_cta_stays_on_platform_origin(
+    offline_sub: MembershipSubscription, tier: MembershipTier, organization: Organization
+) -> None:
+    """/account/memberships is a platform route: it never follows the org's tenant domain."""
+    from common.models import SiteSettings
+
+    with patch.object(subscription_notifications, "frontend_base_url_for", return_value="https://tenant.example"):
+        notif = _payment_requested(offline_sub)
+    assert notif.context["memberships_url"] == f"{SiteSettings.get_solo().frontend_base_url}/account/memberships"
+    assert "tenant.example" not in notif.context["memberships_url"]
+    assert notif.context["application_accepted"] is False
+
+
+def test_payment_requested_leads_with_accepted_application(
+    offline_sub: MembershipSubscription, organization: Organization, tier: MembershipTier, nonmember_user: RevelUser
+) -> None:
+    OrganizationMembershipRequest.objects.create(
+        organization=organization,
+        user=nonmember_user,
+        tier=tier,
+        plan=offline_sub.plan,
+        subscription=offline_sub,
+        status=OrganizationMembershipRequest.Status.APPROVED,
+    )
+    notif = _payment_requested(offline_sub)
+    assert notif.context["application_accepted"] is True
+    for channel, body in _bodies(notif).items():
+        assert f"{organization.name}" in body.split("accepted your application")[0], channel
+        assert "accepted your application" in body, channel
+
+
+def test_lapsed_notification_links_to_membership_page(
+    offline_sub: MembershipSubscription, organization: Organization
+) -> None:
+    with patch("notifications.tasks.dispatch_notification.delay"):
+        subscription_notifications.dispatch_unpaid_offline_lapsed(offline_sub)
+    notif = Notification.objects.get(user=offline_sub.user, notification_type=NotificationType.SUBSCRIPTION_EXPIRED)
+    assert notif.context["membership_url"].endswith(f"/org/{organization.slug}/membership")
+    for channel, body in _bodies(notif).items():
+        assert f"/org/{organization.slug}/membership" in body, channel
+        assert "join or apply again" in body.lower(), channel

@@ -7868,10 +7868,6 @@ msgid "paid directly to the organization"
 msgstr "direkt an die Organisation bezahlt"
 
 #, python-format
-msgid "Your membership at %(org)s"
-msgstr "Deine Mitgliedschaft bei %(org)s"
-
-#, python-format
 msgid "To activate your **%(tier)s** membership (%(plan)s, %(amount)s), pay **%(org)s** directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
 msgstr "Um deine **%(tier)s**-Mitgliedschaft (%(plan)s, %(amount)s) zu aktivieren, bezahle **%(org)s** direkt. Deine Mitgliedschaft beginnt, sobald die Zahlung bestätigt wurde. Wird innerhalb von 30 Tagen keine Zahlung erfasst, wird deine Anfrage storniert."
 
@@ -7922,3 +7918,87 @@ msgstr "Deine Mitgliedschaftsanfrage <strong>%(plan)s</strong> bei <strong>%(org
 #, python-format
 msgid "Your %(plan)s membership request at %(org)s lapsed on %(date)s because no payment was received."
 msgstr "Deine Mitgliedschaftsanfrage %(plan)s bei %(org)s ist am %(date)s verfallen, da keine Zahlung eingegangen ist."
+
+#, python-format
+msgid "%(name)s joined %(tier)s (%(plan)s) and is awaiting payment."
+msgstr "%(name)s ist %(tier)s (%(plan)s) beigetreten und wartet auf die Zahlung."
+
+#, python-format
+msgid "<strong>%(name)s</strong> joined <strong>%(tier)s</strong> (%(plan)s) and is awaiting payment."
+msgstr "<strong>%(name)s</strong> ist <strong>%(tier)s</strong> (%(plan)s) beigetreten und wartet auf die Zahlung."
+
+#, python-format
+msgid "**%(name)s** joined **%(tier)s** (%(plan)s) and is awaiting payment."
+msgstr "**%(name)s** ist **%(tier)s** (%(plan)s) beigetreten und wartet auf die Zahlung."
+
+#, python-format
+msgid "%(org)s accepted your application."
+msgstr "%(org)s hat deine Bewerbung angenommen."
+
+#, python-format
+msgid "<strong>%(org)s</strong> accepted your application."
+msgstr "<strong>%(org)s</strong> hat deine Bewerbung angenommen."
+
+#, python-format
+msgid "<b>%(org)s</b> accepted your application."
+msgstr "<b>%(org)s</b> hat deine Bewerbung angenommen."
+
+#, python-format
+msgid "**%(org)s** accepted your application."
+msgstr "**%(org)s** hat deine Bewerbung angenommen."
+
+#, python-format
+msgid "Your %(plan)s membership request at %(org)s was cancelled."
+msgstr "Deine Mitgliedschaftsanfrage %(plan)s bei %(org)s wurde storniert."
+
+#, python-format
+msgid "Your <strong>%(plan)s</strong> membership request at <strong>%(org)s</strong> was cancelled."
+msgstr "Deine Mitgliedschaftsanfrage <strong>%(plan)s</strong> bei <strong>%(org)s</strong> wurde storniert."
+
+#, python-format
+msgid "Your <b>%(plan)s</b> membership request at <b>%(org)s</b> was cancelled."
+msgstr "Deine Mitgliedschaftsanfrage <b>%(plan)s</b> bei <b>%(org)s</b> wurde storniert."
+
+#, python-format
+msgid "Your **%(plan)s** membership request at **%(org)s** was cancelled."
+msgstr "Deine Mitgliedschaftsanfrage **%(plan)s** bei **%(org)s** wurde storniert."
+
+#, python-format
+msgid "%(user)s joined %(tier)s, awaiting payment"
+msgstr "%(user)s ist %(tier)s beigetreten, Zahlung ausstehend"
+
+msgid "Join or apply again"
+msgstr "Erneut beitreten oder bewerben"
+
+msgid "Join or apply again:"
+msgstr "Erneut beitreten oder bewerben:"
+
+msgid "Membership Request Cancelled"
+msgstr "Mitgliedschaftsanfrage storniert"
+
+#, python-format
+msgid "Membership request cancelled: %(org)s"
+msgstr "Mitgliedschaftsanfrage storniert: %(org)s"
+
+msgid "New Member Awaiting Payment"
+msgstr "Neues Mitglied wartet auf Zahlung"
+
+#, python-format
+msgid "New member awaiting payment: %(org)s"
+msgstr "Neues Mitglied wartet auf Zahlung: %(org)s"
+
+msgid "Offline membership joined"
+msgstr "Offline-Mitgliedschaft beigetreten"
+
+msgid "View Pending Subscriptions"
+msgstr "Ausstehende Abonnements ansehen"
+
+msgid "You can join or apply again at any time."
+msgstr "Du kannst jederzeit erneut beitreten oder dich bewerben."
+
+#, python-format
+msgid "Your %(org)s membership request was cancelled"
+msgstr "Deine Mitgliedschaftsanfrage bei %(org)s wurde storniert"
+
+msgid "Your memberships"
+msgstr "Deine Mitgliedschaften"

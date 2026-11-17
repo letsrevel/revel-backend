@@ -64,11 +64,15 @@ class SubscriptionCancellationConfirmedTemplate(NotificationTemplate):
     def get_in_app_title(self, notification: Notification) -> str:
         """Get title for in-app display."""
         org_name = notification.context.get("organization_name", "")
+        if notification.context.get("request_cancelled"):
+            return _("Membership request cancelled: %(org)s") % {"org": org_name}
         return _("Membership cancelled: %(org)s") % {"org": org_name}
 
     def get_email_subject(self, notification: Notification) -> str:
         """Get email subject."""
         org_name = notification.context.get("organization_name", "")
+        if notification.context.get("request_cancelled"):
+            return _("Your %(org)s membership request was cancelled") % {"org": org_name}
         return _("Your %(org)s membership has been cancelled") % {"org": org_name}
 
 

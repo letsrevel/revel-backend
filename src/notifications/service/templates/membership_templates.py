@@ -162,6 +162,21 @@ class MembershipPaymentRequestedTemplate(NotificationTemplate):
         }
 
 
+class MembershipOfflineJoinedTemplate(NotificationTemplate):
+    """Template for MEMBERSHIP_OFFLINE_JOINED notification (to organizers)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return _("%(user)s joined %(tier)s, awaiting payment") % {
+            "user": notification.context.get("member_name", ""),
+            "tier": notification.context.get("tier_name", ""),
+        }
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        return _("New member awaiting payment: %(org)s") % {"org": notification.context.get("organization_name", "")}
+
+
 class MembershipRequestCreatedTemplate(NotificationTemplate):
     """Template for MEMBERSHIP_REQUEST_CREATED notification (to organizers)."""
 
@@ -212,6 +227,7 @@ register_template(NotificationType.MEMBERSHIP_GRANTED, MembershipGrantedTemplate
 register_template(NotificationType.MEMBERSHIP_PROMOTED, MembershipPromotedTemplate())
 register_template(NotificationType.MEMBERSHIP_REMOVED, MembershipRemovedTemplate())
 register_template(NotificationType.MEMBERSHIP_CARD_UPDATED, MembershipCardUpdatedTemplate())
+register_template(NotificationType.MEMBERSHIP_OFFLINE_JOINED, MembershipOfflineJoinedTemplate())
 register_template(NotificationType.MEMBERSHIP_REQUEST_CREATED, MembershipRequestCreatedTemplate())
 register_template(NotificationType.MEMBERSHIP_REQUEST_APPROVED, MembershipRequestApprovedTemplate())
 register_template(NotificationType.MEMBERSHIP_REQUEST_REJECTED, MembershipRequestRejectedTemplate())

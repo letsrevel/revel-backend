@@ -1,0 +1,20 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2>{% trans "New Member Awaiting Payment" %}</h2>
+
+<p>{% blocktranslate with name=context.member_name tier=context.tier_name plan=context.plan_name %}<strong>{{ name }}</strong> joined <strong>{{ tier }}</strong> ({{ plan }}) and is awaiting payment.{% endblocktranslate %}</p>
+
+<div class="card card--info">
+    <div class="info-row"><strong>{% trans "Name:" %}</strong> {{ context.member_name }}</div>
+    <div class="info-row"><strong>{% trans "Email:" %}</strong> {{ context.member_email }}</div>
+    <div class="info-row"><strong>{% trans "Tier:" %}</strong> {{ context.tier_name }}</div>
+    <div class="info-row"><strong>{% trans "Plan:" %}</strong> {{ context.plan_name }}</div>
+</div>
+
+<center>
+    <a href="{{ context.frontend_url }}" class="button">{% trans "View Pending Subscriptions" %}</a>
+</center>
+
+<p style="color: #666; font-size: 12px;">{% trans "This is an automated notification from your organization management system." %}</p>
+{% endblock %}

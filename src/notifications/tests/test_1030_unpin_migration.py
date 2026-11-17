@@ -42,11 +42,12 @@ def test_frozen_defaults_match_current_defaults() -> None:
     assert migration.REGULAR_DEFAULTS == {str(k): dict(v) for k, v in get_default_notification_type_settings().items()}
     # Staff alert types (#1127) postdate the frozen snapshot.
     # STAFF_PAYMENT_DISPUTED (#1245), STAFF_MEMBER_RECORD_AUTO_LINKED (#1319) and
-    # MEMBERSHIP_PAYMENT_REQUESTED (offline membership flow) postdate it too.
+    # MEMBERSHIP_PAYMENT_REQUESTED and MEMBERSHIP_OFFLINE_JOINED (offline membership flow) postdate it too.
     staff_types = {str(v) for v in STAFF_TYPE_FOR.values()} | {
         "staff_payment_disputed",
         "staff_member_record_auto_linked",
         "membership_payment_requested",
+        "membership_offline_joined",
     }
     current_guest = {str(k): v for k, v in get_guest_notification_type_settings().items() if str(k) not in staff_types}
     assert migration.GUEST_DEFAULTS == current_guest

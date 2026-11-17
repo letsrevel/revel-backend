@@ -8,6 +8,9 @@
 {%if context.revival_url and context.revival_window_end%}{%blocktranslate with date=context.revival_window_end %}You can reactivate your membership until {{ date }}.{%endblocktranslate%}
 
 {%trans "Reactivate:"%} {{context.revival_url}}
-{%else%}{%trans "If you'd like to continue, you can start a new subscription at any time."%}
+{%elif context.lapsed%}{%trans "You can join or apply again at any time."%}
+{%if context.membership_url%}
+{%trans "Join or apply again:"%} {{context.membership_url}}
+{%endif%}{%else%}{%trans "If you'd like to continue, you can start a new subscription at any time."%}
 {%endif%}
 {% include "notifications/email/_footer.txt" %}
