@@ -215,19 +215,16 @@ increase(revel_stripe_session_paid_without_payments_total[5m]) > 0
 Each increment is paired with a self-contained `ERROR` log line carrying the identifiers to
 act on — see [the money-correctness runbook](#money-correctness-stripe-session-total-mismatch).
 
-!!! warning "Counters are per gunicorn worker until multiproc lands in deployment"
-    Production runs several gunicorn workers with no `PROMETHEUS_MULTIPROC_DIR`, so each
-    worker keeps its own counters and a scrape reaches one of them. That is fine for
-    "did this ever happen" alerting — the incremented worker holds its non-zero value and is
-    eventually scraped — but these values are **not** exact rates. Until the deployment half
-    of [#757](https://github.com/letsrevel/revel-backend/issues/757)
-    (tracked as [letsrevel/infra#35](https://github.com/letsrevel/infra/issues/35)) sets the
-    env var, **every alert or dashboard built on these metrics must be a presence check
-    (`increase(...) > 0`) — never a rate or an absolute count.** Only define
-    alert-on-any-occurrence metrics here until then.
+!!! note "Counters are aggregated across gunicorn workers"
+    Production sets `PROMETHEUS_MULTIPROC_DIR` on the `web` container, backed by a
+    per-container tmpfs ([letsrevel/infra#76](https://github.com/letsrevel/infra/pull/76),
+    closing the deployment half of [#757](https://github.com/letsrevel/revel-backend/issues/757)),
+    so `/metrics` reports the sum over every worker and **rates and absolute counts are exact**.
+    Before that, each worker kept its own registry and a scrape read a random one, so any
+    Django metric data from before the change is inflated roughly 100x and only good for
+    "did this ever happen" checks.
 
-    The backend is already multiproc-ready; everything is gated on the
-    `PROMETHEUS_MULTIPROC_DIR` env var and inert while it is unset:
+    How the pieces fit:
 
     - `prometheus_client` switches metric storage to per-process mmap files in that
       directory automatically (the env var is read at import time, so it must be set in the
@@ -238,10 +235,9 @@ act on — see [the money-correctness runbook](#money-correctness-stripe-session
       stale metric files when the master starts and runs
       `multiprocess.mark_process_dead()` on `child_exit`.
 
-    Once deployment sets the env var and mounts a writable shared directory (tmpfs) for it,
-    rates and absolute counts become trustworthy. One trade-off: the default per-process
-    collectors (`process_*`, `python_gc_*`, `python_info`) disappear from `/metrics`, as
-    they only exist on the in-process registry.
+    Trade-off: the default per-process collectors (`process_*`, `python_gc_*`,
+    `python_info`) are absent from the web app's `/metrics`, as they only exist on the
+    in-process registry.
 
 ---
 
