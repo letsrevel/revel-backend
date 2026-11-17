@@ -2,6 +2,6 @@
 
 ✅ {%blocktranslate%}Request Approved{%endblocktranslate%}
 
-{%trans "View details:" %} {{ context.event_url }}
+{%trans "View details:" %} {{ context.frontend_url }}
 
 {% include "notifications/email/_footer.txt" %}

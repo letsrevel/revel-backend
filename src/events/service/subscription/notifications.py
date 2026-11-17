@@ -23,7 +23,9 @@ from common.models import SiteSettings
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
 from events.utils import format_organization_datetime
 from events.utils.frontend_urls import frontend_base_url_for
+from events.utils.subscription_payment import is_never_paid_on_offline_plan
 from notifications.enums import NotificationType
+from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
 
 #: The one member-facing subscription surface in the frontend (#815). It lists every
@@ -114,6 +116,61 @@ def _common_subscription_context(subscription: MembershipSubscription) -> dict[s
     return ctx
 
 
+def dispatch_membership_payment_requested(
+    subscription: MembershipSubscription, *, application_accepted: bool = False
+) -> None:
+    """Fire MEMBERSHIP_PAYMENT_REQUESTED: an OFFLINE plan was opened, the member must pay the organization directly.
+
+    Public (no leading underscore): called from the offline-join flow rather than the
+    webhook/lifecycle sites the other helpers serve. Fires through the signal like they do.
+    ``application_accepted`` leads the message with "<org> accepted your application." (the organization
+    already accepted it; a member-facing join that self-approves its own application is not an acceptance).
+    """
+    plan = subscription.plan
+    ctx = _common_subscription_context(subscription)
+    ctx.update(
+        tier_name=plan.tier.name,
+        amount=_charged_money(plan, None, ""),
+        period_label=plan.get_period_unit_display(),
+        payment_instructions=plan.effective_payment_instructions or "",
+        # /account/* is the platform account area, never an org (tenant) route.
+        memberships_url=f"{SiteSettings.get_solo().frontend_base_url}{MEMBERSHIPS_PATH}",
+        application_accepted=application_accepted,
+    )
+    notification_requested.send(
+        sender=MembershipSubscription,
+        user=subscription.user,
+        notification_type=NotificationType.MEMBERSHIP_PAYMENT_REQUESTED,
+        context=ctx,
+    )
+
+
+def dispatch_membership_offline_joined(subscription: MembershipSubscription) -> int:
+    """Tell org staff someone joined an OFFLINE plan directly (no application) and now owes a payment.
+
+    Returns the number of staff notified.
+    """
+    org = subscription.organization
+    user = subscription.user
+    frontend_url = f"{frontend_base_url_for(org)}/org/{org.slug}/admin/members?tab=subscriptions&status=pending"
+    return notify_org_staff(
+        organization_id=org.id,
+        notification_type=NotificationType.MEMBERSHIP_OFFLINE_JOINED,
+        context={
+            "subscription_id": str(subscription.id),
+            "organization_id": str(org.id),
+            "organization_name": org.name,
+            "member_id": str(user.id),
+            "member_name": user.display_name,
+            "member_email": user.email,
+            "tier_name": subscription.plan.tier.name,
+            "plan_name": subscription.plan.name,
+            "frontend_url": frontend_url,
+        },
+        sender=MembershipSubscription,
+    )
+
+
 def _dispatch_renewal_succeeded(
     subscription: MembershipSubscription,
     *,
@@ -199,13 +256,45 @@ def _dispatch_subscription_expired(subscription: MembershipSubscription) -> None
     )
 
 
-def _dispatch_cancellation_confirmed(subscription: MembershipSubscription, *, immediate: bool) -> None:
-    """Fire SUBSCRIPTION_CANCELLATION_CONFIRMED for cancel-now or cancel-at-period-end."""
+def dispatch_unpaid_offline_lapsed(subscription: MembershipSubscription) -> None:
+    """Fire SUBSCRIPTION_EXPIRED (``lapsed`` branch): a never-paid offline request timed out and was cancelled."""
+    ctx = _common_subscription_context(subscription)
+    ctx["expired_at"] = format_organization_datetime(timezone.now(), subscription.organization)
+    ctx["lapsed"] = True
+    org = subscription.organization
+    ctx["membership_url"] = f"{frontend_base_url_for(org)}/org/{org.slug}/membership"
+    notification_requested.send(
+        sender=MembershipSubscription,
+        user=subscription.user,
+        notification_type=NotificationType.SUBSCRIPTION_EXPIRED,
+        context=ctx,
+    )
+
+
+def _dispatch_cancellation_confirmed(
+    subscription: MembershipSubscription,
+    *,
+    immediate: bool,
+    prior_status: str | None = None,
+    rejoinable: bool = True,
+) -> None:
+    """Fire SUBSCRIPTION_CANCELLATION_CONFIRMED for cancel-now or cancel-at-period-end.
+
+    ``prior_status`` is the status before the cancel (the row may already be CANCELLED): only a PENDING,
+    never-paid OFFLINE row gets the "membership request cancelled" variant. ``rejoinable=False`` (a ban)
+    drops the "you can join or apply again" line from that variant.
+    """
     if immediate:
         access_ends_at = timezone.now()
     else:
         access_ends_at = subscription.current_period_end or timezone.now()
     ctx = _common_subscription_context(subscription)
+    # PENDING and never paid on an OFFLINE plan: a withdrawn or declined request, not a membership ending.
+    ctx["request_cancelled"] = (
+        prior_status == MembershipSubscription.SubscriptionStatus.PENDING
+        and is_never_paid_on_offline_plan(subscription)
+    )
+    ctx["rejoinable"] = rejoinable
     ctx.update(
         immediate=immediate,
         # Org-local, human-readable — never raw UTC isoformat (#511/#542).

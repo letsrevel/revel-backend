@@ -25,6 +25,7 @@ from events.models import (
     OrganizationMembershipRequest,
 )
 from events.service import member_register_service
+from events.utils.subscription_payment import is_never_paid_offline
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 from questionnaires.models import QuestionnaireSubmission
@@ -306,6 +307,9 @@ def advance_application(
     a fresh verdict computed against the current state (still useful for the
     response payload), but no state mutation is performed.
     """
+    # lazy: events.service.subscription imports this package (membership_manager) at import time.
+    from events.service.subscription.offline import open_offline_subscription
+
     with transaction.atomic():
         # Re-fetch under lock so we never miss a concurrent update.
         # ``of=("self",)`` so FOR UPDATE locks only the OMR row — the nullable FK joins
@@ -338,11 +342,28 @@ def advance_application(
         if application.status == OrganizationMembershipRequest.Status.PENDING and eligibility.allowed:
             if application.plan_id is None and application.tier_id is not None:
                 _complete_free_application(application)
-            elif application.plan_id is not None:
-                # Paid path: APPROVED awaiting payment via /subscribe; the Stripe
-                # activation settles the row COMPLETED.
-                application.status = OrganizationMembershipRequest.Status.APPROVED
-                application.save(update_fields=["status", "updated_at"])
+            elif application.plan is not None:
+                if (
+                    application.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE
+                    and eligibility.next_step == MembershipNextStep.PROCEED_TO_PAYMENT
+                ):
+                    # Only on PROCEED_TO_PAYMENT: other allowing verdicts (ALREADY_MEMBER, privileged) must
+                    # not mint a subscription or ask an existing member to pay.
+                    # Opens the awaiting-payment subscription and links/approves the row; the verdict
+                    # is recomputed so the caller sees WAIT_FOR_OFFLINE_PAYMENT, not allowed-with-no-step.
+                    open_offline_subscription(application.plan, application.user, application=application)
+                    eligibility = MembershipEligibilityService(
+                        user=application.user,
+                        organization=application.organization,
+                        tier=application.tier,
+                        plan=application.plan,
+                    ).check_eligibility()
+                else:
+                    # Any other plan (ONLINE, or an OFFLINE plan whose verdict is not PROCEED_TO_PAYMENT):
+                    # APPROVED, awaiting payment via /subscribe. The first payment settles the row COMPLETED:
+                    # the Stripe activation for ONLINE, the recorded offline payment for OFFLINE.
+                    application.status = OrganizationMembershipRequest.Status.APPROVED
+                    application.save(update_fields=["status", "updated_at"])
             # else: tier-less, plan-less application → stays PENDING until staff approves
             # (legacy /membership-requests path).
 
@@ -449,13 +470,20 @@ def cancel_application(application: OrganizationMembershipRequest) -> Organizati
     """Cancel one of the member's own applications.
 
     Only PENDING/APPROVED rows transition to CANCELLED; anything else is
-    already terminal and is returned unchanged (idempotent).
+    already terminal and is returned unchanged (idempotent). A linked never-paid offline
+    subscription is cancelled first, which also releases the member held for it.
     """
     if application.status not in {
         OrganizationMembershipRequest.Status.PENDING,
         OrganizationMembershipRequest.Status.APPROVED,
     }:
         return application
+    # lazy: the subscription services import this package.
+    from events.service.subscription import lifecycle as subscription_lifecycle
+
+    subscription = application.subscription
+    if subscription is not None and not subscription.is_terminal and is_never_paid_offline(subscription):
+        subscription_lifecycle.cancel_subscription(subscription, immediate=True)
     application.status = OrganizationMembershipRequest.Status.CANCELLED
     application.save(update_fields=["status", "updated_at"])
     return application

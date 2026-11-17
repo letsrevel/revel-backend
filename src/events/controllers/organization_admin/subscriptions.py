@@ -26,7 +26,9 @@ from events.service.subscription import refunds as subscription_refunds
 from events.service.subscription import reporting as subscription_reporting
 from events.service.subscription import uncancel as subscription_uncancel
 from events.service.subscription.lifecycle import InitialPayment
+from events.service.subscription.offline import open_offline_subscription
 from events.utils.membership_payment_rules import with_latest_payment_id
+from events.utils.subscription_payment import annotate_payment_progress
 from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
@@ -242,15 +244,16 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         self,
         slug: str,
         status: t.Annotated[models.MembershipSubscription.SubscriptionStatus | None, Query(None)] = None,
+        payment_method: t.Annotated[models.SubscriptionPaymentMethod | None, Query(None)] = None,
     ) -> QuerySet[models.MembershipSubscription]:
-        """List all subscriptions for the organization, optionally filtered by ``status``."""
+        """List the organization subscriptions, optionally filtered by ``status`` and plan ``payment_method``."""
         organization = self.get_one(slug)
         # ``plan`` rides a Prefetch (not select_related) so the nested
         # ``PlanSchema.active_subscription_count`` reads an annotation instead
         # of issuing one COUNT per page row.
         plan_qs = models.MembershipSubscriptionPlan.objects.with_active_subscription_count().select_related("tier")
         qs = (
-            models.MembershipSubscription.objects.filter(organization=organization)
+            annotate_payment_progress(models.MembershipSubscription.objects.filter(organization=organization))
             .select_related("user", "organization")
             .prefetch_related(Prefetch("plan", queryset=plan_qs))
             # ``SubscriptionSchema.member_status`` reads this annotation so the
@@ -262,12 +265,14 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
                         organization_id=OuterRef("organization_id"),
                         user_id=OuterRef("user_id"),
                     ).values("status")[:1]
-                )
+                ),
             )
             .order_by("-created_at")
         )
         if status is not None:
             qs = qs.filter(status=status)
+        if payment_method is not None:
+            qs = qs.filter(plan__payment_method=payment_method)
         return qs
 
     @route.get(
@@ -304,6 +309,9 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         ONLINE (Stripe) plans must be subscribed to by the member themselves
         via ``POST /api/me/organizations/{org_id}/subscribe`` so the user can
         confirm the first payment.
+
+        An OFFLINE plan opens the subscription awaiting payment: the membership
+        starts at the first recorded payment, not at creation.
 
         A FREE plan may be created here (it is the staff equivalent of the
         member's self-serve subscribe) but never with an initial payment —
@@ -357,7 +365,11 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
                 occurred_at=payload.initial_payment_occurred_at,
             )
 
-        subscription = subscription_lifecycle.create_subscription(plan, user, initial_payment=initial)
+        if initial is None and plan.payment_method == models.MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+            # Held as AWAITING_PAYMENT; the person is asked to pay (MEMBERSHIP_PAYMENT_REQUESTED).
+            subscription = open_offline_subscription(plan, user)
+        else:
+            subscription = subscription_lifecycle.create_subscription(plan, user, initial_payment=initial)
         return 201, subscription
 
     @route.get(

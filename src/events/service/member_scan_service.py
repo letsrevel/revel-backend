@@ -14,6 +14,7 @@ from events.models import Event, OrganizationMember, Ticket
 from events.service import day_membership_service
 from events.service.check_in_service import check_in_ticket
 from events.service.user_note_service import get_note_body
+from events.utils.membership_access import AWAITING_PAYMENT_STATUS
 
 
 @dataclass
@@ -59,6 +60,9 @@ def scan_member_code(
         pk=member_id,
         organization_id=event.organization_id,
     )
+    if member.status == AWAITING_PAYMENT_STATUS:
+        # Not a member yet: the card is not valid until the first payment.
+        raise Http404("Invalid member code.")
     tickets = list(
         Ticket.objects.select_related("tier", "held_pass__series_pass")
         .filter(event=event, user_id=member.user_id)

@@ -32,8 +32,13 @@ from events.models import (
 from events.service import member_register_service
 from events.service.blacklist_service import check_user_hard_blacklisted
 from events.service.subscription.notifications import _dispatch_renewal_succeeded
+from events.service.subscription.offline import (
+    activate_on_first_payment,
+    refuse_blacklisted_first_payment,
+)
 from events.service.subscription.sales import ensure_plan_sales_capacity
-from events.utils.membership_access import banned_memberships
+from events.utils.membership_access import banned_memberships, is_cancelled_status
+from events.utils.subscription_payment import is_never_paid_offline
 from events.utils.subscription_periods import calculate_period_end
 
 logger = structlog.get_logger(__name__)
@@ -122,6 +127,22 @@ def _refuse_lapsed_period(period_end: datetime.datetime | None, now: datetime.da
         )
 
 
+def _hold_member_awaiting_payment(plan: MembershipSubscriptionPlan, user: RevelUser) -> None:
+    """Make sure an OFFLINE joiner has an access row: AWAITING_PAYMENT when new or CANCELLED, else untouched."""
+    organization = plan.tier.organization
+    awaiting = OrganizationMember.MembershipStatus.AWAITING_PAYMENT
+    with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
+        member, created = get_or_create_with_race_protection(
+            OrganizationMember,
+            Q(organization=organization, user=user),
+            {"organization": organization, "user": user, "tier": plan.tier, "status": awaiting},
+        )
+        if not created and is_cancelled_status(member.status):
+            member.status = awaiting
+            member.tier = plan.tier
+            member.save(update_fields=["status", "tier", "updated_at"])
+
+
 @transaction.atomic
 def create_subscription(
     plan: MembershipSubscriptionPlan,
@@ -167,10 +188,11 @@ def create_subscription(
     # ONLINE plans gate ACTIVE membership on the first successful Stripe payment,
     # so we don't grant tier benefits up front: that work moves into the
     # ``invoice.paid`` / ``customer.subscription.updated`` webhook handlers.
-    # OFFLINE and FREE plans have no Stripe payment to wait for, so the member
-    # is materialized here — for FREE that is the *only* place it can happen.
+    # OFFLINE plans hold the person as AWAITING_PAYMENT until the first recorded payment
+    # (``activate_on_first_payment``); an existing member keeps their tier and status until then.
+    # FREE plans have nothing to wait for, so the member is materialized ACTIVE here.
     is_free = plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.FREE
-    if plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+    if is_free:
         with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
             update_or_create_with_race_protection(
                 OrganizationMember,
@@ -180,6 +202,8 @@ def create_subscription(
                     "status": OrganizationMember.MembershipStatus.ACTIVE,
                 },
             )
+    elif plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+        _hold_member_awaiting_payment(plan, user)
 
     # The partial-unique index protects against a race where two requests both
     # pass the duplicate check above; the helper re-fetches the winner whether
@@ -285,6 +309,8 @@ def record_payment(
         # both — and no FX conversion exists to reconcile them afterwards.
         raise HttpError(400, str(_("Payment currency must match the plan's currency.")))
     now = timezone.now()
+    first_offline_payment = is_never_paid_offline(subscription)
+    refuse_blacklisted_first_payment(subscription)
 
     if occurred_at is not None:
         _validate_occurred_at(subscription, occurred_at, now, future_only=is_initial)
@@ -314,6 +340,10 @@ def record_payment(
     if not advance:
         return payment
 
+    if first_offline_payment:
+        # Before the save below: the PENDING -> ACTIVE save fires sync_member_from_subscription.
+        activate_on_first_payment(subscription, send_receipt=dispatch_renewal_notification and not is_initial)
+
     update_fields = ["current_period_start", "current_period_end", "updated_at"]
     subscription.current_period_start = period_start
     subscription.current_period_end = period_end
@@ -339,7 +369,7 @@ def record_payment(
         MembershipSubscription.SubscriptionStatus.ACTIVE.value,
         MembershipSubscription.SubscriptionStatus.PAST_DUE.value,
     }
-    if dispatch_renewal_notification and prior_status in _renewal_eligible_statuses:
+    if dispatch_renewal_notification and not first_offline_payment and prior_status in _renewal_eligible_statuses:
         # Quote what was actually recorded: staff pick the amount (and the
         # subscriber may be grandfathered on an older price), so ``plan.price``
         # would put a figure in the receipt that nobody paid.

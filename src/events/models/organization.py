@@ -405,6 +405,7 @@ class Organization(
         ),
     )
     membership_refund_policy = MarkdownField(blank=True, default="")
+    membership_payment_instructions = MarkdownField(blank=True, default="", db_default="")
 
     accept_membership_requests = models.BooleanField(default=False)
     contact_email = models.EmailField(blank=True, null=True)

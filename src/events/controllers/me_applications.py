@@ -28,7 +28,7 @@ from events.service.membership_manager import (
     apply_for_membership,
     cancel_application,
 )
-from events.service.membership_manager.enums import MembershipNextStep, Reasons
+from events.service.membership_manager.enums import MembershipNextStep, MembershipReasonCode, Reasons
 from oauth.permissions import RequireScope
 
 
@@ -93,14 +93,17 @@ class MeMembershipApplicationsController(UserAwareController):
         # (``MembershipApplicationIneligibleError`` — see events/exception_handlers).
         # The frontend branches on the latter to re-render the join CTA.
         response={
+            200: schema.ApplyResponseSchema,
             201: schema.ApplyResponseSchema,
             400: schema.MembershipEligibilitySchema | ErrorDetail,
             404: ErrorDetail,
-            409: ErrorDetail,
+            409: schema.ApplyConflictSchema,
         },
         throttle=WriteThrottle(),
     )
-    def apply(self, slug: str, payload: schema.ApplyRequestSchema) -> tuple[int, schema.ApplyResponseSchema]:
+    def apply(
+        self, slug: str, payload: schema.ApplyRequestSchema
+    ) -> tuple[int, schema.ApplyResponseSchema | schema.ApplyConflictSchema]:
         """Create or refresh the caller's membership application.
 
         Idempotent: if a PENDING application already exists for (user, org, tier),
@@ -147,7 +150,33 @@ class MeMembershipApplicationsController(UserAwareController):
         # application on every call — queue noise, and tier.on_delete=PROTECT
         # means those rows permanently block deleting the tier.
         if preview.next_step == MembershipNextStep.ALREADY_MEMBER:
-            raise HttpError(409, _(Reasons.ALREADY_ACTIVE_MEMBER))
+            return 409, schema.ApplyConflictSchema(
+                detail=str(_(Reasons.ALREADY_ACTIVE_MEMBER)),
+                reason_code=MembershipReasonCode.ALREADY_ACTIVE_MEMBER,
+                next_step=MembershipNextStep.ALREADY_MEMBER,
+            )
+
+        # Already holding an awaiting-payment subscription for this plan: nothing to apply for.
+        # Answer with the linked application if there is one (no new row, no staff re-notification).
+        if preview.next_step == MembershipNextStep.WAIT_FOR_OFFLINE_PAYMENT:
+            linked = (
+                OrganizationMembershipRequest.objects.filter(pk=preview.application_id).first()
+                if preview.application_id
+                else None
+            )
+            if linked is None:
+                return 409, schema.ApplyConflictSchema(
+                    detail=preview.reason or str(_(Reasons.AWAITING_OFFLINE_PAYMENT)),
+                    reason_code=MembershipReasonCode.AWAITING_OFFLINE_PAYMENT,
+                    next_step=MembershipNextStep.WAIT_FOR_OFFLINE_PAYMENT,
+                )
+            return 200, t.cast(
+                schema.ApplyResponseSchema,
+                {
+                    "application": linked,
+                    "eligibility": schema.MembershipEligibilitySchema.from_eligibility(preview),
+                },
+            )
 
         application, eligibility = apply_for_membership(
             user=user,
@@ -220,6 +249,6 @@ class MeMembershipApplicationsController(UserAwareController):
         qs = OrganizationMembershipRequest.objects.filter(user=self.user())
         if organization is not None:
             qs = qs.filter(organization_id=organization)
-        return qs.select_related("organization", "tier", "plan", "subscription", "questionnaire_submission").order_by(
-            "-created_at"
-        )
+        return qs.select_related(
+            "organization", "tier", "plan__tier", "subscription", "questionnaire_submission"
+        ).order_by("-created_at")

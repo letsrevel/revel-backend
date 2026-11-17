@@ -69,6 +69,7 @@ def create_plan(
     payment_method: str = MembershipSubscriptionPlan.PaymentMethod.OFFLINE,
     sales_status: str = MembershipSubscriptionPlan.SalesStatus.OPEN,
     max_subscriptions: int | None = None,
+    payment_instructions: str | None = None,
 ) -> MembershipSubscriptionPlan:
     """Create a subscription plan for a membership tier.
 
@@ -91,6 +92,7 @@ def create_plan(
         payment_method=payment_method,
         sales_status=sales_status,
         max_subscriptions=max_subscriptions,
+        payment_instructions=payment_instructions,
     )
     return _maybe_sync_plan_to_stripe(plan)
 

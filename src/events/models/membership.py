@@ -7,8 +7,14 @@ from django.utils.translation import gettext_lazy as _
 
 from common.fields import MarkdownField
 from common.models import TimeStampedModel
-from events.utils import membership_access
-from events.utils.membership_access import BANNED_STATUS, ELIGIBLE_STATUSES, VISIBLE_STATUSES, is_visible_status
+from events.utils.membership_access import (
+    AWAITING_PAYMENT_STATUS,
+    BANNED_STATUS,
+    ELIGIBLE_STATUSES,
+    PAYMENT_HELD_STATUSES,
+    VISIBLE_STATUSES,
+    is_visible_status,
+)
 
 from .mixins import UserRequestMixin
 from .organization import Organization
@@ -129,9 +135,13 @@ class OrganizationMemberQuerySet(models.QuerySet["OrganizationMember"]):
         """Return only BANNED memberships."""
         return self.filter(status=BANNED_STATUS)
 
-    def non_cancelled(self) -> t.Self:
-        """Return memberships in any status except CANCELLED."""
-        return self.exclude(status=membership_access.CANCELLED_STATUS)
+    def awaiting_payment(self) -> t.Self:
+        """Return only AWAITING_PAYMENT memberships."""
+        return self.filter(status=AWAITING_PAYMENT_STATUS)
+
+    def payment_held(self) -> t.Self:
+        """Memberships a first offline payment acts on (AWAITING_PAYMENT, ACTIVE)."""
+        return self.filter(status__in=PAYMENT_HELD_STATUSES)
 
 
 class OrganizationMemberManager(models.Manager["OrganizationMember"]):
@@ -153,6 +163,14 @@ class OrganizationMemberManager(models.Manager["OrganizationMember"]):
         """Return only BANNED memberships."""
         return self.get_queryset().banned_only()
 
+    def awaiting_payment(self) -> OrganizationMemberQuerySet:
+        """Return only AWAITING_PAYMENT memberships."""
+        return self.get_queryset().awaiting_payment()
+
+    def payment_held(self) -> OrganizationMemberQuerySet:
+        """Return memberships a first offline payment acts on (AWAITING_PAYMENT, ACTIVE)."""
+        return self.get_queryset().payment_held()
+
 
 class OrganizationMember(TimeStampedModel):
     class MembershipStatus(models.TextChoices):
@@ -160,6 +178,7 @@ class OrganizationMember(TimeStampedModel):
         PAUSED = "paused"
         CANCELLED = "cancelled"
         BANNED = "banned"
+        AWAITING_PAYMENT = "awaiting_payment"  # holds a slot; grants nothing until the first payment
 
     QR_PREFIX: t.ClassVar[str] = "member:"
 

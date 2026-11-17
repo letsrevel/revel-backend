@@ -125,6 +125,11 @@ class MembershipSubscriptionPlan(TimeStampedModel):
     )
     name = models.CharField(max_length=255, help_text=_('e.g. "Monthly", "Annual"'))
     description = MarkdownField(blank=True, default="")
+    payment_instructions = MarkdownField(
+        null=True,
+        blank=True,
+        help_text=_("How to pay this plan offline. Overrides the organization's default instructions."),
+    )
     price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -208,6 +213,15 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         )
         if message:
             raise DjangoValidationError({"payment_method": message})
+
+    @property
+    def effective_payment_instructions(self) -> str | None:
+        """The plan's payment instructions, else the organization's, else ``None`` (blank counts as unset)."""
+        return (
+            (self.payment_instructions or "").strip()
+            or (self.tier.organization.membership_payment_instructions or "").strip()
+            or None
+        )
 
     @property
     def organization_id(self) -> t.Any:

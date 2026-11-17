@@ -17,6 +17,7 @@ class MembershipNextStep(StrEnum):
     REQUIRES_INVITATION = "requires_invitation"
     SUBMIT_APPLICATION = "submit_application"
     PROCEED_TO_PAYMENT = "proceed_to_payment"
+    WAIT_FOR_OFFLINE_PAYMENT = "wait_for_offline_payment"
     ALREADY_MEMBER = "already_member"
     REAPPLY = "reapply"
 
@@ -52,6 +53,7 @@ class MembershipReasonCode(StrEnum):
     ORG_NOT_STRIPE_CONNECTED = "org_not_stripe_connected"
     DUPLICATE_ACTIVE_SUBSCRIPTION = "duplicate_active_subscription"
     MEMBERSHIP_PAUSED = "membership_paused"
+    AWAITING_OFFLINE_PAYMENT = "awaiting_offline_payment"
 
 
 #: Reasons that genuinely terminate an application — the user has no in-app
@@ -101,6 +103,7 @@ class Reasons(StrEnum):
     ORG_NOT_STRIPE_CONNECTED = gettext_noop("This organization cannot accept online payments yet.")
     DUPLICATE_ACTIVE_SUBSCRIPTION = gettext_noop("You already have an active subscription in this organization.")
     MEMBERSHIP_PAUSED = gettext_noop("Your membership at this tier is paused. Contact the organization to resume.")
+    AWAITING_OFFLINE_PAYMENT = gettext_noop("Your membership starts once the organization confirms your payment.")
 
     @property
     def code(self) -> MembershipReasonCode:

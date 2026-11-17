@@ -36,6 +36,7 @@ from events.models import (
 from events.service.user_note_transfer import transfer_record_note
 from events.utils.frontend_urls import frontend_base_url_for
 from events.utils.membership_access import banned_memberships
+from events.utils.subscription_payment import is_never_paid_offline
 
 if t.TYPE_CHECKING:
     from events.schema import MembershipTierCreateSchema, MembershipTierUpdateSchema
@@ -45,6 +46,7 @@ if t.TYPE_CHECKING:
 # cannot be renamed without breaking historical migrations.
 from events.models.organization import _get_default_permissions
 from events.service import blacklist_service, member_register_service
+from events.service.subscription.offline import open_offline_subscription
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 
@@ -264,6 +266,26 @@ def _link_register_entry_to_applicant(
     transfer_record_note(locked, to_user_id=applicant.pk)
 
 
+def _approve_paid_application(
+    membership_request: models.OrganizationMembershipRequest,
+    plan: models.MembershipSubscriptionPlan,
+    effective_tier: MembershipTier,
+) -> None:
+    """Paid path: mark the application APPROVED.
+
+    ONLINE awaits the member's /subscribe + checkout; OFFLINE opens the awaiting-payment subscription
+    now (capacity/sales HttpErrors raise before any write).
+    """
+    if plan.payment_method == models.MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+        open_offline_subscription(plan, membership_request.user, application=membership_request)
+    membership_request.status = models.OrganizationMembershipRequest.Status.APPROVED
+    update_fields = ["status", "decided_by"]
+    if membership_request.tier_id is None:
+        membership_request.tier = effective_tier
+        update_fields.append("tier")
+    membership_request.save(update_fields=update_fields)
+
+
 @transaction.atomic
 def approve_membership_request(
     membership_request: models.OrganizationMembershipRequest,
@@ -283,9 +305,12 @@ def approve_membership_request(
 
     Behavior:
     - Application carries no plan → COMPLETED + OrganizationMember created at the chosen tier.
-    - Application carries a plan → APPROVED; the member then pays via
+    - Application carries an ONLINE plan → APPROVED; the member then pays via
       ``POST /subscribe`` (which re-runs the gates), and the Stripe activation
       settles the row COMPLETED. No membership is granted here.
+    - Application carries an OFFLINE plan → APPROVED and linked to a freshly opened PENDING
+      subscription (the member is held as AWAITING_PAYMENT); the first recorded payment
+      activates it. A capacity/sales refusal raises 400 and leaves the application PENDING.
 
     Args:
         membership_request: The application to approve.
@@ -309,8 +334,9 @@ def approve_membership_request(
     _assert_link_fits_application(membership_request, link_record)
 
     membership_request.decided_by = decided_by
+    plan = membership_request.plan
 
-    if membership_request.plan_id is None:
+    if plan is None:
         _assert_free_grant_allowed(membership_request, force=force)
         if link_record is not None:
             _link_register_entry_to_applicant(link_record, membership_request)
@@ -328,24 +354,18 @@ def approve_membership_request(
             models.MembershipRecord.Source.APPLICATION,
             questionnaire_submission=membership_request.questionnaire_submission,
         ):
-            member, created = update_or_create_with_race_protection(
+            member, _created = update_or_create_with_race_protection(
                 models.OrganizationMember,
                 {"organization": membership_request.organization, "user": membership_request.user},
                 {"tier": effective_tier, "status": OrganizationMember.MembershipStatus.ACTIVE},
             )
         member.full_clean()
     else:
-        # Paid path: mark APPROVED, awaiting the member's /subscribe + payment.
-        membership_request.status = models.OrganizationMembershipRequest.Status.APPROVED
-        update_fields = ["status", "decided_by"]
-        if membership_request.tier_id is None:
-            membership_request.tier = effective_tier
-            update_fields.append("tier")
-        membership_request.save(update_fields=update_fields)
-        created = False  # don't fire MEMBERSHIP_GRANTED on the paid branch yet
+        _approve_paid_application(membership_request, plan, effective_tier)
 
     def send_approval_notification() -> None:
         frontend_base_url = frontend_base_url_for(membership_request.organization)
+        path = "membership" if membership_request.plan_id is not None else ""
         notification_requested.send(
             sender=models.OrganizationMembershipRequest,
             user=membership_request.user,
@@ -353,11 +373,14 @@ def approve_membership_request(
             context={
                 "organization_id": str(membership_request.organization_id),
                 "organization_name": membership_request.organization.name,
-                "frontend_url": f"{frontend_base_url}/org/{membership_request.organization.slug}",
+                "frontend_url": f"{frontend_base_url}/org/{membership_request.organization.slug}/{path}".rstrip("/"),
             },
         )
 
-    if created or membership_request.plan_id is None:
+    # OFFLINE paid approvals are announced by MEMBERSHIP_PAYMENT_REQUESTED instead.
+    offline = models.MembershipSubscriptionPlan.PaymentMethod.OFFLINE
+    is_offline_paid = plan is not None and plan.payment_method == offline
+    if not is_offline_paid:
         transaction.on_commit(send_approval_notification)
 
 
@@ -440,7 +463,8 @@ def remove_member(organization: Organization, user: RevelUser) -> None:
     member_register_service.close_standard_record(
         organization.pk, user.pk, reason=models.MembershipRecord.EndedReason.REMOVED
     )
-    subscription_lifecycle.cancel_subscriptions_for_membership_loss(user, organization)
+    # A removed person is not barred: they may join or apply again.
+    subscription_lifecycle.cancel_subscriptions_for_membership_loss(user, organization, rejoinable=True)
     member.delete()
 
 
@@ -468,7 +492,9 @@ def _mirror_status_to_subscriptions(member: OrganizationMember, status: Organiza
     from events.service.subscription import lifecycle as subscription_lifecycle  # lazy: avoid cycle
 
     if status in (OrganizationMember.MembershipStatus.BANNED, OrganizationMember.MembershipStatus.CANCELLED):
-        subscription_lifecycle.cancel_subscriptions_for_membership_loss(member.user, member.organization)
+        subscription_lifecycle.cancel_subscriptions_for_membership_loss(
+            member.user, member.organization, rejoinable=status != OrganizationMember.MembershipStatus.BANNED
+        )
         return
 
     if status != OrganizationMember.MembershipStatus.PAUSED:
@@ -480,7 +506,7 @@ def _mirror_status_to_subscriptions(member: OrganizationMember, status: Organiza
         .select_related("plan")
     )
     for subscription in subscriptions:
-        if subscription.cancel_at_period_end:
+        if subscription.cancel_at_period_end or is_never_paid_offline(subscription):
             continue
         if (
             subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
@@ -545,6 +571,8 @@ def update_member(
     Returns:
         Updated OrganizationMember instance
     """
+    if status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT:
+        raise HttpError(400, str(_("This status is set by the system.")))
     if clear_tier or tier is not None:
         _ensure_tier_not_locked_by_subscription(member, tier)
 
