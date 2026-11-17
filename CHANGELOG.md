@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.38.1] - 2026-11-17
+
 ### Fixed
 - **Structured billing address counts for online sales**: an organization that filled in only the structured billing address (street, postal code, city, country) could not create online ticket tiers or subscription plans, because the check still required the old free-text address. Either address now satisfies it. The monthly platform-fee invoice and the revenue/VAT report print the structured address when the free-text one is empty, instead of leaving it blank.
+- **Documentation brought up to date**: the developer, operator and self-hosting docs were checked against the code shipped since v2.20.0. Wrong or outdated pages were corrected, new pages cover authentication and sessions and the member register, the self-hosting guide now lists the missing environment variables (Turnstile, key rotation, token lifetimes, admin alerts, Stripe, proxies), and every ADR is in the docs navigation.
+- `.env.example` no longer lists `APPLE_TEAM_IDENTIFIER`, which nothing reads.
 
 ## [2.38.0] - 2026-11-17
 
