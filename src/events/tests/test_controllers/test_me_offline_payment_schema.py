@@ -1,7 +1,7 @@
 """Offline-payment fields on the member-facing and admin schemas."""
 
 import typing as t
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -76,7 +76,12 @@ def _my_sub(user: RevelUser) -> dict[str, t.Any]:
     return t.cast(dict[str, t.Any], row)
 
 
-def test_my_subscription_instructions_only_while_awaiting(
+def _assert_same_instant(rendered: str, expected: t.Any) -> None:
+    """The API renders milliseconds only, so compare parsed values within a millisecond."""
+    assert abs(datetime.fromisoformat(rendered) - expected) < timedelta(milliseconds=1)
+
+
+def test_my_subscription_instructions_while_awaiting_and_renewing(
     awaiting_sub: MembershipSubscription, plan: MembershipSubscriptionPlan, nonmember_user: RevelUser
 ) -> None:
     # Falls back to the organization's instructions.
@@ -87,7 +92,7 @@ def test_my_subscription_instructions_only_while_awaiting(
     plan.save()
     assert _my_sub(nonmember_user)["payment_instructions"] == "Pay the plan by cash"
 
-    # Once a payment has succeeded (and the sub is active) they disappear.
+    # Once paid and active they stay: an offline member renews by paying the organization again.
     MembershipPayment.objects.create(
         subscription=awaiting_sub,
         amount=Decimal("50.00"),
@@ -98,7 +103,7 @@ def test_my_subscription_instructions_only_while_awaiting(
     )
     awaiting_sub.status = MembershipSubscription.SubscriptionStatus.ACTIVE
     awaiting_sub.save()
-    assert _my_sub(nonmember_user)["payment_instructions"] is None
+    assert _my_sub(nonmember_user)["payment_instructions"] == "Pay the plan by cash"
 
 
 def test_application_exposes_plan_and_subscription_status(
@@ -208,3 +213,73 @@ def test_my_subscriptions_query_count_does_not_grow_with_rows(
     results = response.json()["results"]
     assert len(results) == 3
     assert {r["payment_instructions"] for r in results} == {"Pay the org by IBAN"}
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (MembershipSubscription.SubscriptionStatus.ACTIVE, "Pay the org by IBAN"),
+        (MembershipSubscription.SubscriptionStatus.PAST_DUE, "Pay the org by IBAN"),
+        (MembershipSubscription.SubscriptionStatus.PAUSED, None),
+        (MembershipSubscription.SubscriptionStatus.EXPIRED, None),
+    ],
+)
+def test_renewing_offline_member_keeps_payment_instructions(
+    awaiting_sub: MembershipSubscription, nonmember_user: RevelUser, status: str, expected: str | None
+) -> None:
+    MembershipPayment.objects.create(
+        subscription=awaiting_sub,
+        amount=Decimal("50.00"),
+        currency="EUR",
+        status=MembershipPayment.PaymentStatus.SUCCEEDED,
+        period_start=timezone.now(),
+        period_end=timezone.now() + timedelta(days=365),
+    )
+    awaiting_sub.status = status
+    awaiting_sub.save()
+
+    assert _my_sub(nonmember_user)["payment_instructions"] == expected
+
+
+def test_online_subscription_never_shows_instructions(
+    org: Organization, plan: MembershipSubscriptionPlan, awaiting_sub: MembershipSubscription, nonmember_user: RevelUser
+) -> None:
+    MembershipSubscriptionPlan.objects.filter(pk=plan.pk).update(payment_method=SubscriptionPaymentMethod.ONLINE)
+    awaiting_sub.status = MembershipSubscription.SubscriptionStatus.ACTIVE
+    awaiting_sub.save()
+
+    assert _my_sub(nonmember_user)["payment_instructions"] is None
+
+
+def test_payment_due_by_is_created_plus_window_and_follows_payments(
+    awaiting_sub: MembershipSubscription, nonmember_user: RevelUser
+) -> None:
+    from events.utils.subscription_payment import APPLICATION_PAYMENT_WINDOW_DAYS
+
+    window = timedelta(days=APPLICATION_PAYMENT_WINDOW_DAYS)
+    _assert_same_instant(_my_sub(nonmember_user)["payment_due_by"], awaiting_sub.created_at + window)
+
+    payment = MembershipPayment.objects.create(
+        subscription=awaiting_sub,
+        amount=Decimal("50.00"),
+        currency="EUR",
+        status=MembershipPayment.PaymentStatus.PENDING,
+        period_start=timezone.now(),
+        period_end=timezone.now() + timedelta(days=365),
+    )
+    _assert_same_instant(_my_sub(nonmember_user)["payment_due_by"], payment.updated_at + window)
+
+
+def test_payment_due_by_is_null_once_paid(awaiting_sub: MembershipSubscription, nonmember_user: RevelUser) -> None:
+    MembershipPayment.objects.create(
+        subscription=awaiting_sub,
+        amount=Decimal("50.00"),
+        currency="EUR",
+        status=MembershipPayment.PaymentStatus.SUCCEEDED,
+        period_start=timezone.now(),
+        period_end=timezone.now() + timedelta(days=365),
+    )
+    awaiting_sub.status = MembershipSubscription.SubscriptionStatus.ACTIVE
+    awaiting_sub.save()
+
+    assert _my_sub(nonmember_user)["payment_due_by"] is None

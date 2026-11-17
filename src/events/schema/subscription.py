@@ -24,7 +24,7 @@ from events.service.membership_manager.resolvers import (
     resolve_requires_membership_approval,
 )
 from events.utils.membership_payment_rules import payment_edit_flags
-from events.utils.subscription_payment import is_never_paid_offline
+from events.utils.subscription_payment import is_never_paid_offline, payment_due_by
 from events.utils.subscription_plan_rules import validate_plan_shape
 
 from .mixins import get_image_field_url
@@ -586,6 +586,7 @@ class _BaseSubscriptionSchema(ModelSchema):
     pending_plan_id: UUID | None = None
     expired_at: AwareDatetime | None = None
     revival_deadline: AwareDatetime | None = None
+    payment_due_by: AwareDatetime | None = None
 
     class Meta:
         model = MembershipSubscription
@@ -595,6 +596,11 @@ class _BaseSubscriptionSchema(ModelSchema):
             "created_at",
             "updated_at",
         ]
+
+    @staticmethod
+    def resolve_payment_due_by(obj: MembershipSubscription) -> datetime | None:
+        """When the expiry sweep cancels an unpaid OFFLINE request (``None`` otherwise); same rule as the sweep."""
+        return payment_due_by(obj)
 
     @staticmethod
     def resolve_revival_deadline(obj: MembershipSubscription) -> datetime | None:
@@ -625,8 +631,12 @@ class MySubscriptionSchema(_BaseSubscriptionSchema):
 
     @staticmethod
     def resolve_payment_instructions(obj: MembershipSubscription) -> str | None:
-        """How to pay, only while the subscription is an unpaid OFFLINE one awaiting payment."""
-        return obj.plan.effective_payment_instructions if is_never_paid_offline(obj) else None
+        """How to pay an OFFLINE plan: while awaiting the first payment, and when renewing (ACTIVE / PAST_DUE)."""
+        if obj.plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+            return None
+        status = MembershipSubscription.SubscriptionStatus
+        renewing = obj.status in (status.ACTIVE, status.PAST_DUE)
+        return obj.plan.effective_payment_instructions if renewing or is_never_paid_offline(obj) else None
 
     @staticmethod
     def resolve_grace_deadline(obj: MembershipSubscription) -> datetime | None:

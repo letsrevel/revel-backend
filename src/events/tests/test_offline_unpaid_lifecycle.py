@@ -31,7 +31,8 @@ from events.service.subscription import lifecycle as subscription_lifecycle
 from events.service.subscription import payment_edits, refunds
 from events.service.subscription import plans as subscription_plans
 from events.service.subscription.offline import open_offline_subscription
-from events.tasks.subscriptions import APPLICATION_PAYMENT_WINDOW_DAYS, expire_unpaid_offline_subscriptions
+from events.tasks.subscriptions import expire_unpaid_offline_subscriptions
+from events.utils.subscription_payment import APPLICATION_PAYMENT_WINDOW_DAYS
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 

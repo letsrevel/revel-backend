@@ -23,6 +23,7 @@ from events.controllers.permissions import (
     controller_uses_app_token,
 )
 from events.service import organization_service, user_note_service
+from events.utils.subscription_payment import annotate_payment_progress
 from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
@@ -63,7 +64,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     def _members_queryset(self, organization: models.Organization) -> QuerySet[models.OrganizationMember]:
         """Members of ``organization`` with the subscription (and, if permitted, note) prefetches."""
         active_subscriptions = (
-            models.MembershipSubscription.objects.filter(organization=organization)
+            annotate_payment_progress(models.MembershipSubscription.objects.filter(organization=organization))
             .exclude(status__in=models.MembershipSubscription.TERMINAL_STATUSES)
             .select_related("user")
             # ``SubscriptionSchema.member_status`` reads this annotation; without

@@ -3,7 +3,7 @@
 import typing as t
 from uuid import UUID
 
-from django.db.models import Exists, F, OuterRef, Prefetch, QuerySet
+from django.db.models import F, Prefetch, QuerySet
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext as _
@@ -27,6 +27,7 @@ from events.service.subscription import eligibility as subscription_eligibility
 from events.service.subscription import lifecycle as subscription_lifecycle
 from events.service.subscription import uncancel as subscription_uncancel
 from events.service.subscription.stripe import checkout as subscription_stripe_checkout
+from events.utils.subscription_payment import annotate_payment_progress
 from oauth.permissions import RequireScope
 
 
@@ -54,12 +55,9 @@ class MeSubscriptionsController(UserAwareController):
         qs = MembershipSubscription.objects.filter(user=self.user())
         if organization is not None:
             qs = qs.filter(organization_id=organization)
-        succeeded = MembershipPayment.objects.filter(
-            subscription=OuterRef("pk"), status=MembershipPayment.PaymentStatus.SUCCEEDED
-        )
         return (
-            qs.select_related("plan", "plan__tier__organization", "organization")
-            .annotate(has_succeeded_payment=Exists(succeeded))
+            annotate_payment_progress(qs)
+            .select_related("plan", "plan__tier__organization", "organization")
             .order_by("-created_at")
         )
 
@@ -79,7 +77,7 @@ class MeSubscriptionsController(UserAwareController):
         """
         user = self.user()
         active_subs = (
-            MembershipSubscription.objects.filter(user=user)
+            annotate_payment_progress(MembershipSubscription.objects.filter(user=user))
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
             .select_related("plan", "plan__tier__organization", "organization")
             .order_by("-created_at")

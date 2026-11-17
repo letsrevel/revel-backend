@@ -10,6 +10,11 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
+from events.utils.subscription_payment import (
+    APPLICATION_PAYMENT_WINDOW_DAYS,
+    annotate_last_payment_updated_at,
+    payment_anchor_expression,
+)
 
 if t.TYPE_CHECKING:
     from events.service.subscription.plans import MigrationResult
@@ -578,9 +583,8 @@ def resync_org_subscription_fees(org_id: str) -> "FeeResyncCounters":
     return resync_subscription_application_fees(org)
 
 
-#: How long an APPROVED plan-bearing application waits for payment before the
-#: sweep cancels it off the staff board.
-APPLICATION_PAYMENT_WINDOW_DAYS: t.Final[int] = 30
+# APPLICATION_PAYMENT_WINDOW_DAYS (imported above): how long an APPROVED plan-bearing application, and a
+# never-paid OFFLINE subscription, waits for payment before the sweeps cancel it.
 
 
 @shared_task(name="events.expire_stale_approved_applications")
@@ -653,11 +657,16 @@ def expire_unpaid_offline_subscriptions() -> int:
         organization_id=models.OuterRef("organization_id"), user_id=models.OuterRef("user_id")
     )
     candidate_ids = list(  # a list, not .iterator(): PgBouncer breaks server-side cursors
-        MembershipSubscription.objects.filter(
-            status=MembershipSubscription.SubscriptionStatus.PENDING,
-            plan__payment_method=MembershipSubscriptionPlan.PaymentMethod.OFFLINE,
-            created_at__lt=cutoff,
+        annotate_last_payment_updated_at(
+            MembershipSubscription.objects.filter(
+                status=MembershipSubscription.SubscriptionStatus.PENDING,
+                plan__payment_method=MembershipSubscriptionPlan.PaymentMethod.OFFLINE,
+            )
         )
+        # The window ends at ``payment_due_by`` (events.utils.subscription_payment): the later of creation
+        # and last payment activity, plus the window.
+        .alias(payment_anchor=payment_anchor_expression())
+        .filter(payment_anchor__lt=cutoff)
         .exclude(
             models.Exists(
                 MembershipPayment.objects.filter(
@@ -665,9 +674,6 @@ def expire_unpaid_offline_subscriptions() -> int:
                     status__in=(MembershipPayment.PaymentStatus.SUCCEEDED, MembershipPayment.PaymentStatus.REFUNDED),
                 )
             )
-        )
-        .exclude(
-            models.Exists(MembershipPayment.objects.filter(subscription=models.OuterRef("pk"), updated_at__gte=cutoff))
         )
         .filter(
             ~models.Exists(members)
