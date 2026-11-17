@@ -278,7 +278,7 @@ def _create_org_invoice(
                 org_name=org.billing_name or org.name,
                 org_vat_id=org.vat_id,
                 org_vat_country=org.vat_country_code,
-                org_address=org.billing_address,
+                org_address=org.billing_address_text(),
                 # Platform snapshot
                 platform_business_name=site.platform_business_name,
                 platform_business_address=site.platform_business_address,

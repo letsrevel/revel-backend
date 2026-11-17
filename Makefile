@@ -381,8 +381,8 @@ i18n-check:
 .PHONY: check-version
 check-version:
 	@echo "Checking versions..."
-	@curl -s https://main.api.revel.io/api/v1/version | jq -r '"Main Prod: \(.version)"'
-	@curl -s https://dev.api.revel.io/api/v1/version | jq -r '"Main Dev: \(.version)"'
+	@curl -s https://api.letsrevel.io/api/version | jq -r '"Prod: \(.version)"'
+	@curl -s https://demo-api.letsrevel.io/api/version | jq -r '"Demo: \(.version)"'
 
 
 .PHONY: serve-docs

@@ -226,7 +226,7 @@ The `Organization` model stores:
 | `tax_registration_number` | CharField | National tax number (EN 16931 BT-32, e.g. the German *Steuernummer*) for organizers without a VAT ID; format-checked only ([#1244](https://github.com/letsrevel/revel-backend/issues/1244)) |
 | `small_business_scheme` | CharField | `none` (default), `de_19` (§ 19 UStG) or `at_6_1_27` (§ 6 Abs. 1 Z 27 UStG). Declares a small-business VAT scheme: no VAT charged, every attendee-invoice line exempt (E), no reverse charge. For `at_6_1_27` the tax number replaces the VIES-validated VAT ID as an invoicing prerequisite; `de_19` requires the VIES-validated USt-IdNr. (the platform fee is reverse-charged, [#1258](https://github.com/letsrevel/revel-backend/issues/1258)) and the tax number is optional. See [compliance/eu](../compliance/eu/index.md#attendee-vat-handling) |
 | `billing_name` | CharField | Legal entity name for invoices (auto-filled from VIES if empty; falls back to org name) |
-| `billing_address` | TextField | **Legacy** free-text address (auto-filled from VIES if empty); still part of the online-tier prerequisite |
+| `billing_address` | TextField | **Legacy** free-text address (auto-filled from VIES if empty). `Organization.billing_address_text()` returns it when set, otherwise the complete structured address; that is what the online-tier prerequisite and the platform-fee invoice use |
 | `billing_address_line1`, `billing_address_line2`, `billing_postal_code`, `billing_city`, `billing_subdivision`, `billing_country_code` | CharFields | Structured postal address (`BillingPostalAddressMixin`, `common/models/address.py`), required to turn attendee invoicing on and used by e-invoices. Personal buyer billing profiles carry the same six fields (`StructuredBillingAddressMixin` in the schemas) |
 | `vat_exemption_reason` | CharField | Default legal basis printed for 0% / exempt invoice lines. A tier's own `vat_exemption_reason` wins over it |
 | `billing_email` | EmailField | Billing contact (falls back to contact_email for invoices) |
@@ -234,7 +234,7 @@ The `Organization` model stores:
 | `last_revenue_report_sent_period` | CharField | Internal scheduling bookkeeping — the last period emailed (e.g. `2026-Q1` or `2026-03`); prevents double-sends |
 
 !!! note "Online tier & plan prerequisite"
-    Creating an online (Stripe) ticket tier — or an ONLINE subscription plan — requires `billing_name`, `vat_country_code`, and the legacy text `billing_address` to be set on the organization (when platform fees are configured). This ensures invoices can be generated correctly from the first sale. Shared check: `ticket_service.check_online_payment_prerequisites()`.
+    Creating an online (Stripe) ticket tier — or an ONLINE subscription plan — requires `billing_name`, `vat_country_code`, and a billing address (the legacy text `billing_address` or a complete structured address, via `billing_address_text()`) to be set on the organization (when platform fees are configured). This ensures invoices can be generated correctly from the first sale. Shared check: `ticket_service.check_online_payment_prerequisites()`.
 
 ### Ticket Tier VAT Override
 

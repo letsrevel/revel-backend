@@ -159,8 +159,13 @@ def create_subscription(
 
     Refuses if the user is BANNED in the organization, or already has a
     non-terminal subscription there, or the plan's subscription cap is
-    reached. Ensures an :class:`OrganizationMember` exists at the plan's
-    tier in the same transaction.
+    reached. In the same transaction it materializes the member for a FREE plan
+    (ACTIVE at the plan's tier). For an OFFLINE plan a new or CANCELLED member is
+    held as AWAITING_PAYMENT; any other existing member keeps its status and tier
+    until the first payment. An ONLINE plan creates no member here: the Stripe
+    sync does once Stripe reports the subscription ``active``, which with a
+    delayed-confirmation method (e.g. SEPA Direct Debit) can precede the payment
+    settling (#1406).
     """
     organization = plan.tier.organization
 
@@ -190,10 +195,11 @@ def create_subscription(
     ensure_plan_sales_capacity(plan)
 
     # Ensure membership exists at plan.tier (don't overwrite BANNED — guarded above).
-    # ONLINE plans gate ACTIVE membership on the first successful Stripe payment,
-    # so we don't grant tier benefits up front: that work moves into the
-    # ``invoice.paid`` / ``customer.subscription.updated`` webhook handlers.
-    # OFFLINE plans hold the person as AWAITING_PAYMENT until the first recorded payment
+    # ONLINE plans don't grant tier benefits up front: the ``invoice.paid`` /
+    # ``customer.subscription.updated`` webhook handlers materialize the member once Stripe
+    # reports the subscription active (a delayed-confirmation method can get there before
+    # the payment settles, #1406).
+    # OFFLINE plans hold a new or CANCELLED person as AWAITING_PAYMENT until the first recorded payment
     # (``activate_on_first_payment``); an existing member keeps their tier and status until then.
     # FREE plans have nothing to wait for, so the member is materialized ACTIVE here.
     is_free = plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.FREE

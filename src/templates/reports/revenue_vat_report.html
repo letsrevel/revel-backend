@@ -20,7 +20,7 @@
     <div>
       <strong>{{ org.billing_name|default:org.name }}</strong><br>
       {% if org.vat_id %}VAT: {{ org.vat_id }}<br>{% endif %}
-      {{ org.billing_address|linebreaksbr }}
+      {{ org.billing_address_text|linebreaksbr }}
     </div>
     <div class="invoice-meta">
       <strong>Period</strong> {{ data.scope.date_from }} – {{ data.scope.date_to }}<br>

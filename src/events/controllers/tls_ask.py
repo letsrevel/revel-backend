@@ -21,7 +21,7 @@ class TlsAskController:
         response={200: None, 404: None},
         include_in_schema=False,
         # Unthrottled on purpose. Every ask reaches us from the one proxy IP, so the anonymous
-        # per-IP throttle (250/day) would be spent by junk SNI handshakes and starve real tenants.
+        # per-IP throttle (``AnonDefaultThrottle``) would be spent by junk SNI handshakes and starve real tenants.
         # The endpoint is a cache lookup (negative answers are cached too, see ``tenant_service``),
         # and it reveals nothing beyond the status code, which ``by-domain`` already exposes publicly.
         # ``throttle=[]`` (not ``None``) is how ninja spells "no throttles".

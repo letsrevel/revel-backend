@@ -482,6 +482,21 @@ class Organization(
     def __str__(self) -> str:
         return self.name
 
+    def billing_address_text(self) -> str:
+        """Return the billing address as one line for platform invoices and the online-sales gate.
+
+        The legacy free-text ``billing_address`` wins when set. Otherwise the structured address is used,
+        but only once complete; an incomplete one yields ``""``.
+
+        Returns:
+            The stripped legacy address, the complete structured address joined with ", ", or "".
+        """
+        legacy = self.billing_address.strip()
+        if legacy:
+            return legacy
+        address = self.billing_postal_address()
+        return ", ".join(address.display_lines()) if address.is_complete else ""
+
     def clean(self) -> None:
         """Validate contact_method invariants and the default membership questionnaire.
 

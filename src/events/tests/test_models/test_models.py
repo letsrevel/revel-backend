@@ -944,3 +944,40 @@ def test_discount_code_message_renders_in_the_active_language() -> None:
         with pytest.raises(ValidationError) as exc_info:
             code.clean()
         assert exc_info.value.message_dict["discount_value"] == ["Lo sconto percentuale non può superare 100."]
+
+
+def test_organization_billing_address_text_uses_complete_structured_address() -> None:
+    """With no legacy text, billing_address_text joins the complete structured address with commas."""
+    org = Organization(
+        name="Org",
+        slug="org-text",
+        billing_address="",
+        billing_address_line1="Musterstr. 1",
+        billing_postal_code="10115",
+        billing_city="Berlin",
+        billing_country_code="DE",
+    )
+
+    assert org.billing_address_text() == "Musterstr. 1, 10115 Berlin, DE"
+
+
+def test_organization_billing_address_text_empty_when_structured_incomplete() -> None:
+    """An incomplete structured address and no legacy text yields an empty string."""
+    org = Organization(name="Org", slug="org-text-partial", billing_address="", billing_address_line1="Musterstr. 1")
+
+    assert org.billing_address_text() == ""
+
+
+def test_organization_billing_address_text_legacy_wins() -> None:
+    """A non-empty legacy billing_address is returned (stripped) even when a structured address is complete."""
+    org = Organization(
+        name="Org",
+        slug="org-text-legacy",
+        billing_address="  Musterstr. 1, 10115 Berlin  ",
+        billing_address_line1="Other St 2",
+        billing_postal_code="20000",
+        billing_city="Milano",
+        billing_country_code="IT",
+    )
+
+    assert org.billing_address_text() == "Musterstr. 1, 10115 Berlin"
