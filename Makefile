@@ -354,9 +354,15 @@ migrate:
 	uv run python src/manage.py migrate
 
 
+# Single source of truth for which files makemessages scans; scripts/check_translations.py
+# receives these via env (and defaults to the same values). Ignore patterns keep developer
+# READMEs and credits files out of the catalog: only templates/code are translatable.
+I18N_EXTENSIONS := html,txt,py,md
+I18N_IGNORE := README*.md IMAGE_CREDITS.md
+
 .PHONY: makemessages
 makemessages:
-	cd src && uv run python manage.py makemessages -l de -l it -l fr -l es -l pt -e html,txt,py,md --no-location --no-obsolete
+	cd src && uv run python manage.py makemessages -l de -l it -l fr -l es -l pt -e $(I18N_EXTENSIONS) $(foreach p,$(I18N_IGNORE),-i '$(p)') --no-location --no-obsolete
 	# Strip the POT-Creation-Date header: gettext stamps it on every run, which is
 	# the only remaining diff churn once --no-location is set. Removing it keeps
 	# `make makemessages` deterministic (diffs only on real string changes).
@@ -369,7 +375,7 @@ compilemessages:
 .PHONY: i18n-check
 i18n-check:
 	@echo "Checking translation catalog (keys extracted + translated)..."
-	@uv run python scripts/check_translations.py
+	@I18N_EXTENSIONS='$(I18N_EXTENSIONS)' I18N_IGNORE='$(I18N_IGNORE)' uv run python scripts/check_translations.py
 
 
 .PHONY: check-version

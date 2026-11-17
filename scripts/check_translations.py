@@ -30,6 +30,7 @@ Check 1 requires the ``gettext`` toolchain (``xgettext``/``msgmerge``) on PATH.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -38,6 +39,9 @@ from pathlib import Path
 
 LANGUAGES = ["de", "it", "fr", "es", "pt"]
 SRC_DIR = Path(__file__).resolve().parent.parent / "src"
+# Keep in sync with I18N_EXTENSIONS / I18N_IGNORE in the Makefile, which pass these via env.
+EXTENSIONS = os.environ.get("I18N_EXTENSIONS", "html,txt,py,md")
+IGNORE_PATTERNS = os.environ.get("I18N_IGNORE", "README*.md IMAGE_CREDITS.md").split()
 
 
 def _po_files() -> list[Path]:
@@ -158,7 +162,9 @@ def check_keys_extracted() -> bool:
     snapshots = {po: po.read_bytes() for po in _po_files()}
     committed = {po: _key_set(parse_po(data.decode("utf-8"))) for po, data in snapshots.items()}
 
-    cmd = ["python", "manage.py", "makemessages", "-e", "html,txt,py,md", "--no-location", "--no-obsolete"]
+    cmd = ["python", "manage.py", "makemessages", "-e", EXTENSIONS, "--no-location", "--no-obsolete"]
+    for pattern in IGNORE_PATTERNS:
+        cmd += ["-i", pattern]
     for lang in LANGUAGES:
         cmd += ["-l", lang]
     try:
