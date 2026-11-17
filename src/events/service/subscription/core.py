@@ -37,7 +37,7 @@ from events.service.subscription.offline import (
     refuse_blacklisted_first_payment,
 )
 from events.service.subscription.sales import ensure_plan_sales_capacity
-from events.utils.membership_access import banned_memberships
+from events.utils.membership_access import banned_memberships, is_cancelled_status
 from events.utils.subscription_payment import is_never_paid_offline
 from events.utils.subscription_periods import calculate_period_end
 
@@ -130,15 +130,15 @@ def _refuse_lapsed_period(period_end: datetime.datetime | None, now: datetime.da
 def _hold_member_awaiting_payment(plan: MembershipSubscriptionPlan, user: RevelUser) -> None:
     """Make sure an OFFLINE joiner has an access row: AWAITING_PAYMENT when new or CANCELLED, else untouched."""
     organization = plan.tier.organization
-    Status = OrganizationMember.MembershipStatus
+    awaiting = OrganizationMember.MembershipStatus.AWAITING_PAYMENT
     with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
         member, created = get_or_create_with_race_protection(
             OrganizationMember,
             Q(organization=organization, user=user),
-            {"organization": organization, "user": user, "tier": plan.tier, "status": Status.AWAITING_PAYMENT},
+            {"organization": organization, "user": user, "tier": plan.tier, "status": awaiting},
         )
-        if not created and member.status == Status.CANCELLED:
-            member.status = Status.AWAITING_PAYMENT
+        if not created and is_cancelled_status(member.status):
+            member.status = awaiting
             member.tier = plan.tier
             member.save(update_fields=["status", "tier", "updated_at"])
 

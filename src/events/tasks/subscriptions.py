@@ -644,13 +644,14 @@ def expire_unpaid_offline_subscriptions() -> int:
     from events.models import OrganizationMember
     from events.service.subscription.notifications import dispatch_unpaid_offline_lapsed
     from events.service.subscription.offline import close_unpaid_offline
+    from events.utils.membership_access import awaiting_payment_memberships, eligible_memberships
     from events.utils.subscription_payment import is_never_paid_offline, is_never_paid_on_offline_plan
 
     cutoff = timezone.now() - datetime.timedelta(days=APPLICATION_PAYMENT_WINDOW_DAYS)
+    holder = {"organization_id": models.OuterRef("organization_id"), "user_id": models.OuterRef("user_id")}
     members = OrganizationMember.objects.filter(
         organization_id=models.OuterRef("organization_id"), user_id=models.OuterRef("user_id")
     )
-    Status = OrganizationMember.MembershipStatus
     candidate_ids = list(  # a list, not .iterator(): PgBouncer breaks server-side cursors
         MembershipSubscription.objects.filter(
             status=MembershipSubscription.SubscriptionStatus.PENDING,
@@ -670,8 +671,8 @@ def expire_unpaid_offline_subscriptions() -> int:
         )
         .filter(
             ~models.Exists(members)
-            | models.Exists(members.filter(status=Status.AWAITING_PAYMENT))
-            | models.Exists(members.filter(status=Status.ACTIVE).exclude(tier_id=models.OuterRef("plan__tier_id")))
+            | models.Exists(awaiting_payment_memberships().filter(**holder))
+            | models.Exists(eligible_memberships().filter(**holder).exclude(tier_id=models.OuterRef("plan__tier_id")))
         )
         .order_by("created_at", "pk")
         .values_list("pk", "user_id")

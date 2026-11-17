@@ -54,6 +54,7 @@ from events.tasks import (
 from events.tasks.member_register import auto_link_member_records
 from events.utils import format_event_datetime, get_invitation_message
 from events.utils.frontend_urls import frontend_base_url_for
+from events.utils.membership_access import is_awaiting_payment_status, is_banned_status, is_eligible_status
 from events.utils.reserved_slug_tokens import invalidate_reserved_tokens_cache
 from events.utils.subscription_payment import is_never_paid_offline, is_never_paid_on_offline_plan
 from notifications.enums import NotificationType
@@ -452,8 +453,9 @@ def handle_membership_tier_changed(
     old_tier_id = getattr(instance, "_old_tier_id", instance.tier_id)
     if old_tier_id == instance.tier_id:
         return
-    awaiting = OrganizationMember.MembershipStatus.AWAITING_PAYMENT
-    if instance.status == awaiting or getattr(instance, "_old_member_status", None) == awaiting:
+    if is_awaiting_payment_status(instance.status) or is_awaiting_payment_status(
+        getattr(instance, "_old_member_status", None)
+    ):
         return  # no card yet; on activation MEMBERSHIP_GRANTED is the notification
 
     def send_card_updated_notification() -> None:
@@ -698,9 +700,8 @@ def capture_subscription_old_status(
 
 def _subscription_cannot_move(member: OrganizationMember, target_status: str) -> bool:
     """BANNED members never move; AWAITING_PAYMENT ones leave only via first-payment activation."""
-    Status = OrganizationMember.MembershipStatus
-    return member.status == Status.BANNED or (
-        member.status == Status.AWAITING_PAYMENT and target_status == Status.ACTIVE.value
+    return is_banned_status(member.status) or (
+        is_awaiting_payment_status(member.status) and is_eligible_status(target_status)
     )
 
 

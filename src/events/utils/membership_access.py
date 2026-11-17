@@ -48,6 +48,16 @@ def is_awaiting_payment_status(status: str | None) -> bool:
     return status == AWAITING_PAYMENT_STATUS
 
 
+def is_banned_status(status: str | None) -> bool:
+    """Whether a membership with this status is banned."""
+    return status == BANNED_STATUS
+
+
+def is_cancelled_status(status: str | None) -> bool:
+    """Whether a membership with this status is cancelled."""
+    return status == "cancelled"
+
+
 def is_payment_held_status(status: str | None) -> bool:
     """Whether a first offline payment acts on a membership with this status (AWAITING_PAYMENT, ACTIVE)."""
     return status in PAYMENT_HELD_STATUSES
@@ -72,6 +82,13 @@ def payment_held_memberships() -> "OrganizationMemberQuerySet":
     from events.models import OrganizationMember
 
     return OrganizationMember.objects.payment_held()
+
+
+def awaiting_payment_memberships() -> "OrganizationMemberQuerySet":
+    """Memberships held until their first offline payment (AWAITING_PAYMENT)."""
+    from events.models import OrganizationMember
+
+    return OrganizationMember.objects.awaiting_payment()
 
 
 def banned_memberships() -> "OrganizationMemberQuerySet":

@@ -8,6 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from common.fields import MarkdownField
 from common.models import TimeStampedModel
 from events.utils.membership_access import (
+    AWAITING_PAYMENT_STATUS,
     BANNED_STATUS,
     ELIGIBLE_STATUSES,
     PAYMENT_HELD_STATUSES,
@@ -134,6 +135,10 @@ class OrganizationMemberQuerySet(models.QuerySet["OrganizationMember"]):
         """Return only BANNED memberships."""
         return self.filter(status=BANNED_STATUS)
 
+    def awaiting_payment(self) -> t.Self:
+        """Return only AWAITING_PAYMENT memberships."""
+        return self.filter(status=AWAITING_PAYMENT_STATUS)
+
     def payment_held(self) -> t.Self:
         """Memberships a first offline payment acts on (AWAITING_PAYMENT, ACTIVE)."""
         return self.filter(status__in=PAYMENT_HELD_STATUSES)
@@ -157,6 +162,10 @@ class OrganizationMemberManager(models.Manager["OrganizationMember"]):
     def banned_only(self) -> OrganizationMemberQuerySet:
         """Return only BANNED memberships."""
         return self.get_queryset().banned_only()
+
+    def awaiting_payment(self) -> OrganizationMemberQuerySet:
+        """Return only AWAITING_PAYMENT memberships."""
+        return self.get_queryset().awaiting_payment()
 
     def payment_held(self) -> OrganizationMemberQuerySet:
         """Return memberships a first offline payment acts on (AWAITING_PAYMENT, ACTIVE)."""
