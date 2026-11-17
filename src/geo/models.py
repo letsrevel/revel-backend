@@ -45,12 +45,13 @@ class City(models.Model):
                 fields=["ascii_name", "iso2", "location"], name="geo_city_unique_city_location_per_country"
             ),
         ]
+        # No standalone ascii_name index: the composite below leads with it. No location index:
+        # PointField(spatial_index=True) already creates the GiST one.
         indexes = [
-            models.Index(fields=["ascii_name"], name="geo_city_ascii_name"),
             models.Index(fields=["iso2"], name="geo_city_iso2"),
             models.Index(fields=["ascii_name", "iso2"], name="geo_city_ascii_name_iso2"),
-            models.Index(fields=["population"], name="geo_city_population"),
-            models.Index(fields=["location"], name="geo_city_location"),
+            # Matches the manager's default ordering so page-1 queries skip the sort.
+            models.Index(F("population").desc(nulls_last=True), name="geo_city_population_desc"),
         ]
         ordering = ["-population"]
         verbose_name_plural = "cities"

@@ -257,7 +257,7 @@ def nearest_city(latitude: float, longitude: float, *, max_km: int = 50) -> City
     """Closest known city to a coordinate, for imports (spec §7.6)."""
     point = Point(longitude, latitude, srid=4326)
     return (
-        City.objects.filter(location__distance_lte=(point, D(km=max_km)))
+        City.objects.filter(location__dwithin=(point, D(km=max_km)))
         .annotate(distance=Distance("location", point))
         .order_by("distance")
         .first()

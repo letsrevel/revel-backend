@@ -78,7 +78,7 @@ def test_timezone_prefers_city_then_settings(clean_event: Event) -> None:
     city = City.objects.create(
         name="Wien",
         ascii_name="Wien",
-        country="Austria",
+        country="Nowhere",
         city_id=1,
         location=Point(16.37, 48.21, srid=4326),
         timezone="Europe/Vienna",
@@ -95,7 +95,7 @@ def test_map_event_basic_fields_and_venue(clean_event: Event) -> None:
     city = City.objects.create(
         name="Wien",
         ascii_name="Wien",
-        country="Austria",
+        country="Nowhere",
         iso2="at",
         city_id=2,
         location=Point(16.37, 48.21, srid=4326),
@@ -305,3 +305,26 @@ def test_summary_ignores_truncation_marker() -> None:
 
     md = "# Heading only\n\n# " + "y" * MAX_RENDER_MARKDOWN_CHARS
     assert mapper.summary_from_markdown(md) == "Heading only"
+
+
+def test_nearest_city_picks_closest_within_radius_only() -> None:
+    """Returns the closest city inside ``max_km`` and nothing beyond it (geodesic metres).
+
+    One degree of latitude is ~111 km, so 0.4° (~44 km) is inside the 50 km default radius and
+    0.5° (~56 km) is outside it. Mid-Atlantic so the cities seeded by geo migrations can't interfere.
+    """
+    from django.contrib.gis.geos import Point
+
+    from geo.models import City
+
+    lat, lon = 0.0, -30.0
+    near = City.objects.create(
+        name="Near", ascii_name="Near", country="Nowhere", city_id=101, location=Point(lon, lat + 0.1, srid=4326)
+    )
+    City.objects.create(
+        name="Far", ascii_name="Far", country="Nowhere", city_id=102, location=Point(lon, lat + 0.3, srid=4326)
+    )
+
+    assert mapper.nearest_city(lat, lon) == near
+    assert mapper.nearest_city(lat - 0.3, lon) == near  # 0.4° (~44 km) from Near
+    assert mapper.nearest_city(lat - 0.4, lon) is None  # 0.5° (~56 km) from Near
