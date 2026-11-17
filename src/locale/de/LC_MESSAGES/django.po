@@ -7816,3 +7816,8 @@ msgstr "Ende"
 
 msgid "City"
 msgstr "Stadt"
+
+msgid ""
+"How to pay this plan offline. Overrides the organization's default "
+"instructions."
+msgstr "So wird dieser Tarif offline bezahlt. Ersetzt die Standard-Zahlungsanweisungen der Organisation."

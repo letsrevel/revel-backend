@@ -7532,3 +7532,8 @@ msgstr "Fim"
 
 msgid "City"
 msgstr "Cidade"
+
+msgid ""
+"How to pay this plan offline. Overrides the organization's default "
+"instructions."
+msgstr "Como pagar este plano offline. Substitui as instruções de pagamento predefinidas da organização."

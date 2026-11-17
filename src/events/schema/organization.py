@@ -90,6 +90,7 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     membership_grace_period_days: t.Annotated[int, Field(ge=0, le=MAX_MEMBERSHIP_POLICY_DAYS)] = 7
     membership_subscription_revival_window_days: t.Annotated[int, Field(ge=0, le=MAX_MEMBERSHIP_POLICY_DAYS)] = 30
     membership_refund_policy: StrippedString = ""
+    membership_payment_instructions: StrippedString = ""
     # Membership eligibility policy defaults (overridable per tier). The questionnaire id
     # is validated (org-scoped, MEMBERSHIP type) in the service layer before persisting.
     default_membership_questionnaire_id: UUID | None = None
@@ -436,6 +437,7 @@ class OrganizationAdminDetailSchema(
     membership_grace_period_days: int
     membership_subscription_revival_window_days: int
     membership_refund_policy: str
+    membership_payment_instructions: str
     # Membership eligibility policy defaults
     default_membership_questionnaire_id: UUID | None = None
     default_requires_membership_approval: bool

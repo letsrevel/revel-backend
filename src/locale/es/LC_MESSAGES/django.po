@@ -7753,3 +7753,8 @@ msgstr "Fin"
 
 msgid "City"
 msgstr "Ciudad"
+
+msgid ""
+"How to pay this plan offline. Overrides the organization's default "
+"instructions."
+msgstr "Cómo pagar este plan sin conexión. Sustituye las instrucciones de pago predeterminadas de la organización."

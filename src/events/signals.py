@@ -43,6 +43,7 @@ from events.service.blacklist_service import apply_blacklist_consequences, link_
 from events.service.follow_service import get_followers_for_new_event_notification
 from events.service.member_register_linking import notify_membership_granted
 from events.service.potluck_service import release_potluck_claims_unless_entitled, unclaim_user_potluck_items
+from events.service.subscription.offline import is_never_paid_offline
 from events.service.tenant_service import invalidate_tenant_cache, tenant_host_from_origin
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
 from events.tasks import (
@@ -337,7 +338,8 @@ def handle_membership_granted(
     sender: type[OrganizationMember], instance: OrganizationMember, created: bool, **kwargs: t.Any
 ) -> None:
     """Send notification when user is granted membership to an organization."""
-    if not created:
+    if not created or instance.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT:
+        # An awaiting member is granted nothing yet: activation on first payment sends the notification.
         return
 
     transaction.on_commit(lambda: notify_membership_granted(instance))
@@ -688,6 +690,21 @@ def capture_subscription_old_status(
     )
 
 
+def _subscription_cannot_move(member: OrganizationMember, target_status: str) -> bool:
+    """BANNED members never move; AWAITING_PAYMENT ones leave only via first-payment activation."""
+    Status = OrganizationMember.MembershipStatus
+    return member.status == Status.BANNED or (
+        member.status == Status.AWAITING_PAYMENT and target_status == Status.ACTIVE.value
+    )
+
+
+def _is_unpaid_offline_pending(subscription: MembershipSubscription) -> bool:
+    """True for a PENDING, never-paid OFFLINE subscription: it must not move its member."""
+    return subscription.status == MembershipSubscription.SubscriptionStatus.PENDING.value and is_never_paid_offline(
+        subscription
+    )
+
+
 @receiver(post_save, sender=MembershipSubscription)
 def sync_member_from_subscription(
     sender: type[MembershipSubscription],
@@ -712,6 +729,11 @@ def sync_member_from_subscription(
       on a row that was never PAUSED — used to silently lift the suspension.
     - Subscription tier wins: ``member.tier`` is set to ``plan.tier`` whenever
       they differ.
+    - Never moves a member out of ``AWAITING_PAYMENT`` (only
+      :func:`events.service.subscription.offline.activate_on_first_payment` does) and
+      never moves status or tier while an OFFLINE subscription is still PENDING and never-paid
+      (legacy ACTIVE members are not downgraded). Consequently ``staff_change_plan`` on a
+      never-paid offline row moves the member's tier only at first payment.
     - Skips syncing when a newer non-terminal subscription exists for the
       same (user, org) — older terminal rows must not clobber the effective
       subscription when, e.g., admin re-saves a historical entry after the
@@ -739,6 +761,9 @@ def sync_member_from_subscription(
     ):
         return
 
+    if _is_unpaid_offline_pending(instance):
+        return
+
     # If a newer non-terminal subscription exists, it owns the member state.
     newer_active_exists = (
         MembershipSubscription.objects.filter(
@@ -756,9 +781,7 @@ def sync_member_from_subscription(
         organization_id=instance.organization_id,
         user_id=instance.user_id,
     ).first()
-    if member is None:
-        return
-    if member.status == OrganizationMember.MembershipStatus.BANNED:
+    if member is None or _subscription_cannot_move(member, target_status):
         return
 
     # A staff pause is only lifted by the resume paths — OFFLINE

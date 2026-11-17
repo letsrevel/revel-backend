@@ -36,6 +36,7 @@ _MEMBERSHIP_POLICY_FIELDS = (
     "membership_grace_period_days",
     "membership_subscription_revival_window_days",
     "membership_refund_policy",
+    "membership_payment_instructions",
 )
 
 

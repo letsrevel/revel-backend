@@ -32,6 +32,11 @@ from events.models import (
 from events.service import member_register_service
 from events.service.blacklist_service import check_user_hard_blacklisted
 from events.service.subscription.notifications import _dispatch_renewal_succeeded
+from events.service.subscription.offline import (
+    activate_on_first_payment,
+    is_never_paid_offline,
+    refuse_blacklisted_first_payment,
+)
 from events.service.subscription.sales import ensure_plan_sales_capacity
 from events.utils.membership_access import banned_memberships
 from events.utils.subscription_periods import calculate_period_end
@@ -285,6 +290,10 @@ def record_payment(
         # both — and no FX conversion exists to reconcile them afterwards.
         raise HttpError(400, str(_("Payment currency must match the plan's currency.")))
     now = timezone.now()
+    first_offline_payment = prior_status == MembershipSubscription.SubscriptionStatus.PENDING and is_never_paid_offline(
+        subscription
+    )
+    refuse_blacklisted_first_payment(subscription)
 
     if occurred_at is not None:
         _validate_occurred_at(subscription, occurred_at, now, future_only=is_initial)
@@ -314,6 +323,10 @@ def record_payment(
     if not advance:
         return payment
 
+    if first_offline_payment:
+        # Before the save below: the PENDING -> ACTIVE save fires sync_member_from_subscription.
+        activate_on_first_payment(subscription, send_receipt=dispatch_renewal_notification and not is_initial)
+
     update_fields = ["current_period_start", "current_period_end", "updated_at"]
     subscription.current_period_start = period_start
     subscription.current_period_end = period_end
@@ -339,7 +352,7 @@ def record_payment(
         MembershipSubscription.SubscriptionStatus.ACTIVE.value,
         MembershipSubscription.SubscriptionStatus.PAST_DUE.value,
     }
-    if dispatch_renewal_notification and prior_status in _renewal_eligible_statuses:
+    if dispatch_renewal_notification and not first_offline_payment and prior_status in _renewal_eligible_statuses:
         # Quote what was actually recorded: staff pick the amount (and the
         # subscriber may be grandfathered on an older price), so ``plan.price``
         # would put a figure in the receipt that nobody paid.

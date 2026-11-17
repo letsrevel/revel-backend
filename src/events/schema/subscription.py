@@ -66,6 +66,7 @@ class PlanSchema(ModelSchema):
             "period_count",
             "is_active",
             "max_subscriptions",
+            "payment_instructions",
             "stripe_product_id",
             "stripe_price_id",
         ]
@@ -251,6 +252,7 @@ class PlanCreateSchema(Schema):
     payment_method: SubscriptionPaymentMethod = MembershipSubscriptionPlan.PaymentMethod.OFFLINE
     sales_status: MembershipSubscriptionPlan.SalesStatus = MembershipSubscriptionPlan.SalesStatus.OPEN
     max_subscriptions: int | None = Field(default=None, ge=1)
+    payment_instructions: str | None = None
 
     @model_validator(mode="after")
     def _validate_plan_shape(self) -> "PlanCreateSchema":
@@ -287,6 +289,7 @@ class PlanUpdateSchema(Schema):
     is_active: bool | None = None
     sales_status: MembershipSubscriptionPlan.SalesStatus | None = Field(default=None)
     max_subscriptions: int | None = Field(default=None, ge=1)
+    payment_instructions: str | None = None
 
 
 class SubscriptionCreateSchema(Schema):
