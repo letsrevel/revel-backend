@@ -219,10 +219,19 @@ act on — see [the money-correctness runbook](#money-correctness-stripe-session
     Production sets `PROMETHEUS_MULTIPROC_DIR` on the `web` container, backed by a
     per-container tmpfs ([letsrevel/infra#76](https://github.com/letsrevel/infra/pull/76),
     closing the deployment half of [#757](https://github.com/letsrevel/revel-backend/issues/757)),
-    so `/metrics` reports the sum over every worker and **rates and absolute counts are exact**.
-    Before that, each worker kept its own registry and a scrape read a random one, so any
-    Django metric data from before the change is inflated roughly 100x and only good for
-    "did this ever happen" checks.
+    so `/metrics` reports the sum over every worker of the running container and rates are
+    trustworthy. That holds within one gunicorn master's lifetime: `on_starting` wipes the
+    files on every container restart, so an increment made after the last scrape before a
+    restart is lost, and counters start again from zero after each deploy.
+
+    Before that, each worker kept its own registry and a scrape read a random one, so the
+    counters looked like they reset constantly. `increase()`/`rate()` over that history are
+    inflated (the request counters read ~100x high in Nov 2026), while single-scrape ratios
+    such as `_sum / _count` or `histogram_quantile` still describe one worker correctly.
+
+    Only the **web** process is covered. Celery workers export no metrics, so a business
+    counter incremented inside a Celery task never reaches Prometheus; rely on its paired
+    `ERROR` log line for those.
 
     How the pieces fit:
 
