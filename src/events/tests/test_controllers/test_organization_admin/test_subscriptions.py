@@ -250,6 +250,9 @@ class TestSubscriptionEndpoints:
         sub = subscription_lifecycle.create_subscription(plan, subscriber)
 
         pause_url = reverse("api:pause_subscription", kwargs={"slug": organization.slug, "sub_id": sub.id})
+        # Never paid: it is awaiting its first payment and can't be paused.
+        assert organization_owner_client.post(pause_url).status_code == 400
+        subscription_lifecycle.record_payment(sub, amount=plan.price, currency=plan.currency, recorded_by=None)
         assert organization_owner_client.post(pause_url).status_code == 200
         sub.refresh_from_db()
         assert sub.status == MembershipSubscription.SubscriptionStatus.PAUSED

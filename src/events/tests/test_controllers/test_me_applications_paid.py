@@ -101,10 +101,10 @@ def test_apply_with_plan_from_another_tier_is_403(
     assert response.status_code == 403
 
 
-def test_apply_with_offline_plan_is_403(
+def test_apply_with_offline_plan_opens_awaiting_subscription(
     nonmember_user: RevelUser, organization: Organization, tier: MembershipTier
 ) -> None:
-    """OFFLINE plans are staff-assigned; a self-serve plan-bearing apply hard-blocks."""
+    """OFFLINE plans are joinable: with no gate left, applying opens the awaiting-payment subscription."""
     plan = MembershipSubscriptionPlan.objects.create(
         tier=tier, name="M", price=Decimal("5.00"), currency="EUR", period_unit="month"
     )
@@ -113,7 +113,10 @@ def test_apply_with_offline_plan_is_403(
     response = client.post(
         url, data={"tier_id": str(tier.id), "plan_id": str(plan.id)}, content_type="application/json"
     )
-    assert response.status_code == 403
+    assert response.status_code == 201, response.content
+    body = response.json()
+    assert body["application"]["status"] == "approved"
+    assert body["eligibility"]["next_step"] == "wait_for_offline_payment"
 
 
 def test_apply_with_plan_on_approval_tier_stays_pending(

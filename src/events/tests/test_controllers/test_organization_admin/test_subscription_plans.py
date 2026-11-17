@@ -182,6 +182,24 @@ class TestCreatePlan:
         data = response.json()
         assert data["name"] == "Annual"
 
+    def test_create_persists_payment_instructions(
+        self, organization_owner_client: Client, organization: Organization, tier: MembershipTier
+    ) -> None:
+        url = reverse("api:create_subscription_plan", kwargs={"slug": organization.slug, "tier_id": tier.id})
+        payload = {
+            "name": "Annual",
+            "price": "100.00",
+            "currency": "EUR",
+            "period_unit": "year",
+            "payment_instructions": "Pay by bank transfer.",
+        }
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 201
+        assert response.json()["payment_instructions"] == "Pay by bank transfer."
+        assert MembershipSubscriptionPlan.objects.get(pk=response.json()["id"]).payment_instructions == (
+            "Pay by bank transfer."
+        )
+
     def test_staff_with_permission_creates_plan(
         self,
         organization_staff_client: Client,
@@ -268,6 +286,18 @@ class TestUpdateArchiveDeletePlan:
         assert response.status_code == 200
         plan.refresh_from_db()
         assert plan.price == Decimal("12.00")
+
+    def test_patch_persists_payment_instructions(
+        self, organization_owner_client: Client, organization: Organization, plan: MembershipSubscriptionPlan
+    ) -> None:
+        url = reverse("api:update_subscription_plan", kwargs={"slug": organization.slug, "plan_id": plan.id})
+        response = organization_owner_client.patch(
+            url, data=orjson.dumps({"payment_instructions": "IBAN AT00"}), content_type="application/json"
+        )
+        assert response.status_code == 200
+        assert response.json()["payment_instructions"] == "IBAN AT00"
+        plan.refresh_from_db()
+        assert plan.payment_instructions == "IBAN AT00"
 
     def test_archive_plan(
         self, organization_owner_client: Client, organization: Organization, plan: MembershipSubscriptionPlan

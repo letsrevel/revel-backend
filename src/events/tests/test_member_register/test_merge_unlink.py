@@ -305,7 +305,7 @@ class TestUnlink:
         ) as cancel_subscriptions:
             assert owner_client.post(_unlink_url(organization, survivor)).status_code == 200
 
-        cancel_subscriptions.assert_called_once_with(account, organization)
+        cancel_subscriptions.assert_called_once_with(account, organization, rejoinable=True)
 
     def test_reverses_an_open_link_and_cancels_access(
         self,

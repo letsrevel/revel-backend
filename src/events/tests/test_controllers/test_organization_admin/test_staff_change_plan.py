@@ -76,10 +76,13 @@ def test_offline_cross_tier_happy_path(
     organization: Organization,
     sub: MembershipSubscription,
     subscriber: RevelUser,
+    plan: MembershipSubscriptionPlan,
     target: MembershipSubscriptionPlan,
     other_tier: MembershipTier,
     tier: MembershipTier,
 ) -> None:
+    # On a never-paid offline row the tier moves only at first payment, so pay first.
+    subscription_lifecycle.record_payment(sub, amount=plan.price, currency=plan.currency, recorded_by=None)
     # A gate the member never passed on the destination tier: staff skip it.
     questionnaire = Questionnaire.objects.create(name="Q", status=Questionnaire.QuestionnaireStatus.PUBLISHED)
     org_q = OrganizationQuestionnaire.objects.create(

@@ -2660,6 +2660,9 @@ msgstr ""
 "Tu membresía en este nivel está en pausa. Ponte en contacto con la "
 "organización para reanudarla."
 
+msgid "Your membership starts once the organization confirms your payment."
+msgstr "Tu membresía comienza cuando la organización confirme tu pago."
+
 msgid "Invalid questionnaire submission."
 msgstr "Envío de cuestionario no válido."
 
@@ -7753,3 +7756,186 @@ msgstr "Fin"
 
 msgid "City"
 msgstr "Ciudad"
+
+msgid ""
+"How to pay this plan offline. Overrides the organization's default "
+"instructions."
+msgstr "Cómo pagar este plan sin conexión. Sustituye las instrucciones de pago predeterminadas de la organización."
+
+#, python-format
+msgid "%(org)s will tell you how to pay: %(url)s"
+msgstr "%(org)s te dirá cómo pagar: %(url)s"
+
+#, python-format
+msgid "%(org)s will tell you how to pay: <a href=\"%(url)s\">%(url)s</a>"
+msgstr "%(org)s te dirá cómo pagar: <a href=\"%(url)s\">%(url)s</a>"
+
+#, python-format
+msgid "Contact %(org)s to find out how:"
+msgstr "Contacta con %(org)s para saber cómo pagar:"
+
+#, python-format
+msgid "Continue joining %(org)s"
+msgstr "Continuar para unirte a %(org)s"
+
+msgid "Membership payment requested"
+msgstr "Pago de membresía solicitado"
+
+#, python-format
+msgid "Pay to activate your %(tier)s membership at %(org)s"
+msgstr "Paga para activar tu membresía %(tier)s en %(org)s"
+
+#, python-format
+msgid "To activate your %(tier)s membership (%(plan)s, %(amount)s), pay %(org)s directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
+msgstr "Para activar tu membresía %(tier)s (%(plan)s, %(amount)s), paga directamente a %(org)s. Tu membresía comienza cuando confirmen tu pago. Si no se registra ningún pago en 30 días, tu solicitud se cancela."
+
+#, python-format
+msgid "To activate your <strong>%(tier)s</strong> membership (%(plan)s, %(amount)s), pay <strong>%(org)s</strong> directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
+msgstr "Para activar tu membresía <strong>%(tier)s</strong> (%(plan)s, %(amount)s), paga directamente a <strong>%(org)s</strong>. Tu membresía comienza cuando confirmen tu pago. Si no se registra ningún pago en 30 días, tu solicitud se cancela."
+
+#, python-format
+msgid "To renew, pay %(org)s directly."
+msgstr "Para renovar, paga directamente a %(org)s."
+
+#, python-format
+msgid "To renew, pay %(org)s directly. <a href=\"%(url)s\">Contact %(org)s</a> to find out how."
+msgstr "Para renovar, paga directamente a %(org)s. <a href=\"%(url)s\">Contacta con %(org)s</a> para saber cómo."
+
+msgid "paid directly to the organization"
+msgstr "pagado directamente a la organización"
+
+#, python-format
+msgid "To activate your **%(tier)s** membership (%(plan)s, %(amount)s), pay **%(org)s** directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
+msgstr "Para activar tu membresía **%(tier)s** (%(plan)s, %(amount)s), paga directamente a **%(org)s**. Tu membresía comienza cuando confirmen tu pago. Si no se registra ningún pago en 30 días, tu solicitud se cancela."
+
+#, python-format
+msgid "To activate your <b>%(tier)s</b> membership (%(plan)s, %(amount)s), pay <b>%(org)s</b> directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
+msgstr "Para activar tu membresía <b>%(tier)s</b> (%(plan)s, %(amount)s), paga directamente a <b>%(org)s</b>. Tu membresía comienza cuando confirmen tu pago. Si no se registra ningún pago en 30 días, tu solicitud se cancela."
+
+#, python-format
+msgid "Contact %(org)s"
+msgstr "Contactar con %(org)s"
+
+#, python-format
+msgid "<a href=\"%(url)s\">Contact %(org)s</a> to find out how."
+msgstr "<a href=\"%(url)s\">Contacta con %(org)s</a> para saber cómo."
+
+#, python-format
+msgid "Membership request lapsed: %(org)s"
+msgstr "Solicitud de membresía caducada: %(org)s"
+
+#, python-format
+msgid "Your %(org)s membership request has lapsed"
+msgstr "Tu solicitud de membresía en %(org)s ha caducado"
+
+msgid "A subscription awaiting its first payment can't be paused."
+msgstr "Una suscripción que espera su primer pago no se puede pausar."
+
+msgid "This status is set by the system."
+msgstr "Este estado lo establece el sistema."
+
+msgid "Membership Request Lapsed"
+msgstr "Solicitud de membresía caducada"
+
+msgid "Lapsed on:"
+msgstr "Caducó el:"
+
+#, python-format
+msgid "Your **%(plan)s** membership request at **%(org)s** lapsed on %(date)s because no payment was received."
+msgstr "Tu solicitud de membresía **%(plan)s** en **%(org)s** caducó el %(date)s porque no se recibió ningún pago."
+
+#, python-format
+msgid "Your <b>%(plan)s</b> membership request at <b>%(org)s</b> lapsed on %(date)s because no payment was received."
+msgstr "Tu solicitud de membresía <b>%(plan)s</b> en <b>%(org)s</b> caducó el %(date)s porque no se recibió ningún pago."
+
+#, python-format
+msgid "Your <strong>%(plan)s</strong> membership request at <strong>%(org)s</strong> lapsed on %(date)s because no payment was received."
+msgstr "Tu solicitud de membresía <strong>%(plan)s</strong> en <strong>%(org)s</strong> caducó el %(date)s porque no se recibió ningún pago."
+
+#, python-format
+msgid "Your %(plan)s membership request at %(org)s lapsed on %(date)s because no payment was received."
+msgstr "Tu solicitud de membresía %(plan)s en %(org)s caducó el %(date)s porque no se recibió ningún pago."
+
+#, python-format
+msgid "%(name)s joined %(tier)s (%(plan)s) and is awaiting payment."
+msgstr "%(name)s se unió a %(tier)s (%(plan)s) y está pendiente de pago."
+
+#, python-format
+msgid "<strong>%(name)s</strong> joined <strong>%(tier)s</strong> (%(plan)s) and is awaiting payment."
+msgstr "<strong>%(name)s</strong> se unió a <strong>%(tier)s</strong> (%(plan)s) y está pendiente de pago."
+
+#, python-format
+msgid "**%(name)s** joined **%(tier)s** (%(plan)s) and is awaiting payment."
+msgstr "**%(name)s** se unió a **%(tier)s** (%(plan)s) y está pendiente de pago."
+
+#, python-format
+msgid "%(org)s accepted your application."
+msgstr "%(org)s aceptó tu solicitud."
+
+#, python-format
+msgid "<strong>%(org)s</strong> accepted your application."
+msgstr "<strong>%(org)s</strong> aceptó tu solicitud."
+
+#, python-format
+msgid "<b>%(org)s</b> accepted your application."
+msgstr "<b>%(org)s</b> aceptó tu solicitud."
+
+#, python-format
+msgid "**%(org)s** accepted your application."
+msgstr "**%(org)s** aceptó tu solicitud."
+
+#, python-format
+msgid "Your %(plan)s membership request at %(org)s was cancelled."
+msgstr "Tu solicitud de membresía %(plan)s en %(org)s fue cancelada."
+
+#, python-format
+msgid "Your <strong>%(plan)s</strong> membership request at <strong>%(org)s</strong> was cancelled."
+msgstr "Tu solicitud de membresía <strong>%(plan)s</strong> en <strong>%(org)s</strong> fue cancelada."
+
+#, python-format
+msgid "Your <b>%(plan)s</b> membership request at <b>%(org)s</b> was cancelled."
+msgstr "Tu solicitud de membresía <b>%(plan)s</b> en <b>%(org)s</b> fue cancelada."
+
+#, python-format
+msgid "Your **%(plan)s** membership request at **%(org)s** was cancelled."
+msgstr "Tu solicitud de membresía **%(plan)s** en **%(org)s** fue cancelada."
+
+#, python-format
+msgid "%(user)s joined %(tier)s, awaiting payment"
+msgstr "%(user)s se unió a %(tier)s, pendiente de pago"
+
+msgid "Join or apply again"
+msgstr "Únete o solicita de nuevo"
+
+msgid "Join or apply again:"
+msgstr "Únete o solicita de nuevo:"
+
+msgid "Membership Request Cancelled"
+msgstr "Solicitud de membresía cancelada"
+
+#, python-format
+msgid "Membership request cancelled: %(org)s"
+msgstr "Solicitud de membresía cancelada: %(org)s"
+
+msgid "New Member Awaiting Payment"
+msgstr "Nuevo miembro pendiente de pago"
+
+#, python-format
+msgid "New member awaiting payment: %(org)s"
+msgstr "Nuevo miembro pendiente de pago: %(org)s"
+
+msgid "Offline membership joined"
+msgstr "Membresía sin conexión iniciada"
+
+msgid "View Pending Subscriptions"
+msgstr "Ver suscripciones pendientes"
+
+msgid "You can join or apply again at any time."
+msgstr "Puedes unirte o solicitar de nuevo en cualquier momento."
+
+#, python-format
+msgid "Your %(org)s membership request was cancelled"
+msgstr "Tu solicitud de membresía en %(org)s fue cancelada"
+
+msgid "Your memberships"
+msgstr "Tus membresías"

@@ -491,7 +491,11 @@ def test_apply_active_member_at_target_tier_returns_409_without_creating_a_row(
     response = client.post(url, data={"tier_id": str(tier.id)}, content_type="application/json")
 
     assert response.status_code == 409, response.content
-    assert response.json()["detail"] == "You are already a member at this tier."
+    assert response.json() == {
+        "detail": "You are already a member at this tier.",
+        "reason_code": "already_active_member",
+        "next_step": "already_member",
+    }
     assert not OrganizationMembershipRequest.objects.filter(organization=organization, user=nonmember_user).exists()
 
 

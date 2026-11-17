@@ -21,7 +21,7 @@ from events.service import member_register_service
 from events.service.membership_manager.service import _complete_free_application
 from events.service.organization_service import membership as membership_service
 from events.service.organization_service.tokens import claim_invitation
-from events.service.subscription.core import create_subscription
+from events.service.subscription.core import InitialPayment, create_subscription
 from events.service.subscription.stripe.sync import _ensure_active_member
 from questionnaires.models import Questionnaire, QuestionnaireSubmission
 
@@ -101,7 +101,15 @@ def test_token_claim_source_token(
 def test_offline_subscription_source_subscription(
     organization: Organization, nonmember_user: RevelUser, tier: MembershipTier
 ) -> None:
-    create_subscription(_plan(tier, SubscriptionPaymentMethod.OFFLINE), nonmember_user)
+    plan = _plan(tier, SubscriptionPaymentMethod.OFFLINE)
+    # The entry opens on the first payment, which activates the held member.
+    create_subscription(
+        plan,
+        nonmember_user,
+        initial_payment=InitialPayment(
+            amount=plan.price, currency=plan.currency, recorded_by=nonmember_user, notes="", occurred_at=None
+        ),
+    )
     assert _open_record(organization, nonmember_user).source == Source.SUBSCRIPTION
 
 

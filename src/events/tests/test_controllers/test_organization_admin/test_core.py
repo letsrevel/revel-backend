@@ -72,6 +72,18 @@ def test_update_membership_subscription_policy(organization_owner_client: Client
     assert organization.membership_refund_policy == "Full refund within 7 days."
 
 
+def test_update_membership_payment_instructions(organization_owner_client: Client, organization: Organization) -> None:
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    payload = {"visibility": "public", "membership_payment_instructions": "  Bank transfer to IBAN AT00.  "}
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    assert response.json()["membership_payment_instructions"] == "Bank transfer to IBAN AT00."
+    organization.refresh_from_db()
+    assert organization.membership_payment_instructions == "Bank transfer to IBAN AT00."
+
+
 def test_update_response_uses_admin_detail_schema(
     organization_owner_client: Client, organization: Organization
 ) -> None:

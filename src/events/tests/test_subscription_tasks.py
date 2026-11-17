@@ -47,7 +47,14 @@ def _make_active_sub(
     *,
     cancel_at_period_end: bool = False,
 ) -> MembershipSubscription:
-    sub = subscription_lifecycle.create_subscription(plan, subscriber)
+    # The initial payment makes it a genuinely paid subscription (activates the held member).
+    sub = subscription_lifecycle.create_subscription(
+        plan,
+        subscriber,
+        initial_payment=subscription_lifecycle.InitialPayment(
+            amount=plan.price, currency=plan.currency, recorded_by=subscriber, notes="", occurred_at=None
+        ),
+    )
     sub.status = MembershipSubscription.SubscriptionStatus.ACTIVE
     sub.current_period_start = period_end - datetime.timedelta(days=30)
     sub.current_period_end = period_end
