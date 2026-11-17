@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.38.2] - 2026-11-17
+
+### Changed
+- City index cleanup (one `geo` migration): dropped two redundant indexes on `geo_city`, and the `population` index now matches the default largest-first ordering, so unfiltered city pages no longer sort the whole table.
+- Nearest-city resolution during platform event imports now uses the spatial index instead of scanning every city.
+
+### Fixed
+- The Stripe session-total-mismatch metric (`revel_stripe_session_total_mismatch_total`) is now exported at 0 for every `call_site` from startup; previously the series only appeared on its first breach, so the critical alert could never fire for it.
+
 ## [2.38.1] - 2026-11-17
 
 ### Fixed
