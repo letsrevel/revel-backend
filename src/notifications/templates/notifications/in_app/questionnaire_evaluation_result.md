@@ -16,3 +16,6 @@
 {% if context.event_url %}
 [{% if context.evaluation_status == "APPROVED" %}{% if context.requires_ticket %}{% trans "Get Ticket" %}{% else %}{% trans "RSVP Now" %}{% endif %}{% else %}{% trans "View Event" %}{% endif %}]({{ context.event_url }})
 {% endif %}
+{% if context.membership_url %}
+[{% blocktranslate with org=context.organization_name %}Continue joining {{ org }}{% endblocktranslate %}]({{ context.membership_url }})
+{% endif %}

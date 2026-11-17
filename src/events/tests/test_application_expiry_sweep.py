@@ -15,7 +15,8 @@ from events.models import (
     OrganizationMembershipRequest,
     SubscriptionPaymentMethod,
 )
-from events.tasks.subscriptions import APPLICATION_PAYMENT_WINDOW_DAYS, expire_stale_approved_applications
+from events.tasks.subscriptions import expire_stale_approved_applications
+from events.utils.subscription_payment import APPLICATION_PAYMENT_WINDOW_DAYS
 
 pytestmark = pytest.mark.django_db
 

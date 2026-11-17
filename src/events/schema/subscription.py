@@ -24,6 +24,7 @@ from events.service.membership_manager.resolvers import (
     resolve_requires_membership_approval,
 )
 from events.utils.membership_payment_rules import payment_edit_flags
+from events.utils.subscription_payment import is_never_paid_offline, payment_due_by
 from events.utils.subscription_plan_rules import validate_plan_shape
 
 from .mixins import get_image_field_url
@@ -66,6 +67,7 @@ class PlanSchema(ModelSchema):
             "period_count",
             "is_active",
             "max_subscriptions",
+            "payment_instructions",
             "stripe_product_id",
             "stripe_price_id",
         ]
@@ -251,6 +253,7 @@ class PlanCreateSchema(Schema):
     payment_method: SubscriptionPaymentMethod = MembershipSubscriptionPlan.PaymentMethod.OFFLINE
     sales_status: MembershipSubscriptionPlan.SalesStatus = MembershipSubscriptionPlan.SalesStatus.OPEN
     max_subscriptions: int | None = Field(default=None, ge=1)
+    payment_instructions: str | None = None
 
     @model_validator(mode="after")
     def _validate_plan_shape(self) -> "PlanCreateSchema":
@@ -287,6 +290,7 @@ class PlanUpdateSchema(Schema):
     is_active: bool | None = None
     sales_status: MembershipSubscriptionPlan.SalesStatus | None = Field(default=None)
     max_subscriptions: int | None = Field(default=None, ge=1)
+    payment_instructions: str | None = None
 
 
 class SubscriptionCreateSchema(Schema):
@@ -582,6 +586,7 @@ class _BaseSubscriptionSchema(ModelSchema):
     pending_plan_id: UUID | None = None
     expired_at: AwareDatetime | None = None
     revival_deadline: AwareDatetime | None = None
+    payment_due_by: AwareDatetime | None = None
 
     class Meta:
         model = MembershipSubscription
@@ -591,6 +596,11 @@ class _BaseSubscriptionSchema(ModelSchema):
             "created_at",
             "updated_at",
         ]
+
+    @staticmethod
+    def resolve_payment_due_by(obj: MembershipSubscription) -> datetime | None:
+        """When the sweep cancels an unpaid OFFLINE request (``None`` otherwise); see ``payment_due_by``."""
+        return payment_due_by(obj)
 
     @staticmethod
     def resolve_revival_deadline(obj: MembershipSubscription) -> datetime | None:
@@ -617,6 +627,16 @@ class MySubscriptionSchema(_BaseSubscriptionSchema):
     organization_slug: str
     organization_logo_url: str | None = None
     grace_deadline: AwareDatetime | None = None
+    payment_instructions: str | None = None
+
+    @staticmethod
+    def resolve_payment_instructions(obj: MembershipSubscription) -> str | None:
+        """How to pay an OFFLINE plan: while awaiting the first payment, and when renewing (ACTIVE / PAST_DUE)."""
+        if obj.plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+            return None
+        status = MembershipSubscription.SubscriptionStatus
+        renewing = obj.status in (status.ACTIVE, status.PAST_DUE)
+        return obj.plan.effective_payment_instructions if renewing or is_never_paid_offline(obj) else None
 
     @staticmethod
     def resolve_grace_deadline(obj: MembershipSubscription) -> datetime | None:
@@ -848,6 +868,11 @@ class SubscribeResponseSchema(Schema):
     than redirecting unconditionally. Same contract as
     :class:`RevivalResponseSchema`.
 
+    For an **OFFLINE** plan there is no checkout either, but the subscription is not active: a null
+    ``checkout_url`` together with a ``pending`` subscription means the member is awaiting offline
+    payment. Nothing is granted until the organization records the first payment; show the plan's
+    payment instructions (``payment_instructions`` on the subscription) instead of redirecting.
+
     Nullable but **required**: the endpoint sets the key on both branches, so
     declaring a default would tell clients it may be absent — a distinction the
     frontend would have to handle for a case that never occurs.
@@ -969,28 +994,3 @@ class MigrationAcceptedSchema(Schema):
     """
 
     queued: int
-
-
-class SubscriptionStatusBreakdownSchema(Schema):
-    """Per-status count breakdown for subscription metrics."""
-
-    pending: int
-    active: int
-    paused: int
-    past_due: int
-    cancelled: int
-    expired: int
-
-
-class SubscriptionMetricsSchema(Schema):
-    """Aggregated subscription metrics for an organization."""
-
-    as_of: AwareDatetime
-    active_count: int
-    mrr: Decimal
-    mrr_currency: str
-    mixed_currency_warning: bool
-    new_subscribers_30d: int
-    churned_30d: int
-    churn_rate_30d: float
-    status_breakdown: SubscriptionStatusBreakdownSchema

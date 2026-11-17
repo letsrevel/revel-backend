@@ -79,7 +79,12 @@ def build_my_permissions_payload(user: RevelUser) -> dict[str, t.Any]:
     members = (
         models.OrganizationMember.objects.select_related("tier")
         .filter(user=user)
-        .exclude(status=OrganizationMember.MembershipStatus.BANNED)
+        .exclude(
+            status__in=(
+                OrganizationMember.MembershipStatus.BANNED,
+                OrganizationMember.MembershipStatus.AWAITING_PAYMENT,
+            )
+        )
     )
     for member in members:
         memberships[str(member.organization_id)] = schema.MinimalOrganizationMemberSchema.from_orm(member)

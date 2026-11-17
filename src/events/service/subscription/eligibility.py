@@ -19,10 +19,13 @@ from events.models import MembershipSubscription, MembershipSubscriptionPlan, Or
 from events.service.membership_manager import MembershipApplicationIneligibleError, MembershipEligibilityService
 from events.service.membership_manager.enums import MembershipReasonCode
 from events.service.subscription.core import create_subscription
+from events.service.subscription.offline import open_offline_subscription
 from events.service.subscription.stripe import checkout as stripe_checkout
 
 
-def _ensure_plan_eligibility(user: RevelUser, plan: MembershipSubscriptionPlan) -> MembershipEligibilityService:
+def _ensure_plan_eligibility(
+    user: RevelUser, plan: MembershipSubscriptionPlan, *, changing_plan: bool = False
+) -> MembershipEligibilityService:
     """Run the gate stack for *user* against *plan*'s tier; raise on refusal.
 
     ``DUPLICATE_ACTIVE_SUBSCRIPTION`` falls through on purpose: the
@@ -30,6 +33,10 @@ def _ensure_plan_eligibility(user: RevelUser, plan: MembershipSubscriptionPlan) 
     checkout resumes (409 + fresh checkout_url) instead of dead-ending, a
     genuine duplicate still 400s in ``create_subscription``, and a change-plan
     caller necessarily holds a live subscription.
+
+    OFFLINE plans are the exception: nothing downstream reuses a subscription held on another plan, so a
+    duplicate is refused here with the structured verdict (only ``AWAITING_OFFLINE_PAYMENT`` falls through).
+    A plan change (``changing_plan``) always holds a live subscription, so it keeps the fall-through.
 
     Raises:
         MembershipApplicationIneligibleError: Rendered by the registered
@@ -40,7 +47,13 @@ def _ensure_plan_eligibility(user: RevelUser, plan: MembershipSubscriptionPlan) 
         user=user, organization=plan.tier.organization, tier=plan.tier, plan=plan
     )
     verdict = eligibility_service.check_eligibility()
-    if not verdict.allowed and verdict.reason_code != MembershipReasonCode.DUPLICATE_ACTIVE_SUBSCRIPTION:
+    # AWAITING_OFFLINE_PAYMENT on an OFFLINE plan also falls through: a repeated /subscribe returns
+    # the same awaiting subscription (``open_offline_subscription`` is idempotent).
+    is_offline = plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE
+    passes_through = (
+        verdict.reason_code == MembershipReasonCode.DUPLICATE_ACTIVE_SUBSCRIPTION and (changing_plan or not is_offline)
+    ) or (verdict.reason_code == MembershipReasonCode.AWAITING_OFFLINE_PAYMENT and is_offline)
+    if not verdict.allowed and not passes_through:
         raise MembershipApplicationIneligibleError(
             verdict.reason or "Refused by the membership eligibility gates.", verdict
         )
@@ -57,6 +70,10 @@ def subscribe_to_plan(plan: MembershipSubscriptionPlan, user: RevelUser) -> tupl
     gated flow), the created subscription is linked to it so the Stripe
     activation can settle it COMPLETED.
 
+    OFFLINE plans open a PENDING subscription (the member is held as AWAITING_PAYMENT) and
+    notify them how to pay; the first payment recorded by staff activates it. Repeating the
+    call returns the same subscription.
+
     FREE plans have no Stripe object and no money to collect, so
     ``create_subscription`` lands the row ACTIVE (open-ended, ``LIFETIME``) and
     materializes the member in one transaction. No activation webhook will ever
@@ -66,24 +83,28 @@ def subscribe_to_plan(plan: MembershipSubscriptionPlan, user: RevelUser) -> tupl
 
     Returns:
         The local subscription row and the hosted Checkout URL — ``None`` for a
-        FREE plan, whose subscription is already ACTIVE.
+        FREE plan (already ACTIVE) or an OFFLINE plan (PENDING until paid).
     """
     eligibility_service = _ensure_plan_eligibility(user, plan)
-    is_free = plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.FREE
-    checkout_url: str | None
-    if is_free:
-        subscription = create_subscription(plan, user)
-        checkout_url = None
-    else:
-        subscription, checkout_url = stripe_checkout.start_online_subscription(plan, user)
     application = eligibility_service.current_application
-    if application is not None and application.status in (
+    if application is not None and application.status not in (
         OrganizationMembershipRequest.Status.PENDING,
         OrganizationMembershipRequest.Status.APPROVED,
     ):
+        application = None
+    payment_method = plan.payment_method
+    checkout_url: str | None = None
+    if payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+        # Opens the awaiting-payment subscription and links/approves the application itself.
+        return open_offline_subscription(plan, user, application=application, member_facing=True), None
+    if payment_method == MembershipSubscriptionPlan.PaymentMethod.FREE:
+        subscription = create_subscription(plan, user)
+    else:
+        subscription, checkout_url = stripe_checkout.start_online_subscription(plan, user)
+    if application is not None:
         application.subscription = subscription
         application.save(update_fields=["subscription", "updated_at"])
-    if is_free:
+    if payment_method == MembershipSubscriptionPlan.PaymentMethod.FREE:
         # lazy: subscription.stripe.sync -> ... -> subscription.lifecycle imports
         # this module back, so a top-level import would cycle.
         from events.service.subscription.stripe.sync import settle_originating_application
@@ -106,4 +127,4 @@ def ensure_tier_change_allowed(subscription: MembershipSubscription, new_plan: M
     """
     if new_plan.tier_id == subscription.plan.tier_id:
         return
-    _ensure_plan_eligibility(subscription.user, new_plan)
+    _ensure_plan_eligibility(subscription.user, new_plan, changing_plan=True)

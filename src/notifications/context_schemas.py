@@ -399,6 +399,7 @@ class QuestionnaireEvaluationContext(BaseNotificationContext):
     event_id: t.NotRequired[str]
     event_name: t.NotRequired[str]
     event_url: t.NotRequired[str]  # URL to the event page (if questionnaire is event-linked)
+    membership_url: t.NotRequired[str]  # membership page (membership questionnaire approved)
 
 
 # ===== Invitation Contexts =====
@@ -466,6 +467,22 @@ class MembershipRequestCreatedContext(BaseNotificationContext):
     requester_name: str
     requester_email: str
     request_message: t.NotRequired[str]
+    tier_name: t.NotRequired[str | None]
+    plan_name: t.NotRequired[str | None]
+    plan_payment_method: t.NotRequired[str | None]
+
+
+class MembershipOfflineJoinedContext(BaseNotificationContext):
+    """Context for MEMBERSHIP_OFFLINE_JOINED notification (to org staff: a direct offline join awaits payment)."""
+
+    subscription_id: str
+    organization_id: str
+    organization_name: str
+    member_id: str
+    member_name: str
+    member_email: str
+    tier_name: str
+    plan_name: str
 
 
 class StaffMemberRecordAutoLinkedContext(BaseNotificationContext):
@@ -495,6 +512,25 @@ class MembershipRequestRejectedContext(BaseNotificationContext):
 
     organization_id: str
     organization_name: str
+
+
+class MembershipPaymentRequestedContext(BaseNotificationContext):
+    """Context for MEMBERSHIP_PAYMENT_REQUESTED notification (offline plan: pay the organization directly)."""
+
+    organization_id: str
+    organization_name: str
+    organization_slug: str
+    organization_contact_url: str
+    plan_name: str
+    tier_name: str
+    amount: str
+    period_label: str
+    payment_instructions: str  # "" when neither plan nor organization defines any
+    memberships_url: str
+    application_accepted: t.NotRequired[bool]  # lead with "<org> accepted your application."
+    payment_window_days: t.NotRequired[
+        int
+    ]  # APPLICATION_PAYMENT_WINDOW_DAYS; absent on older stored rows (templates default to 30)
 
 
 # ===== Account Contexts =====
@@ -807,6 +843,8 @@ class SubscriptionExpiredContext(BaseNotificationContext):
     expired_at: str
     revival_window_end: t.NotRequired[str | None]
     revival_url: t.NotRequired[str | None]
+    lapsed: t.NotRequired[bool]
+    membership_url: t.NotRequired[str]  # lapsed only: org membership page to join or apply again
 
 
 class SubscriptionCancellationConfirmedContext(BaseNotificationContext):
@@ -818,6 +856,8 @@ class SubscriptionCancellationConfirmedContext(BaseNotificationContext):
     plan_name: str
     immediate: bool
     access_ends_at: str
+    request_cancelled: t.NotRequired[bool]  # PENDING never-paid OFFLINE: the membership request was cancelled
+    rejoinable: t.NotRequired[bool]  # request_cancelled only: False after a ban (no "join again" line)
 
 
 class SubscriptionRenewalReminderContext(BaseNotificationContext):
@@ -831,6 +871,7 @@ class SubscriptionRenewalReminderContext(BaseNotificationContext):
     period_end: str
     is_online: bool
     manage_subscription_url: t.NotRequired[str | None]  # ONLINE only — FE /account/memberships (POST /billing-portal)
+    payment_instructions: t.NotRequired[str]  # OFFLINE only; "" when none defined
 
 
 class SubscriptionRevivalCheckoutContext(BaseNotificationContext):
@@ -895,6 +936,8 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.MEMBERSHIP_REQUEST_CREATED: MembershipRequestCreatedContext,
     NotificationType.MEMBERSHIP_REQUEST_APPROVED: MembershipRequestApprovedContext,
     NotificationType.MEMBERSHIP_REQUEST_REJECTED: MembershipRequestRejectedContext,
+    NotificationType.MEMBERSHIP_PAYMENT_REQUESTED: MembershipPaymentRequestedContext,
+    NotificationType.MEMBERSHIP_OFFLINE_JOINED: MembershipOfflineJoinedContext,
     NotificationType.STAFF_MEMBER_RECORD_AUTO_LINKED: StaffMemberRecordAutoLinkedContext,
     NotificationType.ACCOUNT_BANNED: AccountBannedContext,
     NotificationType.ORG_ANNOUNCEMENT: OrgAnnouncementContext,

@@ -1,0 +1,15 @@
+{% load i18n %}{% trans "New Member Awaiting Payment" %}
+
+{% blocktranslate with name=context.member_name tier=context.tier_name plan=context.plan_name %}{{ name }} joined {{ tier }} ({{ plan }}) and is awaiting payment.{% endblocktranslate %}
+
+{% trans "Name:" %} {{ context.member_name }}
+{% trans "Email:" %} {{ context.member_email }}
+{% trans "Tier:" %} {{ context.tier_name }}
+{% trans "Plan:" %} {{ context.plan_name }}
+
+{% trans "View Pending Subscriptions" %}:
+{{ context.frontend_url }}
+
+{% trans "This is an automated notification from your organization management system." %}
+
+{% include "notifications/email/_footer.txt" %}

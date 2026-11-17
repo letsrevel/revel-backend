@@ -28,7 +28,9 @@ if t.TYPE_CHECKING:
 VISIBLE_STATUSES: frozenset[str] = frozenset({"active", "paused"})
 ELIGIBLE_STATUSES: frozenset[str] = frozenset({"active"})
 BANNED_STATUS: str = "banned"
-CANCELLED_STATUS: str = "cancelled"
+AWAITING_PAYMENT_STATUS: str = "awaiting_payment"
+# Statuses a first offline payment can activate / that an unpaid offline subscription may be holding.
+PAYMENT_HELD_STATUSES: frozenset[str] = frozenset({AWAITING_PAYMENT_STATUS, "active"})
 
 
 def is_visible_status(status: str | None) -> bool:
@@ -39,6 +41,26 @@ def is_visible_status(status: str | None) -> bool:
 def is_eligible_status(status: str | None) -> bool:
     """Whether a membership with this status may act as a member."""
     return status in ELIGIBLE_STATUSES
+
+
+def is_awaiting_payment_status(status: str | None) -> bool:
+    """Whether a membership with this status is held until its first offline payment."""
+    return status == AWAITING_PAYMENT_STATUS
+
+
+def is_banned_status(status: str | None) -> bool:
+    """Whether a membership with this status is banned."""
+    return status == BANNED_STATUS
+
+
+def is_cancelled_status(status: str | None) -> bool:
+    """Whether a membership with this status is cancelled."""
+    return status == "cancelled"
+
+
+def is_payment_held_status(status: str | None) -> bool:
+    """Whether a first offline payment acts on a membership with this status (AWAITING_PAYMENT, ACTIVE)."""
+    return status in PAYMENT_HELD_STATUSES
 
 
 def visible_memberships() -> "OrganizationMemberQuerySet":
@@ -55,18 +77,25 @@ def eligible_memberships() -> "OrganizationMemberQuerySet":
     return OrganizationMember.objects.active_only()
 
 
+def payment_held_memberships() -> "OrganizationMemberQuerySet":
+    """Memberships a first offline payment acts on (AWAITING_PAYMENT, ACTIVE)."""
+    from events.models import OrganizationMember
+
+    return OrganizationMember.objects.payment_held()
+
+
+def awaiting_payment_memberships() -> "OrganizationMemberQuerySet":
+    """Memberships held until their first offline payment (AWAITING_PAYMENT)."""
+    from events.models import OrganizationMember
+
+    return OrganizationMember.objects.awaiting_payment()
+
+
 def banned_memberships() -> "OrganizationMemberQuerySet":
     """BANNED memberships."""
     from events.models import OrganizationMember
 
     return OrganizationMember.objects.banned_only()
-
-
-def non_cancelled_memberships() -> "OrganizationMemberQuerySet":
-    """Memberships in any status except CANCELLED (ACTIVE, PAUSED, BANNED)."""
-    from events.models import OrganizationMember
-
-    return OrganizationMember.objects.get_queryset().non_cancelled()
 
 
 def visible_member_org_ids(user: "RevelUser | UUID") -> "QuerySet[OrganizationMember, UUID]":

@@ -200,7 +200,7 @@ class TestSubscribeEndpoint:
         assert body["subscription"]["plan_id"] == str(online_plan.id)
         assert MembershipSubscription.objects.filter(user=subscriber_user, organization=organization).exists()
 
-    def test_subscribe_refuses_offline_plan(
+    def test_subscribe_offline_plan_opens_awaiting_subscription(
         self,
         subscriber_client: Client,
         plan: MembershipSubscriptionPlan,  # OFFLINE fixture
@@ -209,7 +209,10 @@ class TestSubscribeEndpoint:
         _make_stripe_connected(organization)
         url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
         response = subscriber_client.post(url, data={"plan_id": str(plan.id)}, content_type="application/json")
-        assert response.status_code == 400
+        assert response.status_code == 201, response.content
+        body = response.json()
+        assert body["checkout_url"] is None
+        assert body["subscription"]["status"] == "pending"
 
     @mock.patch("events.service.subscription.stripe.checkout.stripe.checkout.Session.create")
     def test_subscribe_gated_without_application_refuses_with_eligibility(

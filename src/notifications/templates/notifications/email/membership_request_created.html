@@ -9,6 +9,8 @@
     <h3 style="margin-top: 0;">{% trans "Request Details:" %}</h3>
     <div class="info-row"><strong>{% trans "Name:" %}</strong> {{ context.requester_name }}</div>
     <div class="info-row"><strong>{% trans "Email:" %}</strong> {{ context.requester_email }}</div>
+    {% if context.tier_name %}<div class="info-row"><strong>{% trans "Tier:" %}</strong> {{ context.tier_name }}</div>{% endif %}
+    {% if context.plan_name %}<div class="info-row"><strong>{% trans "Plan:" %}</strong> {{ context.plan_name }}{% if context.plan_payment_method == "offline" %} ({% trans "paid directly to the organization" %}){% endif %}</div>{% endif %}
     {% if context.request_message %}
     <div class="info-row"><strong>{% trans "Message:" %}</strong><br>{{ context.request_message }}</div>
     {% endif %}

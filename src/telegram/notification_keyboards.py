@@ -92,6 +92,7 @@ def _is_membership_notification(notification_type: str) -> bool:
         NotificationType.MEMBERSHIP_REMOVED,
         NotificationType.MEMBERSHIP_REQUEST_APPROVED,
         NotificationType.MEMBERSHIP_REQUEST_REJECTED,
+        NotificationType.MEMBERSHIP_PAYMENT_REQUESTED,
     )
 
 

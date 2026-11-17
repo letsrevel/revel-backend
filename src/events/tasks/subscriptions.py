@@ -1,6 +1,7 @@
 """Celery tasks for membership-subscription lifecycle and renewal reminders."""
 
 import datetime
+import functools
 import typing as t
 
 import structlog
@@ -9,6 +10,11 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
+from events.utils.subscription_payment import (
+    APPLICATION_PAYMENT_WINDOW_DAYS,
+    annotate_last_payment_updated_at,
+    payment_anchor_expression,
+)
 
 if t.TYPE_CHECKING:
     from events.service.subscription.plans import MigrationResult
@@ -268,7 +274,7 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
             cancel_at_period_end=False,
             current_period_end__date=target_date,
-        ).select_related("plan", "organization", "user")
+        ).select_related("plan__tier__organization", "organization", "user")
     )
     # No invoice exists yet, so the best estimate of the next charge is what the
     # member last actually paid: a price change mints a new Stripe Price and
@@ -284,6 +290,8 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
             period_end=sub.current_period_end.date().isoformat() if sub.current_period_end else "",
             is_online=(plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value),
         )
+        if plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE.value:
+            ctx["payment_instructions"] = plan.effective_payment_instructions or ""
         notification_requested.send(
             sender=MembershipSubscription,
             user=sub.user,
@@ -575,11 +583,6 @@ def resync_org_subscription_fees(org_id: str) -> "FeeResyncCounters":
     return resync_subscription_application_fees(org)
 
 
-#: How long an APPROVED plan-bearing application waits for payment before the
-#: sweep cancels it off the staff board.
-APPLICATION_PAYMENT_WINDOW_DAYS: t.Final[int] = 30
-
-
 @shared_task(name="events.expire_stale_approved_applications")
 def expire_stale_approved_applications() -> int:
     """Cancel plan-bearing APPROVED applications whose payment window lapsed.
@@ -619,4 +622,90 @@ def expire_stale_approved_applications() -> int:
     )
     if cancelled:
         logger.info("stale_approved_applications_cancelled", count=cancelled)
+    return cancelled
+
+
+@shared_task(name="events.expire_unpaid_offline_subscriptions")
+def expire_unpaid_offline_subscriptions() -> int:
+    """Cancel never-paid OFFLINE subscriptions whose payment window lapsed, and tell the person.
+
+    A joiner who never pays would otherwise hold a PENDING row (and a held member slot) forever.
+    The window runs from the later of the subscription's creation and its last payment activity (a
+    payment created or updated since the cutoff, e.g. voided after a long-paid run, keeps it alive).
+    Subscriptions with a SUCCEEDED or REFUNDED payment are never swept (same key as the close).
+    Only rows whose member is held for them are swept: ``AWAITING_PAYMENT`` or missing, or an ACTIVE
+    member on a *different* tier (a free member upgrading). A legacy row (ACTIVE member at the plan's
+    tier, created before the awaiting state existed) was trusted by staff and is left alone.
+
+    Returns:
+        Number of subscriptions cancelled.
+    """
+    from accounts.models import RevelUser
+    from events.models import OrganizationMember
+    from events.service.subscription.notifications import dispatch_unpaid_offline_lapsed
+    from events.utils.membership_access import awaiting_payment_memberships, eligible_memberships, is_eligible_status
+    from events.utils.subscription_payment import is_never_paid_offline, is_never_paid_on_offline_plan
+
+    cutoff = timezone.now() - datetime.timedelta(days=APPLICATION_PAYMENT_WINDOW_DAYS)
+    holder = {"organization_id": models.OuterRef("organization_id"), "user_id": models.OuterRef("user_id")}
+    members = OrganizationMember.objects.filter(
+        organization_id=models.OuterRef("organization_id"), user_id=models.OuterRef("user_id")
+    )
+    candidate_ids = list(  # a list, not .iterator(): PgBouncer breaks server-side cursors
+        annotate_last_payment_updated_at(
+            MembershipSubscription.objects.filter(
+                status=MembershipSubscription.SubscriptionStatus.PENDING,
+                plan__payment_method=MembershipSubscriptionPlan.PaymentMethod.OFFLINE,
+            )
+        )
+        # The window ends at ``payment_due_by`` (events.utils.subscription_payment): the later of creation
+        # and last payment activity, plus the window.
+        .alias(payment_anchor=payment_anchor_expression())
+        .filter(payment_anchor__lt=cutoff)
+        .exclude(
+            models.Exists(
+                MembershipPayment.objects.filter(
+                    subscription=models.OuterRef("pk"),
+                    status__in=(MembershipPayment.PaymentStatus.SUCCEEDED, MembershipPayment.PaymentStatus.REFUNDED),
+                )
+            )
+        )
+        .filter(
+            ~models.Exists(members)
+            | models.Q(held_member=False)  # the member pre-existed and is left alone: nothing to protect
+            | models.Exists(awaiting_payment_memberships().filter(**holder))
+            | models.Exists(eligible_memberships().filter(**holder).exclude(tier_id=models.OuterRef("plan__tier_id")))
+        )
+        .order_by("created_at", "pk")
+        .values_list("pk", "user_id")
+    )
+    cancelled = 0
+    for sub_id, user_id in candidate_ids:
+        with transaction.atomic():
+            # Same lock order as open_offline_subscription: user first, then the subscription.
+            RevelUser.objects.select_for_update(no_key=True).get(pk=user_id)
+            sub = (
+                MembershipSubscription.objects.select_for_update(of=("self",))
+                .select_related("plan__tier", "organization", "user")
+                .get(pk=sub_id)
+            )
+            if not (is_never_paid_offline(sub) and is_never_paid_on_offline_plan(sub)):
+                continue  # paid, refunded or cancelled since the candidate query
+            if sub.held_member is None:
+                # Legacy row: re-apply the A6 eligibility under the member lock (staff may have moved the
+                # member onto the plan's tier since the candidate query); an ACTIVE member there is protected.
+                member = (
+                    OrganizationMember.objects.select_for_update(of=("self",))
+                    .filter(organization_id=sub.organization_id, user_id=user_id)
+                    .first()
+                )
+                if member is not None and is_eligible_status(member.status) and member.tier_id == sub.plan.tier_id:
+                    continue
+            sub.status = MembershipSubscription.SubscriptionStatus.CANCELLED
+            sub.cancelled_at = timezone.now()
+            sub.save(update_fields=["status", "cancelled_at", "updated_at"])
+            transaction.on_commit(functools.partial(dispatch_unpaid_offline_lapsed, sub))
+            cancelled += 1
+    if cancelled:
+        logger.info("unpaid_offline_subscriptions_expired", count=cancelled)
     return cancelled

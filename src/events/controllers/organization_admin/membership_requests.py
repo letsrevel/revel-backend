@@ -51,6 +51,7 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
         qs = OrganizationMembershipRequest.objects.filter(organization=organization).select_related(
             "user",
             "tier",
+            "plan",
             "questionnaire_submission__evaluation",
             "questionnaire_submission__questionnaire__org_questionnaires",
         )

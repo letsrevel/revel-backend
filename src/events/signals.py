@@ -54,7 +54,9 @@ from events.tasks import (
 from events.tasks.member_register import auto_link_member_records
 from events.utils import format_event_datetime, get_invitation_message
 from events.utils.frontend_urls import frontend_base_url_for
+from events.utils.membership_access import is_awaiting_payment_status, is_banned_status, is_eligible_status
 from events.utils.reserved_slug_tokens import invalidate_reserved_tokens_cache
+from events.utils.subscription_payment import is_never_paid_offline, is_never_paid_on_offline_plan
 from notifications.enums import NotificationType
 from notifications.service.eligibility import BatchParticipationChecker
 from notifications.signals import notification_requested
@@ -337,7 +339,8 @@ def handle_membership_granted(
     sender: type[OrganizationMember], instance: OrganizationMember, created: bool, **kwargs: t.Any
 ) -> None:
     """Send notification when user is granted membership to an organization."""
-    if not created:
+    if not created or instance.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT:
+        # An awaiting member is granted nothing yet: activation on first payment sends the notification.
         return
 
     transaction.on_commit(lambda: notify_membership_granted(instance))
@@ -346,6 +349,9 @@ def handle_membership_granted(
 @receiver(post_delete, sender=OrganizationMember)
 def handle_membership_removed(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
     """Send notification when user is removed from an organization."""
+    if instance.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT:
+        # Never granted anything; cancelling their subscription already told them.
+        return
 
     def send_removal_notification() -> None:
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
@@ -408,9 +414,11 @@ def rebuild_visibility_on_membership_change(
 def capture_member_old_tier(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
     """Stash the pre-save tier id so post_save can detect tier changes."""
     if instance.pk:
-        instance._old_tier_id = (  # type: ignore[attr-defined]
-            OrganizationMember.objects.filter(pk=instance.pk).values_list("tier_id", flat=True).first()
-        )
+        old_tier_id, old_status = OrganizationMember.objects.filter(pk=instance.pk).values_list(
+            "tier_id", "status"
+        ).first() or (None, None)
+        instance._old_tier_id = old_tier_id  # type: ignore[attr-defined]
+        instance._old_member_status = old_status  # type: ignore[attr-defined]
 
 
 @receiver(post_save, sender=OrganizationMember)
@@ -445,6 +453,10 @@ def handle_membership_tier_changed(
     old_tier_id = getattr(instance, "_old_tier_id", instance.tier_id)
     if old_tier_id == instance.tier_id:
         return
+    if is_awaiting_payment_status(instance.status) or is_awaiting_payment_status(
+        getattr(instance, "_old_member_status", None)
+    ):
+        return  # no card yet; on activation MEMBERSHIP_GRANTED is the notification
 
     def send_card_updated_notification() -> None:
         frontend_base_url = frontend_base_url_for(instance.organization)
@@ -686,6 +698,30 @@ def capture_subscription_old_status(
     )
 
 
+def _subscription_cannot_move(member: OrganizationMember, target_status: str) -> bool:
+    """BANNED members never move; AWAITING_PAYMENT ones leave only via first-payment activation."""
+    return is_banned_status(member.status) or (
+        is_awaiting_payment_status(member.status) and is_eligible_status(target_status)
+    )
+
+
+def _never_paid_offline_handled(instance: MembershipSubscription) -> bool:
+    """True when a never-paid OFFLINE subscription must not drive its member through the generic sync.
+
+    PENDING ones never move the member. A terminal one would take a free member's existing membership with it,
+    so :func:`close_unpaid_offline` releases exactly the member held for it instead, but only on the transition
+    into a terminal status (``_old_status``, stamped by :func:`capture_subscription_old_status`): a later re-save
+    of the old row must not cancel a member staff set up by hand since.
+    """
+    if instance.is_terminal and is_never_paid_on_offline_plan(instance):
+        if getattr(instance, "_old_status", None) not in MembershipSubscription.TERMINAL_STATUSES:
+            from events.service.subscription.offline import close_unpaid_offline  # lazy: services import models
+
+            close_unpaid_offline(instance)
+        return True
+    return is_never_paid_offline(instance)
+
+
 @receiver(post_save, sender=MembershipSubscription)
 def sync_member_from_subscription(
     sender: type[MembershipSubscription],
@@ -710,6 +746,11 @@ def sync_member_from_subscription(
       on a row that was never PAUSED — used to silently lift the suspension.
     - Subscription tier wins: ``member.tier`` is set to ``plan.tier`` whenever
       they differ.
+    - Never moves a member out of ``AWAITING_PAYMENT`` (only
+      :func:`events.service.subscription.offline.activate_on_first_payment` does) and
+      never moves status or tier while an OFFLINE subscription is still PENDING and never-paid
+      (legacy ACTIVE members are not downgraded). Consequently ``staff_change_plan`` on a
+      never-paid offline row moves the member's tier only at first payment.
     - Skips syncing when a newer non-terminal subscription exists for the
       same (user, org) — older terminal rows must not clobber the effective
       subscription when, e.g., admin re-saves a historical entry after the
@@ -737,6 +778,9 @@ def sync_member_from_subscription(
     ):
         return
 
+    if _never_paid_offline_handled(instance):
+        return
+
     # If a newer non-terminal subscription exists, it owns the member state.
     newer_active_exists = (
         MembershipSubscription.objects.filter(
@@ -754,9 +798,7 @@ def sync_member_from_subscription(
         organization_id=instance.organization_id,
         user_id=instance.user_id,
     ).first()
-    if member is None:
-        return
-    if member.status == OrganizationMember.MembershipStatus.BANNED:
+    if member is None or _subscription_cannot_move(member, target_status):
         return
 
     # A staff pause is only lifted by the resume paths — OFFLINE

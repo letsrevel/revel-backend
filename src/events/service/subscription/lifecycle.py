@@ -54,6 +54,7 @@ from events.service.subscription.notifications import (
     _dispatch_cancellation_confirmed,
     _dispatch_revival_checkout,
 )
+from events.service.subscription.offline import open_offline_subscription
 from events.service.subscription.sales import (
     ensure_member_not_excluded,
     ensure_plan_on_sale,
@@ -62,6 +63,7 @@ from events.service.subscription.sales import (
 from events.service.subscription.stripe import checkout as stripe_checkout
 from events.service.subscription.stripe import plan_change as stripe_plan_change
 from events.service.subscription.stripe.payloads import stripe_account_kwargs
+from events.utils.subscription_payment import is_never_paid_offline
 
 logger = structlog.get_logger(__name__)
 
@@ -196,6 +198,24 @@ def _expire_open_checkout_best_effort(subscription: MembershipSubscription) -> N
 
 
 @transaction.atomic
+def create_staff_subscription(
+    plan: MembershipSubscriptionPlan,
+    user: RevelUser,
+    *,
+    initial_payment: InitialPayment | None = None,
+) -> MembershipSubscription:
+    """Staff-created subscription: the entry point that routes by payment method.
+
+    An OFFLINE plan without a first payment goes through :func:`open_offline_subscription` (the person is
+    held as AWAITING_PAYMENT and asked to pay; idempotent). Every other case is plain ``create_subscription``,
+    which on its own would leave an OFFLINE member awaiting payment with no payment request.
+    """
+    if initial_payment is None and plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+        return open_offline_subscription(plan, user)
+    return create_subscription(plan, user, initial_payment=initial_payment)
+
+
+@transaction.atomic
 def cancel_subscription(
     subscription: MembershipSubscription,
     *,
@@ -264,15 +284,17 @@ def cancel_subscription(
     # Gate 2: cancel_at_period_end flipped False→True for the first time → fire immediate=False.
     # Idempotent re-calls (flag already True, or subscription was already terminal) → no dispatch.
     if immediate and prior_status not in MembershipSubscription.TERMINAL_STATUSES:
-        _dispatch_cancellation_confirmed(subscription, immediate=True)
+        _dispatch_cancellation_confirmed(subscription, immediate=True, prior_status=prior_status)
     elif not immediate and not prior_cap and subscription.cancel_at_period_end:
-        _dispatch_cancellation_confirmed(subscription, immediate=False)
+        _dispatch_cancellation_confirmed(subscription, immediate=False, prior_status=prior_status)
 
     return subscription
 
 
 @transaction.atomic
-def cancel_subscriptions_for_membership_loss(user: RevelUser, organization: Organization) -> int:
+def cancel_subscriptions_for_membership_loss(
+    user: RevelUser, organization: Organization, *, rejoinable: bool = False
+) -> int:
     """Terminalize a user's subscriptions when they lose membership (ban / removal).
 
     Banning or removing a member must also stop their billing. Without this the
@@ -298,6 +320,9 @@ def cancel_subscriptions_for_membership_loss(user: RevelUser, organization: Orga
     Normally at most one non-terminal subscription exists per (user,
     organization), but this loops defensively.
 
+    ``rejoinable`` tells a never-paid offline member whether they may join or apply again: False
+    (default, the safe answer) for a ban, blacklist or account deletion; True for a plain removal.
+
     Returns the number of subscriptions cancelled.
     """
     # ponytail: refunds stay manual. Bans are for cause, so no money is returned
@@ -317,6 +342,7 @@ def cancel_subscriptions_for_membership_loss(user: RevelUser, organization: Orga
         )
         if subscription.is_terminal:
             continue
+        prior_status = subscription.status
         subscription.status = MembershipSubscription.SubscriptionStatus.CANCELLED
         subscription.cancelled_at = timezone.now()
         subscription.cancel_at_period_end = False
@@ -335,7 +361,7 @@ def cancel_subscriptions_for_membership_loss(user: RevelUser, organization: Orga
                 # cancel — but the hosted session's URL is still payable and would
                 # outlive the ban. Kill it.
                 transaction.on_commit(functools.partial(_expire_open_checkout_best_effort, subscription))
-        _dispatch_cancellation_confirmed(subscription, immediate=True)
+        _dispatch_cancellation_confirmed(subscription, immediate=True, prior_status=prior_status, rejoinable=rejoinable)
         cancelled += 1
     return cancelled
 
@@ -362,6 +388,8 @@ def pause_subscription(subscription: MembershipSubscription) -> MembershipSubscr
     # ONLINE dispatch so it covers both payment methods and never reaches Stripe.
     if subscription.cancel_at_period_end:
         raise HttpError(400, str(_("Cannot pause a subscription that is scheduled for cancellation.")))
+    if is_never_paid_offline(subscription):
+        raise HttpError(400, str(_("A subscription awaiting its first payment can't be paused.")))
     if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
         if not subscription.stripe_subscription_id:
             raise HttpError(400, str(_("This subscription has no linked Stripe record yet.")))

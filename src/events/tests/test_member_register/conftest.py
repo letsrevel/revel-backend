@@ -15,6 +15,18 @@ from geo.models import City
 RecordFactory = t.Callable[..., MembershipRecord]
 
 
+def assert_subscription_locked_first(queries: list[dict[str, str]]) -> None:
+    """Every ``FOR UPDATE`` on subscriptions precedes the first member and register ones (no lock inversion)."""
+    locks = [q["sql"] for q in queries if "FOR UPDATE" in q["sql"]]
+
+    def first(table: str) -> int:
+        return next(i for i, sql in enumerate(locks) if f'FROM "{table}"' in sql)
+
+    sub = first("events_membershipsubscription")
+    assert sub < first("events_organizationmember")
+    assert sub < first("events_membershiprecord")
+
+
 def make_client(user: RevelUser) -> Client:
     """A test client authenticated as ``user``."""
     refresh = RefreshToken.for_user(user)

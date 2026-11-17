@@ -112,6 +112,10 @@ def test_tier_equal_to_plan_tier_allowed(
 def test_status_only_update_unaffected(
     organization_owner_client: Client, organization: Organization, subscriber: RevelUser, sub: MembershipSubscription
 ) -> None:
+    # An awaiting-payment member can't be paused (#1399); this one has been activated.
+    OrganizationMember.objects.filter(organization=organization, user=subscriber).update(
+        status=OrganizationMember.MembershipStatus.ACTIVE
+    )
     response = _put(organization_owner_client, organization, subscriber, {"status": "paused"})
 
     assert response.status_code == 200, response.content
@@ -170,6 +174,8 @@ def test_flags_on_list_detail_and_put(
     assert row["tier_locked_by_subscription"] is True
     assert row["subscription_id"] == str(sub.id)
 
+    # An awaiting-payment member can only be cancelled or banned by staff; make them active first.
+    OrganizationMember.objects.filter(organization=organization, user=subscriber).update(status="active")
     put = _put(organization_owner_client, organization, subscriber, {"status": "active"}).json()
     assert put["tier_locked_by_subscription"] is True
     assert put["subscription_id"] == str(sub.id)

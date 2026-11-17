@@ -27,6 +27,7 @@ from events.service.subscription import eligibility as subscription_eligibility
 from events.service.subscription import lifecycle as subscription_lifecycle
 from events.service.subscription import uncancel as subscription_uncancel
 from events.service.subscription.stripe import checkout as subscription_stripe_checkout
+from events.utils.subscription_payment import annotate_payment_progress
 from oauth.permissions import RequireScope
 
 
@@ -54,7 +55,11 @@ class MeSubscriptionsController(UserAwareController):
         qs = MembershipSubscription.objects.filter(user=self.user())
         if organization is not None:
             qs = qs.filter(organization_id=organization)
-        return qs.select_related("plan", "plan__tier", "organization").order_by("-created_at")
+        return (
+            annotate_payment_progress(qs)
+            .select_related("plan", "plan__tier__organization", "organization")
+            .order_by("-created_at")
+        )
 
     @route.get(
         "/memberships",
@@ -72,9 +77,9 @@ class MeSubscriptionsController(UserAwareController):
         """
         user = self.user()
         active_subs = (
-            MembershipSubscription.objects.filter(user=user)
+            annotate_payment_progress(MembershipSubscription.objects.filter(user=user))
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-            .select_related("plan", "plan__tier", "organization")
+            .select_related("plan", "plan__tier__organization", "organization")
             .order_by("-created_at")
         )
         qs = OrganizationMember.objects.filter(user=user)
@@ -105,7 +110,7 @@ class MeSubscriptionsController(UserAwareController):
         qs = (
             MembershipSubscription.objects.filter(user=self.user(), organization_id=org_id)
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-            .select_related("plan", "plan__tier", "organization")
+            .select_related("plan", "plan__tier__organization", "organization")
             .order_by("-created_at")
         )
         return get_object_or_404(qs)
@@ -157,7 +162,7 @@ class MeSubscriptionsController(UserAwareController):
         org_id: UUID,
         payload: schema.SubscribeRequestSchema,
     ) -> tuple[int, schema.SubscribeResponseSchema]:
-        """Subscribe to an ONLINE (Stripe) or FREE (self-serve) membership plan.
+        """Subscribe to an ONLINE (Stripe), OFFLINE (pay the organization) or FREE (self-serve) membership plan.
 
         Runs the full membership eligibility gate stack first — a questionnaire
         or manual-approval requirement on the tier must be satisfied before
@@ -168,6 +173,11 @@ class MeSubscriptionsController(UserAwareController):
         for payment; when the caller has an application on file (the gated
         flow), the created subscription is linked to it so the Stripe
         activation can settle it COMPLETED.
+
+        For an OFFLINE plan ``checkout_url`` is ``null`` and the subscription is
+        ``pending``: the member is held as ``awaiting_payment`` and told how to pay
+        the organization directly; the first payment staff record activates it.
+        Repeating the call returns the same subscription (201, no second notification).
 
         For a FREE plan there is nothing to pay: ``checkout_url`` is ``null``,
         the subscription is already ACTIVE with no period end (FREE plans are
@@ -225,7 +235,7 @@ class MeSubscriptionsController(UserAwareController):
         qs = (
             MembershipSubscription.objects.filter(user=self.user(), organization_id=org_id)
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-            .select_related("plan", "plan__tier", "organization")
+            .select_related("plan", "plan__tier__organization", "organization")
             .order_by("-created_at")
         )
         subscription = get_object_or_404(qs)
@@ -255,7 +265,7 @@ class MeSubscriptionsController(UserAwareController):
         qs = (
             MembershipSubscription.objects.filter(user=self.user(), organization_id=org_id)
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-            .select_related("plan", "plan__tier", "organization")
+            .select_related("plan", "plan__tier__organization", "organization")
             .order_by("-created_at")
         )
         subscription = get_object_or_404(qs)
@@ -290,7 +300,7 @@ class MeSubscriptionsController(UserAwareController):
         qs = (
             MembershipSubscription.objects.filter(user=self.user(), organization_id=org_id)
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-            .select_related("plan", "plan__tier", "organization")
+            .select_related("plan", "plan__tier__organization", "organization")
             .order_by("-created_at")
         )
         subscription = get_object_or_404(qs)
@@ -349,7 +359,7 @@ class MeSubscriptionsController(UserAwareController):
                 organization_id=org_id,
                 status=MembershipSubscription.SubscriptionStatus.EXPIRED,
             )
-            .select_related("plan", "plan__tier", "organization")
+            .select_related("plan", "plan__tier__organization", "organization")
             .order_by(F("expired_at").desc(nulls_last=True))
         )
         subscription = qs.first()

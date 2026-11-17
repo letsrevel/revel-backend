@@ -10,7 +10,9 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from django.db import connection
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from ninja.errors import HttpError
@@ -23,7 +25,7 @@ from events.service import member_register_linking as linking
 from events.service.member_register_linking import LinkOutcome, auto_link_records_for_user, link_record
 from notifications.enums import NotificationType
 
-from .conftest import RecordFactory, make_client
+from .conftest import RecordFactory, assert_subscription_locked_first, make_client
 
 pytestmark = pytest.mark.django_db
 
@@ -194,6 +196,21 @@ def test_end_with_stale_instance_is_refused_after_a_claim(
     record = MembershipRecord.objects.get(pk=stale.pk)
     assert record.valid_until is None and record.user == claimant
     assert OrganizationMember.objects.get(organization=organization, user=claimant).status == Status.ACTIVE
+
+
+def test_end_locks_subscriptions_before_member_and_record(
+    organization: Organization, make_record: RecordFactory, claimant: RevelUser
+) -> None:
+    """Lock order is subscription -> member -> record, as ``update_member`` and ``record_payment`` take it."""
+    record = make_record()
+    link_record(MembershipRecord.objects.get(pk=record.pk), claimant)
+    linked = MembershipRecord.objects.get(pk=record.pk)
+
+    with CaptureQueriesContext(connection) as ctx:
+        admin_service.end_record(linked, reason=MembershipRecord.EndedReason.CANCELLED, valid_until=None)
+
+    assert OrganizationMember.objects.get(organization=organization, user=claimant).status == Status.CANCELLED
+    assert_subscription_locked_first(ctx.captured_queries)
 
 
 # ---- linking details ----

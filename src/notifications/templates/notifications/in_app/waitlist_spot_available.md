@@ -1,4 +1,4 @@
-{% load i18n %}🎉 **{% trans "Spot Available!" %}** {% trans "for" %} **{{ context.event_name }}**
+{% load i18n %}🎉 {% blocktranslate with event=context.event_name %}**Spot Available!** for **{{ event }}**{% endblocktranslate %}
 
 {% if context.is_cutoff_batch %}{% trans "Final call — the waitlist has opened to everyone." %}{% else %}{% trans "You've been selected from the waitlist." %}{% endif %}
 

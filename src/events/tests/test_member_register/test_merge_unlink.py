@@ -5,7 +5,9 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from django.db import connection
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from ninja.errors import HttpError
@@ -14,7 +16,7 @@ from accounts.models import RevelUser
 from events.models import MembershipRecord, MembershipTier, Organization, OrganizationMember
 from events.service.member_register_reconciliation import unlink_record
 
-from .conftest import RecordFactory
+from .conftest import RecordFactory, assert_subscription_locked_first
 
 pytestmark = pytest.mark.django_db
 
@@ -305,7 +307,16 @@ class TestUnlink:
         ) as cancel_subscriptions:
             assert owner_client.post(_unlink_url(organization, survivor)).status_code == 200
 
-        cancel_subscriptions.assert_called_once_with(account, organization)
+        cancel_subscriptions.assert_called_once_with(account, organization, rejoinable=True)
+
+    def test_open_link_reversal_locks_subscriptions_before_member_and_record(
+        self, organization: Organization, survivor: MembershipRecord
+    ) -> None:
+        """Lock order is subscription -> member -> record, as ``update_member`` and ``record_payment`` take it."""
+        with CaptureQueriesContext(connection) as ctx:
+            unlink_record(MembershipRecord.objects.get(pk=survivor.pk))
+
+        assert_subscription_locked_first(ctx.captured_queries)
 
     def test_reverses_an_open_link_and_cancels_access(
         self,

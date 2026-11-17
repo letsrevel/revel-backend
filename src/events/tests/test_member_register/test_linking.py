@@ -238,3 +238,21 @@ def test_already_linked_changes_nothing(
     assert result.outcome == LinkOutcome.ALREADY_LINKED
     record.refresh_from_db()
     assert record.user == owner
+
+
+def test_awaiting_payment_claimant_keeps_state_and_record_stays_open(
+    organization: Organization, make_record: RecordFactory, claimant: RevelUser, link_tier: MembershipTier
+) -> None:
+    """A claim must neither activate a held member nor let the mirror close the just-linked record."""
+    OrganizationMember.objects.create(
+        organization=organization, user=claimant, tier=link_tier, status=Status.AWAITING_PAYMENT
+    )
+    record = make_record(invite_token="tok")
+
+    result = link_record(record, claimant)
+
+    assert result.outcome == LinkOutcome.LINKED
+    assert OrganizationMember.objects.get(organization=organization, user=claimant).status == Status.AWAITING_PAYMENT
+    record.refresh_from_db()
+    assert record.user == claimant and record.valid_until is None
+    assert _open(organization, claimant) == [record]

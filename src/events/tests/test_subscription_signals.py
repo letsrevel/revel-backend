@@ -44,6 +44,17 @@ def subscriber(django_user_model: type[RevelUser]) -> RevelUser:
     return django_user_model.objects.create_user(username="sub_signal", email="signal@example.com", password="pass")
 
 
+def _paid_subscription(plan: MembershipSubscriptionPlan, subscriber: RevelUser) -> MembershipSubscription:
+    """A subscription past its first payment (a never-paid offline one can't be paused)."""
+    return subscription_lifecycle.create_subscription(
+        plan,
+        subscriber,
+        initial_payment=subscription_lifecycle.InitialPayment(
+            amount=plan.price, currency=plan.currency, recorded_by=subscriber
+        ),
+    )
+
+
 class TestSyncMemberFromSubscription:
     def test_does_not_create_member(
         self,
@@ -89,8 +100,12 @@ class TestSyncMemberFromSubscription:
         pro_plan = subscription_plans.create_plan(
             pro_tier, name="Pro Monthly", price=Decimal("20.00"), currency="EUR", period_unit="month"
         )
-        subscription_lifecycle.create_subscription(pro_plan, subscriber)
+        sub = subscription_lifecycle.create_subscription(pro_plan, subscriber)
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
+        # An existing member keeps their tier until the first (offline) payment lands.
+        assert member.tier_id != pro_tier.pk
+        subscription_lifecycle.record_payment(sub, amount=Decimal("20.00"), currency="EUR", recorded_by=None)
+        member.refresh_from_db()
         assert member.tier_id == pro_tier.pk
 
     def test_banned_member_is_never_overwritten(
@@ -130,7 +145,7 @@ class TestSyncMemberFromSubscription:
         subscriber: RevelUser,
         plan: MembershipSubscriptionPlan,
     ) -> None:
-        sub = subscription_lifecycle.create_subscription(plan, subscriber)
+        sub = _paid_subscription(plan, subscriber)
         subscription_lifecycle.pause_subscription(sub)
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
         assert member.status == OrganizationMember.MembershipStatus.PAUSED
@@ -142,7 +157,7 @@ class TestSyncMemberFromSubscription:
         plan: MembershipSubscriptionPlan,
     ) -> None:
         """Subscription-driven pause → resume must still flip the member back to ACTIVE."""
-        sub = subscription_lifecycle.create_subscription(plan, subscriber)
+        sub = _paid_subscription(plan, subscriber)
         subscription_lifecycle.pause_subscription(sub)
         assert (
             OrganizationMember.objects.get(organization=organization, user=subscriber).status
@@ -171,7 +186,7 @@ class TestSyncMemberFromSubscription:
         subscription_lifecycle.create_subscription(plan, subscriber)
 
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
-        assert member.status == OrganizationMember.MembershipStatus.ACTIVE
+        assert member.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT
 
         # Re-saving the old (terminal) subscription must NOT touch the member.
         # Refresh first so the local copy reflects the CANCELLED state — otherwise
@@ -179,7 +194,7 @@ class TestSyncMemberFromSubscription:
         old_sub.refresh_from_db()
         old_sub.save()
         member.refresh_from_db()
-        assert member.status == OrganizationMember.MembershipStatus.ACTIVE
+        assert member.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT
 
 
 @pytest.fixture

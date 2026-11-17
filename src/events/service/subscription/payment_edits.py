@@ -19,7 +19,13 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
 from events.service.subscription.core import _payment_period, _refuse_lapsed_period, _validate_occurred_at
+from events.service.subscription.offline import (
+    activate_on_first_payment,
+    refuse_blacklisted_first_payment,
+    revert_to_awaiting_payment,
+)
 from events.utils.membership_payment_rules import edit_refusal, non_voided_payments, period_edit_refusal
+from events.utils.subscription_payment import is_never_paid_offline
 
 logger = structlog.get_logger(__name__)
 
@@ -69,6 +75,8 @@ def _recompute_subscription_period(subscription: MembershipSubscription) -> None
             subscription.status = Status.PENDING
             update_fields.append("status")
     subscription.save(update_fields=update_fields)
+    if latest is None:
+        revert_to_awaiting_payment(subscription)  # a no-op unless the row is a never-paid OFFLINE one again
 
 
 def _lock(payment: MembershipPayment) -> MembershipPayment:
@@ -117,6 +125,19 @@ def _apply_period_change(
     return ["status", "occurred_at", "period_start", "period_end"]
 
 
+def _is_first_payment_edit(payment: MembershipPayment, subscription: MembershipSubscription, new_status: str) -> bool:
+    """True when the edit turns a never-paid offline subscription into a paid one (decided before the save).
+
+    Refuses (400) when the user is hard-blacklisted.
+    """
+    if new_status != MembershipPayment.PaymentStatus.SUCCEEDED or payment.status == new_status:
+        return False
+    if not is_never_paid_offline(subscription):
+        return False
+    refuse_blacklisted_first_payment(subscription)
+    return True
+
+
 @transaction.atomic
 def update_payment(
     payment: MembershipPayment,
@@ -154,6 +175,8 @@ def update_payment(
         if refusal is not None:
             raise refusal
 
+    first_payment = _is_first_payment_edit(payment, subscription, new_status)
+
     update_fields = ["updated_at"]
     for field in ("amount", "notes"):
         if field in changes:
@@ -164,6 +187,10 @@ def update_payment(
         update_fields += _apply_period_change(payment, subscription, new_status, new_occurred_at)
 
     payment.save(update_fields=update_fields)
+    if first_payment:
+        # Before the recompute: its PENDING -> ACTIVE save fires sync_member_from_subscription.
+        # An edit never re-sends a receipt, so only an awaiting member is notified (MEMBERSHIP_GRANTED).
+        activate_on_first_payment(subscription, send_receipt=False)
     if period_change:
         _recompute_subscription_period(subscription)
 

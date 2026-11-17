@@ -39,4 +39,9 @@
     <a href="{{ context.event_url }}" class="button {% if context.evaluation_status != "APPROVED" %}button--danger{% endif %}">{% if context.evaluation_status == "APPROVED" %}{% if context.requires_ticket %}{% trans "Get Ticket" %}{% else %}{% trans "RSVP Now" %}{% endif %}{% else %}{% trans "View Event" %}{% endif %}</a>
 </center>
 {% endif %}
+{% if context.membership_url %}
+<center>
+    <a href="{{ context.membership_url }}" class="button">{% blocktranslate with org=context.organization_name %}Continue joining {{ org }}{% endblocktranslate %}</a>
+</center>
+{% endif %}
 {% endblock %}
