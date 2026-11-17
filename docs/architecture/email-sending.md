@@ -146,10 +146,10 @@ which the dispatcher, the email channel and the digest all use.
   global fields (silence, channels, digest) and only the fields they submit change. It no longer
   copies the submitted channels onto every type, which used to make a later re-enable ineffective.
   Migration `0028_unpin_unsubscribe_overrides` undoes those old per-type pins.
-- **Digest**: on an hourly, daily or weekly digest, non-mandatory types create the in-app
-  notification now and their email waits for the digest. The digest only contains types the user
+- **Digest**: on an hourly, daily or weekly digest, types that are neither mandatory nor
+  transactional create the in-app notification now and their email waits for the digest. The digest only contains types the user
   may still be emailed, and skips users who silenced everything, turned email off, or whose
-  address is suppressed. Mandatory types never wait for the digest.
+  address is suppressed. Mandatory and transactional types (`MANDATORY_TYPES | TRANSACTIONAL_TYPES`) never wait for the digest.
 
 Unsubscribe tokens last `UNSUBSCRIBE_TOKEN_LIFETIME_DAYS` (default 3650, about ten years), because
 the links must keep working for as long as the mail sits in a mailbox. A token stops working when

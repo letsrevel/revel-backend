@@ -76,7 +76,7 @@ class Organization(TimeStampedModel, ...):
 ```
 
 !!! info "Owner privileges"
-    The owner **implicitly bypasses all permission checks**. Every permission class checks `organization.owner_id == request.user.id` first and returns `True` immediately if it matches.
+    The owner **implicitly bypasses the organization permission checks**: `has_org_permission` returns `True` for `organization.owner_id == request.user.id` before looking at staff permissions. The OAuth scope gate (`scope_allows`, see below) runs **before** that, so an owner calling through an app token is still limited to the token's scopes.
 
 ### 2. Organization Staff (`OrganizationStaff`)
 
