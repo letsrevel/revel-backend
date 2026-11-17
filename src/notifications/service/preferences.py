@@ -40,6 +40,7 @@ def get_guest_notification_type_settings() -> dict[NotificationType, Notificatio
         NotificationType.MEMBERSHIP_CARD_UPDATED,
         NotificationType.MEMBERSHIP_REQUEST_APPROVED,
         NotificationType.MEMBERSHIP_REQUEST_REJECTED,
+        NotificationType.MEMBERSHIP_PAYMENT_REQUESTED,
         NotificationType.ORG_ANNOUNCEMENT,  # Not members
         NotificationType.ORG_CONTACT_MESSAGE_RECEIVED,  # For org admins, not guests
         NotificationType.STAFF_TICKET_CREATED,  # Staff alerts: guests can't be staff

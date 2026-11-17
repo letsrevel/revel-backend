@@ -147,6 +147,21 @@ class MembershipRequestApprovedTemplate(NotificationTemplate):
         return _("Welcome to %(org)s - Request Approved") % {"org": org_name}
 
 
+class MembershipPaymentRequestedTemplate(NotificationTemplate):
+    """Template for MEMBERSHIP_PAYMENT_REQUESTED notification (offline plan: pay the organization directly)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return self.get_email_subject(notification)
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        return _("Pay to activate your %(tier)s membership at %(org)s") % {
+            "tier": notification.context.get("tier_name", ""),
+            "org": notification.context.get("organization_name", ""),
+        }
+
+
 class MembershipRequestCreatedTemplate(NotificationTemplate):
     """Template for MEMBERSHIP_REQUEST_CREATED notification (to organizers)."""
 
@@ -200,4 +215,5 @@ register_template(NotificationType.MEMBERSHIP_CARD_UPDATED, MembershipCardUpdate
 register_template(NotificationType.MEMBERSHIP_REQUEST_CREATED, MembershipRequestCreatedTemplate())
 register_template(NotificationType.MEMBERSHIP_REQUEST_APPROVED, MembershipRequestApprovedTemplate())
 register_template(NotificationType.MEMBERSHIP_REQUEST_REJECTED, MembershipRequestRejectedTemplate())
+register_template(NotificationType.MEMBERSHIP_PAYMENT_REQUESTED, MembershipPaymentRequestedTemplate())
 register_template(NotificationType.STAFF_MEMBER_RECORD_AUTO_LINKED, StaffMemberRecordAutoLinkedTemplate())

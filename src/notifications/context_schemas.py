@@ -399,6 +399,7 @@ class QuestionnaireEvaluationContext(BaseNotificationContext):
     event_id: t.NotRequired[str]
     event_name: t.NotRequired[str]
     event_url: t.NotRequired[str]  # URL to the event page (if questionnaire is event-linked)
+    membership_url: t.NotRequired[str]  # membership page (membership questionnaire approved)
 
 
 # ===== Invitation Contexts =====
@@ -466,6 +467,9 @@ class MembershipRequestCreatedContext(BaseNotificationContext):
     requester_name: str
     requester_email: str
     request_message: t.NotRequired[str]
+    tier_name: t.NotRequired[str | None]
+    plan_name: t.NotRequired[str | None]
+    plan_payment_method: t.NotRequired[str | None]
 
 
 class StaffMemberRecordAutoLinkedContext(BaseNotificationContext):
@@ -495,6 +499,21 @@ class MembershipRequestRejectedContext(BaseNotificationContext):
 
     organization_id: str
     organization_name: str
+
+
+class MembershipPaymentRequestedContext(BaseNotificationContext):
+    """Context for MEMBERSHIP_PAYMENT_REQUESTED notification (offline plan: pay the organization directly)."""
+
+    organization_id: str
+    organization_name: str
+    organization_slug: str
+    organization_contact_url: str
+    plan_name: str
+    tier_name: str
+    amount: str
+    period_label: str
+    payment_instructions: str  # "" when neither plan nor organization defines any
+    memberships_url: str
 
 
 # ===== Account Contexts =====
@@ -831,6 +850,7 @@ class SubscriptionRenewalReminderContext(BaseNotificationContext):
     period_end: str
     is_online: bool
     manage_subscription_url: t.NotRequired[str | None]  # ONLINE only — FE /account/memberships (POST /billing-portal)
+    payment_instructions: t.NotRequired[str]  # OFFLINE only; "" when none defined
 
 
 class SubscriptionRevivalCheckoutContext(BaseNotificationContext):
@@ -895,6 +915,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.MEMBERSHIP_REQUEST_CREATED: MembershipRequestCreatedContext,
     NotificationType.MEMBERSHIP_REQUEST_APPROVED: MembershipRequestApprovedContext,
     NotificationType.MEMBERSHIP_REQUEST_REJECTED: MembershipRequestRejectedContext,
+    NotificationType.MEMBERSHIP_PAYMENT_REQUESTED: MembershipPaymentRequestedContext,
     NotificationType.STAFF_MEMBER_RECORD_AUTO_LINKED: StaffMemberRecordAutoLinkedContext,
     NotificationType.ACCOUNT_BANNED: AccountBannedContext,
     NotificationType.ORG_ANNOUNCEMENT: OrgAnnouncementContext,

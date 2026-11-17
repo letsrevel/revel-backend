@@ -114,6 +114,30 @@ def _common_subscription_context(subscription: MembershipSubscription) -> dict[s
     return ctx
 
 
+def dispatch_membership_payment_requested(subscription: MembershipSubscription) -> None:
+    """Fire MEMBERSHIP_PAYMENT_REQUESTED: an OFFLINE plan was opened, the member must pay the organization directly.
+
+    Public (no leading underscore): called from the offline-join flow rather than the
+    webhook/lifecycle sites the other helpers serve. Fires through the signal like they do.
+    """
+    plan = subscription.plan
+    org = subscription.organization
+    ctx = _common_subscription_context(subscription)
+    ctx.update(
+        tier_name=plan.tier.name,
+        amount=_charged_money(plan, None, ""),
+        period_label=plan.get_period_unit_display(),
+        payment_instructions=plan.effective_payment_instructions or "",
+        memberships_url=f"{frontend_base_url_for(org)}/org/{org.slug}/membership",
+    )
+    notification_requested.send(
+        sender=MembershipSubscription,
+        user=subscription.user,
+        notification_type=NotificationType.MEMBERSHIP_PAYMENT_REQUESTED,
+        context=ctx,
+    )
+
+
 def _dispatch_renewal_succeeded(
     subscription: MembershipSubscription,
     *,

@@ -7852,3 +7852,51 @@ msgid ""
 "How to pay this plan offline. Overrides the organization's default "
 "instructions."
 msgstr "Comment payer ce forfait hors ligne. Remplace les instructions de paiement par défaut de l'organisation."
+
+#, python-format
+msgid "%(org)s will tell you how to pay: %(url)s"
+msgstr "%(org)s vous indiquera comment payer : %(url)s"
+
+#, python-format
+msgid "%(org)s will tell you how to pay: <a href=\"%(url)s\">%(url)s</a>"
+msgstr "%(org)s vous indiquera comment payer : <a href=\"%(url)s\">%(url)s</a>"
+
+#, python-format
+msgid "Contact %(org)s to find out how:"
+msgstr "Contactez %(org)s pour savoir comment payer :"
+
+#, python-format
+msgid "Continue joining %(org)s"
+msgstr "Continuer pour rejoindre %(org)s"
+
+msgid "Membership payment requested"
+msgstr "Paiement de l'adhésion demandé"
+
+#, python-format
+msgid "Pay to activate your %(tier)s membership at %(org)s"
+msgstr "Payez pour activer votre adhésion %(tier)s chez %(org)s"
+
+#, python-format
+msgid "To activate your %(tier)s membership (%(plan)s, %(amount)s), pay %(org)s directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
+msgstr "Pour activer votre adhésion %(tier)s (%(plan)s, %(amount)s), payez directement %(org)s. Votre adhésion commence dès qu'il confirme votre paiement. Si aucun paiement n'est enregistré sous 30 jours, votre demande est annulée."
+
+#, python-format
+msgid "To activate your <strong>%(tier)s</strong> membership (%(plan)s, %(amount)s), pay <strong>%(org)s</strong> directly. Your membership starts once they confirm your payment. If no payment is recorded within 30 days, your request is cancelled."
+msgstr "Pour activer votre adhésion <strong>%(tier)s</strong> (%(plan)s, %(amount)s), payez directement <strong>%(org)s</strong>. Votre adhésion commence dès qu'il confirme votre paiement. Si aucun paiement n'est enregistré sous 30 jours, votre demande est annulée."
+
+#, python-format
+msgid "To renew, pay %(org)s directly."
+msgstr "Pour renouveler, payez directement %(org)s."
+
+#, python-format
+msgid "To renew, pay %(org)s directly. <a href=\"%(url)s\">Contact %(org)s</a> to find out how."
+msgstr "Pour renouveler, payez directement %(org)s. <a href=\"%(url)s\">Contactez %(org)s</a> pour savoir comment."
+
+msgid "Your memberships"
+msgstr "Vos adhésions"
+
+msgid "Your memberships:"
+msgstr "Vos adhésions :"
+
+msgid "paid directly to the organization"
+msgstr "payé directement à l'organisation"

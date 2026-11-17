@@ -284,6 +284,8 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
             period_end=sub.current_period_end.date().isoformat() if sub.current_period_end else "",
             is_online=(plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value),
         )
+        if plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE.value:
+            ctx["payment_instructions"] = plan.effective_payment_instructions or ""
         notification_requested.send(
             sender=MembershipSubscription,
             user=sub.user,

@@ -2,6 +2,11 @@
 {% load i18n %}
 {% block extra_styles %}
 .comments { background:#f0f0f0; padding:15px; margin:15px 0; border-radius:4px; font-style:italic; color:#555; }
+{% if context.membership_url %}
+<center>
+    <a href="{{ context.membership_url }}" class="button">{% blocktranslate with org=context.organization_name %}Continue joining {{ org }}{% endblocktranslate %}</a>
+</center>
+{% endif %}
 {% endblock %}
 {% block content %}
 <p>{% trans "Hello" %} {{ user.display_name }},</p>

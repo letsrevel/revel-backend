@@ -15,6 +15,9 @@ from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
 from questionnaires.models import QuestionnaireEvaluation, QuestionnaireSubmission
 
+if t.TYPE_CHECKING:
+    from events.models import OrganizationQuestionnaire
+
 logger = structlog.get_logger(__name__)
 
 
@@ -115,6 +118,42 @@ def capture_evaluation_old_status(
             logger.debug("evaluation_not_found_for_old_status", pk=instance.pk)
 
 
+def _add_link_context(
+    context: dict[str, t.Any], instance: QuestionnaireEvaluation, org_questionnaire: "OrganizationQuestionnaire"
+) -> None:
+    """Add the event link (admission questionnaires) or the membership page link (membership ones)."""
+    from events.models import Event, OrganizationQuestionnaire
+
+    # Add event info from submission metadata (source_event) if available
+    # This captures the exact event context where the questionnaire was submitted
+    frontend_base_url = frontend_base_url_for(org_questionnaire.organization)
+    source_event = instance.submission.source_event
+    if org_questionnaire.questionnaire_type == OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP:
+        # Joining an organization is not an event RSVP: link the membership page, never an event.
+        if instance.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED:
+            slug = org_questionnaire.organization.slug
+            context["membership_url"] = f"{frontend_base_url}/org/{slug}/membership"
+    elif source_event:
+        context["event_id"] = source_event["event_id"]
+        context["event_name"] = source_event["event_name"]
+        context["event_url"] = f"{frontend_base_url}/events/{source_event['event_id']}"
+        # Get requires_ticket for template conditional messaging
+        try:
+            event = Event.objects.only("requires_ticket").get(id=source_event["event_id"])
+            context["requires_ticket"] = event.requires_ticket
+        except Event.DoesNotExist:
+            pass
+    else:
+        # Fallback: Get the first linked event from org_questionnaire
+        # (for submissions created before metadata was added)
+        first_event = org_questionnaire.events.first()
+        if first_event:
+            context["event_id"] = str(first_event.id)
+            context["event_name"] = first_event.name
+            context["event_url"] = f"{frontend_base_url}/events/{first_event.id}"
+            context["requires_ticket"] = first_event.requires_ticket
+
+
 @receiver(post_save, sender=QuestionnaireEvaluation)
 def handle_questionnaire_evaluation(
     sender: type[QuestionnaireEvaluation], instance: QuestionnaireEvaluation, created: bool, **kwargs: t.Any
@@ -173,31 +212,7 @@ def handle_questionnaire_evaluation(
         "organization_name": org_questionnaire.organization.name,
     }
 
-    # Add event info from submission metadata (source_event) if available
-    # This captures the exact event context where the questionnaire was submitted
-    frontend_base_url = frontend_base_url_for(org_questionnaire.organization)
-    source_event = instance.submission.source_event
-    if source_event:
-        from events.models import Event
-
-        context["event_id"] = source_event["event_id"]
-        context["event_name"] = source_event["event_name"]
-        context["event_url"] = f"{frontend_base_url}/events/{source_event['event_id']}"
-        # Get requires_ticket for template conditional messaging
-        try:
-            event = Event.objects.only("requires_ticket").get(id=source_event["event_id"])
-            context["requires_ticket"] = event.requires_ticket
-        except Event.DoesNotExist:
-            pass
-    else:
-        # Fallback: Get the first linked event from org_questionnaire
-        # (for submissions created before metadata was added)
-        first_event = org_questionnaire.events.first()
-        if first_event:
-            context["event_id"] = str(first_event.id)
-            context["event_name"] = first_event.name
-            context["event_url"] = f"{frontend_base_url}/events/{first_event.id}"
-            context["requires_ticket"] = first_event.requires_ticket
+    _add_link_context(context, instance, org_questionnaire)
 
     # Cache values for on_commit closure
     submission_user = instance.submission.user

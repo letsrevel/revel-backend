@@ -83,6 +83,7 @@ class NotificationType(TextChoices):
     )  # User requests to join organization
     MEMBERSHIP_REQUEST_APPROVED = "membership_request_approved", _("Membership request approved")
     MEMBERSHIP_REQUEST_REJECTED = "membership_request_rejected", _("Membership request rejected")
+    MEMBERSHIP_PAYMENT_REQUESTED = "membership_payment_requested", _("Membership payment requested")
     # Staff heads-up: a register entry was linked to an account by verified-email match (#1319)
     STAFF_MEMBER_RECORD_AUTO_LINKED = "staff_member_record_auto_linked", _("Member record linked")
 
@@ -273,6 +274,7 @@ TENANT_ORG_SENDER_TYPES: frozenset[str] = frozenset(
         NotificationType.MEMBERSHIP_CARD_UPDATED,
         NotificationType.MEMBERSHIP_REQUEST_APPROVED,
         NotificationType.MEMBERSHIP_REQUEST_REJECTED,
+        NotificationType.MEMBERSHIP_PAYMENT_REQUESTED,
         NotificationType.WAITLIST_SPOT_AVAILABLE,
         # Series pass mail to the holder (STAFF_SERIES_PASS_* are org-facing and stay on the platform sender).
         NotificationType.SERIES_PASS_PURCHASED,

@@ -13,3 +13,4 @@
 ⚠️ <b>{% trans "Important:" %}</b> {% if context.requires_ticket %}{% trans "Approval does not mean you are registered. Please secure your ticket to confirm your attendance." %}{% else %}{% trans "Approval does not mean you are registered. Please RSVP to confirm your attendance." %}{% endif %}
 {% endif %}
 {% if context.event_url %}<a href="{{ context.event_url }}">{% if context.evaluation_status == "APPROVED" %}{% if context.requires_ticket %}{% trans "Get Ticket" %}{% else %}{% trans "RSVP Now" %}{% endif %}{% else %}{% trans "View Event" %}{% endif %}</a>{% endif %}
+{% if context.membership_url %}<a href="{{ context.membership_url }}">{% blocktranslate with org=context.organization_name %}Continue joining {{ org }}{% endblocktranslate %}</a>{% endif %}
