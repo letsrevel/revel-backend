@@ -288,7 +288,7 @@ block must meet these requirements:
 The Turnstile widget only renders on hostnames in its **hostname allowlist**, and a listed hostname
 also covers its subdomains ([API reference](https://developers.cloudflare.com/api/resources/turnstile/subresources/widgets/):
 "the widget will only work on these domains, and their subdomains"). Without the custom domain on
-that list, sign-up there fails the captcha. Revel keeps the list in step itself.
+that list, sign-up there fails the captcha, and so do guest RSVP and guest checkout, which verify a Turnstile token too. Revel keeps the list in step itself.
 
 **The automation.** Set `CLOUDFLARE_ACCOUNT_ID` next to `CLOUDFLARE_API_TOKEN` and the existing
 `TURNSTILE_SITE_KEY` (the widget it manages). It is off unless all three are set, and independent of
@@ -317,7 +317,7 @@ minutes, and a later failure after a good run alerts again).
 [Turnstile plans](https://developers.cloudflare.com/turnstile/plans/) page), and the platform host
 takes one. Set `TURNSTILE_WIDGET_HOSTNAME_LIMIT` to your plan's number. If more active domains exist
 than fit, Revel writes the ones that fit (longest-serving first), logs
-`turnstile_hostnames_over_capacity` and emails staff; sign-up on the rest fails until you make room.
+`turnstile_hostnames_over_capacity` and emails staff; sign-up, guest RSVP and guest checkout on the rest fail until you make room.
 Revel reads a single widget (one site key and secret pair), so more capacity means a plan with a
 higher limit. The [domain cap](#the-domain-cap) is what normally keeps you under it.
 

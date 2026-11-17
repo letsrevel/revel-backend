@@ -382,7 +382,41 @@ Two things follow that are easy to miss:
 
 The return value counts session JWTs only; OAuth revocations are logged separately
 (`user_oauth_credentials_revoked`) because they are a different credential with a different
-lifetime and callers reading the number mean sessions.
+lifetime and callers reading the number mean sessions. "Session JWTs" includes the refresh tokens
+issued by rotation, which `accounts.service.token_refresh` records as `OutstandingToken` rows, so
+the count covers refreshed sessions too (see the next section).
+
+## Refresh rotation, lineage logout and reuse grace
+
+`POST /api/auth/refresh` and `POST /api/auth/logout` are served by `accounts/service/token_refresh.py`,
+not by ninja-jwt's stock refresh. The invariants that are easy to break:
+
+- **Every refresh token belongs to a lineage (one login).** The lineage id is the `sid` claim, or the
+  `jti` of the login's first token (which has no `sid`). Rotation stamps `sid` on what it issues and
+  records the new token as an `OutstandingToken`; without that row `blacklist_user_tokens` and logout
+  could not find the session.
+- **The user row is locked** (`select_for_update(no_key=True)`) by rotation, grace, logout and
+  `blacklist_user_tokens`. That is what stops a logout or ban from missing a token minted at the same
+  instant. `NO KEY UPDATE` self-excludes but does not block inserts of rows that reference the user.
+- **Reuse grace** (`REFRESH_TOKEN_REUSE_GRACE_SECONDS`, default 30, `0` = strict) lets a just-rotated token
+  be exchanged once more. It depends on the cache (`refresh_rotated:<jti>` marker, single-use
+  `refresh_grace_used:<jti>` key) and fails strict when the cache is down. Only rotation writes the
+  marker, and a lineage with no live token left never qualifies, so grace cannot revive a logged-out,
+  reset or banned session.
+- **Logout** revokes the presented token's lineage only; a stale, already-rotated token still logs its
+  lineage out.
+- **Raise outside the atomic block** when a tenant session is dead: the blacklist write must commit even
+  though the request answers 401.
+
+See [Authentication & Sessions](architecture/auth-sessions.md) for the model as a whole.
+
+## User-facing error strings: `make i18n-literals`
+
+`scripts/check_i18n_literals.py` (run by `make i18n-literals`, which is part of `make check` and CI)
+rejects an untranslated message in `raise HttpError(<status>, msg)` and in `raise <AppError>(msg)` for any
+exception mapped with `make_simple_handler`, subclasses included (dispatch is by MRO). Write
+`str(_("..."))`; for interpolation translate first, then `.format(...)`. f-strings are rejected outright
+because `xgettext` cannot extract them. See [Controllers](architecture/controllers.md#user-facing-error-strings).
 
 ## Negative security tests: prove the request was *accepted* first
 

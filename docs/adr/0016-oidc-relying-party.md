@@ -51,3 +51,9 @@ Policies:
 - Revel as an OIDC *Provider*, per-organization SSO, Apple, and plain-OAuth2 providers
   (GitHub/Discord) are out of scope; the env config has a documented upgrade path to a
   provider model.
+
+## Amendments
+
+!!! note "Amended 2026-11 (v2.36.2)"
+    - **Linking an unverified existing account now adopts it.** When the IdP asserts `email_verified: true` for an address whose existing Revel account was never verified, nobody had proved ownership of the credentials set on it. The account is therefore reset as if OIDC-created (`_adopt_unverified_account` in `accounts/service/oidc.py`): marked verified, password made unusable, 2FA turned off, every session and app token revoked, linked Telegram accounts detached, and `credentials_changed_at` stamped so earlier access tokens and pending email-change links stop working. See [Authentication & Sessions](../architecture/auth-sessions.md).
+    - **"Revel as an OIDC Provider" is no longer out of scope**: see [ADR-0018](0018-oauth-oidc-provider.md).

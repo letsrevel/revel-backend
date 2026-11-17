@@ -126,7 +126,13 @@ curl -X POST https://api.letsrevel.io/api/auth/token/pair \
 # → {"access": "…", "refresh": "…"}
 # With 2FA on, you get {"token": "…", "type": "otp"} instead: POST {"token": "…", "otp": "123456"}
 # to /api/auth/token/pair/otp for the pair. Refresh with POST /api/auth/refresh.
+# Log out with POST /api/auth/logout {"refresh": "…"} (204); it ends this login only.
 ```
+
+Refreshing rotates the refresh token on every use. A just-rotated token may be exchanged once
+more for `REFRESH_TOKEN_REUSE_GRACE_SECONDS` (default 30), so a lost response does not log the
+script out; after that, replaying it is a `401`. See
+[Authentication & Sessions](../architecture/auth-sessions.md).
 
 That token is **you**, with everything your account can do. It is for your own scripts only.
 Never ask someone else for their password to get one: acting on another user's behalf is what
@@ -155,7 +161,7 @@ Paths are relative to `/api`.
 
 | Area | Routes | Why |
 |---|---|---|
-| Buying, RSVPing and joining | `/events/{id}/checkout*`, `/events/{id}/tickets/{tier}/checkout*`, `/events/{id}/rsvp/*`, `/events/{id}/waitlist/*`, `/events/{id}/seating/holds*`, `/events/{id}/invitation-requests`, `/events/{id}/questionnaire/*`, `/events/claim-invitation/*`, `/events/tickets/{id}/cancel`, `/series-passes/*`, `/organizations/{slug}/membership-requests`, `/organizations/claim-invitation/*`, following and unfollowing (`/organizations/{slug}/follow`, `/event-series/{id}/follow`) | No attendee write scope exists yet. Reading what you follow is `me:read` (`/me/following/*`) |
+| Buying, RSVPing and joining | `/events/{id}/checkout*`, `/events/{id}/rsvp/*`, `/events/{id}/waitlist/*`, `/events/{id}/seating/holds*`, `/events/{id}/invitation-requests`, `/events/{id}/questionnaire/*`, `/events/claim-invitation/*`, `/events/tickets/{id}/cancel`, `/series-passes/*`, `/organizations/{slug}/membership-requests`, `/organizations/claim-invitation/*`, following and unfollowing (`/organizations/{slug}/follow`, `/event-series/{id}/follow`) | No attendee write scope exists yet. Reading what you follow is `me:read` (`/me/following/*`) |
 | Attendee views of an event | `/events/{id}/attendee-list`, `…/announcements`, `…/dietary-summary`, `…/pronoun-distribution`, `/organizations/{slug}/member-announcements` | Other attendees' data, shown to fellow attendees; no scope covers it |
 | Public browsing | `/events/*`, `/organizations/*`, `/event-series/*`, `/polls/*` reads | Anonymous or first-party; app tokens get `401` (see above) |
 | Account and security | `/account/*` except `GET /account/me`; `/otp/*`; `/telegram/*`; `/preferences/*`; `/dietary/*`; `/notifications*`; `/notification-preferences*`; `/exports/*`; `/permissions/my-permissions` | Your identity, security and personal settings are not delegable |
@@ -168,6 +174,7 @@ Paths are relative to `/api`.
 | Platform integrations | `/organization-admin/{slug}/integrations*`, `/event-admin/{id}/integrations*` | Third-party credentials (e.g. Eventbrite); not in any scope |
 | Questionnaire file uploads | `/questionnaire-files/*` | Not in any scope |
 | The OAuth provider itself | `/oauth/apps/*`, `/oauth/authorize`, `/oauth/connections*`, `/oauth/scopes/` | An app must never manage apps or approve its own consent |
+| Member register, notes and lookup | `/organization-admin/{slug}/member-register*`, `…/membership-requests/{id}/register-matches`, `…/users/{user_id}/note`, `…/users/lookup`, `…/custom-domain*` | These controllers use `I18nJWTAuth` and refuse app tokens; they gate on `manage_members` or ownership, which no scope's label covers |
 
 ### Single routes inside app-token controllers
 
@@ -298,7 +305,9 @@ evaluations. `org:read`'s label covers the first and not the second.
 - **Developers**: deactivating your own app in the developer portal revokes every token issued
   for it, for all its users.
 - Changing your email address disconnects every connected app, and a global ban revokes the
-  banned user's tokens *and* deactivates the apps they own.
+  banned user's tokens *and* deactivates the apps they own. A password reset, and linking an
+  existing unverified account through an OIDC login, also call `blacklist_user_tokens`, which
+  revokes session tokens and app tokens alike.
 
 ## Error responses
 

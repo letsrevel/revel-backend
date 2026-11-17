@@ -127,6 +127,10 @@ class OrganizationMember(TimeStampedModel):
 | **PAUSED** | Can see members-only/private orgs | Depends on context | Temporarily inactive |
 | **CANCELLED** | Treated as no membership | No | As if the record doesn't exist |
 | **BANNED** | Cannot see **any** orgs (even public) | No | Total exclusion |
+| **AWAITING_PAYMENT** | Treated as no membership | No | Holds a slot until the first offline payment; grants nothing |
+
+!!! note "Only ACTIVE is a member for purchases and exemptions"
+    CANCELLED and AWAITING_PAYMENT records give no member privileges. Day memberships (temporary tiers, granted by tickets) are register-only records, never `OrganizationMember` rows, so they grant no member privileges either; see [Member register](member-register.md).
 
 !!! warning "Members have no management permissions"
     `OrganizationMember` does **not** carry any permission flags. Members cannot manage events, tickets, or organization settings. Membership only controls **visibility** and **ticket purchase eligibility**.
@@ -152,10 +156,10 @@ A flat set of boolean flags representing individual actions:
 | `manage_tickets` | `True` | Manage ticket tiers and settings |
 | `close_event` | `True` | Close event registration |
 | `manage_event` | `True` | General event management |
-| `check_in_attendees` | `True` | Check in ticket holders |
+| `check_in_attendees` | `True` | Check in ticket holders (staff with only this flag see the private organizer note, read-only, in scan responses) |
 | `invite_to_event` | `True` | Send event invitations |
 | `edit_organization` | `False` | Edit organization settings |
-| `manage_members` | `False` | Manage members and membership requests |
+| `manage_members` | `False` | Manage members and membership requests; also gates private organizer notes and exact-email user lookup |
 | `manage_potluck` | `False` | Manage potluck items |
 | `create_questionnaire` | `False` | Create questionnaires |
 | `edit_questionnaire` | `False` | Edit questionnaires |
@@ -210,7 +214,7 @@ The JSON stored on `OrganizationStaff.permissions` looks like:
 
 ## Permission Classes
 
-All permission classes live in `events/controllers/permissions.py` and inherit from `RootPermission`, which itself extends Django Ninja Extra's `BasePermission`.
+All permission classes live in `events/controllers/permissions.py` and inherit from `RootPermission`, which itself extends Django Ninja Extra's `BasePermission`. The classes that resolve a `PermissionMap` flag (`EventSeriesPermission`, `EventPermission`, `OrganizationPermission`, `QuestionnairePermission`) share an intermediate base, `PermissionMapPermission`, which types `action` as `PermissionKey` so mypy rejects an unknown flag name.
 
 ### `RootPermission` (base class)
 
@@ -239,28 +243,23 @@ class RootPermission(BasePermission):
 | `CanDuplicateEvent()` | `"create_event"` | `Event` | Checks `create_event` via the event's organization |
 | `ManagePotluckPermission()` | `"manage_potluck"` | `PotluckItem` | Item creator, org owner, or staff with `manage_potluck` |
 | `PotluckItemPermission(action)` | Configurable | `Event` | Owner, staff, or attendee (with special `potluck_open` check) |
-| `CanPurchaseTicket()` | `"can_purchase"` | `TicketTier` | Checks sale window + `purchasable_by` eligibility |
+| `CanPurchaseTicket()` | `"can_purchase"` | `TicketTier` | Checks pause, sale window + `purchasable_by` eligibility |
 
 ### Common Permission Check Pattern
 
-Every action-based permission class follows the same resolution order:
+Every action-based permission class follows the same two steps: the OAuth scope gate, then the organization's permission check:
 
 ```python
-class OrganizationPermission(RootPermission):
+class OrganizationPermission(PermissionMapPermission):
     def has_object_permission(self, request, controller, obj: Organization) -> bool:
-        # 1. Owner always passes
-        if obj.owner_id == request.user.id:
-            return True
-        # 2. Look up staff membership
-        if staff_member := OrganizationStaff.objects.filter(
-            organization=obj,
-            user_id=request.user.id,
-        ).first():
-            # 3. Check specific permission flag
-            return staff_member.has_permission(self.action)
-        # 4. Not owner, not staff -> denied
-        return False
+        # 1. App tokens must hold a scope that unlocks this action (no-op for sessions)
+        scope_allows(request, self.action)
+        # 2. Owner passes; staff pass if the flag is set; everyone else is denied
+        return obj.has_org_permission(request.user.id, self.action)
 ```
+
+!!! info "OAuth scope ceiling"
+    `scope_allows` runs before any owner short-circuit, so an organization owner holding a narrowly scoped app token cannot exceed its scopes. An app token's effective power is its granted scopes intersected with the user's current organization permissions. See the [OAuth developer guide](../developer-guide/oauth.md).
 
 ## Usage in Controllers
 
@@ -413,11 +412,22 @@ class EventSeriesController(UserAwareController):
 | `MEMBERS` | Organization members only |
 | `INVITED` | Event invitees only |
 | `INVITED_AND_MEMBERS` | Members or invitees |
+| `NON_MEMBERS` | Everyone except members (optionally only members of `excluded_membership_tiers`) |
 
-The check order: sale window -> org owner -> org staff -> membership/invitation check.
+The check order is: `sales_paused` -> sale window -> `PUBLIC` -> org owner/staff -> the `NON_MEMBERS` branch (`is_member_excluded`) -> member eligibility -> invitation check (which honours `restrict_purchase_to_linked_invitations`, so an invitation must then be linked to the tier).
 
-!!! warning "Membership status not filtered"
-    The membership check currently queries `OrganizationMember` without filtering by `status=ACTIVE`. This means paused or cancelled members may still pass the check. This is a known limitation.
+A `NON_MEMBERS` tier with no `excluded_membership_tiers` shuts out every eligible member; with some, only members of those tiers.
+
+### Membership predicates
+
+Membership-status semantics live in `events/utils/membership_access.py`, so no call site hand-rolls a `status` filter:
+
+- `eligible_memberships()`: **ACTIVE only**. May act as a member (buy member tiers, exemptions, member comms).
+- `visible_memberships()`: ACTIVE and PAUSED. May see member-only content.
+- `awaiting_payment_memberships()`: AWAITING_PAYMENT, held until the first offline payment.
+- `banned_memberships()`: BANNED.
+
+`test_membership_access_guard.py` is an AST walk that fails when new code re-introduces an inline membership status filter or comparison outside its allowlists.
 
 ## Organization Visibility
 
