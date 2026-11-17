@@ -10,7 +10,7 @@ from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
-from events.models import Event, MembershipRecord, MembershipTier, Organization, OrganizationMember
+from events.models import Event, MembershipRecord, MembershipTier, Organization, OrganizationFollow, OrganizationMember
 from events.service import follow_service, permission_snapshot
 from events.service.member_register_service import mirror_member
 
@@ -42,6 +42,8 @@ def test_awaiting_member_has_no_card(awaiting: OrganizationMember, member_user: 
     client = Client(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(member_user).access_token}")  # type: ignore[attr-defined]
     url = reverse("api:me_membership_pdf", kwargs={"slug": awaiting.organization.slug})
     assert client.get(url).status_code == 404
+    OrganizationMember.objects.filter(pk=awaiting.pk).update(status=S.ACTIVE)
+    assert client.get(url).status_code == 200
 
 
 def test_awaiting_member_scan_rejected(
@@ -56,6 +58,8 @@ def test_awaiting_member_scan_rejected(
     event.save(update_fields=["check_in_starts_at", "check_in_ends_at"])
     url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": awaiting.qr_payload})
     assert organization_owner_client.post(url, content_type="application/json").status_code == 404
+    OrganizationMember.objects.filter(pk=awaiting.pk).update(status=S.ACTIVE)
+    assert organization_owner_client.post(url, content_type="application/json").status_code == 200
 
 
 def test_awaiting_member_opens_no_register_entry(awaiting: OrganizationMember) -> None:
@@ -89,8 +93,6 @@ def test_awaiting_member_still_gets_follower_notifications(
     awaiting: OrganizationMember, organization: Organization
 ) -> None:
     """Followers' dedupe set excludes visible members and banned ones only; awaiting members are not excluded."""
-    from events.models import OrganizationFollow
-
     OrganizationFollow.objects.create(
         organization=organization, user=awaiting.user, notify_new_events=True, is_archived=False
     )
