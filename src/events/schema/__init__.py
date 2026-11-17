@@ -21,6 +21,7 @@ from .announcement import (
 
 # Application schemas
 from .application import (
+    ApplyConflictSchema,
     ApplyRequestSchema,
     ApplyResponseSchema,
     JoinEligibilityQuery,
@@ -508,6 +509,7 @@ __all__ = [
     "AnnouncementScheduleSchema",
     "AnnouncementSchema",
     "AnnouncementUpdateSchema",
+    "ApplyConflictSchema",
     "ApplyRequestSchema",
     "ApplyResponseSchema",
     "ApproveMembershipRequestSchema",

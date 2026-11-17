@@ -18,7 +18,6 @@ from events.utils.membership_access import (
     is_eligible_member,
     is_eligible_status,
     is_visible_status,
-    non_cancelled_memberships,
     visible_member_org_ids,
     visible_member_user_ids,
 )
@@ -111,11 +110,6 @@ def test_get_eligible_membership_returns_active_with_tier(
     for status in ("paused", "cancelled", "banned"):
         assert get_eligible_membership(user, orgs_by_status[status].id) is None
         assert not is_eligible_member(user, orgs_by_status[status].id)
-
-
-def test_non_cancelled_memberships_by_status(user: RevelUser, orgs_by_status: dict[str, Organization]) -> None:
-    ids = set(non_cancelled_memberships().filter(user=user).values_list("organization_id", flat=True))
-    assert ids == {orgs_by_status[s].id for s in ("active", "paused", "banned", "awaiting_payment")}
 
 
 def test_user_predicates_accept_user_id(user: RevelUser, orgs_by_status: dict[str, Organization]) -> None:

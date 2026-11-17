@@ -44,6 +44,17 @@ def subscriber(django_user_model: type[RevelUser]) -> RevelUser:
     return django_user_model.objects.create_user(username="sub_signal", email="signal@example.com", password="pass")
 
 
+def _paid_subscription(plan: MembershipSubscriptionPlan, subscriber: RevelUser) -> MembershipSubscription:
+    """A subscription past its first payment (a never-paid offline one can't be paused)."""
+    return subscription_lifecycle.create_subscription(
+        plan,
+        subscriber,
+        initial_payment=subscription_lifecycle.InitialPayment(
+            amount=plan.price, currency=plan.currency, recorded_by=subscriber
+        ),
+    )
+
+
 class TestSyncMemberFromSubscription:
     def test_does_not_create_member(
         self,
@@ -134,7 +145,7 @@ class TestSyncMemberFromSubscription:
         subscriber: RevelUser,
         plan: MembershipSubscriptionPlan,
     ) -> None:
-        sub = subscription_lifecycle.create_subscription(plan, subscriber)
+        sub = _paid_subscription(plan, subscriber)
         subscription_lifecycle.pause_subscription(sub)
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
         assert member.status == OrganizationMember.MembershipStatus.PAUSED
@@ -146,7 +157,7 @@ class TestSyncMemberFromSubscription:
         plan: MembershipSubscriptionPlan,
     ) -> None:
         """Subscription-driven pause → resume must still flip the member back to ACTIVE."""
-        sub = subscription_lifecycle.create_subscription(plan, subscriber)
+        sub = _paid_subscription(plan, subscriber)
         subscription_lifecycle.pause_subscription(sub)
         assert (
             OrganizationMember.objects.get(organization=organization, user=subscriber).status

@@ -348,6 +348,9 @@ def handle_membership_granted(
 @receiver(post_delete, sender=OrganizationMember)
 def handle_membership_removed(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
     """Send notification when user is removed from an organization."""
+    if instance.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT:
+        # Never granted anything; cancelling their subscription already told them.
+        return
 
     def send_removal_notification() -> None:
         frontend_base_url = SiteSettings.get_solo().frontend_base_url

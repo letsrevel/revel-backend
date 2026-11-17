@@ -28,7 +28,7 @@ from events.service.membership_manager import (
     apply_for_membership,
     cancel_application,
 )
-from events.service.membership_manager.enums import MembershipNextStep, Reasons
+from events.service.membership_manager.enums import MembershipNextStep, MembershipReasonCode, Reasons
 from oauth.permissions import RequireScope
 
 
@@ -97,11 +97,13 @@ class MeMembershipApplicationsController(UserAwareController):
             201: schema.ApplyResponseSchema,
             400: schema.MembershipEligibilitySchema | ErrorDetail,
             404: ErrorDetail,
-            409: ErrorDetail,
+            409: schema.ApplyConflictSchema,
         },
         throttle=WriteThrottle(),
     )
-    def apply(self, slug: str, payload: schema.ApplyRequestSchema) -> tuple[int, schema.ApplyResponseSchema]:
+    def apply(
+        self, slug: str, payload: schema.ApplyRequestSchema
+    ) -> tuple[int, schema.ApplyResponseSchema | schema.ApplyConflictSchema]:
         """Create or refresh the caller's membership application.
 
         Idempotent: if a PENDING application already exists for (user, org, tier),
@@ -148,7 +150,11 @@ class MeMembershipApplicationsController(UserAwareController):
         # application on every call — queue noise, and tier.on_delete=PROTECT
         # means those rows permanently block deleting the tier.
         if preview.next_step == MembershipNextStep.ALREADY_MEMBER:
-            raise HttpError(409, _(Reasons.ALREADY_ACTIVE_MEMBER))
+            return 409, schema.ApplyConflictSchema(
+                detail=str(_(Reasons.ALREADY_ACTIVE_MEMBER)),
+                reason_code=MembershipReasonCode.ALREADY_ACTIVE_MEMBER,
+                next_step=MembershipNextStep.ALREADY_MEMBER,
+            )
 
         # Already holding an awaiting-payment subscription for this plan: nothing to apply for.
         # Answer with the linked application if there is one (no new row, no staff re-notification).
@@ -159,7 +165,11 @@ class MeMembershipApplicationsController(UserAwareController):
                 else None
             )
             if linked is None:
-                raise HttpError(409, preview.reason or _(Reasons.AWAITING_OFFLINE_PAYMENT))
+                return 409, schema.ApplyConflictSchema(
+                    detail=preview.reason or str(_(Reasons.AWAITING_OFFLINE_PAYMENT)),
+                    reason_code=MembershipReasonCode.AWAITING_OFFLINE_PAYMENT,
+                    next_step=MembershipNextStep.WAIT_FOR_OFFLINE_PAYMENT,
+                )
             return 200, t.cast(
                 schema.ApplyResponseSchema,
                 {

@@ -363,6 +363,50 @@ def test_sweep_skips_paid_and_legacy_active(
         assert sub.status == status
 
 
+def test_sweep_spares_recently_voided_payment_on_old_subscription(
+    plan: MembershipSubscriptionPlan, nonmember_user: RevelUser, sent: list[dict[str, t.Any]]
+) -> None:
+    """Voiding the only payment of a long-paid subscription restarts the window (anchor: last payment activity)."""
+    sub, _ = _join(plan, nonmember_user, with_application=False)
+    payment = _pay(sub)
+    _age(sub, 60)
+    payment_edits.void_payment(payment, recorded_by=None)
+    assert _member(sub).status == S.AWAITING_PAYMENT  # type: ignore[union-attr]
+
+    assert expire_unpaid_offline_subscriptions() == 0
+
+    sub.refresh_from_db()
+    assert sub.status == Sub.PENDING
+    assert _member(sub).status == S.AWAITING_PAYMENT  # type: ignore[union-attr]
+    assert NotificationType.SUBSCRIPTION_EXPIRED not in [c["type"] for c in sent]
+
+    # Once that payment activity itself is older than the window, the row is swept as usual.
+    old = timezone.now() - timedelta(days=APPLICATION_PAYMENT_WINDOW_DAYS + 1)
+    MembershipPayment.objects.filter(subscription=sub).update(created_at=old, updated_at=old)
+    assert expire_unpaid_offline_subscriptions() == 1
+
+
+def test_sweep_skips_refunded_payment(plan: MembershipSubscriptionPlan, nonmember_user: RevelUser) -> None:
+    """The close treats a REFUNDED payment as money moved, so the sweep must not pick the row either."""
+    sub, _ = _join(plan, nonmember_user, with_application=False)
+    old = timezone.now() - timedelta(days=90)
+    payment = MembershipPayment.objects.create(
+        subscription=sub,
+        amount=Decimal("50.00"),
+        currency="EUR",
+        status=MembershipPayment.PaymentStatus.REFUNDED,
+        period_start=old,
+        period_end=old + timedelta(days=365),
+    )
+    MembershipPayment.objects.filter(pk=payment.pk).update(created_at=old, updated_at=old)
+    _age(sub, 90)
+
+    assert expire_unpaid_offline_subscriptions() == 0
+
+    sub.refresh_from_db()
+    assert sub.status == Sub.PENDING
+
+
 def test_refunding_only_offline_payment_cancels_member(
     plan: MembershipSubscriptionPlan, nonmember_user: RevelUser, sent: list[dict[str, t.Any]]
 ) -> None:

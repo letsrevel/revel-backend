@@ -359,8 +359,9 @@ def advance_application(
                         plan=application.plan,
                     ).check_eligibility()
                 else:
-                    # Paid path: APPROVED awaiting payment via /subscribe; the Stripe
-                    # activation settles the row COMPLETED.
+                    # Any other plan (ONLINE, or an OFFLINE plan whose verdict is not PROCEED_TO_PAYMENT):
+                    # APPROVED, awaiting payment via /subscribe. The first payment settles the row COMPLETED:
+                    # the Stripe activation for ONLINE, the recorded offline payment for OFFLINE.
                     application.status = OrganizationMembershipRequest.Status.APPROVED
                     application.save(update_fields=["status", "updated_at"])
             # else: tier-less, plan-less application → stays PENDING until staff approves

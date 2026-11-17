@@ -1,5 +1,6 @@
 """Tests for organization admin member and membership tier endpoints."""
 
+import typing as t
 import uuid
 from unittest.mock import patch
 
@@ -18,6 +19,7 @@ from events.models import (
     OrganizationQuestionnaire,
     OrganizationStaff,
 )
+from notifications.enums import NotificationType
 from questionnaires.models import Questionnaire
 
 pytestmark = pytest.mark.django_db
@@ -81,6 +83,36 @@ class TestManageMembersAndStaff:
         response = organization_owner_client.delete(url)
         assert response.status_code == 204
         assert not OrganizationMember.objects.filter(organization=organization, user=member_user).exists()
+
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [
+            (OrganizationMember.MembershipStatus.ACTIVE, 1),
+            (OrganizationMember.MembershipStatus.AWAITING_PAYMENT, 0),
+        ],
+    )
+    def test_remove_member_notifies_only_granted_members(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        member_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+        status: str,
+        expected: int,
+    ) -> None:
+        """An AWAITING_PAYMENT person was never granted anything, so removal sends no MEMBERSHIP_REMOVED."""
+        OrganizationMember.objects.create(organization=organization, user=member_user, status=status)
+        url = reverse("api:remove_organization_member", kwargs={"slug": organization.slug, "user_id": member_user.id})
+        with (
+            patch("events.signals.notification_requested.send") as send,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            response = organization_owner_client.delete(url)
+        assert response.status_code == 204
+        removed = [
+            c for c in send.call_args_list if c.kwargs["notification_type"] == NotificationType.MEMBERSHIP_REMOVED
+        ]
+        assert len(removed) == expected
 
     def test_add_member(
         self, organization_owner_client: Client, organization: Organization, nonmember_user: RevelUser

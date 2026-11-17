@@ -29,6 +29,13 @@ from events.service.subscription.notifications import (
     dispatch_membership_payment_requested,
 )
 from events.service.subscription.sales import ensure_plan_on_sale
+from events.utils.membership_access import (
+    eligible_memberships,
+    is_awaiting_payment_status,
+    is_eligible_status,
+    is_payment_held_status,
+    payment_held_memberships,
+)
 from events.utils.subscription_payment import is_never_paid_offline, is_never_paid_on_offline_plan
 
 logger = structlog.get_logger(__name__)
@@ -60,17 +67,16 @@ def activate_on_first_payment(subscription: MembershipSubscription, *, send_rece
     from events.service.subscription.stripe.sync import settle_originating_application
 
     plan = subscription.plan
-    Status = OrganizationMember.MembershipStatus
     member = OrganizationMember.objects.filter(
         organization_id=subscription.organization_id, user_id=subscription.user_id
     ).first()
     # A member always exists for an offline join (held as AWAITING_PAYMENT); if one is somehow
     # missing there is nothing to activate, so only the application is settled.
-    if member is not None and member.status in (Status.AWAITING_PAYMENT, Status.ACTIVE):
-        was_awaiting = member.status == Status.AWAITING_PAYMENT
+    if member is not None and is_payment_held_status(member.status):
+        was_awaiting = is_awaiting_payment_status(member.status)
         update_fields = []
         if was_awaiting:
-            member.status = Status.ACTIVE
+            member.status = OrganizationMember.MembershipStatus.ACTIVE
             update_fields.append("status")
         if member.tier_id != plan.tier_id:
             member.tier_id = plan.tier_id
@@ -151,20 +157,21 @@ def open_offline_subscription(
     return subscription
 
 
-def _held_member(subscription: MembershipSubscription, *, statuses: tuple[str, ...]) -> OrganizationMember | None:
+def _held_member(subscription: MembershipSubscription, *, include_awaiting: bool) -> OrganizationMember | None:
     """The subscriber's member row when it was held *for this subscription* (no other live subscription).
 
     AWAITING_PAYMENT is held by definition; ACTIVE only counts at the plan's tier (a legacy row: the
     member was created ACTIVE before the awaiting state existed), never an upgrading free member.
     """
+    candidates = payment_held_memberships() if include_awaiting else eligible_memberships()
     member = (
-        OrganizationMember.objects.select_for_update(of=("self",))
-        .filter(organization_id=subscription.organization_id, user_id=subscription.user_id, status__in=statuses)
+        candidates.select_for_update(of=("self",))
+        .filter(organization_id=subscription.organization_id, user_id=subscription.user_id)
         .first()
     )
     if member is None:
         return None
-    if member.status == OrganizationMember.MembershipStatus.ACTIVE and member.tier_id != subscription.plan.tier_id:
+    if is_eligible_status(member.status) and member.tier_id != subscription.plan.tier_id:
         return None
     other_live = (
         MembershipSubscription.objects.filter(
@@ -190,10 +197,9 @@ def close_unpaid_offline(subscription: MembershipSubscription) -> None:
     subscription.originating_application.filter(
         status__in=(OrganizationMembershipRequest.Status.PENDING, OrganizationMembershipRequest.Status.APPROVED)
     ).update(status=OrganizationMembershipRequest.Status.CANCELLED, updated_at=timezone.now())
-    Status = OrganizationMember.MembershipStatus
-    member = _held_member(subscription, statuses=(Status.AWAITING_PAYMENT, Status.ACTIVE))
+    member = _held_member(subscription, include_awaiting=True)
     if member is not None:
-        member.status = Status.CANCELLED
+        member.status = OrganizationMember.MembershipStatus.CANCELLED
         with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
             member.save(update_fields=["status", "updated_at"])
 
@@ -203,7 +209,7 @@ def revert_to_awaiting_payment(subscription: MembershipSubscription) -> None:
     """After a void left an OFFLINE subscription never-paid again, hold its ACTIVE member as AWAITING_PAYMENT."""
     if not is_never_paid_offline(subscription):
         return
-    member = _held_member(subscription, statuses=(OrganizationMember.MembershipStatus.ACTIVE,))
+    member = _held_member(subscription, include_awaiting=False)
     if member is not None:
         member.status = OrganizationMember.MembershipStatus.AWAITING_PAYMENT
         with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):

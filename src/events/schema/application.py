@@ -102,3 +102,15 @@ class ApplyResponseSchema(Schema):
 
     application: MembershipApplicationSchema
     eligibility: MembershipEligibilitySchema
+
+
+class ApplyConflictSchema(Schema):
+    """409 from POST /apply: nothing to apply for (already a member, or an offline payment is awaited).
+
+    ``reason_code`` and ``next_step`` are the stable machine-readable identifiers the frontend branches
+    on; ``detail`` is the translated, human-readable text.
+    """
+
+    detail: str
+    reason_code: MembershipReasonCode
+    next_step: MembershipNextStep

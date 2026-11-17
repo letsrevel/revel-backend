@@ -249,6 +249,10 @@ def test_reapply_while_awaiting_without_linked_application_is_409(
     response = _apply(client, org, open_tier, plan)
 
     assert response.status_code == 409, response.content
+    body = response.json()
+    assert body["reason_code"] == "awaiting_offline_payment"
+    assert body["next_step"] == "wait_for_offline_payment"
+    assert body["detail"]
     assert not OrganizationMembershipRequest.objects.filter(user=nonmember_user).exists()
 
 

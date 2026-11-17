@@ -858,6 +858,11 @@ class SubscribeResponseSchema(Schema):
     than redirecting unconditionally. Same contract as
     :class:`RevivalResponseSchema`.
 
+    For an **OFFLINE** plan there is no checkout either, but the subscription is not active: a null
+    ``checkout_url`` together with a ``pending`` subscription means the member is awaiting offline
+    payment. Nothing is granted until the organization records the first payment; show the plan's
+    payment instructions (``payment_instructions`` on the subscription) instead of redirecting.
+
     Nullable but **required**: the endpoint sets the key on both branches, so
     declaring a default would tell clients it may be absent — a distinction the
     frontend would have to handle for a case that never occurs.
