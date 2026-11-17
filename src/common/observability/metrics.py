@@ -9,12 +9,13 @@ the durable, actively-noticed half of an incident signal; the matching
 ``logger.error`` line carries the identifiers needed to actually investigate —
 metric labels must stay low-cardinality, so never a session id or a user id.
 
-Per-worker values: production runs gunicorn with several workers and no
-``PROMETHEUS_MULTIPROC_DIR``, so each worker keeps its own copy of these
-counters and a scrape reaches one of them. Counters here are therefore reliable
-for *"did this ever happen"* alerting (``increase(...) > 0``) — the incremented
-worker keeps its non-zero value and is eventually scraped — but not for exact
-rates. Every metric defined here must be alert-on-any-occurrence shaped.
+Presence, not rate: web workers share one registry (``PROMETHEUS_MULTIPROC_DIR``,
+#757), but the metric files are wiped whenever the web container restarts, and
+increments made inside Celery tasks are never scraped (Celery exports no metrics).
+Every metric defined here must therefore be alert-on-any-occurrence shaped
+(``increase(...) > 0``). Pre-create every child of a labelled counter (see
+``events.service.stripe_incidents``): a series born at 1 on its first increment
+never registers as an increase.
 """
 
 from prometheus_client import Counter

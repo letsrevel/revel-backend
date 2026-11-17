@@ -318,11 +318,23 @@ def test_nearest_city_picks_closest_within_radius_only() -> None:
     from geo.models import City
 
     lat, lon = 0.0, -30.0
+    # Far outranks Near on the manager's default -population ordering, so only an explicit
+    # distance ordering returns Near.
     near = City.objects.create(
-        name="Near", ascii_name="Near", country="Nowhere", city_id=101, location=Point(lon, lat + 0.1, srid=4326)
+        name="Near",
+        ascii_name="Near",
+        country="Nowhere",
+        city_id=101,
+        population=100,
+        location=Point(lon, lat + 0.1, srid=4326),
     )
     City.objects.create(
-        name="Far", ascii_name="Far", country="Nowhere", city_id=102, location=Point(lon, lat + 0.3, srid=4326)
+        name="Far",
+        ascii_name="Far",
+        country="Nowhere",
+        city_id=102,
+        population=1000,
+        location=Point(lon, lat + 0.3, srid=4326),
     )
 
     assert mapper.nearest_city(lat, lon) == near

@@ -81,6 +81,25 @@ def test_metrics_view_serves_default_registry_without_env_var(client: t.Any, mon
 
 
 @pytest.mark.django_db
+def test_labelled_money_counter_series_exist_before_first_increment(
+    client: t.Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every call_site series is exported from startup, not born at 1 on its first breach.
+
+    ``increase(...[5m]) > 0`` over a series whose first sample is already 1 reads 0, so
+    the critical session-total-mismatch alert would miss the first occurrence.
+    """
+    import re
+
+    from events.service.stripe_incidents import CallSite
+
+    monkeypatch.delenv("PROMETHEUS_MULTIPROC_DIR", raising=False)
+    body = client.get("/metrics").content.decode()
+    for call_site in t.get_args(CallSite):
+        assert re.search(rf'^revel_stripe_session_total_mismatch_total{{call_site="{call_site}"}} ', body, re.M)
+
+
+@pytest.mark.django_db
 def test_metrics_view_serves_multiprocess_registry_with_env_var(
     client: t.Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

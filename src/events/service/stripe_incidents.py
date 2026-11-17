@@ -51,6 +51,12 @@ logger = structlog.get_logger(__name__)
 
 CallSite = t.Literal["preflight", "webhook"]
 
+# Pre-create every labelled child so each series is exported at 0 from startup. A child
+# created by its first .inc() is born at 1, and `increase(...[5m]) > 0` over a series whose
+# first sample is already 1 reads 0, so the critical alert would miss the first breach.
+for _call_site in t.get_args(CallSite):
+    STRIPE_SESSION_TOTAL_MISMATCH.labels(call_site=_call_site)
+
 
 class PaymentEvidence(t.TypedDict):
     """One row of the perishable breakdown, captured before the sweep can delete it."""

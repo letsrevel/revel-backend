@@ -6,9 +6,8 @@ Gunicorn reads ``./gunicorn.conf.py`` from its working directory when no
 to both without any change to the launch command.
 
 Its only job is Prometheus multiprocess hygiene (#757). Both hooks are no-ops
-unless ``PROMETHEUS_MULTIPROC_DIR`` is set, so behaviour is unchanged until
-the deployment half (letsrevel/infra#35) sets the env var and mounts a
-writable shared directory for the metric files.
+unless ``PROMETHEUS_MULTIPROC_DIR`` is set; production sets it on the web
+container with a per-container tmpfs for the metric files (letsrevel/infra#76).
 """
 
 import glob
