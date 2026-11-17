@@ -5,6 +5,9 @@ modes that share one local state machine:
 
 - **OFFLINE**: Staff records payments by hand (cash, bank transfer, anything
   non-Stripe). The grace-expiry Celery beat task drives the state machine.
+  Since v2.38.0 members can also join an OFFLINE plan themselves: the row waits
+  in PENDING (the person held as `AWAITING_PAYMENT`) until staff record the first
+  payment — see [Offline join flow](#offline-join-flow).
 - **ONLINE**: Stripe Subscriptions on the org's Connect account. Stripe drives
   the state machine via webhooks; the local row mirrors what Stripe says.
 - **FREE** (#832): no money at all. Members self-subscribe and the row lands
@@ -34,6 +37,7 @@ flowchart LR
 
     subgraph Services["Service layer"]
         Sub[subscription.lifecycle]
+        Offline[subscription.offline]
         Stripe[subscription.stripe.checkout]
         PlanChange[subscription.stripe.plan_change]
         Dispatch[subscription.stripe.dispatch]
@@ -58,6 +62,7 @@ flowchart LR
     AdminAPI --> Sub
     AdminAPI --> Report
     Sub --> Stripe
+    Sub --> Offline
     Sub --> PlanChange
     Stripe --> Dispatch
     Sub --> SubModel
@@ -80,6 +85,7 @@ All in `src/events/models/subscription.py`. Re-exported via
 |---|---|
 | `tier` | FK to `MembershipTier` — multiple plans per tier (Monthly, Annual, …) |
 | `name`, `description` | Operator-controlled |
+| `payment_instructions` | Markdown, nullable. How to pay an OFFLINE plan. `effective_payment_instructions` returns this, falling back to `Organization.membership_payment_instructions`; empty when neither is set |
 | `price`, `currency` | `Decimal(10,2)` + ISO 4217. Currency is validated against the platform's supported list. Bound to `payment_method` — see the shape rules below |
 | `period_unit`, `period_count` | Rolling cadence — `(MONTH, 1)`, `(MONTH, 3)`, `(YEAR, 1)`, … — **or** `LIFETIME`, a non-renewing term. `LIFETIME` ignores `period_count`, leaves `current_period_end` NULL forever, and is therefore invisible to every renewal/lapse/expiry beat (they all filter on that column, which SQL NULL never matches) |
 | `is_active` | Archived (`False`) plans are hidden from public listings but keep their FKs |
@@ -89,7 +95,9 @@ All in `src/events/models/subscription.py`. Re-exported via
 | `stripe_product_id`, `stripe_price_id` | Provisioned lazily by `ensure_stripe_price` on the org's Connect account. Always empty for OFFLINE and FREE |
 | `history` | `simple_history` audit table |
 
-Constraint: `unique_plan_name_per_tier(tier, name)`.
+Constraint: `unique_plan_name_per_tier(tier, name)`. `clean()` also refuses a
+plan on a `TEMPORARY` (day-membership) tier — see
+[Member Register & Day Memberships](member-register.md).
 
 #### Plan shape rules
 
@@ -108,7 +116,7 @@ at patch, against the *merged* post-patch values) so the two cannot drift.
 
 `ensure_plan_on_sale` (PAUSED check, member paths only — staff callers pass
 `enforce_sales_status=False`) and `ensure_plan_sales_capacity` (cap check,
-everyone) live in `subscription.lifecycle` and are enforced on **create**,
+everyone) live in `subscription.sales` and are enforced on **create**,
 **revive** and **plan switches**. The capacity check `select_for_update`s the
 plan row so concurrent creations serialize, mirroring the capacity-reclaim
 invariants of ticket tiers. The public plan schema exposes `sales_status` and a
@@ -124,7 +132,9 @@ paused" vs a normal subscribe CTA.
 | `current_period_start` / `current_period_end` | Driven by `record_payment` (OFFLINE) or `invoice.paid` (ONLINE). On a `LIFETIME` plan `current_period_end` stays **NULL forever** — that NULL is what keeps the beats away from it |
 | `cancel_at_period_end`, `cancelled_at` | Scheduled vs. immediate cancellation |
 | `expired_at` | Stamped on every transition into EXPIRED. Drives revival window |
+| `held_member` | OFFLINE plans only, nullable. `True`: this subscription put the member into `AWAITING_PAYMENT` (created or reactivated the row); `False`: the member already existed and is never touched on close; `NULL`: legacy row from before it was tracked |
 | `stripe_subscription_id` | Unique; nullable. Populated after the Stripe Subscription is created |
+| `stripe_checkout_session_id` | Hosted Checkout Session that will (or did) create the Stripe Subscription; blank otherwise |
 | `pending_plan`, `stripe_schedule_id` | Downgrade flow: the schedule's second phase resolves on `customer.subscription.updated` |
 | `history` | `simple_history` audit table |
 
@@ -146,8 +156,16 @@ Constraints / indexes:
 
 A payment recorded against a subscription. OFFLINE: created by
 `record_payment`. ONLINE: created/upserted by `record_stripe_payment_from_invoice`
-on `invoice.paid` / `invoice.payment_failed`. The unique-by-side-effect key
-is `stripe_invoice_id` (uses `update_or_create` for webhook idempotency).
+(`subscription/stripe/sync.py`) on `invoice.paid` / `invoice.payment_failed`. The
+unique-by-side-effect key is `stripe_invoice_id` (uses `update_or_create` for
+webhook idempotency). `occurred_at` is the staff-supplied payment date (backfills);
+render `occurred_at ?? created_at`.
+
+`status` is `PENDING` / `SUCCEEDED` / `FAILED` / `REFUNDED` / `VOIDED`. `VOIDED`
+marks a manual payment staff entered by mistake: the row is kept for the audit
+trail but never counts as money (revenue and MRR aggregates filter on positive
+statuses) and is hidden from the staff and member payment lists unless
+`include_voided` is set (staff) — see `void_payment` below.
 
 ### `CustomerProfile`
 
@@ -161,6 +179,8 @@ Per-(user, organization) Stripe Customer reference. Created lazily by
 - `membership_grace_period_days` (default `7`) — how long PAST_DUE lasts
   before EXPIRED.
 - `membership_refund_policy` — markdown, displayed to members.
+- `membership_payment_instructions` — markdown, default "how to pay offline"
+  text used by OFFLINE plans that do not set their own `payment_instructions`.
 - `membership_subscription_revival_window_days` (default `30`) — how long
   after `expired_at` revival is allowed. `0` disables revival entirely.
 
@@ -182,7 +202,15 @@ ACTIVE/PAUSED ──(cancel_subscription, immediate=True)──► CANCELLED    
 ACTIVE/PAUSED/PAST_DUE ──(cancel_subscription, immediate=False)──► (unchanged, cancel_at_period_end=True)
 
 EXPIRED ──(revive_subscription within window)──► ACTIVE (OFFLINE) / PENDING (ONLINE, awaits invoice.paid)
+
+OFFLINE join (no payment yet):
+PENDING (never paid) ──(first SUCCEEDED payment)──► ACTIVE
+PENDING (never paid) ──(30 days, Celery)──► CANCELLED
+ACTIVE (one payment) ──(void that payment)──► PENDING again (never paid)
 ```
+
+A never-paid OFFLINE row cannot be paused or manually activated: it has no
+period to freeze, and the only thing that activates it is a payment.
 
 Key invariants:
 
@@ -198,35 +226,142 @@ Key invariants:
   (`_terminalize_cancelled_row`), so the member is never offered a "revive?"
   CTA for a cancellation they asked for.
 - Subscription tier wins over member tier on the `OrganizationMember` sync
-  signal — see [Member Sync](#member-sync).
+  signal — see [Member Sync](#member-sync-signal).
 - ONLINE subscriptions in PENDING do **not** grant ACTIVE membership. The
   member is only synced ACTIVE once Stripe confirms the first invoice (or
   the Stripe webhook reports `status=active`).
+- OFFLINE subscriptions in PENDING do not grant it either: the person is held
+  as `OrganizationMember.MembershipStatus.AWAITING_PAYMENT` (holds a slot,
+  grants nothing) until the first payment is recorded.
+
+## Offline join flow
+
+Added in v2.38.0 (migration `0144_offline_membership_flow`). Before it, OFFLINE
+plans were staff-only and creating a subscription made the member ACTIVE up
+front. See the amendment in
+[ADR-0012](../adr/0012-membership-subscriptions-offline-online-hybrid.md).
+
+```mermaid
+sequenceDiagram
+    participant M as Member
+    participant API as /subscribe or /apply
+    participant Off as subscription.offline
+    participant S as Staff
+    M->>API: join an OFFLINE plan
+    API->>Off: open_offline_subscription
+    Off-->>M: PENDING subscription, member AWAITING_PAYMENT,<br>MEMBERSHIP_PAYMENT_REQUESTED
+    S->>Off: record first payment (record_payment)
+    Off->>Off: activate_on_first_payment
+    Off-->>M: subscription ACTIVE, member ACTIVE, MEMBERSHIP_GRANTED
+```
+
+Code: `src/events/service/subscription/offline.py`; predicates in
+`src/events/utils/subscription_payment.py`.
+
+- **Entry points.** `subscribe_to_plan` (`/subscribe`), an approved or
+  approval-off `/apply` on a plan-bearing tier (see
+  [Membership Eligibility](membership-eligibility.md)), and staff
+  `create_staff_subscription` without an initial payment all route to
+  `open_offline_subscription`. It is idempotent: a never-paid subscription the
+  user already holds on the plan is returned as is, with no second notification.
+  Member-facing joins refuse a paused plan (`ensure_plan_on_sale`).
+- **Holding the member.** `create_subscription` calls
+  `_hold_member_awaiting_payment`: a new or CANCELLED member becomes
+  `AWAITING_PAYMENT` at the plan's tier; an existing member keeps their tier and
+  status until the first payment. `held_member` records which case happened.
+- **First payment.** `record_payment` detects a never-paid row
+  (`is_never_paid_offline`) and calls `activate_on_first_payment` before the
+  subscription is saved: an `AWAITING_PAYMENT` member becomes ACTIVE at the plan's
+  tier and gets `MEMBERSHIP_GRANTED`; an already-active member (a free member
+  upgrading) moves to the plan's tier and receives a payment receipt; PAUSED and
+  BANNED members are left alone. Finally `settle_originating_application` moves
+  the linked application to COMPLETED. A hard-blacklisted user's first payment is
+  refused (`refuse_blacklisted_first_payment`, 400).
+- **Notifications.** `MEMBERSHIP_PAYMENT_REQUESTED` goes to the member (mandatory
+  type) and carries the plan's `effective_payment_instructions`;
+  `MEMBERSHIP_OFFLINE_JOINED` goes to staff when a member joins directly, i.e.
+  without an application that staff already saw.
+- **Voiding the only payment.** `void_payment` / `update_payment` leave the row
+  never-paid again; `revert_to_awaiting_payment` then holds the member as
+  `AWAITING_PAYMENT` once more (only when `held_member` / the legacy heuristic
+  says the subscription held it).
+- **Never-paid cleanup.** Staff cancel, a ban or removal
+  (`cancel_subscriptions_for_membership_loss`), or the 30-day sweep
+  (`events.expire_unpaid_offline_subscriptions`) terminalise the row;
+  `close_unpaid_offline` then cancels the originating application and releases
+  the held member (never one that pre-existed) so the person can join again. The
+  window is `APPLICATION_PAYMENT_WINDOW_DAYS` (30) from the later of creation and
+  last payment activity, exposed to clients as `payment_due_by`. A row with a
+  SUCCEEDED or REFUNDED payment is never swept.
 
 ## Service Layer
 
 The service lives in the `events/service/subscription/` package: the local
-state machine at the top level (`core`, `lifecycle`, `plans`, `sales`,
-`eligibility`, `uncancel`, `refunds`, `reporting`, `notifications`) and the
-Stripe integration under `subscription/stripe/`. Every public symbol is
+state machine at the top level (`core`, `lifecycle`, `offline`, `payment_edits`,
+`plans`, `sales`, `eligibility`, `uncancel`, `refunds`, `reporting`,
+`notifications`) and the Stripe integration under `subscription/stripe/`
+(`base`, `checkout`, `sync`, `plan_change`, `dispatch`, `fees`, `payloads`). Every public symbol is
 re-exported from `subscription/__init__.py`.
 
-### `events/service/subscription/lifecycle.py`
+### `events/service/subscription/core.py` and `lifecycle.py`
 
-Function-based service that owns the per-subscription OFFLINE flow and the
-dispatch layer for ONLINE operations. Plan CRUD and price migration live in
-`subscription/plans.py`.
+Function-based services that own the per-subscription OFFLINE flow and the
+dispatch layer for ONLINE operations. `core.py` holds `create_subscription` and
+`record_payment` (plus the `InitialPayment` dataclass: amount, currency,
+`recorded_by`, notes, optional `occurred_at`); `lifecycle.py` holds the rest.
+Plan CRUD and price migration live in `subscription/plans.py`.
 
 | Function | Responsibility |
 |---|---|
-| `create_subscription` | Refuses BANNED users, duplicate non-terminal subs, and cap-full plans (`ensure_plan_sales_capacity`, under the plan-row lock); auto-creates an `OrganizationMember` at `plan.tier`. OFFLINE and FREE only — ONLINE goes via `start_online_subscription` so the user can confirm payment. A FREE plan additionally lands the row **ACTIVE** with `current_period_start=now` and a NULL period end (nothing to pay, nothing to renew) |
-| `record_payment` | Advances `current_period_*`, revives PENDING/PAST_DUE → ACTIVE. Refuses terminal. Dispatches `RENEWAL_SUCCEEDED` only on a real renewal (prior_status ∈ {ACTIVE, PAST_DUE}). `dispatch_renewal_notification=False` for revival callers |
+| `create_subscription` | Refuses archived plans, BANNED and hard-blacklisted users, duplicate non-terminal subs, and cap-full plans (`ensure_plan_sales_capacity`, under the plan-row lock). OFFLINE and FREE only — ONLINE goes via `start_online_subscription` so the user can confirm payment. An **OFFLINE** plan holds the person as `AWAITING_PAYMENT` (`_hold_member_awaiting_payment`; an existing member keeps their tier and status until the first payment) and stores the outcome on `held_member`. A **FREE** plan creates/updates the member ACTIVE and lands the row **ACTIVE** with `current_period_start=now` and a NULL period end (nothing to pay, nothing to renew). An optional `initial_payment` is recorded via `record_payment(is_initial=True)` |
+| `create_staff_subscription` | Staff entry point. An OFFLINE plan without an initial payment goes through `offline.open_offline_subscription` (member held, payment request sent, idempotent); everything else is `create_subscription` |
+| `record_payment` | Advances `current_period_*`, revives PENDING/PAST_DUE → ACTIVE. Refuses terminal. Accepts `occurred_at` (backfill anchor, validated against future dates and already-lapsed periods) and `is_initial`. On a never-paid OFFLINE row it calls `offline.activate_on_first_payment` and refuses hard-blacklisted users. Dispatches `RENEWAL_SUCCEEDED` only on a real renewal (prior_status ∈ {ACTIVE, PAST_DUE}). `dispatch_renewal_notification=False` for revival callers |
 | `cancel_subscription` | `immediate=True` → CANCELLED. `immediate=False` → `cancel_at_period_end=True` and let the beat task finish it. Refuses scheduled cancel on PAUSED (frozen time would never reach the boundary). A **period-less** row — any LIFETIME/FREE subscription, or an unpaid checkout — has no boundary to wait for, so a scheduled cancel is upgraded to immediate (the one exception is a row whose Stripe Subscription is already linked: Stripe owns that boundary). Routes ONLINE through `cancel_online_subscription` |
 | `pause_subscription` / `resume_subscription` | Local for OFFLINE; routes to Stripe `pause_collection` for ONLINE. Refuses ONLINE without `stripe_subscription_id` to keep local PAUSED in lockstep with Stripe |
 | `revive_subscription` | EXPIRED → ACTIVE (OFFLINE, with `initial_payment` — staff callers only; the member endpoint refuses OFFLINE plans) or PENDING + hosted Checkout for a fresh Stripe Subscription (ONLINE); staff-initiated ONLINE revivals also email the member the checkout link (`SUBSCRIPTION_REVIVAL_CHECKOUT`). Enforces the plan cap (a revived sub re-occupies a slot) and, for member callers, `sales_status` (`enforce_sales_status=False` for staff) |
 | `change_plan` | Routes ONLINE to `subscription.stripe.plan_change.change_online_plan`; OFFLINE does an immediate same-org/same-currency swap |
+| `staff_change_plan` | Staff plan change for OFFLINE / FREE rows. Pre-checks every refusal as a coded 409 (`SubscriptionPlanChangeRefusedError`, codes in `SubscriptionPlanChangeRefusalCode`: `plan_change_online`, `subscription_terminal`, `subscription_paused`, `plan_unchanged`, `plan_archived`, `plan_payment_method_mismatch`, `plan_currency_mismatch`), then delegates to `change_plan` skipping the sales pause and cross-tier eligibility gates; the plan cap still applies (400) |
+| `cancel_subscriptions_for_membership_loss` | Terminalises a user's live subscriptions when they are banned or removed (and on account deletion), so billing stops. ONLINE Stripe cancel / checkout-session expiry is deferred to `on_commit` and best-effort. `rejoinable` tells a never-paid offline member whether they may join again (False for ban/blacklist/deletion, True for a plain removal) |
 | `refund_payment` | (in `subscription.refunds`) Marks payment REFUNDED and stamps `refund_amount` / `refunded_at`. If the refund fully covers the current period → `_cancel_refunded_subscription`, **not** `cancel_subscription(immediate=True)`: the refund callers already hold row locks, so the local row is terminalized (CANCELLED) under the lock and the Stripe-side cancel is deferred to `on_commit` as a best-effort call — never a network call under a row lock |
 | `_dispatch_*` | Private notification helpers — one per `NotificationType`. Always render via the existing notification dispatcher |
+
+### `events/service/subscription/offline.py`
+
+The offline join flow; see [Offline join flow](#offline-join-flow).
+
+| Function | Responsibility |
+|---|---|
+| `open_offline_subscription` | Idempotently opens the PENDING subscription of a user joining an OFFLINE plan, links/approves the originating application, and dispatches `MEMBERSHIP_PAYMENT_REQUESTED` (plus `MEMBERSHIP_OFFLINE_JOINED` to staff for direct member joins) on commit |
+| `activate_on_first_payment` | Applies the first SUCCEEDED payment: `AWAITING_PAYMENT` member → ACTIVE (+ `MEMBERSHIP_GRANTED`), tier follows the plan, application settles COMPLETED |
+| `close_unpaid_offline` | After a never-paid OFFLINE row is terminalised: cancels its application and the member held for it |
+| `revert_to_awaiting_payment` | After a void leaves the row never-paid: member back to `AWAITING_PAYMENT` |
+| `refuse_blacklisted_first_payment` | 400 for a hard-blacklisted user's first payment |
+
+### `events/service/subscription/payment_edits.py`
+
+Staff corrections to manual (OFFLINE) payments. No notification is ever sent and
+simple-history records every change. Eligibility rules live in
+`events/utils/membership_payment_rules.py`, shared with the `can_edit` / `can_void`
+flags the API exposes.
+
+| Function | Responsibility |
+|---|---|
+| `update_payment` | Changes `amount` / `notes` on any eligible row. Changing `status` or `occurred_at` additionally needs the row to be the subscription's latest non-voided payment on a non-terminal subscription; the period is then recomputed from the previous SUCCEEDED payment. Editing the first payment to SUCCEEDED triggers `activate_on_first_payment` (without a receipt) |
+| `void_payment` | Sets status `VOIDED`, appends the reason to `notes`, rolls the subscription period back. Same eligibility as a period edit. Access is not revoked directly; a row left never-paid reverts its held member to `AWAITING_PAYMENT` |
+
+Refusals raise `MembershipPaymentEditRefusedError` (409) with a stable code:
+`payment_online`, `payment_refunded`, `payment_voided`, `payment_not_latest`,
+`subscription_terminal`.
+
+### `events/service/subscription/eligibility.py`, `sales.py`, `uncancel.py`
+
+| Function | Responsibility |
+|---|---|
+| `eligibility.subscribe_to_plan` | The `/subscribe` workflow: runs the membership gate stack, then activates by payment method (OFFLINE → `open_offline_subscription`, FREE → ACTIVE row, ONLINE → Checkout) and links/settles the originating application. Lives apart from `lifecycle` so the money modules do not depend on `membership_manager` |
+| `eligibility.ensure_tier_change_allowed` | Gate stack for cross-tier `change-plan` targets; same-tier swaps are not re-gated |
+| `sales.ensure_plan_on_sale` / `ensure_plan_sales_capacity` | PAUSED and cap checks (see [Sale controls](#sale-controls)) |
+| `sales.ensure_member_not_excluded` | Refuses BANNED / hard-blacklisted users. Member-facing callers get one neutral 403 so a blacklist is never confirmed; staff get the specific reason |
+| `uncancel.uncancel_subscription` | Exact inverse of `cancel_subscription(immediate=False)`: clears `cancel_at_period_end` (and on Stripe for ONLINE rows). Refuses terminal rows, archived plans and suspended (PAUSED / BANNED) members; a row not scheduled to cancel is returned unchanged |
 
 ### `events/service/subscription/plans.py`
 
@@ -237,20 +372,25 @@ Everything that operates on a plan rather than on one subscriber's lifecycle.
 | `create_plan` / `update_plan` / `archive_plan` / `delete_plan` | Plan CRUD. ONLINE plans trigger `ensure_stripe_price`. Currency edits are refused when active subs exist. `delete_plan` catches `ProtectedError` from the FK |
 | `migrate_plan_subscribers` | Force-migrates non-terminal subs on a plan to its current Stripe price (`proration_behavior='none'`). Per-sub errors are reported individually; no rollback. Batches the "previous price" lookup with `DISTINCT ON` to avoid N+1 |
 
-### `events/service/subscription/stripe/checkout.py`
+### `events/service/subscription/stripe/base.py`, `checkout.py`, `sync.py`
+
+`base.py` holds `require_stripe_connected` and `ensure_stripe_price`; `sync.py`
+holds everything that mirrors Stripe state into local rows
+(`sync_subscription_from_stripe`, `record_stripe_payment_from_invoice`,
+`_ensure_active_member`, `settle_originating_application`).
 
 | Function | Responsibility |
 |---|---|
 | `ensure_customer_profile` | Get-or-create the per-(user, org) Stripe Customer. Deterministic `idempotency_key=cust:{user}:{org}` |
-| `ensure_stripe_price` | Create/refresh Stripe Product+Price for an ONLINE plan. Detects price-input changes (`_price_inputs_changed`) and archives the old Price + creates a new one (Stripe Prices are immutable) |
+| `ensure_stripe_price` (`base.py`) | Create/refresh Stripe Product+Price for an ONLINE plan. Detects price-input changes (`_price_inputs_changed`) and archives the old Price + creates a new one (Stripe Prices are immutable) |
 | `archive_stripe_price` | Deactivates the Stripe Price when a plan is archived — existing subscribers keep paying via their own subscription's price binding |
 | `start_online_subscription` | Refuses PAUSED plans (member path), then creates local PENDING row, then a hosted Checkout Session (`mode='subscription'`) on the org's Connect account. Returns `checkout_url`; the session id lands on `stripe_checkout_session_id` and the Stripe Subscription is only created (and linked via `checkout.session.completed`) when the member completes the session. Rolls back the local row if Stripe fails. An existing PENDING row is resumed (same session `url`) while its session is still `open` on the same plan, expired + cleared when superseded (revival rows revert to EXPIRED instead of deleting the ledger), or answered with a `SubscriptionActivationPendingError` (409, `code=subscription_activation_pending`) when the session already completed and only the activation webhooks are outstanding |
 | `create_revival_checkout` | Mints a hosted Checkout Session for a fresh Stripe Subscription on an EXPIRED row (old Stripe sub cancelled first — a failure here fails the revival, since the id is about to be cleared — then `stripe_subscription_id` cleared, row → PENDING). Idempotency key is **per attempt** (`sub-revival:{pk}:{uuid4}`): anchoring it on `expired_at` would repeat the key across retries after an abandoned checkout (which preserves `expired_at`) while the session's `expires_at` is recomputed from `now()` — same key, different params, which Stripe rejects for ~24h. The caller's row lock serializes concurrent attempts, and a `mode=subscription` session only charges on completion, so an orphaned session cannot double-charge. The old `stripe_subscription_id` survives in `historical_membership_subscription` |
 | `cancel_online_subscription`, `pause_online_subscription`, `resume_online_subscription` | Stripe mutations + local mirror. The dispatch helpers in `subscription.lifecycle` cover the OFFLINE-equivalent local-only behavior |
 | `update_subscription_price` | Single-call Stripe price swap used by `migrate_plan_subscribers`. `proration_behavior='none'` — new price takes effect at the next renewal |
 | `create_billing_portal_session` | Customer Portal URL on the org's Connect account. **Requires** an existing `CustomerProfile` (404 otherwise) — only members who have actually subscribed can get a portal session |
-| `sync_subscription_from_stripe` | Mirrors `customer.subscription.{created,updated,deleted}` payloads. Uses `_resolve_target_status` (terminal wins over `pause_collection`), `_apply_period_dates`, and `_apply_stripe_price_swap` (terminal rows frozen) |
-| `record_stripe_payment_from_invoice` | Upserts the `MembershipPayment` row on `invoice.paid` / `invoice.payment_failed`. `update_or_create(stripe_invoice_id=...)` is the idempotency anchor |
+| `sync_subscription_from_stripe` (`sync.py`) | Mirrors `customer.subscription.{created,updated,deleted}` payloads. Uses `_resolve_target_status` (terminal wins over `pause_collection`), `_apply_period_dates`, and `_apply_stripe_price_swap` (terminal rows frozen) |
+| `record_stripe_payment_from_invoice` (`sync.py`) | Upserts the `MembershipPayment` row on `invoice.paid` / `invoice.payment_failed`. `update_or_create(stripe_invoice_id=...)` is the idempotency anchor |
 
 ### `events/service/subscription/stripe/fees.py`
 
@@ -363,9 +503,11 @@ scopes every query).
 | Subscription status | OrganizationMember status |
 |---|---|
 | PENDING (ONLINE) | unchanged — waits for `invoice.paid` |
-| PENDING (OFFLINE) / ACTIVE / PAST_DUE | ACTIVE |
+| PENDING (OFFLINE, never paid) | unchanged — the member stays `AWAITING_PAYMENT` (or whatever they were) |
+| ACTIVE / PAST_DUE (and PENDING OFFLINE once paid) | ACTIVE |
 | PAUSED | PAUSED |
 | CANCELLED / EXPIRED | CANCELLED |
+| CANCELLED / EXPIRED, never paid (OFFLINE) | not synced; `close_unpaid_offline` releases only the member held for it |
 
 Rules baked into the signal:
 
@@ -374,6 +516,11 @@ Rules baked into the signal:
   gated on the first paid invoice).
 - **Leaves BANNED alone.** A banned member stays banned regardless of
   subscription activity.
+- **Never moves a member out of `AWAITING_PAYMENT`.** Only
+  `activate_on_first_payment` does (`_subscription_cannot_move`). While an
+  OFFLINE subscription is never-paid the signal moves neither status nor tier
+  (`_never_paid_offline_handled`), so `staff_change_plan` on such a row moves the
+  member's tier only at first payment.
 - **Subscription tier wins.** `member.tier` is updated to `plan.tier` on
   every sync.
 - **Older terminal rows do not clobber.** If a newer non-terminal sub
@@ -391,6 +538,8 @@ All in `src/events/tasks/subscriptions.py`.
 |---|---|---|
 | `events.expire_subscriptions_past_grace` | Daily, 04:00 UTC (migration `0070`) | ACTIVE lapsed → **CANCELLED** when `cancel_at_period_end` (chosen cancel: `cancelled_at` stamped, `expired_at` left unset, no notification — `CANCELLATION_CONFIRMED` already fired), else → PAST_DUE; PAST_DUE past grace → EXPIRED. Dispatches `PAYMENT_FAILED` (OFFLINE) and `SUBSCRIPTION_EXPIRED`. ONLINE rows terminalized here are queued for a best-effort Stripe cancel **after** the row locks are released, so Smart Retries stop dunning them |
 | `events.send_subscription_renewal_reminders` | Daily, 05:00 UTC (migration `0102`) | Fires `SUBSCRIPTION_RENEWAL_REMINDER` for ACTIVE subs whose `current_period_end.date() == today + REMINDER_DAYS` and `cancel_at_period_end=False`. The target date comes from `timezone.localdate()`, matching the `__date` lookup's local-timezone rendering |
+| `events.expire_stale_approved_applications` | Daily, 04:30 UTC (migration `0108`) | Cancels plan-bearing APPROVED applications untouched for 30 days (`APPLICATION_PAYMENT_WINDOW_DAYS`) whose linked subscription is not live. Bulk update, no signals, no notification |
+| `events.expire_unpaid_offline_subscriptions` | Daily, 04:45 UTC (migration `0145`) | Cancels never-paid OFFLINE PENDING subscriptions whose payment window (30 days from the later of creation and last payment activity) lapsed, skipping rows with a SUCCEEDED/REFUNDED payment and legacy rows whose ACTIVE member sits at the plan's tier. Each cancel runs the normal terminal path (so `close_unpaid_offline` fires) and tells the person via the `lapsed` variant of `SUBSCRIPTION_EXPIRED` |
 | `events.reconcile_stripe_subscriptions` | Nightly, 03:30 UTC (migration `0103`) | Drift repair: re-retrieves each ONLINE Stripe Subscription and feeds it through `sync_subscription_from_stripe` (Stripe call **outside** the per-row transaction). Also sweeps stale PENDING checkout rows holding a cap slot, and backfills paid invoices whose `invoice.paid` was lost |
 | `events.migrate_plan_subscribers` | On demand | Async wrapper for the staff "migrate subscribers" endpoint (one Stripe retrieve+modify per ONLINE subscriber is too slow for a request). Dispatched via `transaction.on_commit`; results are reported through structured logs and the Celery result |
 | `events.resync_org_subscription_fees` | On demand | Dispatched by the `vies_service` wrappers when a VAT-status change moves an org's effective fee percent; re-applies `application_fee_percent` on its live Stripe subscriptions (schedule-managed rows are skipped so a pending downgrade isn't dropped) |
@@ -405,12 +554,13 @@ clobbered.
 
 ### Stripe webhooks
 
-`events/service/stripe_webhooks.py` dispatches subscription events to
-`subscription.stripe.checkout`:
+`events/service/stripe_webhooks.py` dispatches subscription events to the
+handlers in `events/service/stripe_webhook_subscriptions.py`, which call into
+`subscription.stripe.sync` (and `checkout` for session bookkeeping):
 
 | Event | Handler |
 |---|---|
-| `checkout.session.completed` (`mode=subscription`) | `handle_subscription_checkout_completed` — looks up the local row via `metadata.membership_subscription_id` and links `stripe_subscription_id` from `session.subscription` (the Stripe Subscription only exists once the session completes). Ticket/series-pass sessions keep their existing path |
+| `checkout.session.completed` (`mode=subscription`) | `handle_subscription_checkout_completed` (`stripe_webhook_subscriptions.py`) — looks up the local row via `metadata.membership_subscription_id` and links `stripe_subscription_id` from `session.subscription` (the Stripe Subscription only exists once the session completes). Ticket/series-pass sessions keep their existing path |
 | `customer.subscription.created` / `.updated` / `.deleted` | `sync_subscription_from_stripe` |
 | `invoice.paid` | `record_stripe_payment_from_invoice(..., succeeded=True)` |
 | `invoice.payment_failed` | `record_stripe_payment_from_invoice(..., succeeded=False)` |
@@ -432,9 +582,12 @@ The webhook endpoint listens to Connect events (see
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/membership-subscriptions` | List the caller's subscriptions across orgs |
+| GET | `/memberships` | List the caller's memberships (optional `organization` filter); includes the awaiting-payment ones |
 | GET | `/organizations/{org_id}/subscription` | Caller's current non-terminal sub in this org |
-| POST | `/organizations/{org_id}/subscribe` | Start an ONLINE or FREE subscription. Runs the full eligibility gate stack first. **ONLINE**: returns a hosted Stripe Checkout `checkout_url` (redirect flow, same as tickets); an abandoned checkout is resumed — re-subscribing returns the still-open session's URL instead of a 400, or mints a fresh session once the old one expired. **FREE**: `checkout_url` is `null` and the returned subscription is already ACTIVE with the membership granted and any originating application settled COMPLETED — the frontend must branch on the null rather than redirecting |
+| GET | `/organizations/{org_id}/subscription/payments` | Caller's own payment history in the org across all their subscriptions (VOIDED hidden) — an offline member's only billing record |
+| POST | `/organizations/{org_id}/subscribe` | Start an ONLINE, OFFLINE or FREE subscription. Runs the full eligibility gate stack first. **OFFLINE** (v2.38.0): returns 201 with `checkout_url: null` and a PENDING subscription (member held as `awaiting_payment`, told how to pay); repeating the call returns the same subscription. **ONLINE**: returns a hosted Stripe Checkout `checkout_url` (redirect flow, same as tickets); an abandoned checkout is resumed — re-subscribing returns the still-open session's URL instead of a 400, or mints a fresh session once the old one expired. **FREE**: `checkout_url` is `null` and the returned subscription is already ACTIVE with the membership granted and any originating application settled COMPLETED — the frontend must branch on the null rather than redirecting |
 | POST | `/organizations/{org_id}/subscription/cancel` | Self-cancel; `immediate` flag |
+| POST | `/organizations/{org_id}/subscription/uncancel` | Undo a scheduled cancel (`uncancel_subscription`); 403 while the membership is PAUSED / BANNED |
 | POST | `/organizations/{org_id}/subscription/change-plan` | Self-service plan change (direction inferred from price delta). Refused into PAUSED or sold-out plans |
 | POST | `/organizations/{org_id}/subscription/revive` | Revive own EXPIRED sub within the org's revival window. **ONLINE plans only** — payment is collected by Stripe via the returned `checkout_url`. OFFLINE revival is staff-only (members must never self-record money); members get a 400 directing them to the organization |
 | POST | `/organizations/{org_id}/billing-portal` | Stripe Customer Portal session URL. `return_url` validated as `HttpUrl` |
@@ -446,6 +599,7 @@ Guarded by `OrganizationPermission("manage_subscriptions")`.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/subscriptions/metrics` | Per-org MRR / churn / status breakdown |
+| GET | `/plans` | List plans across every tier of the org (`is_active` filter) |
 | GET / POST | `/tiers/{tier_id}/plans` | List / create plans on a tier |
 | PATCH | `/plans/{plan_id}` | Edit plan (currency edits refused with active subs) |
 | POST | `/plans/{plan_id}/archive` | `is_active = False` |
@@ -453,14 +607,32 @@ Guarded by `OrganizationPermission("manage_subscriptions")`.
 | POST | `/plans/{plan_id}/migrate-subscribers` | Force-migrate non-terminal subs to the plan's current price |
 | GET | `/subscriptions` | Paginated, searchable list of all subs in the org |
 | GET | `/subscriptions/{sub_id}` | Single sub |
-| POST | `/subscriptions` | Create OFFLINE sub on behalf of a user (refuses ONLINE plans — the member must subscribe themselves) |
+| POST | `/subscriptions` | Create an OFFLINE or FREE sub on behalf of a user (refuses ONLINE plans — the member must subscribe themselves). An OFFLINE plan without a payment opens the subscription awaiting payment; `initial_payment_occurred_at` backdates an included first payment |
+| GET | `/subscriptions/{sub_id}/payments` | Payments of one subscription; `include_voided` shows voided rows |
 | POST | `/subscriptions/{sub_id}/payments` | Record OFFLINE payment (refuses ONLINE) |
-| POST | `/subscriptions/{sub_id}/cancel` / `pause` / `resume` / `revive` | Lifecycle ops; route ONLINE through Stripe service |
+| POST | `/subscriptions/{sub_id}/cancel` / `uncancel` / `pause` / `resume` / `revive` | Lifecycle ops; route ONLINE through Stripe service. A never-paid OFFLINE row cannot be paused |
+| POST | `/subscriptions/{sub_id}/change-plan` | Staff plan change for OFFLINE / FREE rows; 409 with a stable `code` (`plan_change_online`, `subscription_terminal`, …), 400 when the plan is sold out |
+| GET | `/subscription-payments` | Org-wide payment ledger (searchable; `status`, `plan_id`, `include_voided` filters) |
+| PATCH | `/payments/{payment_id}` | Correct a manual payment (amount, notes, status, date); 409 codes `payment_online`, `payment_refunded`, `payment_voided`, `payment_not_latest`, `subscription_terminal` |
+| POST | `/payments/{payment_id}/void` | Void a mistaken manual payment and roll the period back; same 409 codes |
 | POST | `/payments/{payment_id}/refund` | Mark payment REFUNDED. If full refund of current period → auto-cancel |
+
+Related member-management behaviour: while a live subscription exists, a manual
+tier change on the member is refused with 409 `tier_follows_subscription`
+(`_ensure_tier_not_locked_by_subscription`); staff change the subscription's plan
+instead. Setting the tier to exactly the plan's tier is allowed. The staff member
+schema exposes this as `tier_locked_by_subscription`.
+
+Schema additions worth knowing: plan create/update/read schemas carry
+`payment_instructions`; the member's `MySubscriptionSchema` carries the resolved
+`payment_instructions` (the plan's `effective_payment_instructions`, only while
+the member renews or awaits the first payment); subscription schemas carry
+`payment_due_by` (the date the unpaid-offline sweep cancels a never-paid row,
+else `null`).
 
 ## Notifications
 
-Seven new types (`notifications/enums.py`), each with email, in-app, and
+Seven subscription types plus two for the offline flow (`notifications/enums.py`), each with email, in-app, and
 Telegram templates under `notifications/templates/notifications/{email,in_app,telegram}/`:
 
 - `SUBSCRIPTION_RENEWAL_SUCCEEDED` — true renewals only (prior_status ∈
@@ -479,6 +651,18 @@ Telegram templates under `notifications/templates/notifications/{email,in_app,te
   cannot pay on the member's behalf, so the member is emailed the hosted
   Checkout link to complete the renewal themselves.
 
+- `MEMBERSHIP_PAYMENT_REQUESTED` — OFFLINE join: tells the member how to pay
+  the organization (the plan's `effective_payment_instructions`). Mandatory (cannot
+  be opted out of) and transactional.
+- `MEMBERSHIP_OFFLINE_JOINED` — to org staff when a member joins an OFFLINE plan
+  directly, with no application that staff already handled.
+
+Two existing types gain variants for never-paid OFFLINE rows:
+`SUBSCRIPTION_EXPIRED` renders a `lapsed` branch when the 30-day sweep cancels an
+unpaid request, and `SUBSCRIPTION_CANCELLATION_CONFIRMED` renders a
+`request_cancelled` branch (with a `rejoinable` flag) for a withdrawn or declined
+request.
+
 Per-type opt-out via `UserNotificationPreference`. The Phase 4 migration
 back-fills default-on preferences for the seven new types across all existing
 users.
@@ -490,6 +674,10 @@ users.
 | `0101_memberships_subscriptions_integration` | Single squashed schema migration for the whole stack: eligibility-pipeline fields (org/tier questionnaire + approval knobs, application statuses, partial unique index), Phase 2–4 subscription fields (`CustomerProfile`, Stripe ids, `pending_plan`, `expired_at`, history tables) and the sale controls (`sales_status`, `max_subscriptions`) |
 | `0102_subscription_renewal_reminder_beat` | Data migration: daily `events.send_subscription_renewal_reminders` periodic task (05:00 UTC, an hour after the expiry sweep) |
 | `0103_subscription_reconcile_beat` | Data migration: nightly `events.reconcile_stripe_subscriptions` periodic task (03:30 UTC, before the 04:00 expiry sweep) |
+| `0108_stale_approved_application_beat` | Data migration: daily `events.expire_stale_approved_applications` (04:30 UTC) |
+| `0142_alter_historicalmembershippayment_status_and_more` | Adds `VOIDED` to the membership payment status choices |
+| `0144_offline_membership_flow` | `AWAITING_PAYMENT` member status, `MembershipSubscription.held_member`, plan `payment_instructions`, `Organization.membership_payment_instructions` |
+| `0145_unpaid_offline_expiry_beat` | Data migration: daily `events.expire_unpaid_offline_subscriptions` (04:45 UTC) |
 
 (The Phase 1 foundation — plan/subscription/payment models, `manage_subscriptions`
 permission, `events.expire_subscriptions_past_grace` beat task — shipped to

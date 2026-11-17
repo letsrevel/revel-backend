@@ -37,7 +37,7 @@ sequenceDiagram
 1. **URL Generation**: When a schema serializes a protected file field, `get_file_url()` generates a signed URL containing an HMAC signature and expiry timestamp.
 2. **Client Request**: The client requests the signed URL from Caddy.
 3. **Forward Auth**: Caddy's `forward_auth` directive sends the request to Django's validation endpoint before serving the file.
-4. **Validation**: Django recomputes the HMAC using `SECRET_KEY` and compares it using timing-safe comparison. It also checks that the expiry timestamp has not passed.
+4. **Validation**: Django recomputes the HMAC using `SECRET_KEY` (or any key in `SECRET_KEY_FALLBACKS`) and compares it using timing-safe comparison. It also checks that the expiry timestamp has not passed.
 5. **Response**: If valid, Caddy serves the file directly from storage. If invalid, the client receives a 401.
 
 ## Why HMAC Over MinIO/S3 Pre-Signed URLs?
@@ -106,6 +106,8 @@ The generated URL has this structure:
 /media/{file_path}?exp={expiry_timestamp}&sig={hmac_signature}
 ```
 
+The signature is the HMAC-SHA256 of `{path}:{expires}`, truncated to 16 hex characters (64 bits). That is enough for access control because validation is rate limited and URLs are short-lived. Validity defaults to `DEFAULT_EXPIRES_IN` (3600 seconds) and is overridden per call with the `expires_in` argument (for example, signed Apple Wallet download links in ticket emails are valid until a week after the event ends).
+
 ## Security Details
 
 !!! danger "Security-critical configuration"
@@ -113,11 +115,15 @@ The generated URL has this structure:
 
 | Security Feature | Implementation |
 |---|---|
-| **Signing key** | Derived from Django `SECRET_KEY` via domain-separated HKDF |
-| **URL expiry** | 1 hour (configurable) |
+| **Signing key** | `sha256("revel:signed-url:v1:" + secret)`, i.e. domain-separated from other uses of `SECRET_KEY` (not HKDF) |
+| **URL expiry** | 1 hour by default; `expires_in` argument overrides it |
 | **Comparison** | Timing-safe (`hmac.compare_digest`) |
 | **Rate limiting** | Applied to the validation endpoint |
 | **Cache headers** | `Cache-Control: private` for protected files |
+
+### Key Rotation
+
+New links are signed with the current `SECRET_KEY`. Verification accepts the current key and every entry of `SECRET_KEY_FALLBACKS`, so links issued before a rotation keep working until they expire (at most their validity window, 1 hour for media). Because links are short-lived, the fallback can be dropped as soon as that window has passed. See [Key rotation](../engineering-notes.md#key-rotation-secret_key-salt_key).
 
 ### Timing-Safe Comparison
 

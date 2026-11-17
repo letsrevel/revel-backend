@@ -49,7 +49,9 @@ each dependency does, whether you can omit it, and the lever you use to do so:
 | Dependency | Safe to omit? | Behaviour when absent | Lever |
 | --- | --- | --- | --- |
 | ClamAV | Yes | Uploads marked clean, no scan | `FEATURE_MALWARE_SCAN=False` |
-| Stripe | Yes (unless selling) | Only paid checkout hits it | leave keys as placeholders |
+| Stripe | Yes (unless selling) | Only paid checkout hits it | leave `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRETS` as placeholders; free events and offline-paid tiers still work |
+| Cloudflare Turnstile | Yes | No bot check on registration, guest RSVP or guest checkout | leave `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` unset (both are needed to turn it on) |
+| Pushover / Discord admin alerts | Yes | Admin alerts and the daily recap are not sent | leave `PUSHOVER_*` / `DISCORD_ADMIN_WEBHOOK_URL` unset |
 | LLM / OpenAI | Yes | Manual questionnaire eval still works | `FEATURE_LLM_EVALUATION=False` |
 | Geo / IP2Location | Yes | Lookups return `None` | BIN optional; mini cities fallback |
 | Telegram | Yes | Per-user delivery skipped | `FEATURE_TELEGRAM=False`; profile off |

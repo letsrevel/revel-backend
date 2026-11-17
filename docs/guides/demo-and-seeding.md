@@ -36,7 +36,7 @@ uv run python src/manage.py seed --seed 42 --users 500 --organizations 10 --even
 uv run python src/manage.py seed --seed 42 --clear
 ```
 
-The seed command runs 12 phases: files, users, organizations, venues, events, questionnaires, tickets, interactions, notifications, social, preferences, and Telegram links. It also creates (or verifies) a superuser (`admin@revel.io` / `password` by default; note this differs from `make bootstrap` which uses `admin@letsrevel.io`).
+The seed command runs 12 phases plus one sub-phase: files, users, organizations, venues, events, questionnaires, tickets, showcase venues with realistic seat maps and sold tickets (Phase 7b, `seeder/showcase_venues.py`), interactions, notifications, social, preferences, and Telegram links. It also creates (or verifies) a superuser (`admin@revel.io` / `password` by default; note this differs from `make bootstrap` which uses `admin@letsrevel.io`).
 
 The seed command also supports a `--yes` flag to skip confirmation prompts, useful for automated scripts:
 
@@ -58,6 +58,20 @@ uv run python src/manage.py bootstrap_perf_tests
 # Reset and recreate
 uv run python src/manage.py bootstrap_perf_tests --reset
 ```
+
+### `make demo-video`
+
+Runs `bootstrap_demo_video`, which seeds the five pre-arranged scenarios used to record the product demo videos and prints a presenter's cheat sheet (organizations, events, credentials). It is idempotent and additive: it creates only its own organizations and `@demovideo.example.com` accounts, so it can run before or after the other bootstrap commands, and re-running rolls the event dates forward. Like `reset_events`, it requires `DEMO_MODE=True`, and `reset_events` wipes its data too, so re-run it after a reseed.
+
+### `make e2e-seed`
+
+The canonical reseed for frontend E2E runs. It must run in exactly this order:
+
+1. Bring up PgBouncer and recreate the Keycloak container (a reused container keeps stale realm users).
+2. `reset_events --no-input`, which already re-runs `bootstrap_events` (a following `make bootstrap` would fail on duplicates).
+3. `make seed`, which must come before the next step because the seeder's payment and quantity sweeps are global and would mutate the test fixtures.
+4. `make bootstrap-tests`.
+5. `VACUUM ANALYZE`, because the reseed churns millions of rows and the planner otherwise picks slow plans.
 
 ### `make reset-events`
 

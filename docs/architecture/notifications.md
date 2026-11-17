@@ -44,6 +44,7 @@ The following notification types are supported across all channels:
 | `event_open` | An event is now open for registration |
 | `event_reminder` | Reminder before an upcoming event |
 | `event_updated` | Event details have changed |
+| `event_refund_summary` | A bulk cancel-and-refund sweep on a cancelled event finished (staff only) |
 
 ### Invitation & Membership
 
@@ -57,6 +58,14 @@ The following notification types are supported across all channels:
 | `membership_request_rejected` | Membership request was rejected |
 | `membership_request_created` | Someone requested membership (staff notification) |
 | `membership_granted` | User was granted membership directly |
+| `membership_card_updated` | The member's tier changed, so the wallet card needs re-adding |
+| `membership_payment_requested` | A membership on an offline plan is awaiting payment (to the member). Transactional and mandatory |
+| `membership_offline_joined` | Staff heads-up: someone joined an offline plan directly and now owes a payment |
+| `staff_member_record_auto_linked` | Staff heads-up: a member-register entry was linked to an account by verified-email match. See [Member register](member-register.md) |
+
+`membership_payment_requested` and `membership_offline_joined` belong to the offline-paid flow
+(join or apply, awaiting payment, active); see
+[Membership subscriptions](membership-subscriptions.md).
 
 ### Tickets & Payments
 
@@ -70,6 +79,11 @@ The following notification types are supported across all channels:
 | `rsvp_confirmation` | RSVP was confirmed |
 | `rsvp_updated` | RSVP details were updated |
 | `rsvp_cancelled` | RSVP was cancelled |
+| `staff_ticket_created` | A ticket was sold (org staff and owners) |
+| `staff_ticket_cancelled` | An attendee cancelled their ticket (org staff and owners) |
+| `staff_ticket_refunded` | A ticket was refunded to the attendee (org staff and owners) |
+| `staff_payment_disputed` | A card dispute was opened or closed on an organizer payment; evidence deadlines are time-boxed. See [Disputes](billing-and-vat.md#disputes) |
+| `refund_unmatched` | An inbound Stripe refund Revel refused to auto-match to a ticket (staff only) |
 
 !!! note "`ticket_checked_in` is no longer dispatched (1.64.0)"
     The `ticket_checked_in` enum value (and its template/context scaffolding) still
@@ -79,19 +93,33 @@ The following notification types are supported across all channels:
 ### Transactional types (bypass the digest)
 
 The **transactional** types (`TRANSACTIONAL_TYPES` in `notifications/enums.py`) are the
-payment, ticket and subscription lifecycle types: `payment_confirmation`, `ticket_created`,
-`ticket_cancelled`, `ticket_refunded`, and the five `subscription_*` receipts and alerts.
+payment, ticket and subscription lifecycle types. They are time- and money-sensitive, so they
+**always deliver immediately and bypass the digest cadence**:
 
-These are time- and money-sensitive, so they **always deliver immediately and bypass the digest
-cadence**. Together with `account_banned` and `system_announcement` they form `MANDATORY_TYPES`,
-which users can't opt out of. See
-[Email Sending & Opt-Out Policy](email-sending.md#mail-users-cant-opt-out-of). Every other type
+- `payment_confirmation`, `ticket_created`, `ticket_cancelled`, `ticket_refunded`
+- `staff_ticket_created`, `staff_ticket_cancelled`, `staff_ticket_refunded`, `staff_payment_disputed`
+- `org_custom_domain_active`, `org_custom_domain_failed` ([White-Label](white-label.md))
+- `subscription_renewal_succeeded`, `subscription_payment_failed`, `subscription_expired`,
+  `subscription_cancellation_confirmed`, `subscription_revival_checkout`
+- `membership_payment_requested`
+
+`subscription_renewal_reminder` and `subscription_price_migration_notice` are advance notices
+with days of slack and stay on the digest cadence.
+
+A subset of these, `MANDATORY_TYPES`, can't be opted out of:
+
+- `payment_confirmation`, `ticket_created`, `ticket_cancelled`, `ticket_refunded`
+- `subscription_renewal_succeeded`, `subscription_payment_failed`, `subscription_expired`,
+  `subscription_cancellation_confirmed`, `subscription_revival_checkout`
+- `membership_payment_requested`
+- `account_banned`, `system_announcement`
+
+See [Email Sending & Opt-Out Policy](email-sending.md#mail-users-cant-opt-out-of). Every other type
 honours the user's digest setting (digest users get the in-app notification now and the email in
 the next digest sweep).
 
-The three `staff_ticket_*` alert types and the two `org_custom_domain_*` owner types
-([White-Label](white-label.md)) are also in `TRANSACTIONAL_TYPES`, so they skip the digest, but they
-are not in `MANDATORY_TYPES`: the recipient can opt out of them.
+The `staff_*` alert types and the two `org_custom_domain_*` owner types are transactional (they
+skip the digest) but **not** mandatory: the recipient can opt out of them.
 
 ### Waitlist & Availability
 
@@ -138,6 +166,8 @@ are not in `MANDATORY_TYPES`: the recipient can opt out of them.
 | `org_setup_nudge` | Capped reminder to the owner of a stalled organization (forgotten draft, private profile, no events, check-in, gone quiet). Opt-out-able. See [Org setup nudges](email-sending.md#org-setup-nudges) |
 | `org_custom_domain_active` | The organization's white-label custom domain went live (PENDING to ACTIVE). To the owner only; opt-out-able and transactional (skips the digest). See [White-Label](white-label.md) |
 | `org_custom_domain_failed` | The custom domain failed (PENDING or ACTIVE to FAILED), with Cloudflare's messages and DNS hints. To the owner only; opt-out-able and transactional. The settings link always points to the platform |
+| `org_contact_message_received` | A contact-form submission for the organization (org admins) |
+| `fiscal_document_skipped` | Daily digest of invoices or credit notes a country policy made Revel skip (staff only). See [Compliance](../compliance/index.md) |
 
 ### Announcements
 
@@ -146,11 +176,47 @@ are not in `MANDATORY_TYPES`: the recipient can opt out of them.
 | `org_announcement` | Organization-wide announcement |
 | `system_announcement` | Platform-wide notice (Terms of Service, privacy policy, operational). Can't be opted out of, so never promotional |
 
+!!! note "System announcements are sent by Revel staff"
+    `system_announcement` is sent from the Django admin ("Send System Announcement") or with
+    `python manage.py send_system_announcement`, both through
+    `notifications/service/system_announcement.py`. Recipients come from one query
+    (`get_recipients`): active users, guests only with `include_guests`. The admin form
+    also offers an **owners-only** filter (users who own at least one organization); the
+    command has `--dry-run`, `--to-email` (preview to named addresses) and needs `--confirm`
+    to send to everyone.
+
 !!! note "Announcements can be sent now or scheduled"
     Org announcements can be **sent immediately**, **scheduled** for a future absolute
     or event-relative time, and optionally **re-sent** to attendees who sign up after the
     first send — all delivered as `org_announcement` notifications through this dispatcher.
     See [Scheduled Announcements](scheduled-announcements.md).
+
+### Series and series passes
+
+| Type | Description |
+|---|---|
+| `series_events_generated` | Digest: N events were generated for a recurring series. See [Recurring Series](recurring-series.md) |
+| `series_pass_purchased` | The holder's series pass activated |
+| `series_pass_extended` | The holder's pass gained newly covered events |
+| `series_pass_cancelled` | The holder's pass was cancelled |
+| `staff_series_pass_purchased` | A series pass was sold (org staff and owners) |
+| `staff_series_pass_cancelled` | A holder cancelled their series pass (org staff and owners) |
+
+See [Series Passes](series-passes.md).
+
+### Subscriptions
+
+| Type | Description |
+|---|---|
+| `subscription_renewal_succeeded` | A membership subscription renewed |
+| `subscription_payment_failed` | A renewal payment failed |
+| `subscription_expired` | The subscription expired |
+| `subscription_cancellation_confirmed` | A cancellation was confirmed |
+| `subscription_renewal_reminder` | Advance notice of an upcoming renewal |
+| `subscription_price_migration_notice` | Advance notice of a price change |
+| `subscription_revival_checkout` | Staff revived a subscription; the member gets the checkout link |
+
+See [Membership subscriptions](membership-subscriptions.md).
 
 ### Following
 
@@ -211,6 +277,11 @@ The notification system is implemented in `notifications/service/`, which includ
 - **Digest batching**: Aggregates notifications into periodic digest emails
 - **Unsubscribe handling**: Manages per-type and per-channel opt-outs, one-click `List-Unsubscribe`, the per-organization announcement mute and the email suppression list (see [Email Sending & Opt-Out Policy](email-sending.md))
 
+Email is rendered in the **recipient's language**. Celery workers have no active language, so the
+email channel wraps rendering in `translation.override(user.language)`, and account and guest
+emails resolve it with `recipient_language` (#1372). Notification type labels are translatable
+too, so digest group headers follow the recipient's language.
+
 Notifications are triggered from the service layer via Django signals and direct dispatcher calls. Delivery for email and Telegram channels is always asynchronous via Celery tasks.
 
 !!! info "Digest email (overhauled in 1.64.0)"
@@ -237,7 +308,11 @@ Separate from the main user-facing notification system, Revel dispatches **admin
 | Event | Pushover content | Discord content |
 |---|---|---|
 | New user signs up | User email, referrer email (if any), running user count | Generic "A new user joined" + running user count (no PII) |
+| New guest user | "New Guest User" title, email and running registered-user count | None (Pushover only; a guest doesn't change the registered-user count) |
 | New organization created | Org name, owner email, running org count | Org name, owner email, running org count |
+| Referral program application | Applicant email, requested code, note (truncated) | None (Pushover only) |
+
+A guest who converts to a registered user pings like a new signup.
 
 Each channel self-skips when its config is missing:
 
@@ -246,7 +321,32 @@ Each channel self-skips when its config is missing:
 
 Dispatch is gated by `SiteSettings` flags:
 
-- `notify_user_joined` → new-user pings (both channels)
+- `notify_user_joined` → registered-user pings (both channels)
+- `notify_guest_user_joined` → guest-user pings (Pushover only)
 - `notify_organization_created` → new-organization pings (both channels)
 
-Tasks live in `accounts/tasks.py` (user) and `events/tasks.py` (organization); signals in the corresponding `signals.py` dispatch them via `transaction.on_commit` so any related rows (e.g., `Referral`) are visible when the task runs. All tasks retry with exponential backoff (1/2/4 min, max 3 attempts).
+The referral-application ping has no flag; the program's own `referral_applications_enabled`
+switch decides whether applications exist at all.
+
+The tasks live in the `accounts/tasks/` package (`notifications.py`) and the `events/tasks/`
+package (`organization.py`); signals in the corresponding `signals.py` dispatch them via
+`transaction.on_commit` so any related rows (e.g., `Referral`) are visible when the task runs. All
+tasks retry with exponential backoff (1/2/4 min, max 3 attempts).
+
+### Daily admin recap
+
+`events.tasks.send_daily_admin_recap` (`events/tasks/admin_recap.py`) runs from a beat row at
+**09:00 Europe/Vienna** (migration `events/0143`). `admin_recap_service.build_daily_recap` counts
+what was created during the previous local day: registered and guest users, new organization
+names, events, tickets, RSVPs, collected ticket and membership payments per currency, and the
+platform fee totals (see [Platform revenue](billing-and-vat.md#platform-revenue-on-the-admin-dashboard)).
+The message is capped at 1024 characters (Pushover's limit).
+
+- It is **not gated by the `notify_*` flags**. Each channel is skipped when its keys or webhook
+  are unset, and the task returns a map of channel to `queued` or `skipped`.
+- The message is built once and fans out to one task per channel
+  (`send_admin_recap_pushover`, `send_admin_recap_discord`), so a failing channel neither blocks
+  nor duplicates the other.
+- Each channel task retries on 5xx and network errors with exponential backoff (1/2/4 min, max
+  3 retries). A 4xx (bad token, message too long) is permanent: it is logged and not retried.
+  Discord mentions are neutralized because organization names are user input.

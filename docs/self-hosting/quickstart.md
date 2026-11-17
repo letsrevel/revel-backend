@@ -106,9 +106,9 @@ With DNS pointed at the box and certificates issued, your instance is reachable 
 - **API** — `https://<API_DOMAIN>` (interactive docs at `https://<API_DOMAIN>/api/docs`)
 - **Grafana** (only if you enabled observability) — `https://<GRAFANA_DOMAIN>`
 
-A quick sanity check on your configuration: `GET https://<API_DOMAIN>/version` returns the
-active feature flags (`organization_creation`, `telegram`, `llm_evaluation`) and the configured
-`sso_providers`, so you can confirm the deployment picked up the settings you set.
+A quick sanity check on your configuration: `GET https://<API_DOMAIN>/api/version` returns the
+active feature flags (`organization_creation`, `telegram`, `llm_evaluation`, `referral_applications`,
+`oauth_provider`), the configured `sso_providers` and the `turnstile_site_key` (null while Turnstile is off), so you can confirm the deployment picked up the settings you set.
 
 If the site does not come up, the most common cause is TLS issuance failing behind Cloudflare's
 proxy — see the [DNS & Cloudflare](dns-cloudflare.md) caveat and the

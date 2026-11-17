@@ -65,32 +65,44 @@ flowchart TD
     - Stateful computations: when you'd pass the same 3+ arguments to multiple related functions
 
     ```python
-    class BatchTicketService:
-        def __init__(self, event: Event, tier: TicketTier, user: RevelUser) -> None:
-            self.event = event
-            self.tier = tier
-            self.user = user
+    class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolutionMixin, CheckoutMixin):
+        def __init__(
+            self,
+            event: Event,
+            tier: TicketTier | None = None,
+            user: RevelUser | None = None,
+            discount_code: DiscountCode | None = None,
+            *,
+            groups: list[CartGroup] | None = None,
+            ...,
+        ) -> None:
+            # exactly one of tier (single-tier form) or groups (cart form)
+            ...
 
-        def create_batch(self, items: list[TicketPurchaseItem]) -> list[Ticket] | str:
-            # Validates batch size, resolves seats, delegates to payment flow
+        def create_batch(
+            self, items: list[TicketPurchaseItem] | None = None, pwyc_amount: Decimal | None = None, ...
+        ) -> list[Ticket] | tuple[list[Ticket], UUID]:
+            # Validates the cart, resolves seats, delegates to the payment flow
             ...
     ```
+
+    `BatchTicketService` is a package (`events/service/batch_ticket_service/`): `service.py` holds the orchestration, `context.py` the constructor, and mixins (`eligibility`, `capacity`, `seats`, `tickets`, `checkout`) own one step each. Online reservations return `(tickets, reservation_id)`; other payment methods return the tickets.
 
     **Characteristics:**
 
     - Shared context via `__init__` avoids passing the same arguments everywhere
-    - Private methods (`_stripe_checkout`) encapsulate implementation details
+    - Private methods (`CheckoutMixin._online_checkout`) encapsulate implementation details
     - Instantiated per-request (never a singleton)
     - Makes complex workflows readable and maintainable
 
 ## Mixed Modules Are OK
 
 !!! tip "A single service module can contain both patterns"
-    `ticket_service.py` has standalone functions like `check_in_ticket()` while `batch_ticket_service.py` has the class-based `BatchTicketService`. This is intentional; don't force everything into one pattern.
+    `check_in_service.py` has standalone functions like `check_in_ticket()` while the `batch_ticket_service/` package has the class-based `BatchTicketService`. This is intentional; don't force everything into one pattern.
 
 ```python
-# batch_ticket_service.py contains the class-based service
-# ticket_service.py contains standalone functions like:
+# batch_ticket_service/ contains the class-based service
+# check_in_service.py contains standalone functions like:
 
 
 def check_in_ticket(
@@ -98,9 +110,14 @@ def check_in_ticket(
     ticket_id: UUID,
     checked_in_by: RevelUser,
     price_paid: Decimal | None = None,
+    *,
+    include_note: bool = False,
 ) -> Ticket:
     """Standalone operation: no shared state needed."""
     ...
+
+
+# ticket_service.py has others, like:
 
 
 def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) -> Ticket:
@@ -121,7 +138,7 @@ entry = blacklist_service.add_to_blacklist(organization, email=email)
 # Class-based - instantiate per request
 from events.service.batch_ticket_service import BatchTicketService
 
-service = BatchTicketService(event=event, tier=tier, user=user)
+service = BatchTicketService(event=event, tier=tier, user=user)  # or groups=[CartGroup(...)] for a cart
 result = service.create_batch(items=purchase_items)
 ```
 

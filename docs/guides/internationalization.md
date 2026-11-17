@@ -10,6 +10,10 @@ Revel supports multiple languages with full translation coverage across API resp
 | `de` | German | Informal ("du") |
 | `it` | Italian | Informal ("tu") |
 | `fr` | French | Informal ("tu") |
+| `es` | Spanish | Informal ("tú") |
+| `pt` | Portuguese | Informal ("tu"), European Portuguese |
+
+Wording is gender-inclusive without typographic gender marks, which screen readers read badly.
 
 ---
 
@@ -17,7 +21,7 @@ Revel supports multiple languages with full translation coverage across API resp
 
 ```mermaid
 flowchart LR
-    A[User.language field] --> B[I18nJWTAuth middleware]
+    A[User.language field] --> B[I18nJWTAuth auth class]
     B --> C[django.utils.translation.activate]
     C --> D[All _&#40;&#41; strings resolve in user's language]
     D --> E[API response / Email / Notification]
@@ -26,7 +30,12 @@ flowchart LR
 1. **User preference**: The `User.language` field stores each user's language preference
 2. **Automatic activation**: `I18nJWTAuth` reads the user's language and activates it on every authenticated request
 3. **Lazy translation**: All user-facing strings are wrapped with `gettext_lazy` (imported as `_`)
-4. **Email templates**: Use `{% trans %}` and `{% blocktrans %}` Django template tags
+4. **Email templates**: Use `{% trans %}` and `{% blocktrans %}` Django template tags. The Markdown (`.md`) notification templates are extracted too (`I18N_EXTENSIONS` in the Makefile is `html,txt,py,md`)
+
+!!! warning "Celery has no active language"
+    Outside a request nothing activates a language, so a task that renders an email or
+    notification uses the default. Wrap the rendering in
+    `translation.override(recipient.language)`, and test it under `override("en")`.
 
 ---
 
@@ -34,14 +43,14 @@ flowchart LR
 
 ### Adding a New Language
 
-1. Add the language to `LANGUAGES` in Django settings (and to `LANGUAGES` in
-   `scripts/check_translations.py`)
+1. Add the language to `LANGUAGES` in `src/revel/settings/base.py` (and to `LANGUAGES` in
+   `scripts/check_translations.py`, and to the `-l` list in the `makemessages` target of the Makefile)
 2. Extract translatable strings:
    ```bash
    make makemessages
    ```
 3. Translate the new `.po` file at `src/locale/{lang}/LC_MESSAGES/django.po`
-   (fill every `msgstr`; clear every `fuzzy` flag)
+   (fill every `msgstr`; leave no `fuzzy` entries)
 4. Commit the `.po` file only — `.mo` is built automatically (see ADR-0011)
 
 ### Updating Existing Translations
@@ -52,6 +61,8 @@ make makemessages
 
 # 2. Translate new strings in .po files
 #    (look for empty msgstr entries and `fuzzy` markers)
+#    Discard gettext's fuzzy suggestions: they have mapped unrelated strings onto each other.
+#    Translate fresh and leave zero fuzzy entries.
 
 # 3. Verify the catalog is complete (keys extracted + translated)
 make i18n-check
@@ -60,6 +71,10 @@ make i18n-check
 git add src/locale/
 git commit -m "chore(i18n): update translations"
 ```
+
+!!! tip "Regenerate once, at the end"
+    Run `make makemessages` once, when the change is otherwise finished. Regenerating from
+    divergent bases is what causes `.po` merge conflicts.
 
 !!! warning "Don't commit `.mo` files"
     Compiled `.mo` binaries are git-ignored and built during the Docker image
@@ -78,9 +93,15 @@ src/locale/
 ├── it/
 │   └── LC_MESSAGES/
 │       └── django.po    # Italian translations (source; .mo built, not committed)
-└── fr/
+├── fr/
+│   └── LC_MESSAGES/
+│       └── django.po    # French translations (source; .mo built, not committed)
+├── es/
+│   └── LC_MESSAGES/
+│       └── django.po    # Spanish translations (source; .mo built, not committed)
+└── pt/
     └── LC_MESSAGES/
-        └── django.po    # French translations (source; .mo built, not committed)
+        └── django.po    # Portuguese translations (source; .mo built, not committed)
 ```
 
 !!! note "No English locale directory"
@@ -94,6 +115,7 @@ src/locale/
     - **Always** use `I18nJWTAuth` for authenticated endpoints. It activates the user's language automatically
     - **Always** wrap user-facing strings with `_()`
     - **Always** call `str()` on lazy translations when used in API responses (e.g., in serializers or plain dicts)
+    - **Always** translate user-facing error messages as `str(_("..."))`, translating first and formatting after. `make i18n-literals` (in `make check` and CI) rejects f-strings and bare literals in `HttpError(...)` and mapped exceptions
     - **Always** translate every new key (no empty `msgstr`, no `fuzzy`) — CI enforces it
     - Use `.format()` for string interpolation with translations:
       ```python

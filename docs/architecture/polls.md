@@ -2,7 +2,7 @@
 
 Polls are **organization-managed votes** layered on top of the [questionnaire](questionnaires.md) engine. A `Poll` does not store votes itself — it is a thin wrapper around a `Questionnaire`, and every vote is an ordinary `QuestionnaireSubmission`. This lets polls reuse the question/option/answer model, the per-viewer shuffle, and the file-upload machinery for free, while adding poll-specific concerns: lifecycle (draft/open/closed), audience & result visibility, anonymity, and vote-change policy.
 
-The feature is gated by the `manage_polls` organization permission (owner ✓, staff ✓ by default, member ✗).
+The feature is gated by the `manage_polls` organization permission (owner ✓, staff ✗ unless explicitly granted, member ✗). `manage_polls` defaults to `False` in the staff `PermissionMap`, so staff need an explicit grant.
 
 ---
 
@@ -58,7 +58,7 @@ erDiagram
 | `vote_visibility` | `ResourceVisibility` | Who may **cast** a vote (and, combined with results, who may see the poll exists). |
 | `result_visibility` | `ResourceVisibility` | Who may **see results** (default `STAFF_ONLY`). |
 | `result_timing` | `PollResultTiming` | `NEVER` (default) / `AFTER_VOTE` / `AFTER_CLOSE`. |
-| `vote_membership_tiers` / `result_membership_tiers` | M2M → `MembershipTier` | Optional tier restriction applied on top of `MEMBERS_ONLY` visibility. |
+| `vote_membership_tiers` / `result_membership_tiers` | M2M → `MembershipTier` | Optional tier restriction applied on top of `MEMBERS_ONLY` visibility. Only standard tiers are accepted; temporary (day-membership) tiers cannot be poll tiers. |
 | `staff_anonymous` / `public_anonymous` | bool, default `True` | Whether voter identity is hidden from staff / non-staff viewers in results. |
 
 ### Constraints & invariants
@@ -98,9 +98,9 @@ Pure-logic helpers live in `src/polls/service/eligibility.py` (no DB writes; the
 | Visibility | Who passes |
 |---|---|
 | `PUBLIC` / `UNLISTED` | Everyone (anonymous included). |
-| `MEMBERS_ONLY` | Active org members; if tiers are set, the member's tier must be in the list. |
-| `ATTENDEES_ONLY` | Users with a non-cancelled ticket or YES RSVP for the linked event. |
-| `PRIVATE` | Attendees **or** invited users for the linked event. |
+| `MEMBERS_ONLY` | Org members who may see member content (ACTIVE or PAUSED, via `visible_memberships()`); if tiers are set, the member's tier must be in the list. AWAITING_PAYMENT and CANCELLED do not pass. |
+| `ATTENDEES_ONLY` | Users with an attending ticket (`Ticket.objects.attending()`: ACTIVE or CHECKED_IN; PENDING does not count) or a YES RSVP for the linked event. |
+| `PRIVATE` | Attendees (same rule as above) **or** invited users for the linked event. |
 | `STAFF_ONLY` | Org staff / owner only. |
 
 Staff/owner (and Django superusers/staff) always pass every check. Banned / hard-blacklisted users see no polls from that organization, mirroring `EventQuerySet.for_user`.

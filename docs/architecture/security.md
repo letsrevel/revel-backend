@@ -1,5 +1,8 @@
 # File Security
 
+!!! info "Account and session security"
+    This page covers uploaded files only. Tokens, sessions, logout, bot checks and key rotation are in [Authentication & Sessions](auth-sessions.md).
+
 Revel processes user-uploaded files (profile pictures, event banners, questionnaire attachments) and applies two security measures before storing them: **EXIF metadata stripping** and **ClamAV malware scanning**.
 
 ---

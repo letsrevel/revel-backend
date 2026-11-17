@@ -40,7 +40,7 @@ flowchart TD
 
     G7{"7. MembershipGate<br/>Members-only event?"}
     G7 -->|"Not members-only / Is member / Waived"| G8
-    G7 -->|"Not a member"| Rejected6([Rejected: members_only])
+    G7 -->|"Not a member"| Rejected6([Rejected: members_only /<br/>membership_application_pending /<br/>membership_questionnaire_pending_review])
 
     G8{"8. FullProfileGate<br/>Profile complete?"}
     G8 -->|"Yes / Not required"| G9
@@ -56,7 +56,7 @@ flowchart TD
 
     G11{"11. TicketSalesGate<br/>Active sales window?"}
     G11 -->|"Yes / Non-ticketed"| Eligible
-    G11 -->|"No"| Rejected10([Rejected: no_tickets_on_sale])
+    G11 -->|"No"| Rejected10([Rejected: no_tickets_on_sale / sales_paused])
 
     style Eligible fill:#2e7d32,color:#fff
     style Rejected1 fill:#c62828,color:#fff
@@ -171,8 +171,11 @@ For **members-only events**, ensures the user is an active member of the organiz
 
 - **Not a members-only event**: gate is skipped.
 - **User is an active member**: gate passes.
-- **User has inactive membership**: returns reason `MEMBERSHIP_INACTIVE` with no `next_step`.
-- **User has no membership**: returns reason `MEMBERS_ONLY` with `next_step=BECOME_MEMBER` if the organization accepts membership requests.
+- **User has inactive membership** (anything but ACTIVE, e.g. PAUSED or AWAITING_PAYMENT): returns reason `MEMBERSHIP_INACTIVE` with no `next_step`.
+- **User has no membership** but a membership attempt in flight (#1300): the gate asks `EligibilityService.pending_membership_step`, which delegates to the org's [`MembershipEligibilityService`](membership-eligibility.md) so the event never contradicts the membership page. Only two waiting steps surface:
+    - application awaiting staff → `MEMBERSHIP_APPLICATION_PENDING` with `next_step=WAIT_FOR_MEMBERSHIP_APPROVAL`;
+    - membership questionnaire awaiting evaluation → `MEMBERSHIP_QUESTIONNAIRE_PENDING_REVIEW` with `next_step=WAIT_FOR_MEMBERSHIP_QUESTIONNAIRE_EVALUATION`.
+- **User has no membership and nothing in flight**: returns reason `MEMBERS_ONLY` with `next_step=BECOME_MEMBER` if the organization accepts membership requests. Anything else the user must act on (submit or retake a questionnaire, reapply) also lands here.
 
 !!! info "Invitation waiver: `waives_membership_required`"
     This gate **can be waived** by an `EventInvitation` with `waives_membership_required=True`. Non-members can participate in members-only events if they were explicitly invited with this waiver.
@@ -256,7 +259,8 @@ For **ticketed events**, checks whether there is at least one ticket tier with a
 - For each tier, checks if the current time falls within the sales window:
     - `sales_start_at` to `sales_end_at` (falls back to `event.start` if `sales_end_at` is not set).
     - Tiers with no sales window configured are assumed to always be on sale.
-- If **no tier** has active sales, returns reason `NO_TICKETS_ON_SALE` with no `next_step`.
+- Tiers with `sales_paused=True` are skipped (the pause is a per-tier kill switch independent of the window).
+- If **no tier** has active sales, returns reason `NO_TICKETS_ON_SALE` with no `next_step`. When the event has tiers and **all** of them are paused, the reason is `SALES_PAUSED` instead.
 
 !!! note
     This gate cannot be waived by invitations. Ticket sales windows are strict.
@@ -279,8 +283,14 @@ class EventUserEligibility(BaseModel):
     questionnaires_missing: list[uuid.UUID] | None = None
     questionnaires_pending_review: list[uuid.UUID] | None = None
     questionnaires_failed: list[uuid.UUID] | None = None
-    retry_on: datetime.datetime | None = None
+    retry_on: AwareDatetime | None = None
     missing_profile_fields: list[str] | None = None
+    pending_offers_count: int | None = None
+    next_batch_at: AwareDatetime | None = None
+    waitlist_position: int | None = None
+    active_offer_expires_at: AwareDatetime | None = None
+    event_remaining: int | None = None
+    questionnaire_events: list[SeriesPassQuestionnaireEventSchema] | None = None
 ```
 
 | Field | Type | Description |
@@ -293,11 +303,18 @@ class EventUserEligibility(BaseModel):
 | `questionnaires_missing` | `list[UUID] \| None` | IDs of questionnaires the user needs to complete |
 | `questionnaires_pending_review` | `list[UUID] \| None` | IDs of questionnaires awaiting evaluation |
 | `questionnaires_failed` | `list[UUID] \| None` | IDs of questionnaires the user has permanently failed |
-| `retry_on` | `datetime \| None` | When the user can retake a failed questionnaire |
+| `retry_on` | `AwareDatetime \| None` | When the user can retake a failed questionnaire |
 | `missing_profile_fields` | `list[str] \| None` | Profile fields that need to be completed (e.g., `profile_picture`, `pronouns`, `name`) |
+| `pending_offers_count` | `int \| None` | `AvailabilityGate` only: pending unexpired waitlist offers currently reserving seats |
+| `next_batch_at` | `AwareDatetime \| None` | `AvailabilityGate` only: earliest expiry among those offers, i.e. when seats may free up (in the user's or event's timezone) |
+| `waitlist_position` | `int \| None` | `AvailabilityGate` only: the caller's place in the queue when already waitlisted |
+| `active_offer_expires_at` | `AwareDatetime \| None` | Set on an **allowed** result when the caller holds an active waitlist offer: when it expires |
+| `event_remaining` | `int \| None` | Event-scoped per-user ticket budget (#901); populated only by the `GET /my-status` path |
+| `questionnaire_events` | `list[SeriesPassQuestionnaireEventSchema] \| None` | Series-pass checkout only (#1175): one `{questionnaire_id, event_id}` per missing questionnaire, naming the event whose questionnaire endpoint accepts it (see [Series Passes](series-passes.md)) |
 
 !!! note
-    On success (`allowed=True`), all optional fields default to `None`.
+    On success (`allowed=True`), all optional fields default to `None`, except
+    `active_offer_expires_at` when the caller holds a waitlist offer.
 
 ---
 
@@ -313,7 +330,10 @@ All possible `NextStep` values and when they are returned:
 | `WAIT_FOR_INVITATION_APPROVAL` | InvitationGate | Invitation request has been submitted and is pending |
 | `REQUEST_INVITATION` | InvitationGate | Private event, user can request an invitation |
 | `BECOME_MEMBER` | MembershipGate | Members-only event, organization accepts membership requests |
-| `UPGRADE_MEMBERSHIP` | MembershipGate | Reserved for membership tier requirements |
+| `WAIT_FOR_MEMBERSHIP_APPROVAL` | MembershipGate | The user's membership application is awaiting staff |
+| `WAIT_FOR_MEMBERSHIP_QUESTIONNAIRE_EVALUATION` | MembershipGate | The user's membership questionnaire is awaiting evaluation |
+| `UPGRADE_MEMBERSHIP` | Ticket purchase (`batch_ticket_service/eligibility.py`) | The tier is restricted to specific membership tiers and the buyer holds none of them (`membership_tier_required`) |
+| `CHOOSE_ANOTHER_TIER` | Ticket purchase (`batch_ticket_service/eligibility.py`) | The tier is non-members-only and the buyer's membership is excluded (`members_excluded`) |
 | `COMPLETE_PROFILE` | FullProfileGate | User profile is missing required fields |
 | `COMPLETE_QUESTIONNAIRE` | QuestionnaireGate | User has not completed required questionnaires |
 | `WAIT_FOR_QUESTIONNAIRE_EVALUATION` | QuestionnaireGate | Questionnaire submitted, awaiting evaluation |
@@ -322,6 +342,35 @@ All possible `NextStep` values and when they are returned:
 | `WAIT_FOR_OPEN_SPOT` | AvailabilityGate | Event is full, user is already on the waitlist |
 | `PURCHASE_TICKET` | EventManager | Returned by `EventManager.rsvp()` when event requires a ticket |
 | `RSVP` | EventManager | Returned when event requires RSVP |
+
+---
+
+## Tier-Level Purchase Rules
+
+The gates decide whether a user may reach the event; which **ticket tiers** they may buy is a separate layer that checkout re-asserts. `service/tier_eligibility.py` (`get_eligible_tiers`, used by the tier listing and `GET /my-status`) and `service/batch_ticket_service/eligibility.py` (the purchase-time asserts) apply the same rules. Owners and staff are exempt from all of them.
+
+| Rule | Field | Effect |
+|---|---|---|
+| Visibility | `visibility` | `MEMBERS_ONLY` tiers are visible to ACTIVE **and** PAUSED members (`is_visible_status`); `PRIVATE` tiers to invitees (optionally only those whose invitation links the tier) |
+| Sales window / pause | `sales_start_at`, `sales_end_at`, `sales_paused` | A paused tier is unbuyable for everyone; 403 "Ticket sales are paused." at checkout |
+| `purchasable_by` | `PUBLIC`, `MEMBERS`, `INVITED`, `INVITED_AND_MEMBERS`, `NON_MEMBERS` | `MEMBERS` needs an ACTIVE membership; `INVITED` an invitation (linked to the tier when `restrict_purchase_to_linked_invitations`); `NON_MEMBERS` shuts members out. Failure is a 403 |
+| `restricted_to_membership_tiers` | M2M | The buyer's ACTIVE membership tier must be one of them; otherwise `membership_tier_required` + `UPGRADE_MEMBERSHIP` (400 with the eligibility payload) |
+| `excluded_membership_tiers` | M2M, `NON_MEMBERS` tiers only | Narrows who a non-members-only tier excludes: with none named, any eligible member is excluded; with some named, only members of those tiers. An excluded buyer gets `members_excluded` + `CHOOSE_ANOTHER_TIER` (400 with the eligibility payload) |
+
+`utils/purchase_rules.py` (`tier_rule_stricter_than_pass`) compares two `purchasable_by` rules by who they admit; [series passes](series-passes.md) use it to refuse linking a tier stricter than the pass. `excluded_membership_tiers` is deliberately not a stricter signal.
+
+### Membership access predicates
+
+"Is this user a member" is never an inline `status` filter. `events/utils/membership_access.py` defines the named predicates and queryset builders every read goes through:
+
+| Predicate | Statuses | Used for |
+|---|---|---|
+| *visible* (`is_visible_status`, `visible_memberships`) | ACTIVE, PAUSED | Seeing member-only content (event and tier visibility) |
+| *eligible* (`is_eligible_status`, `eligible_memberships`) | ACTIVE | Acting as a member: buying member tiers, questionnaire exemptions, member comms |
+| *awaiting payment* / *payment held* | AWAITING_PAYMENT / AWAITING_PAYMENT + ACTIVE | The offline join flow (see [Membership Subscriptions](membership-subscriptions.md#offline-join-flow)) |
+| *banned* (`is_banned_status`, `banned_memberships`) | BANNED | Shutting people out |
+
+`tests/test_membership_access_guard.py` walks the AST and fails when new code reintroduces an inline status filter, a `MembershipStatus.<X>` argument to `filter`/`exclude`/`Q`, or a manager call such as `.active_only()` outside its allowlists.
 
 ---
 
@@ -447,12 +496,16 @@ Reasons are emitted on the wire in two forms:
 | `questionnaire_pending_review` | "Waiting for questionnaire evaluation." |
 | `questionnaire_failed` | "Questionnaire evaluation was insufficient." |
 | `questionnaire_retake_cooldown` | "Questionnaire evaluation was insufficient. You can try again in {retry_on}." |
+| `membership_application_pending` | "Your membership application is awaiting approval." |
+| `membership_questionnaire_pending_review` | "Your membership questionnaire is being reviewed." |
 | `event_is_full` | "Event is full." |
 | `spots_reserved_for_waitlist` | "Spots are currently reserved for waitlist members." |
 | `on_waitlist_waiting_for_batch` | "You are on the waitlist. Waiting for your turn." |
 | `sold_out` | "Sold out" |
 | `no_tickets_on_sale` | "Tickets are not currently on sale." |
+| `sales_paused` | "Ticket sales are paused." |
+| `members_excluded` | "This ticket tier is not available to members." |
 | `requires_ticket` | "Requires a ticket." |
-| `MUST_RSVP` | "Must RSVP" |
-| `REQUIRES_PURCHASE` | "Requires purchase." |
-| `NOTHING_TO_PURCHASE` | "Nothing to purchase." |
+| `must_rsvp` | "Must RSVP" |
+| `requires_purchase` | "Requires purchase." |
+| `nothing_to_purchase` | "Nothing to purchase." |

@@ -170,6 +170,10 @@ None of this requires an account. An anonymous visitor holds seats exactly like 
 buyer — the first hold request silently mints a signed, httpOnly session cookie behind the
 scenes, and every hold after that is tied to it.
 
+Submitting the guest checkout (`POST /events/{event_id}/checkout/public`) or a guest RSVP
+requires a valid Cloudflare Turnstile token (`turnstile_token`) when Turnstile is configured on
+the instance. Holding seats does not.
+
 The one real wrinkle is **free, offline, and at-the-door tiers**, which confirm by email link
 rather than instantly:
 

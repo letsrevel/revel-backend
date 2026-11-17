@@ -98,8 +98,58 @@ class MyController(ControllerBase):
     - Nested conditionals for each field
     - `save()` without `update_fields` (updates all columns)
 
+!!! note "Thin controllers"
+    Business logic (VAT checks, rollback, multi-step flows) belongs in a [service](service-layer.md), not in the controller method.
+
 !!! danger "No try-except in views"
     Never wrap ORM lookups in try/except blocks. Use `get_object_or_404()` or `self.get_object_or_exception()` instead. Let Django Ninja's exception handlers do their job.
+
+## Exception Handling
+
+Controllers have no try/except, and Ninja Extra has no per-controller exception hook, so exception types are mapped to HTTP responses once per app. Each app **self-registers** its handlers on the global `NinjaExtraAPI` from `AppConfig.ready`.
+
+The reusable building blocks live in `common/exception_handlers.py`:
+
+| Helper | Use |
+|---|---|
+| `make_simple_handler(status)` | Renders `str(exc)` as `{"detail": ...}`; for exceptions raised **with** a message |
+| `make_static_handler(status, message)` | Renders a fixed, translatable message; for exceptions raised bare (empty `str(exc)`) |
+| `register_handlers(api, HANDLERS)` | Installs an `{exception type: handler}` mapping on the API |
+
+Each app declares a `HANDLERS` table and a `register()` in `<app>/exception_handlers.py`, and calls it from `ready`:
+
+```python
+# <app>/exception_handlers.py
+HANDLERS: dict[type[Exception], ExceptionHandler] = {
+    FooNotOpenError: make_simple_handler(423),
+}
+
+
+def register() -> None:
+    from api.api import api
+
+    register_handlers(api, HANDLERS)
+
+
+# <app>/apps.py
+class FooConfig(AppConfig):
+    def ready(self) -> None:
+        from <app>.exception_handlers import register as register_exception_handlers
+
+        register_exception_handlers()
+```
+
+`api/api.py` stays app-agnostic: it holds only the truly global handlers (`Exception` to 500, `ValidationError` to 400). Dispatch is by MRO, so the most specific registered class wins, and a subclass of a registered exception is covered too. A new app with custom exceptions adds its own `exception_handlers.py` instead of editing `api/api.py`.
+
+### User-facing error strings
+
+Any message that reaches the client (`raise HttpError(<status>, msg)`, or `raise <AppError>(msg)` for an exception mapped with `make_simple_handler`) must be marked for translation with `str(_("..."))`. For interpolation, translate first and then `.format(...)`; f-strings are invisible to `xgettext` and are rejected:
+
+```python
+raise HttpError(404, str(_("Unknown event {}.").format(event_id)))
+```
+
+`make i18n-literals` (`scripts/check_i18n_literals.py`, also run in CI) enforces this.
 
 ## Pagination
 
@@ -202,6 +252,15 @@ class EventSchema(Schema):
 # Bad - datetime.datetime loses timezone enforcement
 class EventSchema(Schema):
     starts_at: datetime.datetime
+```
+
+### `Query` and `Body` Parameters
+
+Put the real type in the annotation and the `Query()`/`Body()` object in the `Annotated` metadata. This passes `mypy --strict` without a `# type: ignore[type-arg]` and keeps the OpenAPI constraints:
+
+```python
+filters: t.Annotated[EventFilterSchema, Query(...)]  # required: no "= default"
+month: t.Annotated[int | None, Query(ge=1, le=12)] = None
 ```
 
 ### Optional JSON Body

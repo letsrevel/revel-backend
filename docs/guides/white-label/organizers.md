@@ -220,7 +220,7 @@ either, request the domain again to start over.
 who opens `events.example.org` is asked to log in there. It is the same Revel account (same email
 and password, same data) and each domain simply has its own session. On a custom domain the sign-in
 lasts for the browser session, and it ends as soon as the domain is removed, fails or is switched
-off by the platform. Single sign-on buttons are not
+off by the platform. Logging out on a domain ends only that session; the person stays signed in elsewhere. Single sign-on buttons are not
 shown on custom domains.
 
 **Links go to your domain.** Once the domain is active, links in attendee emails (ticket, payment

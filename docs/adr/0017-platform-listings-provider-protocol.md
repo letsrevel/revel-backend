@@ -87,3 +87,10 @@ Policy decisions baked into the protocol and the sync/reconcile services:
   keeps updating; every attempt after that takes the update path.
 - Attendee import, two-way sync, shared-capacity arithmetic, and any provider beyond Eventbrite
   remain explicitly out of scope for this phase.
+
+## Amendments
+
+!!! note "Amended 2026-11"
+    - **Only public tiers are listed externally** (#1332). A tier whose `purchasable_by` is not `public` (members, invitees, invited-and-members, non-members) is no longer synced, because the external platform cannot enforce those rules. The mapper reports such a tier as not listed (`TIER_PURCHASE_RESTRICTED`).
+    - **Tiers that grant a day membership are not synced.** A sale on the platform creates no Revel ticket, so it could never grant the membership (`TIER_GRANTS_MEMBERSHIP`).
+    - **Precedence of the reported reason** (first match wins, `integrations/service/mapper.py`): variable price, then a membership-tier restriction (`TIER_MEMBERS_ONLY`), then a granted day membership (`TIER_GRANTS_MEMBERSHIP`), then a non-public `purchasable_by` (`TIER_PURCHASE_RESTRICTED`), then seated, offline and capacity reasons. So a non-public tier that grants a day membership reports `TIER_GRANTS_MEMBERSHIP`.

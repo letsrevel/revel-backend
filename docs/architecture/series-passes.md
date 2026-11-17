@@ -11,7 +11,7 @@ This page covers the data model, the pro-rata quote, the purchase flow and its l
 
 ## Data model
 
-All in `src/events/models/series_pass.py` (single additive migration `0091`).
+All in `src/events/models/series_pass.py` (additive migration `0091`; `0118` adds the purchase `attribution` on `HeldSeriesPass`).
 
 ### `SeriesPass` — the product
 
@@ -21,19 +21,19 @@ All in `src/events/models/series_pass.py` (single additive migration `0091`).
 | `name` / `description` | str / Markdown | Unique per series (`unique_series_pass_name`). |
 | `price` / `pro_rata_discount` / `currency` | Decimal / Decimal / str | See [pricing](#pricing-the-pro-rata-quote). |
 | `payment_method` | `TicketTier.PaymentMethod` | `ONLINE` / `OFFLINE` / `FREE`. `AT_THE_DOOR` rejected in `clean()`. |
-| `purchasable_by` | `TicketTier.PurchasableBy` | Invitation-restricted values rejected in `clean()`. |
+| `purchasable_by` | `TicketTier.PurchasableBy` | `PUBLIC` / `MEMBERS` / `NON_MEMBERS`. Invitation-restricted values rejected in `clean()`, as is `NON_MEMBERS` combined with `MEMBERS_ONLY` visibility (a pass members cannot buy must not be visible to members only). |
 | `visibility` | `VisibilityMixin.Visibility` | Same five-level scheme as events/tiers; filtered by `pass_visible_to_user`. |
 | `sales_start_at` / `sales_end_at` | DateTime, nullable | Sales window. |
 | `is_active` | bool | Master switch. |
 | `total_quantity` / `quantity_sold` | int (nullable) / int | Optional holder cap; counter maintained under locks. |
 
-`clean()` also forbids changing `currency` once tier links exist and changing `payment_method` while non-cancelled holders exist.
+`clean()` also forbids changing `currency` once tier links exist and changing `payment_method` while non-cancelled holders exist. Changing `purchasable_by` is refused while a linked tier has a stricter rule than the new one (see below).
 
 ### `SeriesPassTierLink` — coverage
 
-One row per covered event: `(series_pass, event, tier)` with `unique_series_pass_event`. `clean()` enforces: tier belongs to the event, event belongs to the pass's series, tier currency matches the pass, and the tier uses neither assigned seating nor PWYC.
+One row per covered event: `(series_pass, event, tier)` with `unique_series_pass_event`. `clean()` enforces: tier belongs to the event, event belongs to the pass's series, tier currency matches the pass, the tier uses neither assigned seating nor PWYC, and (for new or changed links only, so older links stay re-saveable) the tier's purchase rule is not **stricter than the pass's** (`tier_rule_stricter_than_pass` in `src/events/utils/purchase_rules.py`: a tier restricted to membership tiers, or whose `purchasable_by` admits fewer buyers than the pass's, cannot be covered, since the pass would hand out tickets the buyer could not buy directly).
 
-Coverage is gated at enable time by `validate_events_coverable`: **non-recurring series only**, each event OPEN + `requires_ticket` + not PRIVATE, and no ADMISSION questionnaire targeting the series or any covered event (a pass must not bypass the [eligibility pipeline](eligibility-pipeline.md)).
+Coverage is gated at enable time by `validate_events_coverable`: **non-recurring series only**, and each event OPEN, `requires_ticket` and `PUBLIC` (neither invitation-only nor members-only). ADMISSION questionnaires no longer block coverage (#1320); purchase requires them instead, see [Admission questionnaires](#admission-questionnaires).
 
 ### `HeldSeriesPass` — the buyer's pass
 
@@ -70,13 +70,16 @@ quantized to cents, where `passed_events` counts tier-linked events with `start 
 
 `SeriesPassPurchaseService` (`src/events/service/series_pass_purchase.py`) is the request-scoped workflow class (mirroring `BatchTicketService`). `purchase()` returns either a `HeldSeriesPass` (free/offline) or a Stripe checkout URL.
 
-1. **Light checks** (no locks): blacklist, `purchasable_by` membership check, quote purchasability, duplicate-pass check.
+1. **Light checks** (no locks): blacklist, `purchasable_by` check (`MEMBERS` needs an eligible member, `NON_MEMBERS` refuses one, both 403; owners and staff exempt), the [admission questionnaire gate](#admission-questionnaires), quote purchasability, duplicate-pass check.
 2. **Lock the pass row** (`select_for_update`), re-check `total_quantity` under the lock.
 3. **Lock all mapped tiers pk-ordered**, check capacity on every covered *future* event — **all-or-nothing**: one sold-out tier aborts with a 429.
 4. **Create the `HeldSeriesPass`** — a duplicate-purchase race loses on the conditional unique constraint and is mapped to `SeriesPassNotPurchasableError` → **409**.
 5. **Materialize tickets** via `bulk_create` (future events only; ACTIVE for free passes, PENDING otherwise). `bulk_create` deliberately skips `post_save` signals so no per-ticket emails fire.
 6. **Increment** each tier's `quantity_sold` and the pass's counter.
-7. Branch by payment method: free → activate + notify; offline → return the PENDING pass (staff confirms later); online → one Stripe checkout session.
+7. Branch by payment method: free → activate + notify; offline → return the PENDING pass (staff confirms later); online → return `(held_pass, reservation_id)`. The controller answers `requires_payment=true` with the `reservation_id`, and the client calls `POST /series-passes/reservations/{reservation_id}/checkout-session` to create the single Stripe session outside the contended locks (idempotent; 404 for an unknown, expired or foreign reservation).
+
+Tickets issued here (and on offline confirmation) go through `day_membership_service.on_tickets_issued`, because `bulk_create` skips the signal that grants a [day membership](member-register.md#day-memberships) for tiers with `grants_membership_tier`.
+
 
 !!! danger "Lock ordering invariant: pass row first, then tiers pk-ordered"
     Every writer that touches pass + tier counters — purchase, whole-pass cancel, offline confirm, backfill, the extension task, all four expiry routes — takes the pass/held-pass row lock **before** the pk-ordered tier locks. Keep this order in any new code path or you introduce a deadlock.
@@ -84,6 +87,16 @@ quantized to cents, where `passed_events` counts tier-linked events with `start 
 ### Offline confirmation
 
 `confirm_held_pass_payment` (admin endpoint) flips pass + tickets PENDING→ACTIVE under a re-lock with a status re-check (double-confirm safe). Per-ticket `price_paid` is set by splitting `held_pass.price_paid` across tickets with `distribute_amount_across_items` in deterministic `(event.start, pk)` order.
+
+### Admission questionnaires
+
+A pass must not bypass the event [eligibility pipeline](eligibility-pipeline.md), so purchase is gated by `_assert_series_questionnaires` → `check_series_questionnaires` (`src/events/service/series_pass_questionnaires.py`, #1321):
+
+- **Which**: published ADMISSION questionnaires linked to the series, plus those linked to each upcoming covered event. One linked to both is required once, as a series one. Questionnaires with `members_exempt` are skipped for eligible members; owners and staff bypass the gate.
+- **How often**: a series-level questionnaire, or an event-only one that is not `per_event`, is answered once. A `per_event` questionnaire needs a submission scoped to each covered event carrying it (for a series-level `per_event` one, a submission made for any event of the series covers the pass).
+- **Invitations never waive** these questionnaires.
+- **Verdict**: one `EventUserEligibility` listing every missing questionnaire id and pointing at the first group's event, with `questionnaire_events` naming, per missing questionnaire, the event whose `/events/{event_id}/questionnaire/{questionnaire_id}` endpoint accepts the submission. If the event it points at can no longer take submissions, the verdict is `application_deadline_passed` with no `next_step`.
+- Holders are **not** gated on a questionnaire attached to an event linked after purchase: extension tickets are issued anyway (see the `ponytail` note in `series_pass_service`).
 
 ---
 
@@ -163,10 +176,12 @@ Per-ticket purchase/confirm/cancel signals early-return for any ticket with `hel
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/event-series/{series_id}` | List a series' visible passes. |
-| `GET` | `/{pass_id}/quote` | Pro-rata quote + purchasability. |
-| `POST` | `/{pass_id}/checkout` | Purchase (JWT). Returns `checkout_url` **xor** `held_pass`; 403/404/409/429. |
+| `GET` | `/{pass_id}/quote` | Pro-rata quote + purchasability. For an authenticated buyer it also carries `questionnaires_missing`, `questionnaire_event_id` and `questionnaire_events` (one `{questionnaire_id, event_id}` per missing questionnaire; a `per_event` one appears once per covered event). |
+| `POST` | `/{pass_id}/checkout` | Purchase (JWT). Free/offline: returns `held_pass`. Online: `requires_payment=true` plus `reservation_id`. 400 carries the eligibility payload (incl. `questionnaire_events`) when an admission questionnaire is missing, pending or failed; 403/404/409/422/429. |
+| `POST` | `/reservations/{reservation_id}/checkout-session` | Second step of online checkout: creates (or reuses) the Stripe session and returns `checkout_url`. |
 | `GET` | `/me` | The caller's passes (paginated). |
 | `GET` | `/me/{held_pass_id}/pdf` · `/pkpass` | Downloads (302 to signed URL; 503 if Wallet unconfigured). |
+| `GET` | `/me/{held_pass_id}/wallet/google` | Redirect to the Google Wallet save link (`?format=json` returns it as JSON; 503 if unconfigured). |
 
 **Admin** — `SeriesPassAdminController` (`/event-series-admin/{series_id}/passes`, requires `edit_event_series`):
 
@@ -188,5 +203,6 @@ Attendee/ticket admin lists accept `?source=pass|direct`, and ticket schemas exp
 
 - [Recurring Series](recurring-series.md) — the `EventSeries` container passes attach to (passes require a *non-recurring* series).
 - [Billing & VAT](billing-and-vat.md) — `distribute_amount_across_items` penny-exact splitting and effective VAT rates.
-- [Eligibility Pipeline](eligibility-pipeline.md) — why series with ADMISSION questionnaires can't sell passes.
+- [Eligibility Pipeline](eligibility-pipeline.md) — the event gates and tier-level purchase rules a pass purchase mirrors, including the admission questionnaires it requires.
+- [Member Register & Day Memberships](member-register.md) — day memberships granted by pass tickets.
 - [Notifications](notifications.md) — multi-channel dispatch for the three pass-level types.

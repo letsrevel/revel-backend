@@ -66,7 +66,8 @@ Revel is an event management and ticketing platform designed with community at i
 | **API** | Django Ninja + Django Ninja Extra |
 | **Database** | PostgreSQL with PostGIS |
 | **Async Tasks** | Celery with Redis |
-| **Auth** | JWT (custom user model) |
+| **Auth** | JWT (custom user model), OIDC login, OAuth 2.1 / OIDC provider |
+| **Payments** | Stripe Connect (direct charges), Apple and Google Wallet passes |
 | **Observability** | Loki, Grafana, Tempo, Prometheus, Pyroscope |
 | **Deployment** | Docker / Docker Compose |
 | **Deps** | UV (never pip) |

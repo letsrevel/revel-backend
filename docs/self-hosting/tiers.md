@@ -147,6 +147,82 @@ needs credentials from an identity provider to do anything (the opt-in rule is e
   queue. Set `False` (and drop the `observability` profile) on Slim. Legacy alias:
   `ENABLE_OBSERVABILITY` (deprecated). See [Observability](observability.md).
 
+### Bot protection (Cloudflare Turnstile)
+
+Optional. Turnstile guards registration, guest RSVP and guest checkout. It is on only when **both**
+keys are set; with one of them set, Revel logs a warning and leaves it off (so a typo cannot block
+every signup). `GET /api/version` exposes the site key so the frontend renders the widget.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `TURNSTILE_SITE_KEY` | empty | Public widget key |
+| `TURNSTILE_SECRET_KEY` | empty | Server-side verification secret |
+| `CLOUDFLARE_ACCOUNT_ID` | empty | Only for keeping custom domains in the widget's hostname allowlist automatically. Needs this, `CLOUDFLARE_API_TOKEN` (with the account-level *Turnstile Sites: Edit* permission) and `TURNSTILE_SITE_KEY` |
+| `TURNSTILE_WIDGET_HOSTNAME_LIMIT` | `10` | Hostnames one widget can hold (10 on the Free plan, 200 on Enterprise); `0` turns the capacity check off |
+| `CUSTOM_DOMAIN_LIMIT` | `9` | Platform-wide cap on live custom domains; `0` is unlimited |
+
+### Secrets and key rotation
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SECRET_KEY` | required | Signs JWTs and Django tokens, and keys encrypted fields |
+| `SALT_KEY` | required | Salt for encrypted database columns |
+| `SECRET_KEY_FALLBACKS` | empty | Previous secret keys, newest first, comma-separated. Still accepted for verification and decryption |
+| `SALT_KEY_FALLBACKS` | empty | Previous salts, newest first. The first `SALT_KEY` encrypts, the rest only decrypt |
+| `UNSUBSCRIBE_SIGNING_KEYS` | empty | Dedicated keys for unsubscribe links, newest first. Empty falls back to `SECRET_KEY` (+ fallbacks) |
+
+!!! danger "Back up `SECRET_KEY` and `SALT_KEY`"
+    Encrypted columns are unreadable without them, and changing either one **without** listing the
+    old value in the matching `*_FALLBACKS` breaks those columns permanently. Rotate in two phases
+    (introduce the new key as a fallback, then promote it), then run
+    `python manage.py rotate_encrypted_fields` (`--dry-run` first, then `--verify`) before dropping
+    a fallback. Steps and pitfalls: [Key rotation](../engineering-notes.md#key-rotation-secret_key-salt_key)
+    and [Auth & Sessions](../architecture/auth-sessions.md).
+
+### Sessions and token lifetimes
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ACCESS_TOKEN_LIFETIME_HOURS` | `1` | Access token lifetime |
+| `REFRESH_TOKEN_LIFETIME_DAYS` | `30` | Refresh token lifetime |
+| `REFRESH_TOKEN_REUSE_GRACE_SECONDS` | `30` | A refresh token presented again within this window after its rotation gets one fresh pair (`0` is strict, no grace) |
+| `VERIFY_TOKEN_LIFETIME_MINUTES` | `15` | Validity of emailed verification and reset links |
+
+### Admin alerts
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PUSHOVER_USER_KEY`, `PUSHOVER_APP_TOKEN` | unset | Push alerts to platform admins via Pushover |
+| `DISCORD_ADMIN_WEBHOOK_URL` | unset | Post the same admin alerts to a Discord channel |
+
+The daily admin recap runs at 09:00 Europe/Vienna and sends nothing when no channel is configured.
+
+### Payments (Stripe)
+
+Stripe stays optional; the variables below matter once you sell tickets or memberships.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `STRIPE_SECRET_KEY` | placeholder | API secret key |
+| `STRIPE_WEBHOOK_SECRETS` | empty | Comma-separated `whsec_` secrets, one per webhook endpoint (for example platform and Connect); each is tried in turn. Falls back to the legacy single `STRIPE_WEBHOOK_SECRET` |
+| `STRIPE_ACCOUNT` | placeholder | The platform's own Stripe account id. An organization that sells tickets must use a different account |
+| `STRIPE_API_VERSION` | pinned in `settings/stripe.py` | API version for outbound calls and provisioned webhooks |
+| `DEFAULT_PLATFORM_FEE_PERCENT`, `DEFAULT_PLATFORM_FEE_FIXED` | `1.50`, `0.25` | Default per-organization platform fee (percent plus fixed amount) |
+| `DEFAULT_CURRENCY` | `EUR` | Default currency |
+| `PAYMENT_DEFAULT_EXPIRY_MINUTES` | `45` | How long an unpaid online payment stays open once the Stripe session exists (Stripe's minimum is 30) |
+| `RESERVATION_HOLD_MINUTES` | `15` | Short hold on a checkout reservation that has not reached Stripe yet; abandoned reservations free capacity after this |
+
+### Proxy, hosts and housekeeping
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ALLOWED_HOSTS` | `localhost,127.0.0.1,host.docker.internal` | Comma-separated hostnames Django serves; include `API_DOMAIN` |
+| `CORS_ALLOWED_ORIGINS` | empty | Comma-separated browser origins allowed to call the API (your frontend origin). Empty allows none when `DEBUG` is off |
+| `TRUST_X_FORWARDED_PROTO` | on when `DEBUG` is off | Trust the proxy's `X-Forwarded-Proto`. Set `False` only if Django is exposed without a proxy that overwrites the header |
+| `NUM_PROXIES` | `1` | Trusted reverse-proxy hops for client-IP detection in throttling. Leave at `1` behind Caddy; see [Rate limit 429s](../runbooks/rate-limit-429s.md) |
+| `ADMIN_URL` | `admin/` | Path of the Django admin; change it to move the login page |
+| `NOTIFICATION_RETENTION_DAYS` | `90` | How long in-app notifications are kept |
+
 ### External listing platforms (Eventbrite)
 
 | Variable | Purpose |

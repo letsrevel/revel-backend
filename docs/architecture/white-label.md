@@ -19,7 +19,7 @@ and no tenant column on other tables.
 | Domain lifecycle | `events/service/custom_domain_service.py` |
 | Cloudflare client, ownership TXT lookup (`txt_record_published`) | `events/service/cloudflare_custom_hostnames.py` |
 | Tenant resolution, cache, return host | `events/service/tenant_service.py` |
-| Tenant session binding and revocation | `accounts/service/tenant_session.py`, `accounts/controllers/auth.py` (login stamping, `/auth/refresh`), `common/auth_base.py` (`register_session_validator`, `SessionRevoked`), `common/authentication.py` (`OptionalAuth`), registered in `accounts/apps.py` |
+| Tenant session binding and revocation | `accounts/service/tenant_session.py`, `accounts/service/token_refresh.py` (rotation, grace, lineage logout), `accounts/controllers/auth.py` (login stamping, `/auth/refresh`, `/auth/logout`), `common/auth_base.py` (`register_session_validator`, `SessionRevoked`), `common/authentication.py` (`OptionalAuth`), registered in `accounts/apps.py` |
 | Turnstile widget client and hostname reconciliation | `events/service/cloudflare_turnstile.py`, `events/service/turnstile_hostname_service.py` |
 | Sync task, problem alerts, org-delete cleanup, Turnstile reconcile | `events/tasks/custom_domains.py` (`events.sync_custom_domains`, `events.notify_custom_domain_problem`, `events.delete_organization_cloudflare_hostnames`, `events.reconcile_turnstile_hostnames`, `events.notify_turnstile_sync_problem`) |
 | Guest seat-hold session (cookie and header) | `events/service/guest_hold_session.py` |
@@ -120,7 +120,7 @@ costs no query and negative answers are cached for `NEGATIVE_TTL` like any other
 normalized and length-checked before the cache or the database is touched.
 
 It is **deliberately unthrottled**. Every ask arrives from the one proxy IP, so under the anonymous
-throttle (250 per day per IP) junk SNI handshakes could use up the budget and block certificates for
+throttle (`AnonDefaultThrottle`, 150 per minute per IP) junk SNI handshakes could use up the budget and block certificates for
 real tenants. It stays safe without one: it is a cache lookup, it needs no credentials, and it
 reveals nothing beyond the status code, which is what `by-domain` already tells anyone (whether a
 hostname is an active tenant). It is excluded from the OpenAPI schema, since only Caddy calls it.
@@ -336,7 +336,8 @@ there and how long a problem lives:
   refresh answers 401 and blacklists the refresh token. The access-token check is a validator that
   `accounts` registers on `common.auth_base` from `AccountsConfig.ready` (so `common` stays
   app-agnostic); a refusal raises `SessionRevoked`, a 401 that `OptionalAuth` alone turns into an
-  anonymous request. The refresh additionally rejects a session
+  anonymous request. Rotation carries `tenant_host` and `tenant_session_iat` forward, and it takes the
+  user-row lock, so the domain is re-checked just before a new token is issued. The refresh additionally rejects a session
   issued before the domain's current `verified_at`, which kills sessions that predate a
   re-activation or a re-claim of the hostname. Switching the kill switch back **on** (in
   `OrganizationAdmin.save_model`) also moves `verified_at` to now
@@ -347,6 +348,13 @@ there and how long a problem lives:
   upgrade path if that ever matters. Access tokens skip that second comparison, because
   the cached tenant resolution holds no timestamp and it would cost a query per request; such a
   token lives at most one access-token lifetime and cannot be refreshed.
+- **Logout ends one login.** `POST /api/auth/logout` revokes the presented refresh token and every
+  token rotated from it (the lineage, identified by the `sid` claim), and nothing else: the user's
+  other browsers and devices stay signed in. Rotation records each token it issues as an
+  `OutstandingToken`, so a password reset, a global ban or `blacklist_user_tokens` reaches refreshed
+  sessions too. A just-rotated token can be exchanged once more for `REFRESH_TOKEN_REUSE_GRACE_SECONDS`
+  (default 30), which absorbs a lost response or two racing tabs; a revoked lineage can never be revived
+  that way. Details in [Authentication & Sessions](auth-sessions.md).
 - **`moved` fails an ACTIVE domain at once.** When Cloudflare reports the hostname `moved`, the
   DNS no longer points at Revel, so the domain is not serving our site anyway; the sync marks it
   FAILED, which revokes its sessions as above and alerts staff (`custom_domain_active_failed`).
@@ -500,7 +508,7 @@ domain in the Django cache: 1 hour for a completed lookup, 5 minutes when the lo
 owner's refresh endpoint calls it on demand. Without Cloudflare configured nothing is provisioned
 and the task is a no-op; staff activate by hand.
 
-**Hostname release** (#1168). A PENDING or FAILED row reserves its hostname against every other
+<a id="hostname-release"></a>**Hostname release** (#1168). A PENDING or FAILED row reserves its hostname against every other
 organization, so the sweep (`events.sync_custom_domains`) ends both, with two service functions the task
 calls after the Cloudflare sync, whether or not Cloudflare is configured. The uniqueness constraint is
 unchanged. Both skip organizations with the kill switch off, as the sync does, and isolate errors per domain.
@@ -564,8 +572,8 @@ each hostname best effort (404 means gone, other failures log
 `custom_domain_orphaned_cloudflare_hostname`, no Cloudflare configuration is a logged skip), so
 deletion never waits on or fails because of Cloudflare.
 
-**Turnstile hostname automation.** Signup on a custom domain needs its hostname on the Turnstile
-widget's allowlist (a listed hostname covers its subdomains). `turnstile_hostname_service` reconciles
+**Turnstile hostname automation.** Signup, guest RSVP and guest checkout on a custom domain all verify a Turnstile token, so the hostname must be on the Turnstile
+widget's allowlist for each of them (a listed hostname covers its subdomains). `turnstile_hostname_service` reconciles
 the list: desired = every current entry that is not a Revel-managed hostname (the hostname of any
 `OrganizationDomain` row, in any status, so platform entries survive) plus the hostnames of ACTIVE
 domains of organizations with the kill switch on. It reads the widget (`GET`
@@ -726,4 +734,5 @@ See also [Demo & Seeding](../guides/demo-and-seeding.md#white-label-tenant-fixtu
 - [Organizer guide](../guides/white-label/organizers.md) and [operator guide](../guides/white-label/operators.md)
 - [Email Sending & Opt-Out](email-sending.md): sender identity for tenants
 - [Engineering notes](../engineering-notes.md): Stripe session idempotency (`idempotency_key=reservation_id`)
+- [Authentication & Sessions](auth-sessions.md): token lineage, logout, reuse grace and Turnstile
 - [Protected Files](protected-files.md): media served by Caddy, whose CORS header comes from the dynamic CORS answer above

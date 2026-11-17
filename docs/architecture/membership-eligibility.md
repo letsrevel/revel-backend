@@ -36,7 +36,7 @@ flowchart TD
 
     G4{"4. AlreadyMemberGate<br/>Existing membership / subscription?"}
     G4 -->|"ACTIVE at target tier"| Allowed1([Allowed: already_member])
-    G4 -->|"PAUSED at target tier"| Rejected3([Rejected: membership_paused])
+    G4 -->|"PAUSED at any tier"| Rejected3([Rejected: membership_paused])
     G4 -->|"Free apply + live subscription"| Rejected3b([Rejected: duplicate_active_subscription])
     G4 -->|"No conflict"| G5
 
@@ -51,7 +51,7 @@ flowchart TD
 
     G7{"7. ApplicationStatusGate<br/>Latest application REJECTED?"}
     G7 -->|"No"| G8
-    G7 -->|"Yes"| Rejected6([Rejected: application_rejected → reapply])
+    G7 -->|"Yes"| Rejected6([Rejected: application_rejected → reapply<br/>or the terminal questionnaire verdict])
 
     G8{"8. MembershipQuestionnaireGate<br/>Resolved questionnaire passed?"}
     G8 -->|"Passed / None required / Member exempt"| G9
@@ -64,8 +64,9 @@ flowchart TD
     G10{"10. PaymentReadyGate<br/>Plan-bearing application?"}
     G10 -->|"No plan"| Eligible
     G10 -->|"Plan payable, approval satisfied"| Allowed2([Allowed: proceed_to_payment])
+    G10 -->|"Never-paid OFFLINE subscription on this plan"| Rejected9b([Rejected: awaiting_offline_payment → wait_for_offline_payment])
     G10 -->|"Approval required, nothing on file"| Rejected9([Rejected: requires_approval → submit_application])
-    G10 -->|"Offline / not on sale / at cap /<br/>online but org not Stripe-ready / duplicate subscription"| Rejected10([Rejected: plan_not_online · plan_unavailable ·<br/>org_not_stripe_connected · duplicate_active_subscription])
+    G10 -->|"Not on sale / at cap /<br/>online but org not Stripe-ready / duplicate subscription"| Rejected10([Rejected: plan_unavailable ·<br/>org_not_stripe_connected · duplicate_active_subscription])
 
     style Eligible fill:#2e7d32,color:#fff
     style Allowed1 fill:#2e7d32,color:#fff
@@ -81,6 +82,7 @@ flowchart TD
     style Rejected7 fill:#c62828,color:#fff
     style Rejected8 fill:#c62828,color:#fff
     style Rejected9 fill:#c62828,color:#fff
+    style Rejected9b fill:#c62828,color:#fff
 ```
 
 ## Gate Details
@@ -130,7 +132,8 @@ Inspects the user's existing memberships and subscriptions in the organization:
 
 - **Free-apply bypass guard**: when applying via the free path (`plan is None`) while holding any **non-terminal `MembershipSubscription`** in the org, blocks with `DUPLICATE_ACTIVE_SUBSCRIPTION` — a user must not clobber their paid membership through the free flow.
 - **ACTIVE membership at the target tier** → *allows* early with `next_step=ALREADY_MEMBER` (the only allowing verdict that carries a `next_step`).
-- **PAUSED membership at the target tier** → blocks with `MEMBERSHIP_PAUSED` and no `next_step`. PAUSED is admin/Stripe-imposed; the user must contact the organization to resume.
+- **PAUSED membership at *any* tier** → blocks with `MEMBERSHIP_PAUSED` and no `next_step`. `OrganizationMember` is unique per (org, user), so a tier-scoped check would let a paused member un-pause themselves by applying at another tier. PAUSED is admin/Stripe-imposed; the user must contact the organization to resume.
+- **Tier-less application** (`tier is None`, the legacy staff-approval path) from an already-ACTIVE member → *allows* with `ALREADY_MEMBER`, so such a row is not left `PENDING` for staff to approve and overwrite the member's tier.
 - **ACTIVE membership at a different tier** falls through, so subsequent gates can re-gate tier upgrades.
 
 **Source:** `events/service/membership_manager/gates.py`: `AlreadyMemberGate`
@@ -152,6 +155,7 @@ Sanity-checks the target tier and (optional) plan:
 - The tier must belong to this organization → otherwise `TIER_UNAVAILABLE`.
 - **Free apply (`plan is None`) against a monetized tier** — one that carries at least one active subscription plan — blocks with `TIER_REQUIRES_SUBSCRIPTION`. A free `/apply` must not hand out a paid tier's benefits without payment; the user is directed to subscribe to a plan instead.
 - When a plan **is** supplied: it must be `is_active` and belong to the target tier → otherwise `PLAN_UNAVAILABLE`. Plan-bearing applications fall through to `PaymentReadyGate`.
+- **Temporary (day-membership) tiers** cannot be applied for and have no plans: the `/join-eligibility` and `/apply` controllers resolve tiers through `MembershipTier.objects.standard()`, so a temporary tier id is a 404 like an unknown one (see [Member Register & Day Memberships](member-register.md)).
 
 **Source:** `events/service/membership_manager/gates.py`: `TierAvailabilityGate`
 
@@ -162,6 +166,8 @@ Sanity-checks the target tier and (optional) plan:
 Blocks when the user's **most recent** application for this (org, tier) is `REJECTED`, with reason `APPLICATION_REJECTED` and `next_step=REAPPLY`.
 
 `REJECTED` is terminal for the **row**, not for the user: a fresh `POST /apply` creates a new `PENDING` row (the partial unique constraint only forbids duplicate `PENDING` rows), and since this gate only inspects the *latest* application per tier, the new `PENDING` row supersedes the old `REJECTED` one and the gates evaluate the fresh attempt from scratch.
+
+Before offering `REAPPLY` the gate **re-evaluates the questionnaire gate** (#8). If that returns a terminal verdict (`TERMINAL_REJECTION_CODES`, i.e. attempts exhausted), the gate returns that verdict with `next_step=None` and the application id instead: a fresh row would be auto-rejected (and re-notified) on its first read, an unbounded junk-row and notification loop. The `/apply` pre-gate then answers 403.
 
 !!! info "Permanently blocking a user"
     Organizations that want to permanently keep someone out must **blacklist** them —
@@ -216,16 +222,18 @@ When the resolved manual-approval policy is on (tier-level `requires_membership_
 
 ### 10. PaymentReadyGate
 
-The final pre-payment readiness check. A no-op when no plan is supplied. A plan-bearing check that survives every prior gate ends here in an **allowing** `PROCEED_TO_PAYMENT` verdict — `POST /subscribe` acts on it, opening Stripe Checkout for an ONLINE plan or activating a FREE one outright (null `checkout_url`).
+The final pre-payment readiness check. A no-op when no plan is supplied. A plan-bearing check that survives every prior gate ends here in an **allowing** `PROCEED_TO_PAYMENT` verdict — `POST /subscribe` acts on it, opening Stripe Checkout for an ONLINE plan, activating a FREE one outright (null `checkout_url`), or opening the awaiting-payment subscription of an OFFLINE one (null `checkout_url`, PENDING subscription).
 
-**FREE plans** (#832) are self-serve like ONLINE ones but involve no Stripe object at all, so they carve out of the first two blocks below: neither `plan_not_online` nor `org_not_stripe_connected` applies to them. Everything else — sales status, cap, duplicate subscription, the approval annotation — is enforced identically. They keep the `proceed_to_payment` next step: the frontend calls the same `POST /subscribe`, which answers with a null `checkout_url` and an already-ACTIVE subscription.
+**OFFLINE plans** are joinable since v2.38.0: they skip the Stripe-connected requirement and otherwise follow the same checks. The membership starts when staff record the first payment (see [Offline join flow](membership-subscriptions.md#offline-join-flow)).
+
+**FREE plans** (#832) are self-serve like ONLINE ones but involve no Stripe object at all, so `org_not_stripe_connected` doesn't apply to them. Everything else — sales status, cap, duplicate subscription, the approval annotation — is enforced identically. They keep the `proceed_to_payment` next step: the frontend calls the same `POST /subscribe`, which answers with a null `checkout_url` and an already-ACTIVE subscription.
 
 Blocks, in order:
 
 | Condition | Reason code | next_step |
 |---|---|---|
-| Approval required but no application on file (`ManualApprovalGate`'s fall-through annotation) | `requires_approval` | `submit_application` — create the application first so staff have something to approve |
-| Plan is OFFLINE (staff-managed — no member-facing way to pay) | `plan_not_online` | — |
+| OFFLINE plan and the caller already holds a never-paid (PENDING) subscription on it. Checked **first**, so the caller's own cap slot or a sales pause never hides it | `awaiting_offline_payment` | `wait_for_offline_payment` (+ `application_id` when the linked application is the current one) |
+| Approval required but no application on file (`ManualApprovalGate`'s fall-through annotation), or (OFFLINE) the approved application's linked subscription is already terminal and approval is still required | `requires_approval` | `submit_application` — create the application first so staff have something to approve |
 | Plan is ONLINE **and** org not Stripe-connected | `org_not_stripe_connected` | — |
 | Plan `sales_status` ≠ OPEN, or at its `max_subscriptions` cap | `plan_unavailable` | — |
 | Caller already holds a non-terminal subscription in the org | `duplicate_active_subscription` | — (`/subscribe` deliberately lets this one fall through to the subscription machinery, which resumes a pending checkout with a 409 instead of dead-ending) |
@@ -249,7 +257,7 @@ class MembershipEligibility(BaseModel):
     next_step: MembershipNextStep | None = None
     questionnaire_id: uuid.UUID | None = None
     application_id: uuid.UUID | None = None
-    retry_on: datetime.datetime | None = None
+    retry_on: AwareDatetime | None = None
 ```
 
 | Field | Type | Description |
@@ -263,7 +271,7 @@ class MembershipEligibility(BaseModel):
 | `next_step` | `MembershipNextStep \| None` | Suggested action to make progress |
 | `questionnaire_id` | `UUID \| None` | The questionnaire to submit / being evaluated |
 | `application_id` | `UUID \| None` | The application row to poll (injected by `/apply` and `GET /applications/{id}`) |
-| `retry_on` | `datetime \| None` | When a failed questionnaire can be retaken |
+| `retry_on` | `AwareDatetime \| None` | When a failed questionnaire can be retaken |
 
 !!! note
     Unlike the event pipeline, `allowed=True` can carry a `next_step`
@@ -285,7 +293,8 @@ All possible `MembershipNextStep` values and when they are returned:
 | `wait_for_whitelist_approval` | BlacklistGate | Fuzzy-matched, whitelist request pending |
 | `requires_invitation` | BlacklistGate, AcceptRequestsGate | Verification needed, or org not accepting requests — join via invitation/whitelist flow |
 | `submit_application` | PaymentReadyGate | Plan-bearing check on an approval-gated tier with no application on file — `POST /apply` first |
-| `proceed_to_payment` | PaymentReadyGate | Plan-bearing check passed every gate (allowing verdict) — `POST /subscribe` opens Checkout (ONLINE) or activates immediately with a null `checkout_url` (FREE) |
+| `proceed_to_payment` | PaymentReadyGate | Plan-bearing check passed every gate (allowing verdict) — `POST /subscribe` opens Checkout (ONLINE), opens the awaiting-payment subscription (OFFLINE) or activates immediately (FREE); the latter two return a null `checkout_url` |
+| `wait_for_offline_payment` | PaymentReadyGate | The caller has a never-paid OFFLINE subscription on this plan; the membership starts when the organization records the payment |
 | `already_member` | AlreadyMemberGate | ACTIVE membership at the target tier (allowing verdict) |
 | `reapply` | ApplicationStatusGate | Latest application was rejected; a fresh `POST /apply` starts over |
 
@@ -314,7 +323,8 @@ As in the event pipeline, reasons are emitted in two forms: `reason` (translated
 | `membership_questionnaire_retake_cooldown` | "Membership questionnaire evaluation was insufficient. You can try again later." |
 | `membership_questionnaire_attempts_exhausted` | "You have reached the maximum number of attempts." |
 | `requires_approval` | "Your application is awaiting staff approval." |
-| `plan_not_online` | "This plan is not configured for online checkout." |
+| `awaiting_offline_payment` | "Your membership starts once the organization confirms your payment." |
+| `plan_not_online` | "This plan is not configured for online checkout." (no longer emitted since OFFLINE plans became joinable; kept for API and client compatibility) |
 | `org_not_stripe_connected` | "This organization cannot accept online payments yet." |
 | `duplicate_active_subscription` | "You already have an active subscription in this organization." |
 | `membership_paused` | "Your membership at this tier is paused. Contact the organization to resume." |
@@ -328,10 +338,10 @@ Applications are `OrganizationMembershipRequest` rows with five statuses:
 | Status | Meaning | Terminal? |
 |---|---|---|
 | `PENDING` | Gates still blocking on a recoverable condition, or awaiting staff | No |
-| `APPROVED` | A **plan-bearing** application passed the gates (or was staff-approved); awaiting the member's payment via `/subscribe`. Swept to `CANCELLED` after 30 unpaid days (`events.expire_stale_approved_applications`) | No |
+| `APPROVED` | A **plan-bearing** application passed the gates (or was staff-approved); awaiting the member's payment — via `/subscribe` (ONLINE) or a payment recorded by staff (OFFLINE). Swept to `CANCELLED` after 30 unpaid days (`events.expire_stale_approved_applications`; the linked never-paid OFFLINE subscription is swept by `events.expire_unpaid_offline_subscriptions`) | No |
 | `REJECTED` | Terminal questionnaire failure observed on read, or staff rejected | Yes |
 | `CANCELLED` | User cancelled their own application | Yes |
-| `COMPLETED` | Membership materialized (free path) | Yes |
+| `COMPLETED` | Membership materialized (free path), or the first payment settled (Stripe activation / recorded offline payment) | Yes |
 
 A **partial unique index** (`unique_pending_application_per_user_org_tier`, with `nulls_distinct=False`) enforces at most one `PENDING` application per `(organization, user, tier)` — including the tier-less (`NULL`) legacy case. Terminal rows are excluded, which is precisely what makes re-applying after rejection possible.
 
@@ -346,7 +356,7 @@ stateDiagram-v2
     PENDING --> REJECTED: terminal reason_code on read<br/>or staff rejects
     PENDING --> CANCELLED: user cancels
     APPROVED --> CANCELLED: user cancels
-    APPROVED --> COMPLETED: /subscribe → Stripe activation settles
+    APPROVED --> COMPLETED: Stripe activation or first recorded<br/>offline payment settles
 
     COMPLETED --> [*]
     REJECTED --> [*]
@@ -362,18 +372,17 @@ stateDiagram-v2
 3. **Terminal rows never advance** — `REJECTED` / `CANCELLED` / `COMPLETED` return a fresh eligibility verdict for the response payload but perform no mutation.
 4. **`PENDING` + `allowed=True`** advances:
     - tier set, no plan → `_complete_free_application()`: `OrganizationMember` created/updated to `ACTIVE` at the tier, row → `COMPLETED`.
-    - plan set → row → `APPROVED` (awaiting payment via `/subscribe`; the Stripe activation settles it `COMPLETED`).
+    - ONLINE plan set → row → `APPROVED` (awaiting payment via `/subscribe`; the Stripe activation settles it `COMPLETED`).
+    - OFFLINE plan set and the verdict is `PROCEED_TO_PAYMENT` → `open_offline_subscription` opens the awaiting-payment subscription, links it to the row (`_link_and_approve`) and approves it; the verdict is recomputed so the caller sees `wait_for_offline_payment`. The first recorded payment settles the row `COMPLETED`. Nobody "accepted" anything here (approval is off), so the payment request omits the "accepted your application" lead.
     - tier-less and plan-less → stays `PENDING` (legacy path; staff assigns a tier at approval).
 5. **`PENDING` + blocked** auto-rejects **only** when `reason_code` is in the explicit terminal allowlist:
 
 ```python
-TERMINAL_REJECTION_CODES: t.Final[frozenset[ReasonCode]] = frozenset(
+TERMINAL_REJECTION_CODES: t.Final[frozenset[MembershipReasonCode]] = frozenset(
     {
-        # No longer emitted by the questionnaire gate (NULL cooldown = retake now); kept for API compatibility.
-        ReasonCode.MEMBERSHIP_QUESTIONNAIRE_FAILED,
         # A user at the attempts cap can never satisfy the questionnaire gate again,
         # whatever the retake policy says — as terminal as an outright failure.
-        ReasonCode.MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED,
+        MembershipReasonCode.MEMBERSHIP_QUESTIONNAIRE_ATTEMPTS_EXHAUSTED,
     }
 )
 ```
@@ -397,7 +406,8 @@ TERMINAL_REJECTION_CODES: t.Final[frozenset[ReasonCode]] = frozenset(
 `approve_membership_request()` (`events/service/organization_service/membership.py`) uses the application's pre-set tier, or requires the staff caller to pass one (tier-less legacy applications):
 
 - **No plan** → row → `COMPLETED`, `OrganizationMember` created/updated `ACTIVE` at the tier, `MEMBERSHIP_REQUEST_APPROVED` notification on commit.
-- **Plan-bearing** → row → `APPROVED`; the member then calls `POST /subscribe`, which re-runs the gates, opens Stripe Checkout, and links the created subscription to the application (`application.subscription`). No membership is granted yet — `_ensure_active_member` mints it on the first Stripe activation and settles the application `COMPLETED` in the same funnel.
+- **Plan-bearing ONLINE** → row → `APPROVED`; the member then calls `POST /subscribe`, which re-runs the gates, opens Stripe Checkout, and links the created subscription to the application (`application.subscription`). No membership is granted yet — `_ensure_active_member` mints it on the first Stripe activation and settles the application `COMPLETED` in the same funnel. The applicant gets `MEMBERSHIP_REQUEST_APPROVED` pointing at the org's membership page.
+- **Plan-bearing OFFLINE** → `_approve_paid_application` calls `open_offline_subscription` (capacity/sales refusals raise 400 and leave the application `PENDING`), which links the new PENDING subscription and holds the member as `AWAITING_PAYMENT`; the row → `APPROVED`. The applicant is told by `MEMBERSHIP_PAYMENT_REQUESTED` instead of `MEMBERSHIP_REQUEST_APPROVED`, and the first payment staff record settles the row `COMPLETED`.
 
 ---
 
@@ -408,7 +418,7 @@ All member-facing routes live on `MeMembershipApplicationsController` (`events/c
 | Method & Path | Purpose |
 |---|---|
 | `GET /api/me/organizations/{slug}/join-eligibility?tier_id=&plan_id=` | Pure preview — runs the gates with **no side effects**; drives the join CTA |
-| `POST /api/me/organizations/{slug}/apply` | Create or refresh an application; returns `201` with `{application, eligibility}` |
+| `POST /api/me/organizations/{slug}/apply` | Create or refresh an application; returns `201` with `{application, eligibility}`, `200` with the existing application while an offline payment is awaited, or `409` (see below) |
 | `GET /api/me/applications/{id}` | Poll one application — **advances state on read** |
 | `GET /api/me/applications` | Paginated list of the caller's applications across orgs |
 | `POST /api/me/applications/{id}/cancel` | Cancel own `PENDING`/`APPROVED` application; idempotent on terminal rows |
@@ -430,6 +440,9 @@ Both `GET /join-eligibility` and `POST /apply` resolve the organization through 
 Recoverable blocks (questionnaire pending, manual approval, whitelist pending) **do** create the row — it is exactly the polling record that drives advance-on-read. A `REJECTED`-latest-row verdict carries `next_step=REAPPLY` and likewise passes the pre-gate: the fresh `PENDING` row supersedes the rejected one.
 
 Additional `/apply` behavior:
+
+- **409 `ApplyConflictSchema`** (`detail`, `reason_code`, `next_step`) when there is nothing to apply for: `reason_code=already_active_member` with `next_step=already_member` (an ACTIVE membership at the target tier; `ALREADY_MEMBER` is an allowing verdict, but a row would only be a junk `PENDING` application that blocks tier deletion), and `reason_code=awaiting_offline_payment` with `next_step=wait_for_offline_payment` when the caller holds an awaiting-payment subscription that no application is linked to. When a linked application exists the endpoint returns it with `200` instead, creating no new row and sending no staff notification.
+- The application schema (`MembershipApplicationSchema`) carries the requested `plan` and the linked `subscription_status`; the staff request schema carries `plan`.
 
 - **`plan_id`** (optional) makes it a paid application: the tier is derived from the plan when `tier_id` is omitted, the row records the target plan, and a re-`POST` with a different plan repoints the `PENDING` row.
 - **Idempotent**: a re-`POST` while a `PENDING` row exists re-runs the gates against the existing row (and may advance it); a concurrent duplicate insert caught by the partial unique index fetches the winner instead of erroring.

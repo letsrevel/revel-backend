@@ -26,8 +26,13 @@ src/moderation/
     ├── en.txt
     ├── de.txt
     ├── it.txt
-    └── fr.txt
+    ├── fr.txt
+    ├── es.txt
+    └── pt.txt
 ```
+
+!!! warning "Current state: the guard blocks nothing"
+    All six wordlist files currently contain only a header comment and no terms, so `load_blocklist()` returns an empty set and `is_blocked()` always returns `False`. The mechanism, the integration points and the tests are in place, but until the lists are populated no name is rejected. Tracked in [#1021](https://github.com/letsrevel/revel-backend/issues/1021).
 
 ## Screening Pipeline
 
@@ -90,7 +95,7 @@ Candidates are:
 
 ### 3. Loading (`loader.py`)
 
-`load_blocklist()` reads all four language files (`en`, `de`, `it`, `fr`), skips blank lines and
+`load_blocklist()` reads all six language files (`en`, `de`, `it`, `fr`, `es`, `pt`), skips blank lines and
 `#` comments, normalizes each term the same way as input, and returns a single
 `frozenset[str]`. The result is memoized with `functools.lru_cache(maxsize=1)`, so the files are
 read once per process.

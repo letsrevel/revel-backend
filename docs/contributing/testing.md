@@ -12,6 +12,23 @@ This guide covers how to write, organize, and run tests.
 | `make test` | Run the full test suite in parallel (`pytest -n auto`) with coverage reporting |
 | `make test-linear` | Run the full test suite sequentially (single process, useful for debugging) |
 | `make test-failed` | Re-run only previously failed tests |
+| `make test-integration` | Run only tests marked `integration` (hit real external services such as an LLM) |
+| `make store-durations` | Refresh `.test_durations`, used by `pytest-split` to balance CI shards (CI also refreshes it weekly) |
+
+All of these depend on `make compilemessages`: `.mo` catalogs are not committed, and the i18n tests
+assert translated strings, so they must be compiled before pytest runs. A bare `pytest` skips that
+step. When `make test` fails, it saves the failures section to `.tests.output`.
+
+Run only the tests that cover the code you changed (for example `uv run pytest src/events/tests/test_x.py`)
+and let CI run the full suite.
+
+### Markers
+
+| Marker | Meaning |
+|---|---|
+| `integration` | Slow tests that hit real external services; excluded from CI's unit shards, run with `make test-integration` |
+| `real_payment_means` | Opts out of the autouse `fetch_payment_means` stub, to test the real function |
+| `einvoice_conformance` | Validates generated Factur-X XML against the CEN rules; needs `python -m euinvoice artifacts fetch`, skipped otherwise. Runs in its own CI job |
 
 !!! tip
 
@@ -159,7 +176,7 @@ coverage.
 
 !!! info "CI Requirement"
 
-    The CI pipeline enforces **90%+ branch coverage** via `--cov-fail-under=90`. Any drop below this threshold
+    The CI pipeline enforces **90%+ branch coverage** in a combined coverage gate job (`coverage combine` across the 4 test shards, then `coverage report --fail-under=90`). Any drop below this threshold
     will cause the pipeline to fail. Local `make test` generates a coverage report but does **not** enforce
     the threshold. You will only see a failure in CI. Use `# pragma: no cover` sparingly and
     only for genuinely unreachable code paths.

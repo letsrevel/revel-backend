@@ -33,8 +33,15 @@ spike can't push password resets into spam.
   List-Unsubscribe=One-Click` (RFC 8058), `Feedback-ID: <slug>:<type>:revel`, and
   `X-Mailin-custom` carrying the delivery (or invitation) and organization ids so provider
   webhooks can be traced back.
-- If the organization can't be resolved, the mail falls back to the system sender without
-  `List-Unsubscribe`.
+- If the organization can't be resolved, the mail falls back to the system sender and the
+  platform unsubscribe headers (below).
+
+**Every email carries a `List-Unsubscribe`.** `send_email` (`common/tasks.py`) adds a fallback
+header pointing at the notification preferences page (`{frontend}/account/notifications`) whenever
+the caller supplied none. Brevo injects its own one-click header into any mail that lacks one, and
+a mail client's "Unsubscribe" click on that header globally blocks the address (#1137). The fallback
+has deliberately **no** `List-Unsubscribe-Post`: clients open the page in a browser instead of
+POSTing silently, so nothing is switched off by the click.
 
 **White-label tenants** get the same org sender for attendee transactional mail
 (`TENANT_ORG_SENDER_TYPES`): `ticket_created`, `ticket_updated`, `ticket_cancelled`, `ticket_refunded`,
@@ -110,9 +117,15 @@ email anyway, so the email delivery is marked failed and the in-app notification
 
 | Types | Why |
 |---|---|
-| `TRANSACTIONAL_TYPES`: `payment_confirmation`, `ticket_created`, `ticket_cancelled`, `ticket_refunded`, and the subscription lifecycle types (`subscription_renewal_succeeded`, `subscription_payment_failed`, `subscription_expired`, `subscription_cancellation_confirmed`, `subscription_revival_checkout`) | Receipts and money or access changes people need to act on |
+| `payment_confirmation`, `ticket_created`, `ticket_cancelled`, `ticket_refunded` | Receipts and ticket changes people need to act on |
+| `subscription_renewal_succeeded`, `subscription_payment_failed`, `subscription_expired`, `subscription_cancellation_confirmed`, `subscription_revival_checkout` | Money or access changes on a subscription |
+| `membership_payment_requested` | An offline-plan membership is awaiting the member's payment |
 | `account_banned` | The user must learn why they lost access |
 | `system_announcement` | Terms of service, privacy policy and platform-wide notices |
+
+`TRANSACTIONAL_TYPES` is a wider set: it also holds the opt-out-able `staff_*` alert types, the
+custom-domain owner types and `staff_payment_disputed`. Those skip the digest but are **not**
+mandatory. Mandatory types get the preferences-page `List-Unsubscribe` with no one-click header.
 
 !!! danger "`system_announcement` is never promotional"
     Because nobody can opt out of it, `system_announcement` is reserved for Terms of Service,
@@ -133,14 +146,26 @@ which the dispatcher, the email channel and the digest all use.
   global fields (silence, channels, digest) and only the fields they submit change. It no longer
   copies the submitted channels onto every type, which used to make a later re-enable ineffective.
   Migration `0028_unpin_unsubscribe_overrides` undoes those old per-type pins.
-- **Digest**: on an hourly, daily or weekly digest, non-mandatory types create the in-app
-  notification now and their email waits for the digest. The digest only contains types the user
+- **Digest**: on an hourly, daily or weekly digest, types that are neither mandatory nor
+  transactional create the in-app notification now and their email waits for the digest. The digest only contains types the user
   may still be emailed, and skips users who silenced everything, turned email off, or whose
-  address is suppressed. Mandatory types never wait for the digest.
+  address is suppressed. Mandatory and transactional types (`MANDATORY_TYPES | TRANSACTIONAL_TYPES`) never wait for the digest.
 
 Unsubscribe tokens last `UNSUBSCRIBE_TOKEN_LIFETIME_DAYS` (default 3650, about ten years), because
 the links must keep working for as long as the mail sits in a mailbox. A token stops working when
 the account's email address changes.
+
+Other emailed link tokens (email verification, password reset, email change confirmation) return
+a `400` with `{"detail": ..., "code": ...}` when refused (`LinkTokenErrorSchema`, raised as
+`LinkTokenError` in `accounts/exceptions.py`). `code` is `invalid_token` or `token_expired`; match
+on it, never on the translated `detail`. The unsubscribe link is the exception: a bad token there
+is a plain `400` with only a `detail` message.
+
+Emails are rendered in the **recipient's language**. Celery workers have no active language, so the
+email channel renders under `translation.override(user.language)`, and account and guest emails
+resolve it with `recipient_language` (`accounts/service/account.py`, `accounts/tasks/email.py`,
+`events/tasks/attendees.py`, #1372). The account-email task takes the language from its `context`
+dict because an email-change confirmation goes to an address that isn't the user's yet.
 
 ## One-click unsubscribe
 

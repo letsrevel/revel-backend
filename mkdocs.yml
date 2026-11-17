@@ -71,9 +71,11 @@ nav:
       - Service Layer: architecture/service-layer.md
       - Controllers: architecture/controllers.md
       - Permissions & Roles: architecture/permissions.md
+      - Authentication & Sessions: architecture/auth-sessions.md
       - Eligibility Pipeline: architecture/eligibility-pipeline.md
       - Membership Eligibility: architecture/membership-eligibility.md
       - Membership Subscriptions: architecture/membership-subscriptions.md
+      - Member Register & Day Memberships: architecture/member-register.md
       - Advanced Waitlist: architecture/waitlist.md
       - Recurring Series: architecture/recurring-series.md
       - Series Passes: architecture/series-passes.md
@@ -89,6 +91,7 @@ nav:
       - Billing & VAT: architecture/billing-and-vat.md
       - Exports: architecture/exports.md
       - Engineering Notes (deep gotchas): engineering-notes.md
+      - Brand Style Guide: brand-style-guide.md
   - Guides:
       - guides/index.md
       - User Journey: guides/user-journey.md
@@ -159,6 +162,13 @@ nav:
       - adr/0009-referral-payout-bounded-contexts.md
       - adr/0010-dependency-compliance.md
       - adr/0011-mo-files-built-not-committed.md
+      - adr/0012-membership-subscriptions-offline-online-hybrid.md
+      - adr/0013-stripe-connect-direct-charges-subscriptions.md
+      - adr/0014-subscription-terminal-states-and-revival.md
+      - adr/0015-reactive-dunning-and-simple-history-audit.md
+      - adr/0016-oidc-relying-party.md
+      - adr/0017-platform-listings-provider-protocol.md
+      - adr/0018-oauth-oidc-provider.md
   - Self-Hosting:
       - Overview: self-hosting/index.md
       - Quickstart: self-hosting/quickstart.md

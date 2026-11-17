@@ -108,10 +108,9 @@ time, missing event for relative mode) to **HTTP 422**.
 
 ## Delivery: background sweeps
 
-Both sweeps live in `src/events/announcement_tasks.py` (split out of `events.tasks` to
-keep that module under the 1000-line limit; the registered task **names** are preserved so
-the beat schedule in migration `0082` keeps working). The worker registers them via
-`EventsConfig.ready` importing the module.
+Both sweeps live in `src/events/tasks/announcements.py` (part of the `events.tasks` package,
+re-exported from `events/tasks/__init__.py`; the registered task **names** are pinned so the
+beat schedule in migration `0082` keeps working).
 
 | Task | Cadence | Purpose |
 |---|---|---|
@@ -209,3 +208,11 @@ Key properties of `resend_to_new_recipients` (`announcement_service.py`):
   service pattern.
 - [Permissions](permissions.md) — the `send_announcements` org permission gates all of
   these endpoints.
+
+!!! note "Per-organization mute"
+    Users who muted the organization ([Email Sending → Per-organization announcement
+    mute](email-sending.md#per-organization-announcement-mute)) are excluded from the recipient
+    count. All three send paths (immediate, scheduled, resend) go through
+    `_deliver_to_recipients`: a muted user gets an `org_announcement` row created already read and
+    never dispatched. That row keeps the announcement readable and is what stops the resend sweep
+    from retrying the user.

@@ -14,8 +14,20 @@ events are disjoint by construction.
 
 | Endpoint | `connect` | Subscribed events | Delivers |
 |---|---|---|---|
-| Platform ("Your account") | `false` | `checkout.session.completed`, `charge.refunded`, `charge.dispute.*`, `payment_intent.canceled` | Events on `STRIPE_ACCOUNT` itself — i.e. the host-bound organization's sales |
-| Connect ("Connected accounts") | `true` | same + `account.updated` | Events on organizations' connected accounts (`event.account` is set) |
+| Platform ("Your account") | `false` | `PLATFORM_EVENTS` (below) | Events on `STRIPE_ACCOUNT` itself — i.e. the host-bound organization's sales and subscriptions |
+| Connect ("Connected accounts") | `true` | `CONNECT_EVENTS` = `PLATFORM_EVENTS` + `account.updated` | Events on organizations' connected accounts (`event.account` is set) |
+
+`PLATFORM_EVENTS` in `provision_stripe_webhooks.py` currently holds:
+
+| Group | Event types |
+|---|---|
+| Checkout and payments | `checkout.session.completed`, `checkout.session.expired` (abandoned membership checkouts free the pending row's cap slot), `payment_intent.canceled` |
+| Refunds and disputes | `charge.refunded`, `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.closed` |
+| Membership subscriptions | `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required` (renewals blocked on SCA/3DS), `subscription_schedule.released` |
+
+Subscriptions live on connected accounts (direct charges), but a host-bound organization routes
+the same events through the platform endpoint, so both endpoints subscribe to them. The command
+is the source of truth: if this table and the tuple differ, the tuple wins.
 
 Both endpoints are pinned to `STRIPE_API_VERSION` — webhook payload shapes
 follow the **endpoint's** pinned version, while outbound call/response shapes
@@ -58,12 +70,18 @@ Rotation = provision a new pair with `--force`, add the new secrets to the CSV
 endpoints in the dashboard and drop their secrets. The event-log dedup
 (`StripeWebhookEvent.event_id` unique) makes the overlap window harmless.
 
+For an already-provisioned pair, use `--sync` instead (see
+[Adding event types to existing endpoints](#adding-event-types-to-existing-endpoints)); it is
+mutually exclusive with `--force`.
+
 !!! tip "Machine-readable output (1.64.0+)"
 
     Pass `--format json` to print **only** a JSON object
     (`{"platform": {"id", "secret"}, "connect": {"id", "secret"}}`) instead of the
     human-readable secrets block — for scripted self-hosted setup (e.g. `setup.sh`).
-    It cannot be combined with `--dry-run`.
+    It cannot be combined with plain `--dry-run`. With `--sync`, `--format json` prints the
+    diff (`{"platform": {...}, "connect": {...}, "dry_run": bool}`, each with `id`, `basis`,
+    `added`, `removed`), and `--dry-run` is allowed.
 
 ## Host-as-org binding
 

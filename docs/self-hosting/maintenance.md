@@ -30,6 +30,18 @@ schema migrations have run, then load the dump.
     A backup you have never restored is a hope, not a backup. Periodically restore a dump into a
     throwaway database and confirm it loads cleanly.
 
+## Back up your secrets
+
+Alongside every database dump, keep an offline copy of `SECRET_KEY` and `SALT_KEY` (and any
+`*_FALLBACKS`) from `.env`. Encrypted database columns are unreadable without them, so a dump
+restored under different keys loses that data.
+
+To rotate them safely, follow the two-phase procedure in
+[Key rotation](../engineering-notes.md#key-rotation-secret_key-salt_key) (see also
+[Auth & Sessions](../architecture/auth-sessions.md)), then run
+`docker compose exec web python manage.py rotate_encrypted_fields --verify` before dropping any
+fallback. Never just replace the value in `.env`.
+
 ## Upgrades
 
 ```bash

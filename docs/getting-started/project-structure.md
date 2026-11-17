@@ -12,13 +12,18 @@ revel-backend/
 │   ├── events/             # Core event management app
 │   ├── questionnaires/     # Dynamic questionnaires app
 │   ├── notifications/      # Multi-channel notifications app
-│   ├── polls/              # Organization-managed polls (1.58.0)
+│   ├── polls/              # Organization-managed polls
 │   ├── wallet/             # Apple Wallet and Google Wallet passes
 │   ├── geo/                # Geolocation app
 │   ├── telegram/           # Telegram bot app
-│   ├── moderation/         # Content moderation / blocklists (1.64.0)
+│   ├── moderation/         # Content moderation / blocklists
+│   ├── oauth/              # OAuth 2.0 / OIDC provider (ADR-0018)
+│   ├── integrations/       # Third-party platform listings (ADR-0017)
 │   ├── api/                # Global API configuration
-│   └── common/             # Shared utilities
+│   ├── common/             # Shared utilities
+│   ├── locale/             # Translation catalogs (.po), one directory per language
+│   ├── templates/          # Django templates (emails, invoices, reports, admin)
+│   └── assets/             # Static brand assets
 ├── docs/                   # MkDocs documentation
 ├── pyproject.toml          # Dependencies and tool config
 ├── Makefile                # Development commands
@@ -32,7 +37,7 @@ revel-backend/
 
 The Django project package containing settings, root URL configuration, WSGI/ASGI entry points, and Celery app initialization.
 
-Settings are modular, split across multiple files under `revel/settings/` by **feature domain**: `base.py`, `celery.py`, `email.py`, `features.py`, `llm.py`, `ninja.py`, `observability.py`, `sso.py`, `stripe.py`, `telegram.py`, `unfold.py`, `wallet.py`.
+Settings are modular, split across multiple files under `revel/settings/` by **feature domain**: `base.py`, `celery.py`, `cloudflare.py`, `email.py`, `features.py`, `integrations.py`, `llm.py`, `ninja.py`, `oauth.py`, `observability.py`, `sso.py`, `stripe.py`, `telegram.py`, `turnstile.py`, `unfold.py`, `wallet.py`.
 
 ---
 
@@ -43,7 +48,7 @@ Handles everything related to users: registration, login, JWT token management, 
 Key responsibilities:
 
 - Custom user model (`RevelUser`)
-- JWT authentication flow
+- JWT authentication flow, including refresh-token rotation and revocation on logout (see [Auth & Sessions](../architecture/auth-sessions.md))
 - User registration and profile management
 - GDPR data export and account deletion
 - Platform-wide banning (`GlobalBan`) by email, domain, or Telegram username
@@ -57,10 +62,14 @@ The largest and most central app. Manages the full lifecycle of events, from org
 Key responsibilities:
 
 - **Organizations**: creation, membership, roles (Owner, Staff, Member)
-- **Memberships**: paid membership subscriptions
+- **Memberships**: paid membership subscriptions, plus an offline-paid join flow
+- **Member register**: organizer-side record of members, day memberships and private organizer notes
 - **Events**: creation, configuration, publishing; recurring event series; open-ended events
-  (`is_open_ended`, 1.65.0)
-- **Schedule**: per-event schedule / timeline of sessions (1.64.0)
+  (`is_open_ended`)
+- **Schedule**: per-event schedule / timeline of sessions
+- **Series passes**: passes that cover every event in a series
+- **Seating**: venue layouts, seat holds and seated checkout
+- **White-label**: organization custom domains
 - **Ticket tiers**: pricing, capacity, payment methods (free, online, PWYC)
 - **Tickets**: checkout, payment confirmation, check-in
 - **Venues**: location management
@@ -69,7 +78,7 @@ Key responsibilities:
 - **Blacklists**: organization-level email blocking
 - **Discount codes**: organization-scoped percentage/fixed-amount discounts for ticket purchases
 - **Followers**: user-to-organization following
-- **Billing**: attendee invoicing and revenue / VAT reporting
+- **Billing**: attendee invoicing (EN 16931 / Factur-X e-invoicing), revenue / VAT reporting and platform revenue
 - **Exports**: async XLSX exports for attendee lists and questionnaire submissions
 
 ---
@@ -108,6 +117,18 @@ Key responsibilities:
 - Poll modeling (1:1 with a `Questionnaire`)
 - Vote casting and tallying (votes are questionnaire submissions)
 - Access gated by the `manage_polls` organization permission
+
+---
+
+### `oauth/`: OAuth 2.0 / OIDC Provider
+
+Lets third-party apps sign in with Revel and call the API on a user's behalf. See [ADR-0018](../adr/0018-oauth-oidc-provider.md).
+
+---
+
+### `integrations/`: Platform Listings
+
+Provider-protocol layer for mirroring events to external platforms (for example Eventbrite), with counts only and Revel as the source of truth. See [ADR-0017](../adr/0017-platform-listings-provider-protocol.md).
 
 ---
 
@@ -217,9 +238,10 @@ The project uses multiple Docker Compose files for different environments:
 |------|---------|----------|
 | `docker-compose-base.yml` | Shared service definitions | PostgreSQL/PostGIS, Redis, ClamAV (plus MinIO and Meilisearch for legacy/dev use) |
 | `compose.yaml` | Local development | Extends Redis, PostgreSQL, ClamAV from base + adds Mailpit |
-| `docker-compose-ci.yml` | CI/CD pipelines | Minimal services for testing |
+| `docker-compose-ci.yml` | Minimal test services (not used by GitHub Actions, which declares its own service containers; see [CI Pipeline](../contributing/ci-pipeline.md)) | PostgreSQL, Redis, ClamAV |
+| `docker-compose-e2e.yml` | Frontend E2E overlay for `compose.yaml` (`make run-e2e`) | PgBouncer, Keycloak |
 | `docker-compose-observability.yml` | Full stack including observability (**standalone**, not additive to `compose.yaml`) | Core services (PostgreSQL, Redis, ClamAV) + Loki, Tempo, Prometheus, Grafana, Pyroscope, Alloy, exporters |
 
 !!! info "Extending compose files"
     `compose.yaml` and `docker-compose-ci.yml` both extend `docker-compose-base.yml`.
-    You only need to run one of them: `compose.yaml` for local development, or the CI variant in pipelines.
+    For local development run `compose.yaml`; `docker-compose-e2e.yml` is layered on top of it for E2E.

@@ -105,8 +105,9 @@ it takes effect.
     - in the Basque Country, from today (TicketBAI), for organizers established there. Navarre keeps
       Spain's 2027 date, with copy naming its own system (NaTicket).
 - **B2B invoices blocked** where they must go through a national e-invoicing network, only for
-  organizers established there: Belgium (Peppol) for buyers with a Belgian VAT ID, Poland (KSeF) for
-  business buyers from any country. A business buyer has a VAT ID that VIES accepted or could not
+  organizers established there: Belgium (Peppol) and France (a Plateforme Agréée) for buyers with a
+  VAT ID of that country, Poland (KSeF) for business buyers from any country. These three share
+  `B2BEInvoicingMixin`. A business buyer has a VAT ID that VIES accepted or could not
   check; consumers and VIES-rejected IDs still get Revel's invoice.
 - **Organizer notices, no gates**: Austria (door payments go through the organizer's own
   Registrierkasse), Denmark (covered businesses record Revel sales in their own system) and Poland
@@ -130,18 +131,23 @@ it takes effect.
   payments confirmed by the organizer still work.
 - No country restricts offline payment.
 - The organization admin detail and billing-info API responses expose
-  `compliance: {country, attendee_invoicing, online_payment, offline_payment}` so the frontend can hide
-  what the organizer cannot use. `attendee_invoicing` is `allowed`, `blocked` or
-  `blocked_for_business_buyers`; `online_payment` and `offline_payment` are `allowed` or `blocked`.
+  `compliance: {country, region, attendee_invoicing, online_payment, offline_payment, notices}` so the
+  frontend can hide what the organizer cannot use. `region` is the ISO 3166-2 subdivision with its own
+  rules (empty when none). `attendee_invoicing` is `allowed`, `blocked`, `blocked_for_business_buyers` or
+  `blocked_for_foreign_buyers`; `online_payment` and `offline_payment` are `allowed` or `blocked`.
+  `blocked_for_foreign_buyers` appears only on the event object: it is a small-business-scheme
+  organizer's virtual event, where buyers outside the scheme's country are not invoiced (decided per
+  buyer, not by a country policy).
   Values are effective today: a future-dated restriction reads `allowed` until it starts. The org-level
   payment capabilities describe events held in the organization's own country.
-  Both objects also carry `notices: [{key, applies_to, message}]`: non-blocking, translated hints
+  The org object and the event object (below) both carry `notices: [{key, applies_to, message}]`:
+  non-blocking, translated hints
   (for example Austria's cash-register hint) that the frontend shows next to the setting named in
   `applies_to` (`offline_payment`: the offline / at-the-door selector; `ticket_sales`: the ticket-tier
   sales settings, for rules that cover online sales too; `attendee_invoicing`: the organization's
   attendee-invoicing mode) as information with `role="status"`. Notices never block anything.
 - The event detail response (`EventDetailSchema`, used by the event admin and public event pages)
-  exposes `compliance: {venue_country, online_payment, offline_payment, attendee_invoicing}` for that
+  exposes `compliance: {venue_country, online_payment, offline_payment, attendee_invoicing, notices}` for that
   specific event: the organization's establishment plus the venue country of a physical event, at
   today's date. It is computed by `enforcement.event_compliance()` from the same decisions the tier,
   checkout and invoicing gates take, so the tier editor and checkout can hide exactly what the API would
@@ -165,8 +171,13 @@ Every attendee invoice or credit note a policy refuses is recorded as a `Skipped
 the decision depends on today's date, billing data can change and payments are deleted with their
 user, so nothing can be recomputed later. A row holds:
 
-- `kind` (`invoice` or `credit_note`), `reason_code` (`b2b_e_invoicing` or `fiscalized_invoicing`),
-  the refusing `policy_country` and its translated `reason`;
+- `kind` (`invoice` or `credit_note`), `reason_code` (a `SkippedFiscalDocumentReason`), the refusing
+  `policy_country` and its translated `reason`. The codes are `b2b_e_invoicing` and
+  `fiscalized_invoicing` (country policies) and `small_business_foreign_venue`,
+  `small_business_virtual_cross_border` and `seller_identity_missing` (the
+  [small-business scheme](../architecture/billing-and-vat.md#organization-billing-fields) guards: a
+  physical event outside the scheme's country, a virtual event bought from outside it, or a seller
+  that cannot be identified on the invoice);
 - the buyer snapshot (name, email, address, VAT ID and country, checkout VIES status), the totals,
   line items and VAT breakdown;
 - the checkout session, the payments and refunds it covers, and, for a credit note, the Revel invoice
@@ -195,8 +206,9 @@ retries.
 - **Ticket record retention** is not changed in layer 1. Ticket rows are still deleted (cascade)
   when the event, the tier or the user account is deleted, although France and Italy require
   ticketing records to be kept. [#1068](https://github.com/letsrevel/revel-backend/issues/1068) tracks this.
-- Organizations without a VAT ID have no tax-ID line on tickets; there is no separate fiscal-code
-  field yet.
+- Organizations without a VAT ID have no tax-ID line on tickets, except Austrian small-business
+  organizers (§ 6 Abs. 1 Z 27 UStG), whose tax number (`tax_registration_number`) is printed as a
+  *Steuernummer* line. There is no general fiscal-code field for other countries yet.
 
 ## For developers
 

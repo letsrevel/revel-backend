@@ -47,6 +47,31 @@ uv remove <package>
 
 ---
 
+## Version Bumps
+
+Never hand-edit `version` in `pyproject.toml`. Use `uv version --bump <major|minor|patch>` so
+`uv.lock` stays in sync. Releases go through the `/release` PR flow (see
+[Development Commands](../getting-started/development-commands.md#releases)).
+
+## Django Version Pin
+
+Django is pinned `>=5.2.19,<6.0`: Revel stays on the 5.2 LTS line. Do not widen the upper bound
+without a new decision; see [ADR-0005](../adr/0005-django-lts-policy.md).
+
+## Compliance Checks
+
+| Command | Description |
+|---|---|
+| `make deps-check` | Runs `licensecheck` and `audit` |
+| `make licensecheck` | Fails on copyleft / source-available licenses entering the tree |
+| `make audit` | `pip-audit` over the locked graph; fails on known CVEs |
+
+These hit the network, so they are not part of `make check`. CI runs them on dependency changes
+and nightly. Triage steps and the grandfathering policy are in the
+[dependency audit runbook](../runbooks/dependency-audit.md).
+
+---
+
 ## How It Works
 
 UV manages dependencies through two files:

@@ -46,8 +46,9 @@ existing single `STRIPE_WEBHOOK_SECRET`.
 
 **Steps (demo, then prod):**
 
-1. Deploy backend as usual (`./deploy.sh update` on the target host); migrations run on
-   deploy (new `StripeWebhookEvent` table + the pruning beat task).
+1. Deploy backend through the zero-downtime rollout scripts at the repo root (`./deploy.sh`
+   for prod, `./deploy-demo.sh` for demo; never `infra/deploy.sh update` or a full-stack
+   `docker compose up -d` on the host); migrations run on deploy (new `StripeWebhookEvent` table + the pruning beat task).
 2. Verify the migration applied:
    ```bash
    docker compose exec web python manage.py showmigrations events | tail -5   # all [X]
@@ -63,8 +64,9 @@ existing single `STRIPE_WEBHOOK_SECRET`.
    - the purchase's `checkout.session.completed` row has `outcome=handled` and a
      non-empty `account` (it arrives via the Connect endpoint);
    - a burst of `charge.*` / `payment_intent.*` rows with `outcome=unhandled` is
-     **expected** — the old endpoint is over-subscribed (24 types vs 4 handled). This
-     noise disappears at Phase 3 cutover.
+     **expected** — the old endpoint is over-subscribed (it listens to far more types
+     than the ones in `PLATFORM_EVENTS` / `CONNECT_EVENTS`). This noise disappears at Phase 3
+     cutover.
 5. Check logs are clean:
    ```bash
    .venv/bin/python scripts/loki_logs.py web -g stripe_webhook --since 1h
@@ -97,7 +99,9 @@ refund in step 2 below is what verifies this path end-to-end.
    - checkout session opens and completes (outbound `Session.create` at dahlia works);
    - `checkout.session.completed` row `outcome=handled`; ticket ACTIVE; invoice generated;
    - refund the charge from the Stripe dashboard → `charge.refunded` row
-     `outcome=handled`, ticket CANCELLED, credit note generated.
+     `outcome=handled`; the webhook is record-only, so the ticket **stays ACTIVE** and a
+     `Refund` row with `source=stripe_dashboard` is created; if the invoice was ISSUED, a
+     credit note is generated (a DRAFT invoice is deleted instead).
 3. Exercise Connect onboarding sync (outbound `Account.retrieve` at dahlia): in the org
    admin settings, trigger "verify Stripe account" for any connected org — flags should
    sync without error.
@@ -149,7 +153,8 @@ provisioning command) deployed. Run the WHOLE procedure on demo first.
    ```
 6. Check the Stripe dashboard (Workbench → Webhooks): both new endpoints show
    successful deliveries, **zero failures**. The new endpoints are pinned
-   `2026-03-25.dahlia` and subscribe only to the 4 handled event types.
+   `2026-03-25.dahlia` and subscribe only to the event types listed in
+   `provision_stripe_webhooks.py`.
 7. **Soak:** demo — one verified purchase + refund is enough. Prod — leave the overlap
    for ~24h of organic traffic.
 8. End the overlap, in this order:
@@ -184,7 +189,8 @@ host org (it must have **no** Stripe account connected yet).
      endpoint delivery) and `outcome=handled`;
    - ticket ACTIVE, invoice generated.
 3. Refund that charge from the Stripe dashboard → `charge.refunded` (empty `account`)
-   `handled`, ticket CANCELLED, credit note generated.
+   `handled`, a `Refund` row with `source=stripe_dashboard`, ticket still ACTIVE (the webhook
+   is record-only), credit note generated if the invoice was ISSUED.
 4. Confirm a regular Connect org still works (any organic purchase, or one test
    purchase on demo).
 
@@ -201,3 +207,10 @@ Connect bindings). Connect orgs are unaffected throughout.
   version bumps are a deliberate two-step: bump `STRIPE_API_VERSION` (outbound), then
   re-provision endpoints (inbound), with compat audit in between.
 - Event log self-prunes after `STRIPE_WEBHOOK_EVENT_RETENTION_DAYS` (default 90).
+
+## See also
+
+- [Stripe webhook endpoints](stripe-webhook-endpoints.md): the steady-state reference. Use its
+  `--sync` procedure (not `--force`) to add event types to endpoints that already exist, for
+  example the `charge.dispute.*` events behind the organizer dispute records (see
+  [Disputes](../architecture/billing-and-vat.md#disputes)).

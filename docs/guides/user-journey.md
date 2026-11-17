@@ -22,7 +22,7 @@ sequenceDiagram
     participant E as Email
     participant V as POST /api/account/verify
 
-    U->>API: Submit registration
+    U->>API: Submit registration (+ Turnstile token)
     API->>S: Validate & create user
     S->>C: Dispatch verification task
     C->>E: Send verification email
@@ -30,6 +30,8 @@ sequenceDiagram
     U->>V: Click verification link
     V-->>U: Account verified
 ```
+
+When Cloudflare Turnstile is configured on the instance, registration requires a valid `turnstile_token`; guest RSVP and guest checkout require one too (see [Guest Checkout](#guest-checkout-guest-to-user-upgrade)). The frontend reads the public site key from `GET /api/version` (`turnstile_site_key`, absent when Turnstile is off).
 
 ### Authentication
 
@@ -57,7 +59,17 @@ sequenceDiagram
     Users can authenticate through any configured OpenID Connect provider (Google on the hosted instance; Keycloak, Authentik, or an institutional IdP on self-hosted ones). The browser is sent to `GET /api/auth/oidc/{provider}/start`, comes back on the provider's callback, and the frontend exchanges the resulting one-time token for Revel JWT tokens via `POST /api/auth/oidc/exchange`.
 
     !!! note "Configuration"
-        Providers are listed in `OIDC_PROVIDERS`; `GET /version` exposes them as `sso_providers` so the frontend only shows buttons for what is configured. With no providers configured the routes return `404`.
+        Providers are listed in `OIDC_PROVIDERS`; `GET /api/version` exposes them as `sso_providers` so the frontend only shows buttons for what is configured. With no providers configured the routes return `404`.
+
+#### Sessions and instance info
+
+- `POST /api/auth/logout` (`{refresh}`) revokes the presented refresh token and every token rotated from the same login. Other devices stay signed in.
+- Refresh tokens rotate on use. Presenting a token again within a short reuse grace after its own rotation (`REFRESH_TOKEN_REUSE_GRACE_SECONDS`, default 30) returns one fresh pair, so a page reload mid-refresh does not sign the user out.
+- A password reset, email change, global ban or tenant-domain revoke ends all of the user's sessions, including ones that had already refreshed.
+- Emailed links (verification, password reset, email change, account deletion, unsubscribe) answer 400 with a machine-readable `code` (`invalid_token` or `token_expired`), so clients do not match translated messages.
+- `GET /api/version` returns `version`, `demo`, `banner`, `demo_booking_url`, `support_email`, `sso_providers`, `turnstile_site_key` and `features` (`organization_creation`, `telegram`, `llm_evaluation`, `referral_applications`, `oauth_provider`), so clients can hide gated UI.
+
+See [Auth & Sessions](../architecture/auth-sessions.md) for rotation, reuse handling and key rotation.
 
 ### Profile & Password Management
 
@@ -154,6 +166,8 @@ Users browse public events and organizations. Visibility is handled by the `for_
 
 ### RSVPing to an Event
 
+Logged-in users RSVP with `POST /events/{event_id}/rsvp/{answer}`; guests use the `/public` twin (`/events/{event_id}/rsvp/{answer}/public`), which needs a `turnstile_token` when Turnstile is configured.
+
 ```mermaid
 sequenceDiagram
     participant U as User
@@ -186,7 +200,7 @@ The ticket acquisition flow depends on the payment method configured for the tic
         participant API as API
         participant S as Stripe
 
-        U->>API: Request ticket checkout
+        U->>API: POST /events/{event_id}/checkout (cart)
         API->>S: Create Stripe session
         S-->>API: Checkout URL
         API-->>U: Redirect to Stripe
@@ -194,6 +208,8 @@ The ticket acquisition flow depends on the payment method configured for the tic
         S->>API: Webhook confirmation
         API-->>U: Ticket issued
     ```
+
+A purchase is a cart: `POST /events/{event_id}/checkout` takes the items (one or several tickets, with a `pwyc_amount` per pay-what-you-can item) and returns either the issued tickets or a Stripe checkout URL. Guests use `POST /events/{event_id}/checkout/public`, which requires a `turnstile_token` when Turnstile is configured. A tier can be restricted with `purchasable_by=non_members` (optionally excluding specific membership tiers); excluded members still see it but checkout refuses with the `choose_another_tier` next step.
 
 ### Series Passes (Season Tickets)
 
@@ -211,6 +227,13 @@ Users join organizations through the membership-eligibility pipeline:
    it stays PENDING and advances every time it is read
    (`GET /api/me/applications/{id}` — poll after submitting a questionnaire).
 3. Applications can be cancelled; a rejection allows a fresh re-application.
+4. **Offline-paid plans.** When the plan is paid directly to the organization, the member is held as
+   `awaiting_payment` with a pending subscription and sees `payment_instructions` and
+   `payment_due_by` (30 days; the daily sweep cancels an unpaid request after that). No membership
+   benefits apply until staff record the first payment. While payment is awaited, `apply` returns
+   `200` with the existing application (no second row or staff notification); `409` carries
+   `reason_code` and `next_step` (for example when the person is already an active member). The
+   member can cancel the pending request themselves.
 
 Private organizations answer 404 on both endpoints (no existence leak). See
 [Membership Eligibility](../architecture/membership-eligibility.md).
@@ -234,7 +257,7 @@ Where an organization sells subscription plans:
    notify the member with a portal link; after the org's grace period it
    expires with a revival CTA.
 
-See [Membership Subscriptions](../architecture/membership-subscriptions.md).
+See [Membership Subscriptions](../architecture/membership-subscriptions.md), including the offline join flow.
 
 ### Managing Potluck Items
 
@@ -294,9 +317,23 @@ model. Staff with `manage_subscriptions` can:
   payments, cancel/pause/resume/revive, refund (a full-period refund
   auto-cancels the subscription), force-migrate subscribers after a price
   change, and read per-org MRR/churn metrics.
+- Move a subscriber to another plan (`change-plan`), and correct or void a manually recorded
+  payment (`PATCH /payments/{id}` and `POST /payments/{id}/void`). Only offline, never-refunded, non-voided payments can be edited; otherwise the API answers `409`
+  with a stable `code`.
+- Organization policy: `membership_grace_period_days` (default 7), `membership_refund_policy`.
 
 See [Membership Subscriptions](../architecture/membership-subscriptions.md)
 for the full architecture.
+
+### Member Register (Organizer)
+
+Each organization keeps a legal register of membership periods that outlives platform accounts:
+records can be created by hand, edited, ended, exported, linked to a Revel account by invitation,
+merged or unlinked, and checked for possible duplicates. A ticket tier can grant a **day
+membership**, a temporary register record covering the event window that carries no platform
+privileges. Staff can also keep a **private organizer note** about a person; it is shown to staff
+(with `check_in_attendees`) and the owner at check-in and never to the person. See
+[Member Register](../architecture/member-register.md).
 
 ### Membership Applications (Organizer)
 
@@ -436,7 +473,7 @@ Organizers can create discount codes to offer reduced pricing on ticket purchase
 
 1. Create code with type (percentage or fixed amount), value, and optional scope (events, series, tiers)
 2. Set limits: max uses, per-user limit, minimum purchase amount, validity window
-3. Buyer enters code during checkout → validated and applied to price
+3. Buyer enters code during checkout (`POST /events/{event_id}/checkout`) → validated and applied to price
 4. Usage tracked per code and per user
 
 !!! note "Duplicate codes & delete-vs-deactivate"
@@ -488,15 +525,6 @@ Organizers can run first-class recurring series: a `RecurrenceRule` + a template
 
 An event can be marked `is_open_ended` for ongoing/no-fixed-end events. `end` is still set (defaults to start + 24h) and used internally for ICS/Wallet/upcoming gates; the flag is a display signal so the frontend can render "Ongoing" and hide the end time.
 
-### Membership Subscriptions
-
-> **Phase 1 — OFFLINE only.** Subscriptions are staff-managed (recorded payments), not self-served Stripe billing.
-
-Organizers configure recurring membership plans per membership tier (`MembershipSubscriptionPlan`), gated by the `manage_subscriptions` permission (owner ✓, staff ✓ by default, member ✗). Staff create/list/get subscriptions, drive the lifecycle (cancel / pause / resume), and record payments (`MembershipPayment`, with `occurred_at` to backfill the real payment date). A `post_save` signal syncs `OrganizationMember.status + tier` from the subscription (never creating members, never touching a `BANNED` member), and a daily beat task expires subscriptions past the org's grace period.
-
-- Member view: `GET /me/membership-subscriptions`, `GET /me/organizations/{org_id}/subscription`, and `GET /me/memberships` (unified memberships list, inlining the most recent non-terminal subscription per org)
-- Org policy: `membership_grace_period_days` (default 7), `membership_refund_policy`
-
 ### Polls
 
 Organization-managed polls built on the questionnaire pipeline — a `Poll` is 1:1 with a `Questionnaire` and votes are stored as `QuestionnaireSubmission` rows. Creation and management require the `manage_polls` permission. Polls have a draft/open/closed lifecycle, configurable audience/result visibility, anonymity, and a vote-change policy.
@@ -531,7 +559,7 @@ A VAT-precise financial-reporting suite for organizers, driven by one tax engine
 
 ### Guest Checkout & Guest-to-User Upgrade
 
-When an event has `can_attend_without_login=True`, anonymous visitors can attend without an account: a guest RSVP or guest ticket checkout creates a guest `RevelUser` (`guest=True`) from just a name and email. If the guest later registers with the same email, an activation link upgrades the guest account to a full user and all previous guest tickets/RSVPs are preserved.
+When an event has `can_attend_without_login=True`, anonymous visitors can attend without an account: a guest RSVP (`POST /events/{event_id}/rsvp/{answer}/public`) or guest ticket checkout (`POST /events/{event_id}/checkout/public`) creates a guest `RevelUser` (`guest=True`) from just a name and email. If the guest later registers with the same email, an activation link upgrades the guest account to a full user and all previous guest tickets/RSVPs are preserved. Both guest endpoints require a valid `turnstile_token` when Turnstile is configured (400 otherwise).
 
 ### Self-Served Email Change
 
@@ -540,7 +568,7 @@ Users can change their own email address:
 - `POST /account/email-change-request` — requires the current password; sends a single-use confirmation link to the **new** address (proof of control)
 - `POST /account/email-change-confirm` — swaps `email` + `username`, **blacklists every outstanding JWT** for the user, and returns a fresh token pair so the confirming device stays signed in
 
-Both addresses receive completion emails; the old address also gets an in-flight notice with a masked rendering of the new address. The flow rejects Google-SSO accounts and same-email / already-taken targets with clear `400`s, and silently no-ops for globally-banned targets.
+Both addresses receive completion emails; the old address also gets an in-flight notice with a masked rendering of the new address. The flow rejects Google-SSO accounts and same-email / already-taken targets with clear `400`s, and silently no-ops for globally-banned targets. Confirmation refusals carry a machine-readable `code`: `email_taken` (the address was claimed in the meantime) or `email_change_superseded` (a password reset happened after the link was issued).
 
 ---
 
@@ -548,7 +576,7 @@ Both addresses receive completion emails; the old address also gets an in-flight
 
 Revel is an OAuth 2.1 authorization server and OpenID Provider: a third-party app, script or MCP
 host can act on a user's behalf with a token limited to the scopes that user approved. The whole
-surface is hidden unless `GET /version` reports `features.oauth_provider`. Full developer
+surface is hidden unless `GET /api/version` reports `features.oauth_provider`. Full developer
 reference: [Third-Party Apps (OAuth)](../developer-guide/oauth.md). Persona-level journeys for
 E2E: Journey 28 in `USER_JOURNEYS.md`.
 
