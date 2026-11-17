@@ -478,22 +478,60 @@ def cancel_application(application: OrganizationMembershipRequest) -> Organizati
     already terminal and is returned unchanged (idempotent). A linked never-paid offline
     subscription is cancelled first, which also releases the member held for it.
     """
+    # Lock order is subscription -> application (as in record_payment, the sweep and cancel_subscription), so
+    # read the link unlocked, lock that subscription first, then the application. A concurrent link/unlink
+    # between the two reads rolls the savepoint back (releasing the locks) and retries with the new id.
+    linked_id = _linked_subscription_id(application.pk)
+    for attempt in range(_CANCEL_LOCK_ATTEMPTS):
+        last_attempt = attempt == _CANCEL_LOCK_ATTEMPTS - 1
+        try:
+            with transaction.atomic():
+                if linked_id is not None:
+                    MembershipSubscription.objects.select_for_update(of=("self",)).filter(pk=linked_id).first()
+                # Same row lock as advance_application: a concurrent advance cannot link a subscription after we read.
+                locked = (
+                    OrganizationMembershipRequest.objects.select_for_update(of=("self",))
+                    .select_related("organization", "tier", "plan", "subscription")
+                    .get(pk=application.pk)
+                )
+                if locked.subscription_id != linked_id and not last_attempt:
+                    linked_id = locked.subscription_id
+                    raise _RetryCancelLock
+                return _cancel_locked_application(locked)
+        except _RetryCancelLock:
+            continue
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+_CANCEL_LOCK_ATTEMPTS: t.Final[int] = 3
+
+
+class _RetryCancelLock(Exception):
+    """Raised inside the savepoint to release its locks and retry in the subscription -> application order."""
+
+
+def _linked_subscription_id(application_id: uuid.UUID) -> uuid.UUID | None:
+    return (
+        OrganizationMembershipRequest.objects.filter(pk=application_id)
+        .values_list("subscription_id", flat=True)
+        .first()
+    )
+
+
+def _cancel_locked_application(application: OrganizationMembershipRequest) -> OrganizationMembershipRequest:
     # lazy: the subscription services import this package.
     from events.service.subscription import lifecycle as subscription_lifecycle
 
-    with transaction.atomic():
-        # Same row lock as advance_application: a concurrent advance cannot link a subscription after we read.
-        application = OrganizationMembershipRequest.objects.select_for_update(of=("self",)).get(pk=application.pk)
-        if application.status not in {
-            OrganizationMembershipRequest.Status.PENDING,
-            OrganizationMembershipRequest.Status.APPROVED,
-        }:
-            return application
-        subscription = application.subscription
-        if subscription is not None and not subscription.is_terminal and is_never_paid_offline(subscription):
-            subscription_lifecycle.cancel_subscription(subscription, immediate=True)
-        application.status = OrganizationMembershipRequest.Status.CANCELLED
-        application.save(update_fields=["status", "updated_at"])
+    if application.status not in {
+        OrganizationMembershipRequest.Status.PENDING,
+        OrganizationMembershipRequest.Status.APPROVED,
+    }:
+        return application
+    subscription = application.subscription
+    if subscription is not None and not subscription.is_terminal and is_never_paid_offline(subscription):
+        subscription_lifecycle.cancel_subscription(subscription, immediate=True)
+    application.status = OrganizationMembershipRequest.Status.CANCELLED
+    application.save(update_fields=["status", "updated_at"])
     return application
 
 

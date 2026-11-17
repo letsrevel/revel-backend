@@ -172,3 +172,81 @@ def test_cancel_application_is_noop_when_row_already_terminal(
     assert result.status == Omr.REJECTED
     application.refresh_from_db()
     assert application.status == Omr.REJECTED
+
+
+def test_cancel_application_cancels_linked_sub_and_application(
+    plan: MembershipSubscriptionPlan, nonmember_user: RevelUser
+) -> None:
+    application = OrganizationMembershipRequest.objects.create(
+        user=nonmember_user, organization=plan.tier.organization, tier=plan.tier, plan=plan, status=Omr.PENDING
+    )
+    sub = open_offline_subscription(plan, nonmember_user, application=application)
+
+    result = membership_manager_service.cancel_application(application)
+
+    sub.refresh_from_db()
+    assert (sub.status, result.status) == (Sub.CANCELLED, Omr.CANCELLED)
+    assert _member(sub).status == S.CANCELLED
+
+
+def test_cancel_application_locks_subscription_before_application(
+    plan: MembershipSubscriptionPlan, nonmember_user: RevelUser
+) -> None:
+    """Lock order is subscription -> application, matching record_payment and the sweep (no deadlock)."""
+    application = OrganizationMembershipRequest.objects.create(
+        user=nonmember_user, organization=plan.tier.organization, tier=plan.tier, plan=plan, status=Omr.PENDING
+    )
+    open_offline_subscription(plan, nonmember_user, application=application)
+
+    with CaptureQueriesContext(connection) as ctx:
+        membership_manager_service.cancel_application(application)
+
+    locks = [q["sql"] for q in ctx.captured_queries if "FOR UPDATE" in q["sql"]]
+    first_sub = next(i for i, q in enumerate(locks) if 'FROM "events_membershipsubscription"' in q)
+    first_app = next(i for i, q in enumerate(locks) if 'FROM "events_organizationmembershiprequest"' in q)
+    assert first_sub < first_app
+
+
+def test_cancel_application_retries_when_subscription_linked_after_first_read(
+    plan: MembershipSubscriptionPlan, nonmember_user: RevelUser
+) -> None:
+    """The unlocked read saw no link; a concurrent link lands before the application lock: lock it and retry."""
+    application = OrganizationMembershipRequest.objects.create(
+        user=nonmember_user, organization=plan.tier.organization, tier=plan.tier, plan=plan, status=Omr.PENDING
+    )
+    sub = open_offline_subscription(plan, nonmember_user, application=application)
+    real = membership_manager_service._linked_subscription_id
+
+    with mock.patch.object(membership_manager_service, "_linked_subscription_id", return_value=None) as stale:
+        with CaptureQueriesContext(connection) as ctx:
+            result = membership_manager_service.cancel_application(application)
+    assert stale.call_count == 1
+    assert real(application.pk) == sub.pk
+
+    sub.refresh_from_db()
+    assert (sub.status, result.status) == (Sub.CANCELLED, Omr.CANCELLED)
+    locks = [q["sql"] for q in ctx.captured_queries if "FOR UPDATE" in q["sql"]]
+    # first attempt locks only the application; the retry locks the subscription first
+    from_sub = 'FROM "events_membershipsubscription"'
+    assert from_sub not in locks[0]
+    assert from_sub in locks[1]
+
+
+def test_held_member_moved_to_other_tier_is_left_alone(
+    plan: MembershipSubscriptionPlan, organization: Organization, nonmember_user: RevelUser
+) -> None:
+    """held_member=True, but staff moved the member to another tier by hand: sub is swept, member untouched."""
+    sub = open_offline_subscription(plan, nonmember_user)
+    assert sub.held_member is True
+    other = MembershipTier.objects.get(organization=organization, name="General membership")
+    OrganizationMember.objects.filter(organization=organization, user=nonmember_user).update(
+        status=S.ACTIVE, tier=other
+    )
+    _age(sub, APPLICATION_PAYMENT_WINDOW_DAYS + 1)
+
+    assert expire_unpaid_offline_subscriptions() == 1
+
+    sub.refresh_from_db()
+    assert sub.status == Sub.CANCELLED
+    member = _member(sub)
+    assert (member.status, member.tier_id) == (S.ACTIVE, other.pk)

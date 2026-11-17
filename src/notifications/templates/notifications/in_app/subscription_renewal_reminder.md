@@ -2,4 +2,4 @@
 
 {%if context.is_online%}{%if context.manage_subscription_url%}[{%trans "Manage Billing"%}]({{context.manage_subscription_url}}){%endif%}{%else%}{%blocktranslate with org=context.organization_name %}To renew, pay {{ org }} directly.{%endblocktranslate%}
 
-{%if context.payment_instructions%}> {{context.payment_instructions}}{%else%}[{%blocktranslate with org=context.organization_name %}Contact {{ org }}{%endblocktranslate%}]({{context.organization_contact_url}}){%endif%}{%endif%}
+{%if context.payment_instructions%}{{ context.payment_instructions }}{%else%}[{%blocktranslate with org=context.organization_name %}Contact {{ org }}{%endblocktranslate%}]({{context.organization_contact_url}}){%endif%}{%endif%}

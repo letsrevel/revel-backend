@@ -186,7 +186,8 @@ def _held_member(subscription: MembershipSubscription, *, include_awaiting: bool
     ``held_member`` is authoritative: False means the member pre-existed and is never touched. True
     means this subscription held it. NULL (a legacy row) falls back to a heuristic: AWAITING_PAYMENT is
     held by definition; ACTIVE only counts at the plan's tier (the member was created ACTIVE before the
-    awaiting state existed), never an upgrading free member.
+    awaiting state existed), never an upgrading free member. For both True and NULL, an ACTIVE member on a
+    tier other than the plan's was moved there by staff and is left alone.
     """
     if subscription.held_member is False:
         return None
@@ -198,12 +199,8 @@ def _held_member(subscription: MembershipSubscription, *, include_awaiting: bool
     )
     if member is None:
         return None
-    if (
-        subscription.held_member is None
-        and is_eligible_status(member.status)
-        and member.tier_id != subscription.plan.tier_id
-    ):
-        return None
+    if is_eligible_status(member.status) and member.tier_id != subscription.plan.tier_id:
+        return None  # an ACTIVE member on another tier: staff moved them by hand, never ours to touch
     other_live = (
         MembershipSubscription.objects.filter(
             user_id=subscription.user_id, organization_id=subscription.organization_id

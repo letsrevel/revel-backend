@@ -181,6 +181,24 @@ def test_payment_requested_renders_instructions_all_channels(
         assert "accepted your application" not in body, channel
 
 
+def test_payment_requested_renders_without_window_days(offline_sub: MembershipSubscription) -> None:
+    """A notification stored before ``payment_window_days`` existed still renders, defaulting to 30 days."""
+    notif = _payment_requested(offline_sub)
+    del notif.context["payment_window_days"]
+    notif.save(update_fields=["context"])
+    for channel, body in _bodies(notif).items():
+        assert "30 days" in body, channel
+
+
+def test_multiline_instructions_are_not_half_quoted(offline_sub: MembershipSubscription) -> None:
+    offline_sub.plan.payment_instructions = "Line one\nLine two"
+    offline_sub.plan.save(update_fields=["payment_instructions"])
+    notif = _payment_requested(offline_sub)
+    in_app = _bodies(notif)["in_app"]
+    assert "Line one\nLine two" in in_app
+    assert "> Line one" not in in_app
+
+
 def test_payment_requested_contact_fallback(offline_sub: MembershipSubscription, organization: Organization) -> None:
     notif = _payment_requested(offline_sub)
     assert notif.context["payment_instructions"] == ""

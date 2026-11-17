@@ -3,7 +3,7 @@
 {% block content %}
 <p>{% trans "Hello" %} {{ user.display_name }},</p>
 {% if context.application_accepted %}<p>{% blocktranslate with org=context.organization_name %}<strong>{{ org }}</strong> accepted your application.{% endblocktranslate %}</p>
-{% endif %}<p>{% blocktranslate with tier=context.tier_name plan=context.plan_name amount=context.amount org=context.organization_name days=context.payment_window_days %}To activate your <strong>{{ tier }}</strong> membership ({{ plan }}, {{ amount }}), pay <strong>{{ org }}</strong> directly. Your membership starts once they confirm your payment. If no payment is recorded within {{ days }} days, your request is cancelled.{% endblocktranslate %}</p>
+{% endif %}<p>{% blocktranslate with tier=context.tier_name plan=context.plan_name amount=context.amount org=context.organization_name days=context.payment_window_days|default:30 %}To activate your <strong>{{ tier }}</strong> membership ({{ plan }}, {{ amount }}), pay <strong>{{ org }}</strong> directly. Your membership starts once they confirm your payment. If no payment is recorded within {{ days }} days, your request is cancelled.{% endblocktranslate %}</p>
 {% if context.payment_instructions %}
 <div class="card card--info">{{ context.payment_instructions|markdown }}</div>
 {% else %}
