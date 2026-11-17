@@ -550,7 +550,10 @@ def update_member(
 
     A status that revokes or suspends membership is mirrored onto the member's
     subscriptions (see :func:`_mirror_status_to_subscriptions`) — otherwise the
-    next renewal keeps billing and overwrites the staff decision.
+    next renewal keeps billing and overwrites the staff decision. For a member
+    awaiting their first offline payment, CANCELLED / BANNED therefore also close the
+    never-paid subscription and its application (via the subscription signal); PAUSED
+    is refused with 400, as there is nothing to pause yet.
 
     ``@transaction.atomic`` makes the member write and the mirroring one unit.
     Without it, a Stripe failure during the mirror (``pause_online_subscription``
@@ -573,6 +576,13 @@ def update_member(
     """
     if status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT:
         raise HttpError(400, str(_("This status is set by the system.")))
+    if (
+        status == OrganizationMember.MembershipStatus.PAUSED
+        and member.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT
+    ):
+        raise HttpError(
+            400, str(_("A member awaiting their first payment can't be paused. Cancel their request instead."))
+        )
     if clear_tier or tier is not None:
         _ensure_tier_not_locked_by_subscription(member, tier)
 

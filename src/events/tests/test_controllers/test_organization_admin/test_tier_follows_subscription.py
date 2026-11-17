@@ -112,6 +112,10 @@ def test_tier_equal_to_plan_tier_allowed(
 def test_status_only_update_unaffected(
     organization_owner_client: Client, organization: Organization, subscriber: RevelUser, sub: MembershipSubscription
 ) -> None:
+    # An awaiting-payment member can't be paused (#1399); this one has been activated.
+    OrganizationMember.objects.filter(organization=organization, user=subscriber).update(
+        status=OrganizationMember.MembershipStatus.ACTIVE
+    )
     response = _put(organization_owner_client, organization, subscriber, {"status": "paused"})
 
     assert response.status_code == 200, response.content

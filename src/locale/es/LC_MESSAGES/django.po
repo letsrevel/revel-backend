@@ -7834,6 +7834,9 @@ msgstr "Una suscripción que espera su primer pago no se puede pausar."
 msgid "This status is set by the system."
 msgstr "Este estado lo establece el sistema."
 
+msgid "A member awaiting their first payment can't be paused. Cancel their request instead."
+msgstr "Un miembro que espera su primer pago no se puede pausar. Cancela su solicitud en su lugar."
+
 msgid "Membership Request Lapsed"
 msgstr "Solicitud de membresía caducada"
 
