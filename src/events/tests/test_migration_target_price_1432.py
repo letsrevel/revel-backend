@@ -196,6 +196,64 @@ def test_ensure_stripe_price_recreates_when_only_cadence_differs(
     assert result.stripe_price_id == "price_v2"
 
 
+@pytest.mark.django_db
+def test_cadence_is_read_on_the_locked_subscriptions_stripe_account(
+    online_plan: MembershipSubscriptionPlan,
+    organization: Organization,
+    django_user_model: t.Type[RevelUser],
+    organization_owner_user: RevelUser,
+) -> None:
+    """If the organization's Stripe account changes mid-run, later Prices are read on the new account."""
+    organization.stripe_account_id = "acct_old"
+    organization.save(update_fields=["stripe_account_id"])
+    _add_online_subs(online_plan, organization, django_user_model, ["sub_a", "sub_b"])
+
+    def subscription_retrieve(stripe_id: str, **kwargs: t.Any) -> dict[str, t.Any]:
+        Organization.objects.filter(pk=organization.pk).update(stripe_account_id="acct_new")
+        return _subscription_retrieve(stripe_id, **kwargs)
+
+    with (
+        patch(f"{CHECKOUT}.Price.retrieve", return_value={"id": "price_new", "recurring": MONTHLY}) as mock_price,
+        patch(f"{CHECKOUT}.Subscription.retrieve", side_effect=subscription_retrieve),
+        patch(f"{CHECKOUT}.Subscription.modify"),
+    ):
+        subscription_plans.migrate_plan_subscribers(online_plan, initiated_by=organization_owner_user)
+
+    accounts = [c.kwargs.get("stripe_account") for c in mock_price.call_args_list]
+    assert accounts == ["acct_old", "acct_new"]
+
+
+@pytest.mark.django_db
+def test_ensure_stripe_price_keeps_a_price_that_omits_interval_count(
+    online_plan: MembershipSubscriptionPlan, organization: Organization
+) -> None:
+    """Stripe may omit ``interval_count``; the shared helper reads it as 1, so a monthly Price is kept."""
+    organization.stripe_account_id = "acct_test_xyz"
+    organization.save(update_fields=["stripe_account_id"])
+    with (
+        patch(
+            f"{CHECKOUT}.Price.retrieve",
+            return_value=stripe.Price.construct_from(
+                {
+                    "id": "price_new",
+                    "active": True,
+                    "unit_amount": 1000,
+                    "currency": "eur",
+                    "recurring": {"interval": "month"},
+                },
+                None,
+            ),
+        ),
+        patch(f"{CHECKOUT}.Price.create") as mock_create,
+        patch(f"{CHECKOUT}.Price.modify") as mock_archive,
+        patch.object(organization.__class__, "is_stripe_connected", new=True, create=False),
+    ):
+        result = ensure_stripe_price(online_plan)
+    mock_create.assert_not_called()
+    mock_archive.assert_not_called()
+    assert result.stripe_price_id == "price_new"
+
+
 class TestRecurringCadence:
     @pytest.mark.parametrize(
         ("price", "expected"),

@@ -709,7 +709,7 @@ def cancel_online_subscription(
 # See subscription.lifecycle.change_plan for the dispatch entry-point.
 
 
-CadenceLookup = t.Callable[[str], tuple[str, int] | None]
+CadenceLookup = t.Callable[[str, Organization], tuple[str, int] | None]
 
 
 def fetch_price_cadence(price_id: str, organization: Organization) -> tuple[str, int] | None:
@@ -744,9 +744,9 @@ def update_subscription_price(
     :func:`resync_subscription_application_fees` for the carve-out.
 
     ``cadence_of`` lets a caller that migrates many subscribers share Price
-    lookups: it is called with the id of the Price being installed and must
-    return that Price's cadence, read on the plan's organization account (the
-    same as the subscription's: ``MembershipSubscription.clean`` enforces it).
+    lookups: it is called with the id of the Price being installed and the
+    subscription's organization, and must return that Price's cadence as read on
+    that organization's Stripe account.
     When None, the Price is retrieved here via :func:`fetch_price_cadence`.
 
     Returns True when modify was called; False when already current or skipped.
@@ -784,7 +784,7 @@ def update_subscription_price(
     if cadence_of is None:
         plan_cadence = fetch_price_cadence(target_price_id, org)
     else:
-        plan_cadence = cadence_of(target_price_id)
+        plan_cadence = cadence_of(target_price_id, org)
     if current_cadence is None or current_cadence != plan_cadence:
         raise ValueError(
             f"Billing period differs (current Price {current_cadence}, plan Price {plan_cadence}): not migrated. "

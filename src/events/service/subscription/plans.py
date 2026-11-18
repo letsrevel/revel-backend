@@ -7,7 +7,6 @@ per-subscription state machine) so each module stays well inside the
 never on a single subscriber's lifecycle.
 """
 
-import functools
 import typing as t
 from decimal import Decimal
 
@@ -23,6 +22,7 @@ from events.models import (
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
+    Organization,
 )
 from events.service.subscription.notifications import _dispatch_price_migration, _format_money
 from events.service.subscription.stripe import checkout as stripe_checkout
@@ -287,14 +287,7 @@ def migrate_plan_subscribers(
     # One query up front (no N+1); ONLINE subs re-read theirs under the lock below.
     old_price_by_sub = _last_paid_amounts(qs)
 
-    organization = plan.tier.organization
-
-    @functools.cache
-    def cadence_of(price_id: str) -> tuple[str, int] | None:
-        # Keyed by the Price actually being installed, so a Price re-provisioned mid-run is
-        # fetched afresh. functools.cache does not store exceptions: a transient Stripe error
-        # fails only that subscriber and the next one retries the fetch.
-        return stripe_checkout.fetch_price_cadence(price_id, organization)
+    cadence_of = _memoised_cadence_lookup()
 
     for sub in qs:
         try:
@@ -352,6 +345,24 @@ def migrate_plan_subscribers(
         **result,
     )
     return result
+
+
+def _memoised_cadence_lookup() -> stripe_checkout.CadenceLookup:
+    """A per-run Price cadence lookup that fetches each (Price, Stripe account) once.
+
+    Keyed by the Price being installed and the account it is read on (the locked
+    subscription's), so a re-provisioned Price or a changed account is fetched afresh.
+    A failed fetch raises before it is stored: that subscriber fails, the next retries.
+    """
+    cadences: dict[tuple[str, str | None], tuple[str, int] | None] = {}
+
+    def cadence_of(price_id: str, organization: Organization) -> tuple[str, int] | None:
+        key = (price_id, organization.stripe_account_id)
+        if key not in cadences:
+            cadences[key] = stripe_checkout.fetch_price_cadence(price_id, organization)
+        return cadences[key]
+
+    return cadence_of
 
 
 def _swap_online_price_locked(
