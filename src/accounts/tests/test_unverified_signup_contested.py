@@ -1,21 +1,25 @@
 """A repeat signup on an unverified address only marks it contested; verifying it later restarts the account."""
 
 import typing as t
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 from django.core.files.base import ContentFile
 from django.test.client import Client
+from django.utils import timezone
 from django.urls import reverse
 from ninja.errors import HttpError
 from ninja_jwt.token_blacklist.models import BlacklistedToken
 from ninja_jwt.tokens import RefreshToken
+from oauth2_provider.models import AccessToken
 
 from accounts import schema
 from accounts.models import EmailVerificationReminderTracking, Referral, ReferralCode, RevelUser
 from accounts.service import account as account_service
 from accounts.tasks import AccountEmail
 from conftest import RevelUserFactory
+from oauth.models import OAuthApplication
 from telegram.models import TelegramUser
 
 pytestmark = pytest.mark.django_db
@@ -71,6 +75,22 @@ def stored(django_user_model: type[RevelUser], referral: ReferralCode) -> RevelU
     TelegramUser.objects.create(telegram_id=4242, user=user)
     EmailVerificationReminderTracking.objects.create(user=user)
     return user
+
+
+def _app_token_for(user: RevelUser) -> AccessToken:
+    """A live OAuth app access token held by ``user``."""
+    app = OAuthApplication(
+        user=user,
+        name="Test App",
+        client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+        redirect_uris="https://app.example/cb",
+        allowed_scopes=["org:read"],
+        registration_source=OAuthApplication.RegistrationSource.MANUAL,
+    )
+    app.save()  # no full_clean(): the OIDC signing key is irrelevant here
+    return AccessToken.objects.create(
+        user=user, application=app, token="app-token-checksum", scope="org:read", expires=timezone.now() + timedelta(1)
+    )
 
 
 def _sent_links(mock_delay: MagicMock) -> list[str]:
@@ -163,6 +183,8 @@ class TestVerifyContestedAccount:
         old_link = account_service.create_verification_token(stored)
         old_refresh = RefreshToken.for_user(stored)
         old_picture = stored.profile_picture.name
+        old_secret = stored.totp_secret
+        app_token = _app_token_for(stored)
         with django_capture_on_commit_callbacks(execute=True):
             _register()
         new_link = _sent_links(mock_delay)[-1]
@@ -181,6 +203,9 @@ class TestVerifyContestedAccount:
         assert stored.email_verified is True and stored.signup_contested_at is None
         assert stored.has_usable_password() is False
         assert stored.totp_active is False
+        assert stored.totp_secret != old_secret
+        assert stored.credentials_changed_at is not None
+        assert not AccessToken.objects.filter(pk=app_token.pk).exists()
         assert not TelegramUser.objects.get(telegram_id=4242).user
         assert BlacklistedToken.objects.filter(token__jti=old_refresh["jti"]).exists()
         assert (stored.preferred_name, stored.pronouns, stored.bio) == ("", "", "")
@@ -248,3 +273,16 @@ class TestPasswordResetOnContestedAccount:
         assert stored.totp_active is False
         assert (stored.preferred_name, stored.bio) == ("Stored Pref", "stored bio")
         assert Referral.objects.filter(referred_user=stored).exists()
+
+    def test_reset_reads_the_row_it_locked(self, stored: RevelUser, mock_delay: MagicMock) -> None:
+        """A contest committed after the caller loaded the user is still seen (adopts instead of keeping the profile)."""
+        token = account_service.create_password_reset_token(stored)
+        stale = RevelUser.objects.get(pk=stored.pk)
+        _register()  # commits the contest after ``stale`` was loaded
+        assert stale.signup_contested_at is None
+
+        account_service._apply_password_reset(stale, token, SUBMITTED_PASSWORD)
+
+        stored.refresh_from_db()
+        assert (stored.preferred_name, stored.bio) == ("", "")
+        assert stored.signup_contested_at is None

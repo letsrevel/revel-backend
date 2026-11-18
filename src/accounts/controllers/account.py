@@ -168,7 +168,7 @@ class AccountController(UserAwareController):
         the account and returns the verified user profile along with JWT tokens for immediate login.
         The verification token is single-use and expires after a set period.
         """
-        user = account_service.verify_email(payload.token)
+        user = account_service.verify_email(payload.token, return_host=self._return_host())
         token = get_token_pair_for_user(user)
         return schema.VerifyEmailResponseSchema(user=RevelUserSchema.from_orm(user), token=token)
 

@@ -14,6 +14,7 @@ import orjson
 import pytest
 from django.test.client import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from accounts.service import account as account_service
@@ -282,3 +283,21 @@ def test_verification_dispatch_merges_return_url_and_hint_in_context(user: Revel
             "deletion_token": ANY,
         },
     )
+
+
+def test_verify_contested_account_set_password_email_carries_the_hint(
+    client: Client, unverified_user: RevelUser, run_email_task_inline: MagicMock
+) -> None:
+    """The set-password email queued when verifying a contested account keeps the tenant return hint."""
+    RevelUser.objects.filter(pk=unverified_user.pk).update(signup_contested_at=timezone.now())
+    link = account_service.create_verification_token(unverified_user)
+
+    response = client.post(
+        reverse("api:verify-email"),
+        data=orjson.dumps({"token": link}),
+        content_type="application/json",
+        HTTP_ORIGIN=TENANT_ORIGIN,
+    )
+
+    assert response.status_code == 200
+    _assert_platform_link_with_hint(_action_link(run_email_task_inline), "/login/reset-password")

@@ -349,7 +349,7 @@ def send_verification_email_for_user(
 
 
 @transaction.atomic
-def verify_email(token: str) -> RevelUser:
+def verify_email(token: str, *, return_host: str | None = None) -> RevelUser:
     """Verify a user's email.
 
     Automatically reactivates deactivated accounts upon verification and clears
@@ -360,6 +360,8 @@ def verify_email(token: str) -> RevelUser:
 
     Args:
         token (str): The verification token.
+        return_host: Optional tenant hostname hint carried in the set-password email sent for a
+            contested account.
 
     Returns:
         RevelUser: The verified user.
@@ -388,7 +390,7 @@ def verify_email(token: str) -> RevelUser:
         was_inactive = not user.is_active
         if user.signup_contested_at is not None and not user.email_verified:
             adopt_unverified_account(user, password=None)
-            request_password_reset(user.email)
+            request_password_reset(user.email, return_host=return_host)
         else:
             _mark_email_verified(user)
 
@@ -573,6 +575,8 @@ def convert_guest(user: RevelUser, *, reactivate: bool = False) -> bool:
 @transaction.atomic
 def _apply_password_reset(user: RevelUser, token: str, new_password: str) -> RevelUser:
     """Set the new password and consume the token (the atomic half of ``reset_password``)."""
+    # Lock and re-read, like ``verify_email``: a contest or verification committed concurrently is seen.
+    user = RevelUser.objects.select_for_update().get(pk=user.pk)
     validate_password(new_password, user=user)
     if not user.guest and not user.email_verified:
         # The reset link proves ownership of the address: the account starts over with the new password.
