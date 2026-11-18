@@ -8,6 +8,8 @@ Two independent knobs on ``MembershipSubscriptionPlan``:
   (the venue's "card stock"); applies to staff too.
 """
 
+import typing as t
+
 from django.db import connection
 from django.utils.translation import gettext as _
 from ninja.errors import HttpError
@@ -86,7 +88,8 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
     plan.refresh_from_db(
         fields=_LOCK_REFRESH_FIELDS, from_queryset=MembershipSubscriptionPlan.objects.select_for_update()
     )
-    cap: int | None = getattr(plan, "max_subscriptions")  # noqa: B009 - refresh_from_db changed it behind mypy's narrowing
+    # refresh_from_db may have changed it after mypy narrowed the attribute above.
+    cap = t.cast("int | None", plan.max_subscriptions)
     if cap is None:  # changed since the unlocked read
         return
     if plan.occupied_slot_count() >= cap:
