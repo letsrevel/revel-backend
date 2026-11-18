@@ -33,6 +33,8 @@ sequenceDiagram
 
 When Cloudflare Turnstile is configured on the instance, registration requires a valid `turnstile_token`; guest RSVP and guest checkout require one too (see [Guest Checkout](#guest-checkout-guest-to-user-upgrade)). The frontend reads the public site key from `GET /api/version` (`turnstile_site_key`, absent when Turnstile is off).
 
+Registering again with the address of an account that is still unverified changes nothing on that account: it is marked as contested and receives a new verification link (the response echoes the submitted details). Verifying a contested account restarts it (password cleared, profile, referral, 2FA and sessions removed) and sends a set-password email. A verified or guest address answers `400`. See [Authentication and sessions](../architecture/auth-sessions.md#unverified-accounts).
+
 ### Authentication
 
 === "Standard Login"
@@ -48,11 +50,12 @@ When Cloudflare Turnstile is configured on the instance, registration requires a
     ```
 
     Returns an access/refresh JWT token pair. The field is `username` (it holds the email
-    address: every account's username is its email).
+    address: every account's username is its email). A non-guest account whose email is not
+    verified gets `403` with code `email_not_verified` instead (after the password checks out).
 
 === "With 2FA (TOTP)"
 
-    If the user has TOTP enabled, the initial login returns a partial token. The user must then submit the TOTP code to complete authentication.
+    If the user has TOTP enabled, the initial login returns a partial token. The user must then submit the TOTP code to complete authentication (`POST /api/auth/token/pair/otp`, which also answers `403` `email_not_verified` for an unverified account).
 
 === "Google SSO"
 

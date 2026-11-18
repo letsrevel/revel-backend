@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Signing up again with an email address that has not been verified yet now starts that account over, like a fresh signup: the new password, names and referral code replace the earlier ones, the earlier profile, sign-ins, 2FA setup and Telegram link are cleared, and only the newest verification link works. Signing up with a verified address still answers that the account exists.
+- Signing in with a password now requires a verified email address. Until the address is verified, a correct password is answered with a 403 and the code `email_not_verified` (also at the 2FA step), and existing sessions of such accounts can no longer be refreshed. The frontend shows a message and offers to resend the verification email.
+- Signing up again with an email address that has not been verified yet no longer changes the existing account. It only notes the repeat attempt and sends a new verification link. If the account is then verified, it starts over: its password is cleared (a set-password email is sent), and its profile, referral, 2FA setup, Telegram link and sessions are removed.
 - A password reset on an account whose email was never verified now also verifies it and clears any 2FA setup and Telegram link made before.
 - The verification email now includes a link to delete the account for people who did not sign up.
 - Referral invitations are enrolled once the invitee's email address is verified, and only for the exact invited address.
