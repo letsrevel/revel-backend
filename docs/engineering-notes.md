@@ -241,9 +241,14 @@ payments loop). Reversing either would let two transactions wait on each other.
 the ticket inserts in checkout, so every path that gives uses back
 (`discount_code_service.release_discount_uses`: cancel/expiry of an unfinished checkout) must lock
 the codes only after the tiers it touches, in pk order. Derive the ids only after the Payment rows
-(batch routes) or the ticket row (single cancel) are locked, filtered to PENDING tickets; the
-organizer cancel therefore locks the ticket's Payment rows even when no refund is issued, so it
-serializes with the Payment-locking reclaim routes. Call it once after the whole tier loop (as
+(batch routes) or the ticket row (single cancel) are locked, filtered to PENDING tickets. The
+organizer cancel (`admin_cancel_ticket`) locks the ticket's Payment rows (even when no refund is
+issued) and then the Ticket row, i.e. Payment -> Ticket like the reclaim routes, so it serializes
+with them. User cancel still has the documented pre-existing ticket -> payment inversion
+(`_refund_if_required` locks the Payment after the ticket); a resulting deadlock is resolved by
+Postgres aborting one transaction. The cascade-delete helper `release_uses_of_pending_tickets`
+locks Payment, then TicketTier, then the candidate Ticket rows (pk order), re-queries which are
+still PENDING, and only then releases. Call it once after the whole tier loop (as
 `handle_payment_intent_canceled` does) rather than interleaved per ticket.
 
 Don't do network I/O after numbering: the per-org sequence lock serializes ticket

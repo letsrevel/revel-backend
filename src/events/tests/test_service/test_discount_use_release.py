@@ -445,7 +445,7 @@ class TestBatchHelperPendingFilter:
 
 
 class TestOrganizerCancelOnlineTicket:
-    def test_pending_online_ticket_locks_payment_after_ticket_and_releases_once(
+    def test_pending_online_ticket_locks_payment_before_ticket_and_releases_once(
         self,
         online_tier: TicketTier,
         organization: Organization,
@@ -466,7 +466,7 @@ class TestOrganizerCancelOnlineTicket:
         locks = [q["sql"] for q in ctx.captured_queries if "FOR UPDATE" in q["sql"]]
         ticket_idx = next(i for i, q in enumerate(locks) if Ticket._meta.db_table in q.split("FROM")[1].split()[0])
         payment_idx = next(i for i, q in enumerate(locks) if Payment._meta.db_table in q.split("FROM")[1].split()[0])
-        assert ticket_idx < payment_idx
+        assert payment_idx < ticket_idx
         assert _used(code) == 1
 
 
@@ -498,3 +498,42 @@ class TestCascadeDeletes:
 
         assert _used(code) == 1
         assert not RevelUser.objects.filter(pk=user_a.pk).exists()
+
+    def test_user_cancelled_offline_ticket_not_released_twice_by_event_delete(
+        self, offline_tier: TicketTier, organization: Organization, user_a: RevelUser, user_b: RevelUser
+    ) -> None:
+        code = _code(organization, "CXLTHENDEL")
+        (ticket,) = _reserve(offline_tier, user_a, code, with_payment=False)
+        _reserve(offline_tier, user_b, code, with_payment=False)  # sibling use so the floor cannot mask it
+        assert _used(code) == 2
+
+        _user_cancel(ticket, user_a)
+        assert _used(code) == 1
+        event_service.delete_event(offline_tier.event)
+
+        assert _used(code) == 0  # only the sibling's still-pending use is released, once
+
+    def test_cascade_release_lock_order_payment_tier_ticket_then_code(
+        self, online_tier: TicketTier, organization: Organization, user_a: RevelUser
+    ) -> None:
+        code = _code(organization, "LOCKORD")
+        _reserve(online_tier, user_a, code)
+
+        with CaptureQueriesContext(connection) as ctx:
+            discount_code_service.release_uses_of_pending_tickets(event=online_tier.event)
+
+        def table(sql: str) -> str:
+            return sql.split("FROM")[1].split()[0]
+
+        locks = [table(q["sql"]) for q in ctx.captured_queries if "FOR UPDATE" in q["sql"]]
+        quoted = [f'"{m._meta.db_table}"' for m in (Payment, TicketTier, Ticket, DiscountCode)]
+        order = [next(i for i, tb in enumerate(locks) if tb == name) for name in quoted]
+        assert order == sorted(order)
+        update_idx = next(
+            i
+            for i, q in enumerate(ctx.captured_queries)
+            if q["sql"].startswith("UPDATE") and DiscountCode._meta.db_table in q["sql"]
+        )
+        last_lock_idx = max(i for i, q in enumerate(ctx.captured_queries) if "FOR UPDATE" in q["sql"])
+        assert last_lock_idx < update_idx
+        assert _used(code) == 0

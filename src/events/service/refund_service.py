@@ -445,19 +445,16 @@ def admin_cancel_ticket(
 
     ticket_service._reject_series_pass_ticket(ticket)
     with transaction.atomic():
+        # Canonical lock order (parent row ... Payment -> TicketTier -> Ticket): lock the ticket's
+        # Payment row(s) first, refund or not, then the Ticket row, like the pending-checkout reclaim
+        # routes (cancel_pending_checkout, the expiry sweep, payment_intent.canceled), which lock
+        # Payment rows before touching tickets. That is what serializes them with this cancel: without
+        # it both could release the same PENDING ticket's discount use. Status is read only under
+        # both locks, so ``was_pending`` in the cancel primitive reflects what a reclaim route left behind.
+        payments = list(Payment.objects.select_for_update().filter(ticket_id=ticket.pk))
         locked_ticket = (
             Ticket.objects.select_for_update().select_related("tier", "event__organization").get(pk=ticket.pk)
         )
-        if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
-            raise TicketAlreadyCancelledError
-        # Always lock the ticket's Payment row(s), refund or not (ticket first, then payment,
-        # like cancellation_service._refund_if_required). The pending-checkout reclaim routes
-        # (cancel_pending_checkout, the expiry sweep, payment_intent.canceled) lock only Payment
-        # rows, so this is what serializes them with this cancel: without it both could release
-        # the same PENDING ticket's discount use. Status is re-read under that lock, so
-        # ``was_pending`` in the cancel primitive reflects what the reclaim route left behind.
-        payments = list(Payment.objects.select_for_update().filter(ticket=locked_ticket))
-        locked_ticket.refresh_from_db(fields=["status"])
         if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
             raise TicketAlreadyCancelledError
         if refund_amount is not None and refund_amount > _ZERO:

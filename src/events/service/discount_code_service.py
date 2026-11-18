@@ -676,15 +676,30 @@ def release_uses_of_pending_tickets(*, event: Event | None = None, user: RevelUs
 
     Deleting an event or an account cascade-deletes its tickets, and a PENDING one is an
     unfinished checkout, so its use goes back (confirmed tickets keep theirs). Call it inside
-    the same transaction, before the delete. The tickets' Payment rows are locked first so this
-    serializes with the other Payment-locking reclaim routes, then the ids are derived under
-    that lock (see :func:`release_discount_uses`).
+    the same transaction, before the delete.
+
+    Locks follow the canonical order: the candidate tickets' Payment rows (offline tickets have
+    none), then their TicketTier rows, then the Ticket rows themselves (serializing with user and
+    organizer cancels, which lock the ticket row), each in pk order. Only then are the tickets that
+    are still PENDING with a discount code re-queried and passed to :func:`release_discount_uses`,
+    which locks the DiscountCode rows last.
 
     Exactly one of ``event`` / ``user`` must be given.
     """
     if (event is None) == (user is None):
         raise ValueError("Pass exactly one of event or user.")
-    pending = Ticket.objects.filter(status=Ticket.TicketStatus.PENDING, discount_code_id__isnull=False)
-    pending = pending.filter(event=event) if event is not None else pending.filter(user=user)
-    list(Payment.objects.select_for_update().filter(ticket__in=pending).values_list("pk", flat=True))
-    release_discount_uses(pending.values_list("discount_code_id", flat=True))
+    candidates = Ticket.objects.filter(status=Ticket.TicketStatus.PENDING, discount_code_id__isnull=False)
+    candidates = candidates.filter(event=event) if event is not None else candidates.filter(user=user)
+    ticket_ids = list(candidates.values_list("pk", flat=True))
+    if not ticket_ids:
+        return
+    list(
+        Payment.objects.select_for_update().filter(ticket_id__in=ticket_ids).order_by("pk").values_list("pk", flat=True)
+    )
+    tier_ids = Ticket.objects.filter(pk__in=ticket_ids).values_list("tier_id", flat=True)
+    list(TicketTier.objects.select_for_update().filter(pk__in=tier_ids).order_by("pk").values_list("pk", flat=True))
+    list(Ticket.objects.select_for_update().filter(pk__in=ticket_ids).order_by("pk").values_list("pk", flat=True))
+    still_pending = Ticket.objects.filter(
+        pk__in=ticket_ids, status=Ticket.TicketStatus.PENDING, discount_code_id__isnull=False
+    )
+    release_discount_uses(still_pending.values_list("discount_code_id", flat=True))
