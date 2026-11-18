@@ -467,10 +467,13 @@ def test_subscription_admin_cannot_change_plan_of_existing_subscription(
     assert response.status_code == 200
     assert "plan" not in response.context["adminform"].form.fields
     form = response.context["adminform"].form
-    data = {k: ("" if v is None else v) for k, v in form.initial.items()}
+    data = {k: ("" if v is None else v) for k, v in form.initial.items() if k in form.fields}
+    # Forged `plan` key: a writable plan field would honour it; readonly ignores it.
     data["plan"] = str(other.pk)
     data["_save"] = "Save"
-    client.post(url, data)
+    response = client.post(url, data)
+    # A 302 proves the save succeeded (a form error re-renders with 200), so the check below can fail.
+    assert response.status_code == 302
     sub.refresh_from_db()
     assert sub.plan_id == plan.pk
 
@@ -606,6 +609,31 @@ class TestMigrateOfflineRecheck:
             payment_method=Plan.PaymentMethod.OFFLINE,
         )
         sub = self._setup(plan, organization, subscriber)
+        result, mock_dispatch = self._run(
+            plan, organization_owner_user, lambda: Sub.objects.filter(pk=sub.pk).update(plan=other)
+        )
+        mock_dispatch.assert_not_called()
+        assert result["skipped"] == 1
+        assert result["migrated"] == 0
+
+    def test_skips_unanchored_sub_moved_to_another_plan(
+        self,
+        plan: Plan,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """No prior payment (nothing to anchor a notice on): leaving the plan is still ``skipped``."""
+        other = Plan.objects.create(
+            tier=tier,
+            name="Other",
+            price=Decimal("20"),
+            currency="EUR",
+            period_unit=Plan.PeriodUnit.MONTH,
+            payment_method=Plan.PaymentMethod.OFFLINE,
+        )
+        sub = _make_sub(subscriber, plan, organization)
         result, mock_dispatch = self._run(
             plan, organization_owner_user, lambda: Sub.objects.filter(pk=sub.pk).update(plan=other)
         )

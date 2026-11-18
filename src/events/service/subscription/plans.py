@@ -302,15 +302,18 @@ def migrate_plan_subscribers(
             # the subscriber knows next renewal will be at the new amount.
 
             old_price = old_price_by_sub.get(sub.id)
+            offline = sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE
+            if offline and not _still_on_plan_and_live(sub, plan):
+                # OFFLINE: the sub moved plans or ended since the batch was listed.
+                result["skipped"] += 1
+                continue
             if old_price is None or old_price == new_price:
                 # Skip the price-migration notification when there's no prior
                 # successful payment to anchor against (would render X→X), or
                 # when the subscriber already paid the new price.
                 result["migrated"] += 1
                 continue
-            if sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE and (
-                not _still_on_plan_and_live(sub, plan) or _price_migration_already_notified(sub, new_price)
-            ):
+            if offline and _price_migration_already_notified(sub, new_price):
                 # OFFLINE re-run safety: nothing on the row records the
                 # migration (the last-paid-price anchor stays stale until the
                 # next renewal), so dedupe on the already-sent notice.

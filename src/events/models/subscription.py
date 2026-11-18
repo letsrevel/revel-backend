@@ -236,9 +236,11 @@ class MembershipSubscriptionPlan(TimeStampedModel):
 
         Same rule as ``update_plan`` (#1423), enforced here for the paths that
         skip it: the Django admin form, a simple_history revert, shell writes.
-        The persisted row is read ``FOR UPDATE`` (in its own transaction when
-        called outside one) so those saves serialize with in-flight
-        subscription creations, as ``update_plan`` does.
+        The persisted row is read ``FOR UPDATE``, which serializes the save with
+        in-flight subscription creations (as ``update_plan`` does) when the save
+        runs inside a transaction (Django admin, ``update_plan``). A bare
+        autocommit shell save releases the lock before the UPDATE, so wrap shell
+        edits in ``transaction.atomic()``.
         """
         if self._state.adding:
             return

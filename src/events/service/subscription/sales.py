@@ -29,6 +29,20 @@ def ensure_plan_on_sale(plan: MembershipSubscriptionPlan) -> None:
         raise HttpError(400, str(_("Sales for this plan are currently paused.")))
 
 
+_LOCK_REFRESH_FIELDS = [
+    "currency",
+    "price",
+    "period_unit",
+    "period_count",
+    "stripe_price_id",
+    "stripe_product_id",
+    "is_active",
+    "sales_status",
+    "max_subscriptions",
+    "payment_method",
+]  # scalar columns only: cached FK relations (tier, organization) stay loaded
+
+
 def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
     """Enforce the plan's cap on concurrent non-terminal subscriptions.
 
@@ -46,9 +60,12 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
     Django's FKs are ``DEFERRABLE INITIALLY DEFERRED``, so the insert itself
     locks nothing until commit. Callers must already be inside a transaction.
     Once the lock is held the caller's ``plan`` instance is refreshed in place,
-    so a caller that waited out a concurrent ``update_plan`` continues with the
-    committed currency, cadence, Stripe price, active flag and cap. An uncapped
-    plan that gained a cap while waiting falls through to the capped path.
+    so the rest of the creation uses the committed currency, cadence, price,
+    Stripe price and cap even if it waited out a concurrent ``update_plan``.
+    The sales-pause and active state are not re-checked here: a checkout that
+    already passed the sales checks when a pause commits still completes. An
+    uncapped plan that gained a cap while waiting falls through to the capped
+    path.
     Applies to staff creation too: capacity is a hard limit, unlike the
     sales-status pause.
     """
@@ -58,7 +75,7 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
         sql = f"SELECT 1 FROM {quote(meta.db_table)} WHERE {quote(meta.pk.attname)} = %s FOR KEY SHARE"  # noqa: S608  # nosec B608 - identifiers from model meta
         with connection.cursor() as cursor:
             cursor.execute(sql, [plan.pk])
-        plan.refresh_from_db()  # we may have waited out an update_plan: continue on committed values
+        plan.refresh_from_db(fields=_LOCK_REFRESH_FIELDS)  # we may have waited out an update_plan
         if plan.max_subscriptions is None:
             return
         # A cap was set while we waited: count against the locked row below.
@@ -66,11 +83,13 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
         # deadlock; Postgres aborts one (that request errors, the cap holds). Only
         # possible right after an uncapped plan gains a cap mid-checkout; upgrade
         # path if it ever matters: catch the deadlock and retry the lock once.
-    locked_plan = MembershipSubscriptionPlan.objects.select_for_update().get(pk=plan.pk)
-    plan.refresh_from_db()
-    if locked_plan.max_subscriptions is None:  # changed since the unlocked read
+    plan.refresh_from_db(
+        fields=_LOCK_REFRESH_FIELDS, from_queryset=MembershipSubscriptionPlan.objects.select_for_update()
+    )
+    cap: int | None = getattr(plan, "max_subscriptions")  # noqa: B009 - refresh_from_db changed it behind mypy's narrowing
+    if cap is None:  # changed since the unlocked read
         return
-    if locked_plan.occupied_slot_count() >= locked_plan.max_subscriptions:
+    if plan.occupied_slot_count() >= cap:
         raise HttpError(400, str(_("This plan is sold out.")))
 
 

@@ -299,8 +299,11 @@ must therefore lock the plan row itself in `ensure_plan_sales_capacity`: `FOR UP
 plan is capped (it counts slots), `FOR KEY SHARE` when it is not. `KEY SHARE` locks don't conflict
 with each other, so uncapped checkouts don't queue behind one another across the Checkout-session
 Stripe call (held under `ATOMIC_REQUESTS`), but they conflict with `update_plan`'s `FOR UPDATE`. After taking the lock the helper refreshes the
-caller's plan instance in place, so a creation that waited out `update_plan` never acts on stale
-currency, cadence or cap. The model-level guard in `clean()` also reads the persisted row `FOR UPDATE`.
+caller's plan instance in place, so the rest of the creation uses the committed currency, cadence,
+price, Stripe price and cap (the sales pause is not re-checked: a checkout already past the sales
+checks when a pause commits still completes). The model-level guard in `clean()` also reads the
+persisted row `FOR UPDATE`; that serializes with in-flight creations only when the save runs inside
+a transaction (Django admin, `update_plan`), so wrap shell edits in `transaction.atomic()`.
 The threaded regression test is `events/tests/test_plan_guard_1427.py`
 (`transaction=True`, two real connections).
 

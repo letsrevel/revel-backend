@@ -120,8 +120,9 @@ Changing `currency`, `period_unit` or `period_count` (the last is exempt on a
 `update_plan` enforces it under the plan row lock (400); `clean()` enforces it
 against the persisted row for every other `save()` path (Django admin, history
 revert, shell), as a field `ValidationError` (#1427). That check reads the persisted
-row `FOR UPDATE` in its own `transaction.atomic()` so those saves serialize with in-flight
-creations, and it is skipped for `save(update_fields=...)` that names none of the three fields.
+row `FOR UPDATE`, which serializes the save with in-flight creations when it runs inside a
+transaction (Django admin, `update_plan`); a bare autocommit shell save releases the lock before
+the UPDATE, so wrap shell edits in `transaction.atomic()`. It is skipped for `save(update_fields=...)` that names none of the three fields.
 
 #### Sale controls
 
@@ -133,8 +134,10 @@ plan row so concurrent creations serialize when a cap is set, mirroring the
 capacity-reclaim invariants of ticket tiers. On an uncapped plan it takes `FOR KEY SHARE`
 instead: creations don't block each other, but `update_plan`'s `FOR UPDATE` conflicts with it,
 so the currency/cadence guard cannot miss a subscription in flight (#1427). Once locked, the
-caller's plan instance is refreshed in place, and an uncapped plan that gained a cap while the
-caller waited falls through to the capped path. The public plan schema exposes `sales_status` and a
+caller's plan instance is refreshed in place, so the rest of the creation uses the committed
+currency, cadence, price, Stripe price and cap; the sales pause is not re-checked, so a checkout
+already past the sales checks when a pause commits still completes. An uncapped plan that gained
+a cap while the caller waited falls through to the capped path. The public plan schema exposes `sales_status` and a
 computed `sold_out` flag so the frontend can render "sold out" vs "sales
 paused" vs a normal subscribe CTA.
 

@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The model's validation (`clean()`) refuses the change, so the admin form shows a field error and a history revert fails instead of letting the plan drift from what subscribers are billed.
   - Creating a subscription now takes a shared lock on the plan row on plans without a subscriber cap, so it can no longer slip past a plan edit made at the same moment, while checkouts on the same plan still run in parallel.
   - "Migrate subscribers" re-reads each online subscription under a row lock and skips ones whose plan changed or that gained a scheduled downgrade since the batch started, so it cannot overwrite a member's own plan change.
-  - A subscription creation that waited out a plan edit now continues with the plan's committed values, and a plan that gained a subscriber cap in the meantime is counted against that cap.
+  - A subscription creation that waited out a plan edit now continues with the plan's committed currency, period, price and cap.
   - Saving a plan through the admin, a history revert or the shell now locks the plan row, and a save that touches no currency or period field is no longer blocked by the guard.
   - "Migrate subscribers" also skips an offline subscriber who moved to another plan or ended after the batch started, instead of sending them a price notice.
   - Subscription admin no longer lets staff change the plan or organization of an existing subscription.
