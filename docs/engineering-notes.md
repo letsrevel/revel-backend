@@ -288,6 +288,17 @@ transaction's lifetime (see the transaction-pooling note above) — open for as 
 slowest outbound call inside it takes; bounding that call to 15s bounds the whole window to
 15s instead of stripe-python's ~80s default.
 
+## Plan row lock: FK `KEY SHARE` does not serialize inserts (#1427)
+
+`update_plan` (currency/cadence guard) locks the plan row `FOR UPDATE` and then looks for live
+subscriptions. It cannot rely on the foreign key from a concurrent `MembershipSubscription`
+insert to block it: Django creates FK constraints `DEFERRABLE INITIALLY DEFERRED` on PostgreSQL,
+so the `FOR KEY SHARE` that conflicts with `FOR UPDATE` is only taken at commit, after
+`update_plan` has already read "no subscribers" and changed the cadence. Subscription creation
+must therefore take the plan row lock itself, which `ensure_plan_sales_capacity` now always does
+(cap or not). The threaded regression test is `events/tests/test_plan_guard_1427.py`
+(`transaction=True`, two real connections).
+
 ## Migration Squashing (one per app per PR, never hand-edit schema migrations)
 
 Branch policy: a PR introduces at most **one schema migration per app** — iterative work

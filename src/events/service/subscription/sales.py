@@ -36,13 +36,13 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
     plan (``pending_plan`` reserves the slot, since the Stripe schedule
     rollover re-points ``plan`` with no capacity re-check) — so a cancelled
     or expired subscription frees its slot automatically; there is no counter
-    to drift. When a cap is set the plan row is locked so concurrent
+    to drift. The plan row is always locked (cap or not) so concurrent
     creations serialize (mirrors the capacity-reclaim invariants of ticket
-    tiers); callers must already be inside a transaction. Applies to staff
+    tiers) and ``update_plan``'s currency/cadence guard, which takes the same
+    lock, cannot miss a subscription in flight (#1427); callers must already
+    be inside a transaction. Applies to staff
     creation too: capacity is a hard limit, unlike the sales-status pause.
     """
-    if plan.max_subscriptions is None:
-        return
     locked_plan = MembershipSubscriptionPlan.objects.select_for_update().get(pk=plan.pk)
     if locked_plan.max_subscriptions is None:  # changed since the unlocked read
         return

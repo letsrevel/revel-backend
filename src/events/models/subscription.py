@@ -213,6 +213,41 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         )
         if message:
             raise DjangoValidationError({"payment_method": message})
+        self._validate_no_billing_change_with_live_subscriptions()
+
+    def _validate_no_billing_change_with_live_subscriptions(self) -> None:
+        """Refuse currency / cadence changes against the persisted row while subscribers exist.
+
+        Same rule as ``update_plan`` (#1423), enforced here for the paths that
+        skip it: the Django admin form, a simple_history revert, shell writes.
+        """
+        if self._state.adding:
+            return
+        persisted = type(self).objects.filter(pk=self.pk).values("currency", "period_unit", "period_count").first()
+        if persisted is None:
+            return
+        unit_changed = self.period_unit != persisted["period_unit"]
+        # LIFETIME ignores period_count, so editing it there changes nothing.
+        count_changed = self.period_unit != self.PeriodUnit.LIFETIME and self.period_count != persisted["period_count"]
+        currency_changed = (self.currency or "").upper() != persisted["currency"].upper()
+        if not (currency_changed or unit_changed or count_changed) or not self.has_live_subscriptions():
+            return
+        if currency_changed:
+            raise DjangoValidationError(
+                {
+                    "currency": _(
+                        "Cannot change currency when active subscriptions exist. Archive and create a new plan instead."
+                    )
+                }
+            )
+        raise DjangoValidationError(
+            {
+                "period_unit" if unit_changed else "period_count": _(
+                    "Cannot change the billing period when active subscriptions exist. "
+                    "Archive and create a new plan instead."
+                )
+            }
+        )
 
     @property
     def effective_payment_instructions(self) -> str | None:
@@ -228,6 +263,15 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         """Convenience proxy for permission / scoping helpers."""
         return self.tier.organization_id
 
+    def has_live_subscriptions(self) -> bool:
+        """Whether any non-terminal subscription is on this plan or scheduled to downgrade into it."""
+        return self._live_subscriptions().exists()
+
+    def _live_subscriptions(self) -> "models.QuerySet[MembershipSubscription]":
+        return MembershipSubscription.objects.filter(models.Q(plan=self) | models.Q(pending_plan=self)).exclude(
+            status__in=_TERMINAL_STATUS_VALUES
+        )
+
     def occupied_slot_count(self) -> int:
         """Count subscriptions occupying (or reserving) one of this plan's cap slots.
 
@@ -240,11 +284,7 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         the reservation. Single source of truth for
         ``ensure_plan_sales_capacity`` and the schema resolvers' fallbacks.
         """
-        return (
-            MembershipSubscription.objects.filter(models.Q(plan=self) | models.Q(pending_plan=self))
-            .exclude(status__in=_TERMINAL_STATUS_VALUES)
-            .count()
-        )
+        return self._live_subscriptions().count()
 
 
 class MembershipSubscription(TimeStampedModel):

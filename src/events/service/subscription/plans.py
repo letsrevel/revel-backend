@@ -12,7 +12,7 @@ from decimal import Decimal
 
 import structlog
 from django.db import transaction
-from django.db.models import ProtectedError, Q
+from django.db.models import ProtectedError
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -134,9 +134,13 @@ def update_plan(
 
     # Compare against the committed row, not the caller's instance: concurrent
     # PATCHes on this plan serialize here, so a stale resend of the old cadence
-    # cannot revert another PATCH's change. (Subscription creation on uncapped
-    # plans does not take this lock; see #1427.) ``of=("self",)`` keeps the
-    # tier/org rows unlocked across the Stripe calls below.
+    # cannot revert another PATCH's change. Subscription creation takes the same
+    # plan row lock (``ensure_plan_sales_capacity``), so a creation in flight
+    # either commits before this read or waits for this transaction (#1427).
+    # (A bare FK insert would not serialize: Django's FK constraints are
+    # DEFERRABLE INITIALLY DEFERRED, so the FOR KEY SHARE is taken at commit,
+    # after this check.) ``of=("self",)`` keeps the tier/org rows unlocked
+    # across the Stripe calls below.
     plan = (
         MembershipSubscriptionPlan.objects.select_for_update(of=("self",))
         .select_related("tier__organization")
@@ -162,12 +166,7 @@ def update_plan(
     if currency_changes or cadence_changes:
         # A scheduled downgrade (``pending_plan``) already pins this plan's
         # current Stripe Price into the subscriber's schedule.
-        has_active_subs = (
-            MembershipSubscription.objects.filter(Q(plan=plan) | Q(pending_plan=plan))
-            .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-            .exists()
-        )
-        if has_active_subs:
+        if plan.has_live_subscriptions():
             if currency_changes:
                 msg = _(
                     "Cannot change currency when active subscriptions exist. Archive and create a new plan instead."
@@ -296,24 +295,7 @@ def migrate_plan_subscribers(
     for sub in qs:
         try:
             if sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
-                if sub.stripe_schedule_id:
-                    # Stripe rejects a plain ``Subscription.modify`` while a schedule
-                    # is attached, and releasing the schedule would silently drop the
-                    # pending plan change. Without this the modify 502s straight into
-                    # ``failed``, where a staff-triggered batch (202 + logs only)
-                    # reads as a Stripe outage rather than the deliberate carve-out
-                    # it is.
-                    result["skipped_schedule_managed"] += 1
-                    logger.warning(
-                        "migrate_plan_subscribers_skipped_schedule_managed",
-                        plan_id=str(plan.pk),
-                        subscription_id=str(sub.pk),
-                        schedule_id=sub.stripe_schedule_id,
-                    )
-                    continue
-                changed = stripe_checkout.update_subscription_price(sub)
-                if not changed:
-                    result["skipped"] += 1
+                if not _swap_online_price_locked(plan, sub, result):
                     continue
             # OFFLINE: no Stripe call. We still dispatch the notification so
             # the subscriber knows next renewal will be at the new amount.
@@ -352,6 +334,48 @@ def migrate_plan_subscribers(
         **result,
     )
     return result
+
+
+def _swap_online_price_locked(
+    plan: MembershipSubscriptionPlan, sub: MembershipSubscription, result: MigrationResult
+) -> bool:
+    """Swap one ONLINE subscriber onto the plan's current Price; ``False`` when skipped (counted in ``result``).
+
+    Re-reads the subscription under a row lock: ``change_online_plan`` holds the
+    same lock across its Stripe calls and an upgrade re-points ``plan`` before
+    it commits, so the two serialize and the swap cannot overwrite a member's
+    own change made after the batch query (#1427). Holding one subscription's
+    row lock across its own Stripe call matches ``change_online_plan``'s
+    per-member blast radius.
+    """
+    with transaction.atomic():
+        locked = (
+            MembershipSubscription.objects.select_for_update(of=("self",))
+            .select_related("plan", "organization", "user")
+            .get(pk=sub.pk)
+        )
+        if locked.plan_id != plan.pk or locked.status in MembershipSubscription.TERMINAL_STATUSES:
+            result["skipped"] += 1
+            return False
+        if locked.stripe_schedule_id:
+            # Stripe rejects a plain ``Subscription.modify`` while a schedule
+            # is attached, and releasing the schedule would silently drop the
+            # pending plan change. Without this the modify 502s straight into
+            # ``failed``, where a staff-triggered batch (202 + logs only)
+            # reads as a Stripe outage rather than the deliberate carve-out
+            # it is.
+            result["skipped_schedule_managed"] += 1
+            logger.warning(
+                "migrate_plan_subscribers_skipped_schedule_managed",
+                plan_id=str(plan.pk),
+                subscription_id=str(locked.pk),
+                schedule_id=locked.stripe_schedule_id,
+            )
+            return False
+        if not stripe_checkout.update_subscription_price(locked):
+            result["skipped"] += 1
+            return False
+    return True
 
 
 def _price_migration_already_notified(subscription: MembershipSubscription, new_price: t.Any) -> bool:
