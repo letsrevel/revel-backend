@@ -1,5 +1,7 @@
 import typing as t
+import uuid
 from io import BytesIO
+from pathlib import Path
 from unittest import mock
 
 import piexif
@@ -35,9 +37,12 @@ def _create(
 def test_pdf_is_stored_with_pdf_extension(
     organization: models.Organization, organization_owner_user: RevelUser
 ) -> None:
-    resource = _create(organization, "report.pdf", PDF_BYTES, organization_owner_user)
+    resource = _create(organization, "evil name.pdf", PDF_BYTES, organization_owner_user)
 
-    assert str(resource.file.name).endswith(".pdf")
+    stored = Path(str(resource.file.name))
+    assert stored.suffix == ".pdf"
+    uuid.UUID(stored.stem)
+    assert "evil" not in stored.name
 
 
 def test_png_named_html_is_stored_as_png(
@@ -98,3 +103,60 @@ def test_audit_and_scan_are_registered(
     scan.delay.assert_called_once_with(app="events", model="additionalresource", pk=str(resource.pk), field="file")
     audit = FileUploadAudit.objects.get(app="events", model="additionalresource", instance_pk=resource.pk)
     assert audit.uploader == organization_owner_user.email
+
+
+MALFORMED_WEBP = b"RIFF\0\0\0\0WEBPVP8 " + b"\0" * 20
+
+
+def test_malformed_image_is_refused_with_422(
+    organization: models.Organization, organization_owner_user: RevelUser
+) -> None:
+    with pytest.raises(HttpError) as exc_info:
+        _create(organization, "bad.webp", MALFORMED_WEBP, organization_owner_user)
+
+    assert exc_info.value.status_code == 422
+    assert not models.AdditionalResource.objects.filter(organization=organization).exists()
+
+
+def test_oversized_image_is_refused_with_422(
+    organization: models.Organization,
+    organization_owner_user: RevelUser,
+    png_bytes: bytes,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("common.utils.MAX_IMAGE_PIXELS", 0)
+
+    with pytest.raises(HttpError) as exc_info:
+        _create(organization, "big.png", png_bytes, organization_owner_user)
+
+    assert exc_info.value.status_code == 422
+    assert not models.AdditionalResource.objects.filter(organization=organization).exists()
+
+
+def test_missing_name_takes_original_file_name(
+    organization: models.Organization, organization_owner_user: RevelUser
+) -> None:
+    payload = AdditionalResourceCreateSchema(resource_type=models.AdditionalResource.ResourceTypes.FILE)
+    long_name = "a" * 300 + ".pdf"
+
+    resource = resource_service.create_resource(
+        organization,
+        payload,
+        file=SimpleUploadedFile("../../etc/report.pdf", PDF_BYTES),  # type: ignore[arg-type]
+        uploader=organization_owner_user,
+    )
+    long_resource = resource_service.create_resource(
+        organization,
+        payload,
+        file=SimpleUploadedFile(long_name, PDF_BYTES),  # type: ignore[arg-type]
+        uploader=organization_owner_user,
+    )
+
+    assert resource.name == "report.pdf"
+    assert long_resource.name and len(long_resource.name) <= 255
+
+
+def test_given_name_is_kept(organization: models.Organization, organization_owner_user: RevelUser) -> None:
+    resource = _create(organization, "report.pdf", PDF_BYTES, organization_owner_user)
+
+    assert resource.name == "Doc"

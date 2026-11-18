@@ -129,6 +129,17 @@ class TestUploadFile:
         assert stored_name.endswith(".png")
         assert "x.html" not in stored_name
 
+    def test_malformed_image_is_refused_with_422(self, user_client: Client, user: RevelUser) -> None:
+        """Content libmagic calls webp but Pillow cannot decode is a 422, not a 500."""
+        url = reverse("api:upload_questionnaire_file")
+        malformed = b"RIFF\0\0\0\0WEBPVP8 " + b"\0" * 20
+        uploaded_file = SimpleUploadedFile(name="bad.webp", content=malformed, content_type="image/webp")
+
+        response = user_client.post(url, {"file": uploaded_file}, format="multipart")
+
+        assert response.status_code == 422
+        assert not QuestionnaireFile.objects.filter(uploader=user).exists()
+
     def test_upload_file_deduplication_returns_existing(self, user_client: Client, user: RevelUser) -> None:
         """Test that uploading the same content returns the existing file (deduplication)."""
         # Arrange

@@ -3,6 +3,7 @@
 import hashlib
 
 import magic
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils.translation import gettext_lazy as _
 from ninja.files import UploadedFile
@@ -11,7 +12,7 @@ from accounts.models import RevelUser
 from common.service.upload_service import create_file_audit_and_scan
 from common.utils import strip_exif
 
-from ..exceptions import DisallowedMimeTypeError, FileSizeExceededError
+from ..exceptions import DisallowedMimeTypeError, FileSizeExceededError, InvalidFileMimeTypeError
 from ..models import QuestionnaireFile
 from ..schema import ALLOWED_QUESTIONNAIRE_MIME_TYPES, IMAGE_MIME_TYPES
 
@@ -44,6 +45,7 @@ def upload_questionnaire_file(user: RevelUser, file: UploadedFile) -> Questionna
     Raises:
         FileSizeExceededError: If the file exceeds the global maximum size.
         DisallowedMimeTypeError: If the detected MIME type is not in the global allowlist.
+        InvalidFileMimeTypeError: If an image cannot be decoded or is too large.
     """
     # Validate global file size limit before processing
     if file.size and file.size > MAX_UPLOAD_FILE_SIZE:
@@ -71,7 +73,12 @@ def upload_questionnaire_file(user: RevelUser, file: UploadedFile) -> Questionna
     # Strip EXIF metadata from images for privacy protection
     # This removes GPS coordinates, camera info, timestamps, etc.
     if detected_mime_type in IMAGE_MIME_TYPES:
-        file = strip_exif(file)  # type: ignore[assignment]
+        try:
+            file = strip_exif(file)  # type: ignore[assignment]
+        except OSError, ValidationError:
+            # OSError covers PIL.UnidentifiedImageError (content libmagic accepts but Pillow
+            # cannot decode); ValidationError is the oversized-image guard.
+            raise InvalidFileMimeTypeError(str(_("File is not a valid image.")))
         # Re-read the processed content for hashing
         file_content = file.read()
         file.seek(0)

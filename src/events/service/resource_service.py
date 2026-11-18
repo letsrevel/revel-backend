@@ -1,8 +1,10 @@
 import hashlib
+import re
 import typing as t
 import uuid
 
 import magic
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import QuerySet
 from django.utils.translation import gettext_lazy as _
@@ -56,7 +58,12 @@ def create_resource(
 
     file_hash = ""
     if file:
+        original_name = file.name  # captured before the file is renamed
         file, file_hash = _prepare_resource_file(file)
+        if not create_data.get("name") and original_name:
+            # The stored name is random, so keep the client's file name as the display name.
+            display_name = re.split(r"[\\/]", original_name)[-1].strip()
+            create_data["name"] = display_name[: models.AdditionalResource._meta.get_field("name").max_length] or None
 
     resource = models.AdditionalResource.objects.create(
         organization=organization,
@@ -99,8 +106,9 @@ def _prepare_resource_file(file: UploadedFile) -> tuple[UploadedFile, str]:
             422, str(_("File exceeds maximum upload size of {}MB.").format(MAX_RESOURCE_FILE_SIZE // (1024 * 1024)))
         )
 
-    detected_mime_type = magic.from_buffer(file.read(), mime=True)
+    content = file.read()
     file.seek(0)
+    detected_mime_type = magic.from_buffer(content, mime=True)
     if detected_mime_type not in ALLOWED_QUESTIONNAIRE_MIME_TYPES:
         raise HttpError(
             422,
@@ -112,9 +120,14 @@ def _prepare_resource_file(file: UploadedFile) -> tuple[UploadedFile, str]:
         )
 
     if detected_mime_type in IMAGE_MIME_TYPES:
-        file = strip_exif(file)  # type: ignore[assignment]
-    content = file.read()
-    file.seek(0)
+        try:
+            file = strip_exif(file)  # type: ignore[assignment]
+        except OSError, ValidationError:
+            # OSError covers PIL.UnidentifiedImageError (content libmagic accepts but Pillow cannot
+            # decode); ValidationError is the oversized-image guard.
+            raise HttpError(422, str(_("File is not a valid image.")))
+        content = file.read()
+        file.seek(0)
     file.name = f"{uuid.uuid4()}{extension_for_mime(detected_mime_type)}"
     return file, hashlib.sha256(content).hexdigest()
 
