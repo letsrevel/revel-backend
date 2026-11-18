@@ -138,7 +138,9 @@ def _reset_contested_profile(user: RevelUser) -> None:
 
 
 def adopt_unverified_account(user: RevelUser, *, password: str | None) -> None:
-    """The first proof of ownership of an unverified account arrived: it starts over and becomes verified.
+    """Adopt an unverified account (OIDC login, a password reset or verifying a contested one): it starts over.
+
+    The first proof of ownership arrived, so the account is verified.
 
     Credentials set before now are dropped (see :func:`reset_unverified_credentials`). When somebody signed
     up again with the address meanwhile (``signup_contested_at``), the profile and referral are reset too,

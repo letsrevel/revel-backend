@@ -40,6 +40,9 @@ def _enrolled(application: ReferralApplication, user: RevelUser) -> bool:
 
 def test_unverified_account_is_not_enrolled(application: ReferralApplication, unverified: RevelUser) -> None:
     assert not _enrolled(application, unverified)
+    application.refresh_from_db()
+    assert application.user_id is None
+    assert not ReferralCode.objects.filter(user=unverified).exists()
 
 
 def test_account_created_verified_is_enrolled(

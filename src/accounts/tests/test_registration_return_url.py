@@ -148,8 +148,8 @@ def test_repeat_registration_carries_return_url(
             account_service.register_user(payload)
 
     link = _sent_link_with_deletion(mock_send)
-    assert "returnUrl=" in link
-    assert "/login/confirm-email?token=" in link
+    assert "/login/confirm-email" in link
+    assert parse_qs(urlsplit(link).query, strict_parsing=True)["returnUrl"] == [_OAUTH_RETURN_URL]
 
 
 @pytest.mark.parametrize("context", [None, {}, {"unrelated": "x"}], ids=["no-context", "empty", "no-return-url"])

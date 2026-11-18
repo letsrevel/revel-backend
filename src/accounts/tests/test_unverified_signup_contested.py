@@ -235,14 +235,11 @@ class TestVerifyContestedAccount:
 
     def test_verify_locks_the_user_row(self, stored: RevelUser) -> None:
         link = account_service.create_verification_token(stored)
-        with patch.object(
-            RevelUser.objects.__class__,
-            "select_for_update",
-            autospec=True,
-            side_effect=RevelUser.objects.select_for_update,
-        ) as spy:
+        original = type(RevelUser.objects).select_for_update  # unbound, captured before the patch
+        with patch.object(type(RevelUser.objects), "select_for_update", autospec=True, side_effect=original) as spy:
             account_service.verify_email(link)
         assert spy.called
+        assert not any(call.kwargs.get("nowait") for call in spy.call_args_list)
 
 
 class TestPasswordResetOnContestedAccount:

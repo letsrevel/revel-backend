@@ -271,6 +271,8 @@ def test_register_user_existing_unverified_non_guest(
     user.email_verified = False
     user.save(update_fields=["email_verified"])
     stored_hash = RevelUser.objects.get(pk=user.pk).password
+    stored_first_name = RevelUser.objects.get(pk=user.pk).first_name
+    assert stored_first_name != valid_register_payload.first_name
 
     with django_capture_on_commit_callbacks(execute=True):
         returned, token = account_service.register_user(valid_register_payload)
@@ -281,7 +283,7 @@ def test_register_user_existing_unverified_non_guest(
     user.refresh_from_db()
     assert user.signup_contested_at is not None
     assert user.password == stored_hash
-    assert user.first_name != valid_register_payload.first_name
+    assert user.first_name == stored_first_name
     mock_send_email.assert_called_once()
     assert mock_send_email.call_args.kwargs["token"] == token
 

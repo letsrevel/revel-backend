@@ -55,7 +55,7 @@ Registering again with the address of an account that is still unverified change
 
 === "With 2FA (TOTP)"
 
-    If the user has TOTP enabled, the initial login returns a partial token. The user must then submit the TOTP code to complete authentication (`POST /api/auth/token/pair/otp`, which also answers `403` `email_not_verified` for an unverified account).
+    If the user has TOTP enabled, the initial login returns a partial token. The user must then submit the TOTP code to complete authentication (`POST /api/auth/token/pair/otp`). An unverified account gets `403 email_not_verified` at the password step, before any partial token is issued; `/api/auth/token/pair/otp` answers the same for a partial token issued earlier.
 
 === "Google SSO"
 
@@ -680,7 +680,7 @@ sequenceDiagram
         Adm->>API: Approve
         API->>API: Create ReferralCode, link application
         API-->>A: "You're enrolled" email
-    else Approve, no account yet
+    else Approve, no verified account
         Adm->>API: Approve (or Invite by email)
         API-->>A: Invite email → /register?referral_invite=<id>
         A->>API: Register / SSO login with that email
@@ -703,7 +703,8 @@ Enrollment needs a verified email that matches the invited address exactly (case
 plus-tags and dots are not folded). A password signup is enrolled when its email is verified
 (or confirmed by a password reset); an SSO account is verified at creation and enrolled then.
 Approving an application whose email belongs to an unverified account sends the invite
-instead of enrolling. Guest accounts created by guest checkout are not signups: they are
+instead of enrolling. The invitee verifies that account (link or password reset) instead of registering
+again, and is enrolled on verification. Guest accounts created by guest checkout are not signups: they are
 enrolled when the guest becomes a full user (password set or OIDC login). Enrollment never blocks account
 creation — a code taken in the meantime is logged and left for the admin.
 
