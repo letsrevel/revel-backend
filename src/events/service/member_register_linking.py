@@ -26,7 +26,7 @@ from events.models import MembershipRecord, MembershipRecordLinkMethod, Organiza
 from events.service import blacklist_service
 from events.service.user_note_transfer import transfer_record_note
 from events.utils.frontend_urls import frontend_base_url_for
-from notifications.context_schemas import MembershipContext, NextChargeContext, StaffMemberRecordAutoLinkedContext
+from notifications.context_schemas import MembershipContext, StaffMemberRecordAutoLinkedContext
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
@@ -55,7 +55,7 @@ class LinkResult:
     member: OrganizationMember | None = None
 
 
-def notify_membership_granted(member: OrganizationMember, next_charge: NextChargeContext | None = None) -> None:
+def notify_membership_granted(member: OrganizationMember) -> None:
     """Tell the member they were granted membership (MEMBERSHIP_GRANTED).
 
     Shared by the ``post_save`` receiver (new access rows) and by linking, which reactivates a CANCELLED
@@ -69,9 +69,6 @@ def notify_membership_granted(member: OrganizationMember, next_charge: NextCharg
         "action": "granted",
         "frontend_url": f"{frontend_base_url_for(organization)}/org/{organization.slug}",
     }
-    if next_charge:
-        context["next_charge_amount"] = next_charge["next_charge_amount"]
-        context["next_charge_date"] = next_charge["next_charge_date"]
     notification_requested.send(
         sender=OrganizationMember,
         user=member.user,

@@ -65,13 +65,13 @@ Stripe was probed in test mode (API `2026-03-25.dahlia`) before deciding:
    (the plan's own price id gives `plan.price`; any other is retrieved on the organization's
    account), never from the line's `unit_amount_decimal` (0 or prorated on stub and zero lines) and
    not from the mutable `plan.price` alone. The `plan.price` shortcut applies only when the line's
-   Price id equals the plan's; a line with no Price id is never guessed from the plan. The stamp is
-   best-effort: if the Price cannot be resolved (no Price id, Stripe error, no integer
-   `unit_amount`) it stays NULL and is logged at ERROR with the subscription, invoice and price ids,
-   and the anchor falls back to the paid stub amount. A member who paid is never stranded over it:
+   Price id equals the plan's. The stamp is best-effort: if the Price cannot be resolved (no Price
+   id, Stripe error, no integer `unit_amount`) it falls back to `plan.price`, almost always right
+   where the stub amount (possibly 0) never is, and is logged at WARNING with the subscription,
+   invoice and price ids. A member who paid is never stranded over it:
    the webhook still links, activates and records the payment. The stub decision is re-taken
    against the locked subscription's plan (the Stripe fetch stays outside the lock), and the fetched
-   price only counts if it is still the stub line's. It is stamped once: a redelivery never rewrites it. MRR, renewal reminders and
+   price only counts if it is still the stub line's (a dropped stamp is logged at WARNING). It is stamped once: a redelivery never rewrites it. MRR, renewal reminders and
    price-migration notices read `Coalesce(full_period_amount, amount)` through one helper, so a
    stub never anchors a quote. A first invoice is a stub when it carries a proration line, or when its
    `total` and `subtotal` are both zero; `amount_paid` 0 alone is not enough, since a customer
@@ -102,15 +102,15 @@ Stripe was probed in test mode (API `2026-03-25.dahlia`) before deciding:
    member is never sent back to a payable page with a stale anchor. The `sub-checkout:{pk}`
    idempotency key is only reused for the same create call, never across that replacement (the
    stale PENDING row is cleared and a new row, hence a new key, is created).
-7. **Notices state the next full charge.** A short or free stub can be followed by the full charge
-   within hours, so the 3 day renewal reminder cannot warn the member. The checkout-link notice
-   and the first-payment confirmation therefore also state the next charge (the plan price) and
-   its date: always the subscription's `current_period_end` (the boundary), never an invoice period
-   that may have fallen back to now. The confirmation is `SUBSCRIPTION_RENEWAL_SUCCEEDED` for an
-   existing member and `MEMBERSHIP_GRANTED` for a brand-new one, and both carry the line on every
-   activation path: the first invoice, and the free stub that opens no invoice (where
-   `checkout.session.completed` activates from the Subscription). The new member's access row
-   carries the line to the `MEMBERSHIP_GRANTED` receiver; there is no global state.
+7. **The next charge is stated before payment and reminded before every charge.** A short or free
+   stub can be followed by the full charge within hours. The Stripe Checkout page shows the
+   upcoming charge, and the revival checkout-link notice (`SUBSCRIPTION_REVIVAL_CHECKOUT`) states
+   the next charge (the plan price) and its date, both known before the member pays. Post-payment
+   notices (`MEMBERSHIP_GRANTED`, `SUBSCRIPTION_RENEWAL_SUCCEEDED`) carry no next-charge line. The
+   renewal reminder beat also reminds an ONLINE subscription whose current period ends inside the
+   reminder window, so a stub shorter than `REMINDER_DAYS` is reminded before its first full
+   charge. `MembershipSubscription.renewal_reminded_for` records the period end already reminded,
+   which keeps it to one reminder per period.
 
 ## Consequences
 

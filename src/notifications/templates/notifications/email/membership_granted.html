@@ -3,7 +3,6 @@
 {% block content %}
 <p>{% trans "Hello" %} {{ user.display_name }},</p>
 <p style="font-size:18px;">{% blocktranslate with org=context.organization_name role=context.role %}You are now a <strong>{{ role }}</strong> of <strong>{{ org }}</strong>!{% endblocktranslate %}</p>
-{% if context.next_charge_amount %}<p>{% blocktranslate with amount=context.next_charge_amount date=context.next_charge_date %}Next charge: {{ amount }} on {{ date }}.{% endblocktranslate %}</p>{% endif %}
 <div class="card">
     <p>{% trans "As a member, you can:" %}</p>
     <ul style="margin:10px 0;padding-left:20px;">

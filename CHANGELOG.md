@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Online (Stripe) calendar plans anchor Checkout and revival on the next boundary, so a member joining mid-period pays a prorated first charge and the full price on each boundary.
     - Online plans can only prorate the first period (no trials, no one-off line items), and renewal reminders and price-migration notices quote the full price rather than the prorated first charge.
     - A first period that Stripe could not charge, or that would be under an hour long when checkout completes, is free: billing starts at the boundary and the quoted first-period price is zero.
-    - The checkout-link and first-payment notices, including the welcome sent to a new member, state the next full charge and its date.
+    - The next full charge is stated before payment, on the Stripe Checkout page and in the revival notice, and a renewal reminder precedes every charge, including the first full one after a short first period.
   - An online subscription can only change plan within its own calendar: rolling to rolling, or calendar to calendar with the same period and start month. Any other switch is refused with a message to cancel and subscribe to the other plan.
   - Plan responses gain `period_alignment`, `calendar_start_month` and `first_period_pricing`, plus the first period's end and price on the staff and public plan views; the plan shown on a member's own subscription omits the join-now values.
   - Membership request responses show the requested plan's alignment and start month.

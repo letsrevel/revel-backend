@@ -343,9 +343,7 @@ def handle_membership_granted(
         # An awaiting member is granted nothing yet: activation on first payment sends the notification.
         return
 
-    # Set by ``_ensure_active_member`` on a first stub payment's new row (same hand-off as ``_register_link_prev``).
-    next_charge = getattr(instance, "_next_charge", None)
-    transaction.on_commit(lambda: notify_membership_granted(instance, next_charge))
+    transaction.on_commit(lambda: notify_membership_granted(instance))
 
 
 @receiver(post_delete, sender=OrganizationMember)

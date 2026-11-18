@@ -131,7 +131,7 @@ def stub_full_price(
     *,
     subscription_id: str,
     invoice_id: str = "",
-) -> StubPrice | None:
+) -> StubPrice:
     """The full per-period price a calendar stub stood in for, resolved from the stub line's Stripe Price id.
 
     The line's ``unit_amount_decimal`` is not trusted (it can be 0 or prorated on stub/zero lines), and
@@ -141,34 +141,56 @@ def stub_full_price(
 
     Best effort: it never raises, because a member who paid must never be stranded over a ledger anchor.
     A line with no Price id, a Stripe error, or a Price without an integer ``unit_amount`` (tiered or
-    metered) returns ``None`` (the payment's ``full_period_amount`` stays NULL) and logs at ERROR.
+    metered) falls back to ``plan.price`` (almost always right, and the stub amount, possibly 0, never is)
+    and logs at WARNING.
     """
     price_id = line_price_id(stub_line(lines_data))
     ids = {"subscription_id": subscription_id, "stripe_invoice_id": invoice_id, "stripe_price_id": price_id}
+    fallback = StubPrice(price_id, plan.price, plan.pk)
     if not price_id:
-        logger.error("subscription_stub_line_without_price", **ids)
-        return None
+        logger.warning("subscription_stub_line_without_price_using_plan_price", **ids)
+        return fallback
     if price_id == plan.stripe_price_id:
-        return StubPrice(price_id, plan.price, plan.pk)
+        return fallback
     try:
         price = stripe.Price.retrieve(price_id, **stripe_account_kwargs(organization))
     except stripe.error.StripeError:
-        logger.error("subscription_stub_price_unreadable", exc_info=True, **ids)
-        return None
+        logger.warning("subscription_stub_price_unreadable_using_plan_price", exc_info=True, **ids)
+        return fallback
     unit_amount = price.get("unit_amount")
     if not isinstance(unit_amount, int):
-        logger.error("subscription_stub_price_unusable", **ids)
-        return None
+        logger.warning("subscription_stub_price_unusable_using_plan_price", **ids)
+        return fallback
     return StubPrice(price_id, from_stripe_amount(unit_amount, currency_code))
 
 
 def usable_stub_price(
-    stub_price: StubPrice | None, lines_data: list[dict[str, t.Any]], plan: MembershipSubscriptionPlan
+    stub_price: StubPrice | None,
+    lines_data: list[dict[str, t.Any]],
+    plan: MembershipSubscriptionPlan,
+    *,
+    still_stub: bool,
+    subscription_id: str,
+    invoice_id: str,
 ) -> Decimal | None:
-    """The fetched stub price's amount if it still applies to the stub line and the (locked) plan."""
-    if stub_price is None or line_price_id(stub_line(lines_data)) != stub_price.price_id:
+    """The fetched stub price's amount if it still applies to the stub line and the (locked) plan.
+
+    ``still_stub`` is the locked re-check of the stub decision. Logs at WARNING when a fetched price is
+    dropped because that re-check, the line or the plan changed since the fetch.
+    """
+    if stub_price is None:
         return None
-    if stub_price.plan_id is not None and stub_price.plan_id != plan.pk:
+    if (
+        not still_stub
+        or line_price_id(stub_line(lines_data)) != stub_price.price_id
+        or (stub_price.plan_id is not None and stub_price.plan_id != plan.pk)
+    ):
+        logger.warning(
+            "subscription_stub_price_dropped_under_lock",
+            subscription_id=subscription_id,
+            stripe_invoice_id=invoice_id,
+            stripe_price_id=stub_price.price_id,
+        )
         return None
     return stub_price.amount
 

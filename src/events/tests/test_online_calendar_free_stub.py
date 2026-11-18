@@ -318,8 +318,8 @@ class TestFreeStubInvoice:
         intent_alarm.assert_not_called()
         assert "subscription_invoice_application_fee_unresolved" not in [c.args[0] for c in log.warning.call_args_list]
         assert payment.amount == Decimal("0")
-        # A line-less invoice names no Price: the stamp is never guessed from plan.price.
-        assert payment.full_period_amount == (Decimal("120.00") if with_line else None)
+        # A line-less invoice names no Price: the stamp falls back to plan.price, never the stub amount.
+        assert payment.full_period_amount == Decimal("120.00")
         pending_calendar_sub.refresh_from_db()
         assert pending_calendar_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
         assert (pending_calendar_sub.current_period_start, pending_calendar_sub.current_period_end) == (JOIN, BOUNDARY)
@@ -333,9 +333,7 @@ class TestFreeStubInvoice:
             pending_calendar_sub.pk: Decimal("120.00")
         }
 
-    def test_existing_member_is_told_zero_charged_and_the_next_full_charge(
-        self, pending_calendar_sub: MembershipSubscription
-    ) -> None:
+    def test_existing_member_is_told_zero_charged(self, pending_calendar_sub: MembershipSubscription) -> None:
         OrganizationMember.objects.create(
             user=pending_calendar_sub.user,
             organization=pending_calendar_sub.organization,
@@ -349,8 +347,7 @@ class TestFreeStubInvoice:
         ).context
         assert context["amount"].startswith("0")
         assert "120" not in context["amount"]
-        assert "120" in context["next_charge_amount"]
-        assert context["next_charge_date"] == "2027-01-01"
+        assert "next_charge_amount" not in context
 
 
 class TestStampFromTheInvoice:
@@ -412,7 +409,7 @@ class TestStampFromTheInvoice:
 
 
 class TestNoticeTemplates:
-    @pytest.mark.parametrize("kind", ["subscription_revival_checkout", "subscription_renewal_succeeded"])
+    @pytest.mark.parametrize("kind", ["subscription_revival_checkout"])
     @pytest.mark.parametrize("ext", ["email/{}.txt", "email/{}.html", "in_app/{}.md", "telegram/{}.md"])
     def test_next_charge_is_rendered_only_when_present(self, kind: str, ext: str) -> None:
         base = {

@@ -14,7 +14,7 @@ patchable in tests.
 """
 
 import typing as t
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from django.db.models.functions import Coalesce
@@ -26,7 +26,6 @@ from events.utils import format_organization_datetime
 from events.utils.frontend_urls import frontend_base_url_for
 from events.utils.subscription_payment import APPLICATION_PAYMENT_WINDOW_DAYS, is_never_paid_on_offline_plan
 from events.utils.subscription_periods import first_period
-from notifications.context_schemas import NextChargeContext
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
@@ -44,23 +43,6 @@ MEMBERSHIPS_PATH = "/account/memberships"
 def _format_money(amount: t.Any, currency: str) -> str:
     """Format an amount with its currency for display in notifications."""
     return f"{amount} {currency}"
-
-
-def next_charge_context(
-    subscription: MembershipSubscription, amount: Decimal | None, boundary: datetime | None = None
-) -> NextChargeContext:
-    """The "next charge" notice pair for a calendar plan's first (stub) period, or ``{}`` when unknown.
-
-    The date is the period boundary the full ``amount`` falls due on: the subscription's
-    ``current_period_end`` unless the caller (a revival, whose row still holds the old period) passes it.
-    """
-    boundary = boundary or subscription.current_period_end
-    if amount is None or boundary is None:
-        return {}
-    return {
-        "next_charge_amount": _format_money(amount, subscription.plan.currency),
-        "next_charge_date": boundary.date().isoformat(),
-    }
 
 
 def _charged_money(
@@ -200,7 +182,6 @@ def _dispatch_renewal_succeeded(
     *,
     amount: Decimal | None = None,
     currency: str = "",
-    next_charge_amount: Decimal | None = None,
 ) -> None:
     """Fire SUBSCRIPTION_RENEWAL_SUCCEEDED for a renewal payment.
 
@@ -208,9 +189,6 @@ def _dispatch_renewal_succeeded(
     invoice's ``amount_paid``, or the amount staff recorded offline). Left
     unset, the notification quotes the plan's current list price, which is
     wrong for a grandfathered subscriber — pass them whenever known.
-
-    ``next_charge_amount`` is set for the first (stub) payment of a calendar plan: a short stub can
-    be followed by the full charge within hours, so the confirmation states it and its date.
     """
     plan = subscription.plan
     ctx = _common_subscription_context(subscription)
@@ -218,7 +196,6 @@ def _dispatch_renewal_succeeded(
         amount=_charged_money(plan, amount, currency),
         period_end=(subscription.current_period_end.date().isoformat() if subscription.current_period_end else ""),
     )
-    ctx.update(next_charge_context(subscription, next_charge_amount))
     notification_requested.send(
         sender=MembershipSubscription,
         user=subscription.user,
@@ -353,7 +330,11 @@ def _dispatch_revival_checkout(subscription: MembershipSubscription, *, checkout
         checkout_url=checkout_url,
     )
     # The stub can be tiny (or free) and followed by the full charge within hours: say so up front.
-    ctx.update(next_charge_context(subscription, plan.price if first_end is not None else None, first_end))
+    if first_end is not None:
+        ctx.update(
+            next_charge_amount=_format_money(plan.price, plan.currency),
+            next_charge_date=first_end.date().isoformat(),
+        )
     notification_requested.send(
         sender=MembershipSubscription,
         user=subscription.user,

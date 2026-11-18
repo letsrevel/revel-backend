@@ -241,13 +241,15 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
     """Fire SUBSCRIPTION_RENEWAL_REMINDER for subscriptions renewing in REMINDER_DAYS.
 
     Runs daily via Celery beat (see migration 0102). Processes only ACTIVE
-    subscriptions whose ``current_period_end`` falls exactly REMINDER_DAYS from
-    today and have ``cancel_at_period_end=False`` (no point reminding about a
-    subscription already scheduled to end).
+    subscriptions with ``cancel_at_period_end=False`` (no point reminding about a
+    subscription already scheduled to end) whose ``current_period_end`` falls
+    exactly REMINDER_DAYS from today, plus ONLINE ones whose period ends sooner
+    but has not ended yet: a calendar plan's first (stub) period can be shorter
+    than the window, and its first full charge still deserves a reminder.
 
-    Idempotency: the date-equality check naturally fires each subscription
-    exactly once per period. A missed day (Celery downtime) means missed
-    reminders that day — acceptable for a non-critical nudge.
+    Idempotency: ``renewal_reminded_for`` records the period end already reminded,
+    so each period is reminded once however often the beat runs. A missed day
+    (Celery downtime) means a missed reminder that day, acceptable for a nudge.
 
     Returns:
         Counters dict: {"sent": N}.
@@ -271,10 +273,17 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
     # transaction pooling (see #458).
     subs = list(
         MembershipSubscription.objects.filter(
+            models.Q(current_period_end__date=target_date)
+            | models.Q(
+                plan__payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE.value,
+                current_period_end__date__lt=target_date,
+                current_period_end__gt=timezone.now(),
+            ),
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
             cancel_at_period_end=False,
-            current_period_end__date=target_date,
-        ).select_related("plan__tier__organization", "organization", "user")
+        )
+        .exclude(renewal_reminded_for=models.F("current_period_end"))
+        .select_related("plan__tier__organization", "organization", "user")
     )
     # No invoice exists yet, so the best estimate of the next charge is what the
     # member last actually paid: a price change mints a new Stripe Price and
@@ -298,6 +307,7 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
             notification_type=NotificationType.SUBSCRIPTION_RENEWAL_REMINDER,
             context=ctx,
         )
+        MembershipSubscription.objects.filter(pk=sub.pk).update(renewal_reminded_for=sub.current_period_end)
         sent += 1
     logger.info("send_subscription_renewal_reminders_done", sent=sent)
     return SubscriptionReminderCounters(sent=sent)

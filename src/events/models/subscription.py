@@ -463,6 +463,12 @@ class MembershipSubscription(TimeStampedModel):
         help_text=_("Set when status transitions to EXPIRED. Used for the revival window check."),
     )
 
+    renewal_reminded_for = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="The ``current_period_end`` the renewal reminder was last sent for (one reminder per period).",
+    )
+
     history = HistoricalRecords()
 
     class Meta:

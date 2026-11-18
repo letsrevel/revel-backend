@@ -207,7 +207,6 @@ class SubscriptionWebhookHandlersMixin:
         the dedup row) rolls back and Stripe redelivers.
         """
         from events.service.subscription.stripe import sync as subscription_stripe_sync
-        from events.service.subscription.stripe.calendar_stub import stub_full_price
         from events.service.subscription.stripe.payloads import stripe_account_kwargs
 
         invoice_ref = session.get("invoice")
@@ -220,18 +219,7 @@ class SubscriptionWebhookHandlersMixin:
                 stripe_sub = stripe.Subscription.retrieve(
                     t.cast(str, subscription.stripe_subscription_id), **stripe_account_kwargs(subscription.organization)
                 )
-                # The next full charge the new member's welcome states: the Subscription item's own Price.
-                item_price = (((stripe_sub.get("items") or {}).get("data") or [{}])[0].get("price") or {}).get("id")
-                stub_price = stub_full_price(
-                    [{"price": {"id": item_price or ""}}],
-                    subscription.plan,
-                    subscription.organization,
-                    subscription.plan.currency,
-                    subscription_id=str(subscription.pk),
-                )
-                subscription_stripe_sync.sync_subscription_from_stripe(
-                    dict(stripe_sub), next_charge_amount=stub_price.amount if stub_price else None
-                )
+                subscription_stripe_sync.sync_subscription_from_stripe(dict(stripe_sub))
             return
         if MembershipPayment.objects.filter(stripe_invoice_id=invoice_id).exists():
             return

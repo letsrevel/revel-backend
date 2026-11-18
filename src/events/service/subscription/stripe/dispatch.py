@@ -49,7 +49,6 @@ def _dispatch_invoice_notifications(
     billing_reason: str = "",
     amount: Decimal | None = None,
     currency: str = "",
-    next_charge_amount: Decimal | None = None,
 ) -> None:
     """Dispatch RENEWAL_SUCCEEDED or PAYMENT_FAILED based on prior → final status transition.
 
@@ -80,8 +79,6 @@ def _dispatch_invoice_notifications(
             failure, what it asked for (``amount_due``). Quoting the plan's
             list price instead misprices every grandfathered subscriber.
         currency: ISO code for ``amount``.
-        next_charge_amount: For a calendar plan's first (stub) payment, the full price due at the
-            period end the payment ran up to; the confirmation then states it.
     """
     S = MembershipSubscription.SubscriptionStatus
     # A zero/absent figure on a failure carries no information (it moved nothing, and older payloads
@@ -98,9 +95,7 @@ def _dispatch_invoice_notifications(
             # and told nothing at all.
             first_payment_of_existing_member = prior_status == S.PENDING.value and member_pre_existed
             if first_payment_of_existing_member or prior_status in {S.ACTIVE.value, S.PAST_DUE.value}:
-                notifications._dispatch_renewal_succeeded(
-                    subscription, amount=amount, currency=currency, next_charge_amount=next_charge_amount
-                )
+                notifications._dispatch_renewal_succeeded(subscription, amount=amount, currency=currency)
     elif payment_created and prior_status in {S.ACTIVE.value, S.PENDING.value}:
         # PENDING is the first-invoice case (async payment methods, SCA): the row
         # is moved to PAST_DUE just like ACTIVE, so per ADR-0015 the member is
