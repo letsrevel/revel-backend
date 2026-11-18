@@ -69,7 +69,7 @@ def chat() -> Chat:
 async def django_user(aiogram_user: AiogramUser) -> t.AsyncIterator[RevelUser]:
     """Fixture for a standard Django user linked to a Telegram user."""
     user, _ = await RevelUser.objects.aget_or_create(
-        username="testuser", defaults={"first_name": "Test", "last_name": "User", "password": "<PASSWORD>"}
+        username="testuser", defaults={"first_name": "Test", "last_name": "User", "password": "<PASSWORD>", "email_verified": True}
     )
     await TelegramUser.objects.aget_or_create(user=user, telegram_id=aiogram_user.id)
     yield user
@@ -80,7 +80,7 @@ async def django_user(aiogram_user: AiogramUser) -> t.AsyncIterator[RevelUser]:
 async def django_superuser(aiogram_superuser: AiogramUser) -> t.AsyncIterator[RevelUser]:
     """Fixture for a Django superuser linked to a Telegram superuser."""
     user, _ = await RevelUser.objects.aget_or_create(
-        username="super_user", defaults={"is_superuser": True, "is_staff": True, "password": "<PASSWORD>"}
+        username="super_user", defaults={"is_superuser": True, "is_staff": True, "password": "<PASSWORD>", "email_verified": True}
     )
     await TelegramUser.objects.aget_or_create(user=user, telegram_id=aiogram_superuser.id)
     yield user

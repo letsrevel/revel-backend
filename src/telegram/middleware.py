@@ -11,6 +11,7 @@ from aiogram.types import User as AiogramUser
 from django.db import models as django_models
 
 from accounts.models import RevelUser
+from accounts.service.auth import is_session_allowed
 from events.models import EventInvitationRequest, Organization, OrganizationStaff, WhitelistRequest
 from telegram.models import TelegramUser
 from telegram.utils import get_or_create_tg_user
@@ -143,7 +144,7 @@ class AuthorizationMiddleware(BaseMiddleware):
 
         user: RevelUser = t.cast(RevelUser, tg_user.user)
 
-        if not user.is_active:
+        if not user.is_active or not is_session_allowed(user):
             await self._send_error(
                 event,
                 "⚠️ Your account has been deactivated.",

@@ -70,8 +70,9 @@ def is_session_allowed(user: RevelUser) -> bool:
 def require_verified_email(user: RevelUser) -> None:
     """Refuse a login for a non-guest account whose email nobody has verified.
 
-    Call it only once the credentials (password, and the 2FA code when enrolled) have checked out, so
-    the refusal never tells a caller anything about an account they could not already sign in to.
+    Call it once the password has checked out and before any 2FA step (``/auth/token/pair`` calls it
+    ahead of the TOTP branch), so the refusal never tells a caller anything about an account they could
+    not already prove the password for.
 
     Raises:
         EmailNotVerifiedError: The account's email is not verified (403, code ``email_not_verified``).

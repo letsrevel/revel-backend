@@ -102,7 +102,8 @@ def _cases(
 
 
 def _request(user: RevelUser, app: OAuthApplication, scopes: str, case: Case) -> t.Any:
-    """Issue ``case`` with an app token granting exactly ``scopes``."""
+    """Issue ``case`` with an app token granting exactly ``scopes`` (unverified users hold no app tokens)."""
+    RevelUser.objects.filter(pk=user.pk).update(email_verified=True)
     client = Client(HTTP_AUTHORIZATION=f"Bearer {make_access_token(user, app, scopes)}")
     return client.generic(
         case.method,
