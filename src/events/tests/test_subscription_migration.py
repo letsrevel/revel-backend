@@ -194,6 +194,26 @@ class TestPlanCadenceChange:
         with pytest.raises(HttpError, match="billing period"):
             subscription_plans.update_plan(offline_plan, period_unit=MembershipSubscriptionPlan.PeriodUnit.YEAR)
 
+    def test_period_count_edit_allowed_on_lifetime_plan_with_members(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """LIFETIME ignores period_count, so editing it is not a billing-period change."""
+        MembershipSubscriptionPlan.objects.filter(pk=offline_plan.pk).update(
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.LIFETIME
+        )
+        offline_plan.refresh_from_db()
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        updated = subscription_plans.update_plan(offline_plan, period_count=2)
+        assert updated.period_count == 2
+
     def test_currency_message_wins_when_currency_and_cadence_change_together(
         self,
         offline_plan: MembershipSubscriptionPlan,
@@ -278,6 +298,19 @@ class TestPlanPriceChange:
 
 
 # ---- Fixtures for UpdateSubscriptionPrice tests -----------------------------
+
+
+MONTHLY: dict[str, t.Any] = {"interval": "month", "interval_count": 1}
+
+
+@pytest.fixture(autouse=True)
+def target_price_retrieve() -> t.Iterator[mock.MagicMock]:
+    """The plan's target Stripe Price recurs monthly unless a test overrides it."""
+    with patch(
+        "events.service.subscription.stripe.checkout.stripe.Price.retrieve",
+        return_value={"id": "price_new", "recurring": MONTHLY},
+    ) as mocked:
+        yield mocked
 
 
 @pytest.fixture
@@ -369,14 +402,21 @@ class TestUpdateSubscriptionPrice:
         mock_modify.assert_not_called()
 
     @pytest.mark.parametrize(
-        "recurring", [{"interval": "year", "interval_count": 1}, {"interval": "month", "interval_count": 3}]
+        ("current", "target"),
+        [
+            (MONTHLY, {"interval": "year", "interval_count": 1}),
+            (MONTHLY, {"interval": "month", "interval_count": 3}),
+            (None, MONTHLY),
+        ],
     )
     def test_refuses_swap_across_billing_intervals(
         self,
         online_plan_g2: MembershipSubscriptionPlan,
         organization: Organization,
         subscriber: RevelUser,
-        recurring: dict[str, t.Any],
+        target_price_retrieve: mock.MagicMock,
+        current: dict[str, t.Any] | None,
+        target: dict[str, t.Any],
     ) -> None:
         """#1423: a cross-interval swap under proration 'none' stretches the paid period for free."""
         organization.stripe_account_id = "acct_test_xyz"
@@ -388,6 +428,7 @@ class TestUpdateSubscriptionPrice:
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
             stripe_subscription_id="sub_test_xyz",
         )
+        target_price_retrieve.return_value = {"id": "price_new", "recurring": target}
 
         with (
             mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.retrieve") as mock_retrieve,
@@ -396,11 +437,44 @@ class TestUpdateSubscriptionPrice:
         ):
             mock_retrieve.return_value = {
                 "id": "sub_test_xyz",
-                "items": {"data": [{"id": "si_test", "price": {"id": "price_old", "recurring": recurring}}]},
+                "items": {"data": [{"id": "si_test", "price": {"id": "price_old", "recurring": current}}]},
             }
             subscription_stripe_checkout.update_subscription_price(sub)
 
         mock_modify.assert_not_called()
+
+    def test_compares_prices_not_the_plan_row(
+        self,
+        online_plan_g2: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """An admin edit can leave the plan row's cadence out of sync with its Price; the Prices decide."""
+        organization.stripe_account_id = "acct_test_xyz"
+        organization.save(update_fields=["stripe_account_id"])
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan_g2,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_test_xyz",
+        )
+        MembershipSubscriptionPlan.objects.filter(pk=online_plan_g2.pk).update(
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.YEAR
+        )
+        sub.refresh_from_db()
+
+        with (
+            mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.retrieve") as mock_retrieve,
+            mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify,
+        ):
+            mock_retrieve.return_value = {
+                "id": "sub_test_xyz",
+                "items": {"data": [{"id": "si_test", "price": {"id": "price_old", "recurring": MONTHLY}}]},
+            }
+            assert subscription_stripe_checkout.update_subscription_price(sub) is True
+
+        mock_modify.assert_called_once()
 
     def test_skipped_when_no_stripe_subscription_id(
         self,
@@ -714,8 +788,9 @@ class TestMigratePlanSubscribers:
         organization: Organization,
         subscriber: RevelUser,
         organization_owner_user: RevelUser,
+        target_price_retrieve: mock.MagicMock,
     ) -> None:
-        """#1423: a plan whose cadence moved (pre-fix PATCH, admin edit) must not stretch old subscribers."""
+        """#1423: a plan whose Price moved to another interval (pre-fix PATCH) must not stretch old subscribers."""
         organization.stripe_account_id = "acct_test_xyz"
         organization.save(update_fields=["stripe_account_id"])
         sub = MembershipSubscription.objects.create(
@@ -725,10 +800,7 @@ class TestMigratePlanSubscribers:
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
             stripe_subscription_id="sub_test_xyz",
         )
-        MembershipSubscriptionPlan.objects.filter(pk=online_plan_g2.pk).update(
-            period_unit=MembershipSubscriptionPlan.PeriodUnit.YEAR
-        )
-        online_plan_g2.refresh_from_db()
+        target_price_retrieve.return_value = {"id": "price_new", "recurring": {"interval": "year", "interval_count": 1}}
 
         with (
             patch(

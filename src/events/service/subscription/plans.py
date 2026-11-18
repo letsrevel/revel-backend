@@ -136,9 +136,11 @@ def update_plan(
 
     new_currency = fields.get("currency")
     currency_changes = new_currency is not None and new_currency.upper() != plan.currency.upper()
-    cadence_changes = (
-        fields.get("period_unit", plan.period_unit) != plan.period_unit
-        or fields.get("period_count", plan.period_count) != plan.period_count
+    new_unit = fields.get("period_unit", plan.period_unit)
+    cadence_changes = new_unit != plan.period_unit or (
+        # LIFETIME ignores period_count, so editing it there changes nothing.
+        new_unit != MembershipSubscriptionPlan.PeriodUnit.LIFETIME
+        and fields.get("period_count", plan.period_count) != plan.period_count
     )
     if currency_changes or cadence_changes:
         # A scheduled downgrade (``pending_plan``) already pins this plan's

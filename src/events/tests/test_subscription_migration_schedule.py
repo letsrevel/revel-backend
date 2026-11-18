@@ -126,6 +126,10 @@ class TestMigrateSkipsScheduleManaged:
                 },
             ) as mock_retrieve,
             patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify,
+            patch(
+                "events.service.subscription.stripe.checkout.stripe.Price.retrieve",
+                return_value={"id": "price_new", "recurring": {"interval": "month", "interval_count": 1}},
+            ),
         ):
             result = subscription_plans.migrate_plan_subscribers(online_plan, initiated_by=organization_owner_user)
 

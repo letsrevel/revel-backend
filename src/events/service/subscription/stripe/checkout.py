@@ -708,6 +708,14 @@ def cancel_online_subscription(
 # See subscription.lifecycle.change_plan for the dispatch entry-point.
 
 
+def _recurring_cadence(price: t.Mapping[str, t.Any]) -> tuple[str, int] | None:
+    """``(interval, interval_count)`` of a Stripe Price, or None if it does not recur."""
+    recurring = price.get("recurring") or {}
+    if not recurring.get("interval"):
+        return None
+    return recurring["interval"], recurring.get("interval_count") or 1
+
+
 def update_subscription_price(subscription: MembershipSubscription) -> bool:
     """Swap the Stripe Price to the plan's current price (proration_behavior='none').
 
@@ -720,9 +728,9 @@ def update_subscription_price(subscription: MembershipSubscription) -> bool:
     Returns True when modify was called; False when already current or skipped.
 
     Raises:
-        ValueError: If the subscriber's Stripe Price recurs on another interval
-            than the plan's cadence; ``migrate_plan_subscribers`` reports it as
-            a per-subscription failure.
+        ValueError: If the subscriber's Stripe Price and the plan's current
+            Price recur on different intervals (or either does not recur);
+            ``migrate_plan_subscribers`` reports it as a per-subscription failure.
     """
     if not subscription.stripe_subscription_id:
         return False
@@ -745,14 +753,17 @@ def update_subscription_price(subscription: MembershipSubscription) -> bool:
     if item_price.get("id") == current_price_id:
         return False
     # With proration_behavior="none", Stripe stretches the paid period to a new
-    # interval without invoicing (#1423). Refuse cross-cadence swaps, whatever
-    # route (old PATCH, admin edit, race) moved the plan's cadence.
-    recurring = item_price.get("recurring") or {}
-    plan = subscription.plan
-    if recurring.get("interval") != plan.period_unit or recurring.get("interval_count") != plan.period_count:
+    # interval without invoicing (#1423). Compare the two Prices themselves, not
+    # the plan row, which an admin edit can leave out of sync with its Price.
+    try:
+        target_price = stripe.Price.retrieve(current_price_id, **kwargs)
+    except stripe.error.StripeError as exc:
+        raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
+    current_cadence = _recurring_cadence(item_price)
+    target_cadence = _recurring_cadence(target_price)
+    if current_cadence is None or current_cadence != target_cadence:
         raise ValueError(
-            f"Subscription is billed every {recurring.get('interval_count')} {recurring.get('interval')}, "
-            f"plan is now every {plan.period_count} {plan.period_unit}: not migrated. "
+            f"Billing period differs (current Price {current_cadence}, plan Price {target_cadence}): not migrated. "
             "Move the subscriber to a plan with a matching billing period."
         )
     try:

@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **Billing period of a plan with members can no longer change**: changing a subscription plan's period (for example monthly to yearly) while it has active, paused, pending or past-due subscriptions is now refused with a 400, as currency changes already were. Archive the plan and create a new one instead. Before, migrating online subscribers to the new period made Stripe stretch their current period to the new length without charging for it, so a member could hold a year of membership for one month's price. "Migrate subscribers" now also refuses to move an online subscriber to a price with a different billing period, reporting them as failed, so plans whose period was changed before this fix are covered too.
+- **Billing period of a plan with members can no longer change**: changing a subscription plan's period (for example monthly to yearly) while it has active, paused, pending or past-due subscriptions is now refused with a 400, as currency changes already were. Archive the plan and create a new one instead. Before, migrating online subscribers to the new period made Stripe stretch their current period to the new length without charging for it, so a member could hold a year of membership for one month's price. "Migrate subscribers" now also refuses to move an online subscriber to a price with a different billing period and reports them as failed, which covers plans whose period was changed before this fix. Members whose period was already stretched by an earlier migration are not corrected automatically.
 
 ## [2.38.2] - 2026-11-17
 
