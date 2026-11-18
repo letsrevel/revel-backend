@@ -24,7 +24,7 @@ from events.models import (
     TicketAttribution,
     TicketTier,
 )
-from events.service import series_pass_service
+from events.service import series_pass_event_checks, series_pass_service
 from events.service.blacklist_service import check_user_hard_blacklisted
 from events.service.event_manager import UserIsIneligibleError
 from events.service.series_pass_questionnaires import check_series_questionnaires
@@ -78,6 +78,34 @@ class SeriesPassPurchaseService:
         result = check_series_questionnaires(self.series_pass, self.user, owner_or_staff=self._is_owner_or_staff)
         if result is not None:
             raise UserIsIneligibleError(str(result.reason), result)
+
+    def _assert_event_capacity(self, future_links: list[SeriesPassTierLink]) -> None:
+        """Assert every covered future event has room for one more ticket (all-or-nothing).
+
+        Same counting rules as batch checkout. Must run after the tier locks: batch checkout
+        locks tier -> event, so the events are locked last, pk-ordered among themselves.
+
+        Raises:
+            HttpError: 429 if any covered event is at capacity.
+        """
+        full_event_ids = series_pass_event_checks.lock_events_and_find_full(
+            [link.event for link in future_links], self.user
+        )
+        for link in future_links:
+            if link.event_id in full_event_ids:
+                raise HttpError(429, str(_("Event {name} is sold out.")).format(name=link.event.name))
+
+    def _assert_covered_events_eligible(self, future_links: list[SeriesPassTierLink]) -> None:
+        """Apply the per-event gates of a normal ticket purchase to every covered future event.
+
+        Blacklist (incl. fuzzy name match), event status and full profile. Owners/staff are
+        exempt, as in the normal flow's PrivilegedAccessGate. All-or-nothing: runs before any write.
+
+        Raises:
+            UserIsIneligibleError: With the first failing verdict (400 + eligibility payload).
+        """
+        if not self._is_owner_or_staff:
+            series_pass_event_checks.assert_events_eligible(self.user, [link.event for link in future_links])
 
     def _has_active_held_pass(self) -> bool:
         return (
@@ -139,7 +167,8 @@ class SeriesPassPurchaseService:
 
         # Re-assert the total_quantity cap under a row lock — the quote above checked
         # it unlocked (fast path), so two concurrent buyers could both pass it. Lock
-        # order is pass row first, then tiers by pk (deadlock discipline) — every other
+        # order is pass row first, then tiers by pk, then covered events by pk (deadlock
+        # discipline; the events last because batch checkout locks tier -> event) — every other
         # writer that touches both a SeriesPass and its tiers in one transaction must
         # match it: series_pass_service.cancel_held_pass, and every expiry route that
         # cancels a held pass alongside a tier release — the ticket-keyed
@@ -171,6 +200,8 @@ class SeriesPassPurchaseService:
             self.org, self.series_pass.payment_method, [quote.price], [link.event for link in future_links]
         )
 
+        self._assert_covered_events_eligible(future_links)
+
         # Lock all mapped tiers in pk order (deadlock discipline, mirrors BatchTicketService).
         locked_tiers = {
             tier.pk: tier
@@ -182,6 +213,8 @@ class SeriesPassPurchaseService:
             tier = locked_tiers[link.tier_id]
             if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
                 raise HttpError(429, str(_("Event {name} is sold out.")).format(name=link.event.name))
+
+        self._assert_event_capacity(future_links)
 
         held_pass = self._create_held_pass(quote.price, attribution)
         method = self.series_pass.payment_method

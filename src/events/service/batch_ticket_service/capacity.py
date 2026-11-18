@@ -8,14 +8,64 @@ The buyer-side half — per-user limits and tier access — lives in :mod:`.elig
 import typing as t
 from uuid import UUID
 
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
+from accounts.models import RevelUser
 from events.models import Event, Ticket, TicketTier, VenueSector, WaitlistOffer
 from events.service.batch_ticket_service.context import BatchTicketContext
 
 if t.TYPE_CHECKING:
     from events.service.batch_ticket_service.context import CartGroup
+
+
+def event_seats_available(locked_event: Event, user: RevelUser, effective_cap: int) -> int:
+    """Count the seats still free on an event, under the caller's Event row lock.
+
+    The single source of the ticket-capacity counting rules, shared by
+    ``BatchTicketService.assert_event_capacity`` and the series pass flows: committed
+    (non-cancelled) tickets PLUS pending unexpired waitlist offers, excluding
+    cutoff-batch offers (they race FCFS against real seats) and the buyer's own offer
+    (it reserves a seat FOR them). Mirrors ``EventManager._assert_capacity``.
+
+    Args:
+        locked_event: The Event, already row-locked (``select_for_update``) by the caller.
+        user: The buyer (their own pending offer is not counted against them).
+        effective_cap: ``Event.effective_capacity``; must be non-zero (0 = unlimited).
+
+    Returns:
+        Free seats; zero or negative means the event is full.
+    """
+    current_count = (
+        Ticket.objects.select_for_update()
+        .filter(event=locked_event)
+        .exclude(status=Ticket.TicketStatus.CANCELLED)
+        .count()
+    )
+
+    now = timezone.now()
+    pending_offers = (
+        WaitlistOffer.objects.select_for_update()
+        .filter(
+            event=locked_event,
+            status=WaitlistOffer.WaitlistOfferStatus.PENDING,
+            expires_at__gt=now,
+            is_cutoff_batch=False,
+        )
+        .count()
+    )
+    has_own_offer = WaitlistOffer.objects.filter(
+        event=locked_event,
+        user=user,
+        status=WaitlistOffer.WaitlistOfferStatus.PENDING,
+        expires_at__gt=now,
+        is_cutoff_batch=False,
+    ).exists()
+    if has_own_offer:
+        pending_offers = max(0, pending_offers - 1)
+
+    return effective_cap - current_count - pending_offers
 
 
 class CapacityMixin(BatchTicketContext):
@@ -62,8 +112,6 @@ class CapacityMixin(BatchTicketContext):
         Raises:
             HttpError: If the event is full or doesn't have enough capacity.
         """
-        from django.utils import timezone
-
         effective_cap = self.event.effective_capacity
         if effective_cap == 0:
             return  # Unlimited
@@ -72,36 +120,7 @@ class CapacityMixin(BatchTicketContext):
         # and other capacity-modifying flows.
         self.event = Event.objects.select_for_update().get(pk=self.event.pk)
 
-        # Count all non-cancelled tickets with row-level locking
-        current_count = (
-            Ticket.objects.select_for_update()
-            .filter(event=self.event)
-            .exclude(status=Ticket.TicketStatus.CANCELLED)
-            .count()
-        )
-
-        now = timezone.now()
-        pending_offers = (
-            WaitlistOffer.objects.select_for_update()
-            .filter(
-                event=self.event,
-                status=WaitlistOffer.WaitlistOfferStatus.PENDING,
-                expires_at__gt=now,
-                is_cutoff_batch=False,
-            )
-            .count()
-        )
-        has_own_offer = WaitlistOffer.objects.filter(
-            event=self.event,
-            user=self.user,
-            status=WaitlistOffer.WaitlistOfferStatus.PENDING,
-            expires_at__gt=now,
-            is_cutoff_batch=False,
-        ).exists()
-        if has_own_offer:
-            pending_offers = max(0, pending_offers - 1)
-
-        available = effective_cap - current_count - pending_offers
+        available = event_seats_available(self.event, self.user, effective_cap)
         if available <= 0:
             raise HttpError(429, str(_("This event is sold out.")))
         if count > available:

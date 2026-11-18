@@ -70,9 +70,10 @@ quantized to cents, where `passed_events` counts tier-linked events with `start 
 
 `SeriesPassPurchaseService` (`src/events/service/series_pass_purchase.py`) is the request-scoped workflow class (mirroring `BatchTicketService`). `purchase()` returns either a `HeldSeriesPass` (free/offline) or a Stripe checkout URL.
 
-1. **Light checks** (no locks): blacklist, `purchasable_by` check (`MEMBERS` needs an eligible member, `NON_MEMBERS` refuses one, both 403; owners and staff exempt), the [admission questionnaire gate](#admission-questionnaires), quote purchasability, duplicate-pass check.
+1. **Light checks** (no locks): blacklist, `purchasable_by` check (`MEMBERS` needs an eligible member, `NON_MEMBERS` refuses one, both 403; owners and staff exempt), the [admission questionnaire gate](#admission-questionnaires), quote purchasability, duplicate-pass check, and the **per-event gates** a normal ticket purchase applies to every covered *future* event: `BlacklistGate` (hard and fuzzy name match), `EventStatusGate` (event must be OPEN) and `FullProfileGate` (when the event requires a full profile). They reuse the eligibility gate classes through `EligibilityService.check_gates` (`series_pass_event_checks.py`); owners and staff are exempt, as in the normal flow. A failing event refuses the whole purchase with a 400 carrying the eligibility payload. `MembershipGate`, `InvitationGate`, `TicketSalesGate` and the availability gate are not run: the pass-level `purchasable_by` rule, the pass quote and the tier/event capacity assertions cover them.
 2. **Lock the pass row** (`select_for_update`), re-check `total_quantity` under the lock.
 3. **Lock all mapped tiers pk-ordered**, check capacity on every covered *future* event — **all-or-nothing**: one sold-out tier aborts with a 429.
+   **Then lock the covered events pk-ordered** and check event-level capacity (`max_attendees` / venue capacity, counted with the same rules as batch checkout: non-cancelled tickets plus pending unexpired non-cutoff waitlist offers, excluding the buyer's own offer): a full event aborts the whole purchase with a 429 `Event {name} is sold out.`, nothing created or incremented. Sector caps are not checked (pass tickets carry no sector).
 4. **Create the `HeldSeriesPass`** — a duplicate-purchase race loses on the conditional unique constraint and is mapped to `SeriesPassNotPurchasableError` → **409**.
 5. **Materialize tickets** via `bulk_create` (future events only; ACTIVE for free passes, PENDING otherwise). `bulk_create` deliberately skips `post_save` signals so no per-ticket emails fire.
 6. **Increment** each tier's `quantity_sold` and the pass's counter.
@@ -81,8 +82,8 @@ quantized to cents, where `passed_events` counts tier-linked events with `start 
 Tickets issued here (and on offline confirmation) go through `day_membership_service.on_tickets_issued`, because `bulk_create` skips the signal that grants a [day membership](member-register.md#day-memberships) for tiers with `grants_membership_tier`.
 
 
-!!! danger "Lock ordering invariant: pass row first, then tiers pk-ordered"
-    Every writer that touches pass + tier counters — purchase, whole-pass cancel, offline confirm, backfill, the extension task, all four expiry routes — takes the pass/held-pass row lock **before** the pk-ordered tier locks. Keep this order in any new code path or you introduce a deadlock.
+!!! danger "Lock ordering invariant: pass row, then tiers pk-ordered, then events pk-ordered"
+    Batch checkout locks tier before event, so the pass flows lock covered `Event` rows last. Every writer that touches pass + tier counters — purchase, whole-pass cancel, offline confirm, backfill, the extension task, all four expiry routes — takes the pass/held-pass row lock **before** the pk-ordered tier locks, and (purchase, backfill, extension) takes event locks after the tiers. Keep this order in any new code path or you introduce a deadlock.
 
 ### Offline confirmation
 
@@ -128,7 +129,7 @@ Malformed codes are rejected by a path-regex (`CHECK_IN_CODE_PATTERN`) before to
 
 Events added to a series after passes were sold are **not** covered automatically — the organizer extends explicitly, either via `POST .../passes/{pass_id}/tier-links` or inline `series_pass_links` on event create/update. `add_tier_links` is idempotent per (event, tier) and dispatches the Celery task **`events.materialize_series_pass_holders`** via `transaction.on_commit`.
 
-The task processes each ACTIVE holder in its own transaction (pass row locked, ACTIVE re-checked — safe against a concurrent cancel), locks tiers pk-ordered, and grants the new tickets **free of charge** (`price_paid=0.00`). Full tiers are skipped and reported, not failed. Each holder gets one `SERIES_PASS_EXTENDED` notification.
+The task processes each ACTIVE holder in its own transaction (pass row locked, ACTIVE re-checked — safe against a concurrent cancel), locks tiers pk-ordered, and grants the new tickets **free of charge** (`price_paid=0.00`). Full tiers and events at event-level capacity are skipped and reported, not failed, and a holder who is now blacklisted for the organization (hard, or fuzzy name match without membership or whitelist) is skipped entirely; the same applies to the activation-time backfill (skips are logged). Each holder gets one `SERIES_PASS_EXTENDED` notification.
 
 ---
 

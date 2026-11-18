@@ -21,7 +21,8 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
     Free of charge (no Payment rows) — holders paid for the season. Idempotent:
     events already ticketed for a holder are skipped (``materialize_tickets``'s
     existing-events skip plus the DB constraint). Capacity-checked per
-    holder/event; skipped pairs are counted and reported.
+    holder/event (tier and event level); holders now blacklisted for the org are skipped
+    entirely; skipped pairs are counted and reported.
 
     Args:
         series_pass_id: The SeriesPass whose holders should be extended.
@@ -69,7 +70,7 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
 
 def _extend_holder(holder_id: UUID, links: list[SeriesPassTierLink], skipped: list[tuple[UUID, UUID]]) -> list[Ticket]:
     """Materialize one ACTIVE holder's tickets in its own transaction; returns the created tickets."""
-    from events.service import series_pass_service
+    from events.service import series_pass_event_checks, series_pass_service
     from notifications.signals.series_pass import send_series_pass_extended
 
     with transaction.atomic():
@@ -100,6 +101,19 @@ def _extend_holder(holder_id: UUID, links: list[SeriesPassTierLink], skipped: li
         # inherit the mapped tier's price (keeps revenue/VAT reports honest, #644).
         # ponytail: holders never answered a questionnaire attached to the newly linked event; tickets are issued
         # anyway. Upgrade path: gate extension tickets on the questionnaire, or notify holders to answer it.
+        # Event-level capacity (events locked after the tiers, pk-ordered) and the holder's current
+        # blacklist status — the rules the purchase applies — skipped and reported like full tiers.
+        if grantable and series_pass_event_checks.is_blocked_by_blacklist(held_pass.user, grantable[0].event):
+            logger.info("series_pass_extension_skipped_blacklisted_holder", held_pass_id=str(held_pass.id))
+            skipped.extend((held_pass.id, link.event_id) for link in grantable)
+            grantable = []
+        full_event_ids = series_pass_event_checks.lock_events_and_find_full(
+            [link.event for link in grantable], held_pass.user
+        )
+        for link in grantable:
+            if link.event_id in full_event_ids:
+                skipped.append((held_pass.id, link.event_id))
+        grantable = [link for link in grantable if link.event_id not in full_event_ids]
         created = series_pass_service.materialize_tickets(
             held_pass, grantable, Ticket.TicketStatus.ACTIVE, price_paid=Decimal("0.00")
         )
