@@ -369,7 +369,7 @@ Everything that operates on a plan rather than on one subscriber's lifecycle.
 
 | Function | Responsibility |
 |---|---|
-| `create_plan` / `update_plan` / `archive_plan` / `delete_plan` | Plan CRUD. ONLINE plans trigger `ensure_stripe_price`. Currency edits are refused when active subs exist. `delete_plan` catches `ProtectedError` from the FK |
+| `create_plan` / `update_plan` / `archive_plan` / `delete_plan` | Plan CRUD. ONLINE plans trigger `ensure_stripe_price`. Currency and cadence (`period_unit` / `period_count`) edits are refused when active subs exist: moving an ONLINE subscriber to a Price with another interval under `proration_behavior='none'` stretches the paid period without an invoice (#1423). `delete_plan` catches `ProtectedError` from the FK |
 | `migrate_plan_subscribers` | Force-migrates non-terminal subs on a plan to its current Stripe price (`proration_behavior='none'`). Per-sub errors are reported individually; no rollback. Batches the "previous price" lookup with `DISTINCT ON` to avoid N+1 |
 
 ### `events/service/subscription/stripe/base.py`, `checkout.py`, `sync.py`
@@ -601,7 +601,7 @@ Guarded by `OrganizationPermission("manage_subscriptions")`.
 | GET | `/subscriptions/metrics` | Per-org MRR / churn / status breakdown |
 | GET | `/plans` | List plans across every tier of the org (`is_active` filter) |
 | GET / POST | `/tiers/{tier_id}/plans` | List / create plans on a tier |
-| PATCH | `/plans/{plan_id}` | Edit plan (currency edits refused with active subs) |
+| PATCH | `/plans/{plan_id}` | Edit plan (currency and cadence edits refused with active subs) |
 | POST | `/plans/{plan_id}/archive` | `is_active = False` |
 | DELETE | `/plans/{plan_id}` | Hard-delete (`ProtectedError` if subs reference it) |
 | POST | `/plans/{plan_id}/migrate-subscribers` | Force-migrate non-terminal subs to the plan's current price |

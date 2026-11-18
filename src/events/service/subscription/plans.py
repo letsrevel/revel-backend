@@ -112,6 +112,11 @@ def update_plan(
     — cross-currency migration is risky and out of roadmap; staff must archive
     and create a new plan instead.
 
+    Refuses cadence (``period_unit`` / ``period_count``) changes under the same
+    condition: swapping an ONLINE subscriber onto a Price with a different
+    interval (``proration_behavior="none"``) makes Stripe stretch the paid
+    period to the new interval without invoicing (#1423).
+
     Also re-checks the (payment method, price, cadence) shape against the
     *merged* post-patch values: ``payment_method`` is not patchable, so a FREE
     plan can never acquire a price and an ONLINE plan can never lose one or
@@ -129,14 +134,25 @@ def update_plan(
         raise HttpError(400, shape_error)
 
     new_currency = fields.get("currency")
-    if new_currency is not None and new_currency.upper() != plan.currency.upper():
+    currency_changes = new_currency is not None and new_currency.upper() != plan.currency.upper()
+    cadence_changes = (
+        fields.get("period_unit", plan.period_unit) != plan.period_unit
+        or fields.get("period_count", plan.period_count) != plan.period_count
+    )
+    if currency_changes or cadence_changes:
         has_active_subs = (
             MembershipSubscription.objects.filter(plan=plan)
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
             .exists()
         )
-        if has_active_subs:
+        if has_active_subs and currency_changes:
             msg = _("Cannot change currency when active subscriptions exist. Archive and create a new plan instead.")
+            raise HttpError(400, str(msg))
+        if has_active_subs:
+            msg = _(
+                "Cannot change the billing period when active subscriptions exist. "
+                "Archive and create a new plan instead."
+            )
             raise HttpError(400, str(msg))
 
     for field, value in fields.items():

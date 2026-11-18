@@ -127,6 +127,91 @@ class TestPlanCurrencyChange:
 
 
 @pytest.mark.django_db
+class TestPlanCadenceChange:
+    """Regression for #1423: a cadence patch plus subscriber migration let Stripe
+    stretch an ONLINE subscriber's paid period to the new interval with no invoice.
+    """
+
+    @pytest.mark.parametrize(
+        "payment_method",
+        [MembershipSubscriptionPlan.PaymentMethod.OFFLINE, MembershipSubscriptionPlan.PaymentMethod.ONLINE],
+    )
+    @pytest.mark.parametrize(
+        "change",
+        [{"period_unit": MembershipSubscriptionPlan.PeriodUnit.YEAR}, {"period_count": 3}],
+    )
+    def test_cadence_change_refused_when_active_subs_exist(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        payment_method: str,
+        change: dict[str, t.Any],
+    ) -> None:
+        offline_plan.payment_method = payment_method
+        offline_plan.save(update_fields=["payment_method"])
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.PAST_DUE,
+        )
+        with (
+            patch.object(subscription_plans, "ensure_stripe_price") as mock_ensure,
+            pytest.raises(HttpError) as exc_info,
+        ):
+            subscription_plans.update_plan(offline_plan, **change)
+        assert exc_info.value.status_code == 400
+        mock_ensure.assert_not_called()
+        offline_plan.refresh_from_db()
+        assert offline_plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.MONTH
+        assert offline_plan.period_count == 1
+
+    @pytest.mark.parametrize(
+        "change",
+        [{"period_unit": MembershipSubscriptionPlan.PeriodUnit.YEAR}, {"period_count": 3}],
+    )
+    def test_cadence_change_allowed_when_only_terminal_subs_exist(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        change: dict[str, t.Any],
+    ) -> None:
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.CANCELLED,
+            cancelled_at=timezone.now() - timedelta(days=1),
+        )
+        updated = subscription_plans.update_plan(offline_plan, **change)
+        for field, value in change.items():
+            assert getattr(updated, field) == value
+
+    def test_unchanged_cadence_values_do_not_trigger_guard(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """A full-form PATCH resending the current cadence must still save other fields."""
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        updated = subscription_plans.update_plan(
+            offline_plan,
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+            period_count=1,
+            name="Renamed",
+        )
+        assert updated.name == "Renamed"
+
+
+@pytest.mark.django_db
 class TestPlanPriceChange:
     def test_price_change_with_active_subs_succeeds(
         self,

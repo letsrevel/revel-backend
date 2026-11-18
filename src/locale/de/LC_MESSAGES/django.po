@@ -3176,6 +3176,11 @@ msgstr ""
 "Die Währung kann nicht geändert werden, solange aktive Abonnements bestehen. "
 "Archiviere den Plan und erstelle stattdessen einen neuen."
 
+msgid ""
+"Cannot change the billing period when active subscriptions exist. Archive "
+"and create a new plan instead."
+msgstr "Der Abrechnungszeitraum kann nicht geändert werden, solange aktive Abonnements bestehen. Archiviere den Plan und erstelle stattdessen einen neuen."
+
 msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
 msgstr ""
 "Ein Plan mit bestehenden Abonnements kann nicht gelöscht werden. Archiviere "
