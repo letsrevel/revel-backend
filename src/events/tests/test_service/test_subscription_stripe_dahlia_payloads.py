@@ -26,6 +26,7 @@ from events.models import (
     MembershipTier,
     Organization,
 )
+from events.service.subscription.stripe import calendar_stub
 from events.service.subscription.stripe import payloads as subscription_stripe_payloads
 from events.service.subscription.stripe import sync as subscription_stripe_sync
 
@@ -255,7 +256,7 @@ class TestDahliaProrationDetection:
         lines = [
             _dahlia_line(price_id="price_test", start=self.ANCHOR, end=self.ANCHOR + 86400, proration=True),
         ]
-        assert subscription_stripe_sync._recurring_line_period(lines, "price_test") is None
+        assert calendar_stub.recurring_line_period(lines, "price_test") is None
 
     def test_invoice_item_proration_is_detected(self) -> None:
         lines = [
@@ -267,7 +268,7 @@ class TestDahliaProrationDetection:
                 parent_type="invoice_item_details",
             ),
         ]
-        assert subscription_stripe_sync._recurring_line_period(lines, "price_test") is None
+        assert calendar_stub.recurring_line_period(lines, "price_test") is None
 
     def test_recurring_line_wins_over_a_leading_proration(self) -> None:
         recurring_start, recurring_end = self.ANCHOR + 86400, self.ANCHOR + 31 * 86400
@@ -275,7 +276,7 @@ class TestDahliaProrationDetection:
             _dahlia_line(price_id="price_test", start=self.ANCHOR, end=self.ANCHOR + 100, proration=True),
             _dahlia_line(price_id="price_test", start=recurring_start, end=recurring_end, proration=False),
         ]
-        assert subscription_stripe_sync._recurring_line_period(lines, "price_test") == {
+        assert calendar_stub.recurring_line_period(lines, "price_test") == {
             "start": recurring_start,
             "end": recurring_end,
         }
@@ -284,7 +285,7 @@ class TestDahliaProrationDetection:
         lines: list[dict[str, t.Any]] = [
             {"proration": True, "period": {"start": self.ANCHOR, "end": self.ANCHOR + 86400}}
         ]
-        assert subscription_stripe_sync._recurring_line_period(lines, "price_test") is None
+        assert calendar_stub.recurring_line_period(lines, "price_test") is None
 
     def test_proration_only_invoice_leaves_the_anchor_alone(
         self,

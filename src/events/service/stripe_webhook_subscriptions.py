@@ -20,6 +20,7 @@ from django.utils import timezone
 from events.models import MembershipPayment, MembershipSubscription
 from events.service import stripe_incidents
 from events.utils.currency import from_stripe_amount
+from events.utils.subscription_periods import is_calendar_plan
 
 logger = structlog.get_logger(__name__)
 
@@ -208,9 +209,20 @@ class SubscriptionWebhookHandlersMixin:
         from events.service.subscription.stripe import sync as subscription_stripe_sync
         from events.service.subscription.stripe.payloads import stripe_account_kwargs
 
+        def mirror_subscription() -> None:
+            stripe_sub = stripe.Subscription.retrieve(
+                t.cast(str, subscription.stripe_subscription_id), **stripe_account_kwargs(subscription.organization)
+            )
+            subscription_stripe_sync.sync_subscription_from_stripe(dict(stripe_sub))
+
         invoice_ref = session.get("invoice")
         invoice_id = invoice_ref.get("id") if isinstance(invoice_ref, dict) else invoice_ref
         if not invoice_id:
+            if is_calendar_plan(subscription.plan):
+                # A free calendar stub (``proration_behavior="none"``) may open no invoice at all, so
+                # no ``invoice.paid`` will ever activate the row; and any ``customer.subscription.*``
+                # that beat this link was dropped. Mirror the Subscription itself.
+                mirror_subscription()
             return
         if MembershipPayment.objects.filter(stripe_invoice_id=invoice_id).exists():
             return
@@ -230,6 +242,11 @@ class SubscriptionWebhookHandlersMixin:
             subscription_id=str(subscription.pk),
             stripe_invoice_id=invoice_id,
         )
+        subscription.refresh_from_db(fields=["current_period_end"])
+        if subscription.current_period_end is None and is_calendar_plan(subscription.plan):
+            # A free stub's invoice can carry no lines, so it yields no period; the dropped
+            # ``customer.subscription.*`` would have set it. Mirror the Subscription itself.
+            mirror_subscription()
 
     def handle_subscription_checkout_expired(self, event: stripe.Event) -> None:
         """Free the cap slot held by an abandoned ONLINE checkout.

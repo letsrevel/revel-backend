@@ -58,6 +58,7 @@ What becomes easier or harder because of this change?
 | [ADR-0016](0016-oidc-relying-party.md) | Generic OIDC login, hand-rolled on PyJWT + httpx | Accepted |
 | [ADR-0017](0017-platform-listings-provider-protocol.md) | Platform listings via a provider protocol | Accepted |
 | [ADR-0018](0018-oauth-oidc-provider.md) | OAuth 2.1 / OIDC provider on django-oauth-toolkit | Accepted |
+| [ADR-0019](0019-calendar-aligned-membership-plans.md) | Calendar-aligned membership plans | Accepted |
 
 ---
 

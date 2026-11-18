@@ -919,6 +919,39 @@ class TestReconcileStripeSubscriptions:
         assert payment.status == MembershipPayment.PaymentStatus.SUCCEEDED
         assert payment.amount == Decimal("10.00")
 
+    def test_ledger_backfill_failure_does_not_abort_the_sweep(
+        self,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """An unresolvable backfill (e.g. its stub Price can't be read) is counted and skipped, not raised."""
+        from unittest.mock import patch
+
+        import stripe
+
+        from events.tasks.subscriptions import reconcile_stripe_subscriptions
+
+        self._make_online_sub(tier, organization, subscriber, status=MembershipSubscription.SubscriptionStatus.ACTIVE)
+        stripe_payload = {
+            "id": "sub_reconcile",
+            "status": "active",
+            "cancel_at_period_end": False,
+            "items": {"data": [{"current_period_start": 1_800_000_000, "current_period_end": 1_802_592_000}]},
+            "latest_invoice": {"id": "in_unresolvable", "status": "paid", "subscription": "sub_reconcile"},
+        }
+        with (
+            patch("stripe.Subscription.retrieve", return_value=stripe_payload),
+            patch(
+                "events.service.subscription.stripe.sync.record_stripe_payment_from_invoice",
+                side_effect=stripe.error.APIConnectionError("stripe down"),
+            ),
+        ):
+            counters = reconcile_stripe_subscriptions()
+
+        assert counters["errors"] == 1
+        assert counters["ledger_backfilled"] == 0
+
     def test_ledger_backfill_never_touches_known_invoices(
         self,
         tier: MembershipTier,

@@ -26,7 +26,7 @@ from events.models import MembershipRecord, MembershipRecordLinkMethod, Organiza
 from events.service import blacklist_service
 from events.service.user_note_transfer import transfer_record_note
 from events.utils.frontend_urls import frontend_base_url_for
-from notifications.context_schemas import StaffMemberRecordAutoLinkedContext
+from notifications.context_schemas import MembershipContext, StaffMemberRecordAutoLinkedContext
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
@@ -62,17 +62,18 @@ def notify_membership_granted(member: OrganizationMember) -> None:
     row (the signal only fires on create). Call it from ``transaction.on_commit``.
     """
     organization = member.organization
+    context: MembershipContext = {
+        "organization_id": str(member.organization_id),
+        "organization_name": organization.name,
+        "role": "member",
+        "action": "granted",
+        "frontend_url": f"{frontend_base_url_for(organization)}/org/{organization.slug}",
+    }
     notification_requested.send(
         sender=OrganizationMember,
         user=member.user,
         notification_type=NotificationType.MEMBERSHIP_GRANTED,
-        context={
-            "organization_id": str(member.organization_id),
-            "organization_name": organization.name,
-            "role": "member",
-            "action": "granted",
-            "frontend_url": f"{frontend_base_url_for(organization)}/org/{organization.slug}",
-        },
+        context=context,
     )
     logger.info(
         "membership_granted_notification_sent", organization_id=str(member.organization_id), user_id=str(member.user_id)

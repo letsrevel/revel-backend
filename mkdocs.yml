@@ -169,6 +169,7 @@ nav:
       - adr/0016-oidc-relying-party.md
       - adr/0017-platform-listings-provider-protocol.md
       - adr/0018-oauth-oidc-provider.md
+      - adr/0019-calendar-aligned-membership-plans.md
   - Self-Hosting:
       - Overview: self-hosting/index.md
       - Quickstart: self-hosting/quickstart.md

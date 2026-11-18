@@ -81,9 +81,10 @@ def _dispatch_invoice_notifications(
         currency: ISO code for ``amount``.
     """
     S = MembershipSubscription.SubscriptionStatus
-    # A zero/absent figure carries no information (a failed invoice moved
-    # nothing, and older payloads omit the field) — let the helpers fall back.
-    amount = amount or None
+    # A zero/absent figure on a failure carries no information (it moved nothing, and older payloads
+    # omit the field) — let the helpers fall back. A succeeded zero is real (free stub): keep it.
+    if not succeeded:
+        amount = amount or None
     if succeeded:
         if (payment_created or payment_recovered) and billing_reason != "subscription_update":
             # A first invoice arrives as PENDING → ACTIVE whether the payer is a

@@ -9,11 +9,9 @@ webhook handlers in :mod:`events.service.stripe_webhooks`.
 
 import typing as t
 import uuid
-from datetime import timedelta
 
 import stripe
 import structlog
-from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -40,6 +38,7 @@ from events.service.subscription.stripe.base import (
 )
 from events.service.subscription.stripe.fees import effective_application_fee_percent
 from events.service.subscription.stripe.payloads import (
+    epoch_to_dt,
     is_subscription_gone,
     stripe_account_kwargs,
 )
@@ -47,6 +46,7 @@ from events.service.subscription.stripe.plan_change import (
     release_online_schedule,
     resolve_refused_cancel,
 )
+from events.utils.subscription_periods import checkout_expires_at, first_period_end, is_free_stub
 
 logger = structlog.get_logger(__name__)
 
@@ -178,7 +178,16 @@ def _create_subscription_checkout_session(
     effective_percent = effective_application_fee_percent(org)
     if effective_percent is not None:
         subscription_data["application_fee_percent"] = float(effective_percent)
-    expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
+    now = timezone.now()
+    expires_at = checkout_expires_at(plan, now)
+    anchor = first_period_end(plan, now)
+    if anchor is not None:
+        # Calendar plan: Stripe bills the stub up to the next boundary and renews on it. The anchor is
+        # fixed when the session is created (``checkout_expires_at`` keeps the session from outliving it).
+        # A stub that would be below Stripe's minimum charge, or under an hour long, when the session
+        # completes at its latest is free: billing just starts at the anchor (``proration_behavior="none"``).
+        subscription_data["billing_cycle_anchor"] = int(anchor.timestamp())
+        subscription_data["proration_behavior"] = "none" if is_free_stub(plan, now) else "create_prorations"
     return stripe.checkout.Session.create(
         mode="subscription",
         customer=customer.stripe_customer_id,
@@ -362,7 +371,12 @@ def _maybe_resume_pending_checkout(
         # Paid on Stripe, webhooks still in flight — never create a second sub.
         raise SubscriptionActivationPendingError
 
-    if session_status == "open" and pending.plan_id == plan.pk and session.url:
+    if (
+        session_status == "open"
+        and pending.plan_id == plan.pk
+        and session.url
+        and not _anchor_has_passed(pending, session)
+    ):
         logger.info(
             "subscription_stripe_pending_checkout_resumed",
             subscription_id=str(pending.pk),
@@ -404,6 +418,21 @@ def _maybe_resume_pending_checkout(
             raise HttpError(502, str(_("Payment processing failed. Please try again later.")))
     clear_stale_pending_checkout(pending)
     return None
+
+
+def _anchor_has_passed(pending: MembershipSubscription, session: stripe.checkout.Session) -> bool:
+    """Whether an open Checkout Session was minted for a calendar boundary that has since passed.
+
+    The session's billing anchor is fixed at creation (the next boundary after ``session.created``)
+    and Stripe offers no way to move it, so a session still open past that boundary would start a
+    subscription on a stale anchor. Treat it as stale: the caller expires it and mints a fresh one.
+    """
+    created = getattr(session, "created", None)
+    if not isinstance(created, int):
+        return False
+    minted_at = epoch_to_dt(created)
+    anchor = first_period_end(pending.plan, minted_at) if minted_at else None
+    return anchor is not None and anchor <= timezone.now()
 
 
 def clear_stale_pending_checkout(pending: MembershipSubscription) -> None:

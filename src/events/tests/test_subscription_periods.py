@@ -112,6 +112,8 @@ class _CalendarPlan(_PlanProxy):
         self.first_period_pricing = pricing
         self.price = Decimal(price)
         self.currency = currency
+        # OFFLINE: the free-stub rule is ONLINE-only, so these pre-existing proration figures are unchanged.
+        self.payment_method = MembershipSubscriptionPlan.PaymentMethod.OFFLINE
 
 
 def _dt(year: int, month: int, day: int, hour: int = 0, minute: int = 0) -> datetime.datetime:

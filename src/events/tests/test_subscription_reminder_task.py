@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import pytest
 from django.utils import timezone
+from freezegun import freeze_time
 
 from accounts.models import RevelUser
 from events.models import (
@@ -85,13 +86,94 @@ class TestRenewalReminderTask:
             Notification.objects.filter(notification_type=NotificationType.SUBSCRIPTION_RENEWAL_REMINDER).count() == 1
         )
 
-    def test_skipped_two_days_before(self, make_sub: t.Callable[..., MembershipSubscription]) -> None:
+    def test_skipped_two_days_before_when_already_reminded(
+        self, make_sub: t.Callable[..., MembershipSubscription]
+    ) -> None:
+        """Inside the window, a period already reminded is not reminded again (one reminder per charge)."""
+        sub = make_sub(
+            period_end_offset_days=REMINDER_DAYS - 1,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        MembershipSubscription.objects.filter(pk=sub.pk).update(renewal_reminded_for=sub.current_period_end)
+        result = send_subscription_renewal_reminders()
+        assert result["sent"] == 0
+
+    def test_unreminded_period_inside_the_window_is_caught_up(
+        self, make_sub: t.Callable[..., MembershipSubscription]
+    ) -> None:
+        """A period ending sooner than the target (short first period, or a missed beat run) still gets one."""
         make_sub(
             period_end_offset_days=REMINDER_DAYS - 1,
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
         )
-        result = send_subscription_renewal_reminders()
-        assert result["sent"] == 0
+        assert send_subscription_renewal_reminders()["sent"] == 1
+        assert send_subscription_renewal_reminders()["sent"] == 0
+
+    def test_period_end_nudged_by_seconds_is_not_reminded_again(
+        self, make_sub: t.Callable[..., MembershipSubscription]
+    ) -> None:
+        """A sync that shifts current_period_end by seconds must not re-send the same reminder."""
+        sub = make_sub(period_end_offset_days=REMINDER_DAYS, status=MembershipSubscription.SubscriptionStatus.ACTIVE)
+        assert send_subscription_renewal_reminders()["sent"] == 1
+        assert sub.current_period_end is not None
+        MembershipSubscription.objects.filter(pk=sub.pk).update(
+            current_period_end=sub.current_period_end + timedelta(seconds=7)
+        )
+        assert send_subscription_renewal_reminders()["sent"] == 0
+
+    def test_backfill_migration_marks_periods_the_old_rule_already_reminded(
+        self, make_sub: t.Callable[..., MembershipSubscription]
+    ) -> None:
+        """0148: periods ending before the target were reminded on their exact day under the old rule."""
+        import importlib
+
+        from django.apps import apps as django_apps
+
+        backfill = importlib.import_module("events.migrations.0148_backfill_renewal_reminded_for").backfill
+        reminded_before = make_sub(
+            period_end_offset_days=REMINDER_DAYS - 1, status=MembershipSubscription.SubscriptionStatus.ACTIVE
+        )
+        # Started long ago, so it existed on its reminder day.
+        reminded_before.current_period_start = timezone.now() - timedelta(days=28)
+        reminded_before.save(update_fields=["current_period_start"])
+        backfill(django_apps, None)
+        reminded_before.refresh_from_db()
+        assert reminded_before.renewal_reminded_for == reminded_before.current_period_end
+        # The deploy-day run must not re-remind it under the widened window.
+        assert send_subscription_renewal_reminders()["sent"] == 0
+
+    def test_backfill_migration_leaves_a_newly_started_short_period_unreminded(
+        self, make_sub: t.Callable[..., MembershipSubscription]
+    ) -> None:
+        """0148: a period that started after its would-be reminder day was never reminded, so it keeps its one."""
+        import importlib
+
+        from django.apps import apps as django_apps
+
+        backfill = importlib.import_module("events.migrations.0148_backfill_renewal_reminded_for").backfill
+        fresh = make_sub(
+            period_end_offset_days=REMINDER_DAYS - 1, status=MembershipSubscription.SubscriptionStatus.ACTIVE
+        )  # started now, ends in 2 days
+        backfill(django_apps, None)
+        fresh.refresh_from_db()
+        assert fresh.renewal_reminded_for is None
+        assert send_subscription_renewal_reminders()["sent"] == 1
+
+    def test_backfill_migration_leaves_the_exact_target_day_for_the_beat(
+        self, make_sub: t.Callable[..., MembershipSubscription]
+    ) -> None:
+        import importlib
+
+        from django.apps import apps as django_apps
+
+        backfill = importlib.import_module("events.migrations.0148_backfill_renewal_reminded_for").backfill
+        due_today = make_sub(
+            period_end_offset_days=REMINDER_DAYS, status=MembershipSubscription.SubscriptionStatus.ACTIVE
+        )
+        backfill(django_apps, None)
+        due_today.refresh_from_db()
+        assert due_today.renewal_reminded_for is None
+        assert send_subscription_renewal_reminders()["sent"] == 1
 
     def test_skipped_four_days_before(self, make_sub: t.Callable[..., MembershipSubscription]) -> None:
         make_sub(
@@ -162,3 +244,78 @@ class TestRenewalReminderTask:
         assert send_subscription_renewal_reminders()["sent"] == 1
         notification = Notification.objects.get(notification_type=NotificationType.SUBSCRIPTION_RENEWAL_REMINDER)
         assert Decimal(notification.context["amount"].split()[0]) == Decimal("10")
+
+
+@pytest.mark.django_db
+class TestRenewalReminderBeforeEveryCharge:
+    @pytest.fixture
+    def online_calendar_plan(self, tier: MembershipTier) -> MembershipSubscriptionPlan:
+        return MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Calendar online",
+            price=Decimal("10"),
+            currency="EUR",
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+            period_alignment=MembershipSubscriptionPlan.PeriodAlignment.CALENDAR,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+        )
+
+    def test_short_calendar_stub_is_reminded_once_with_the_full_price(
+        self,
+        online_calendar_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """A stub ending in hours never hits the REMINDER_DAYS date, yet its first full charge is announced."""
+        period_end = timezone.now() + timedelta(hours=5)
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_calendar_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            current_period_end=period_end,
+        )
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=Decimal("0.50"),
+            full_period_amount=Decimal("10.00"),
+            currency="EUR",
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now(),
+            period_end=period_end,
+        )
+        assert send_subscription_renewal_reminders()["sent"] == 1
+        notification = Notification.objects.get(notification_type=NotificationType.SUBSCRIPTION_RENEWAL_REMINDER)
+        assert Decimal(notification.context["amount"].split()[0]) == Decimal("10")
+        # Re-running the beat (and running it again later in the same period) sends nothing more.
+        assert send_subscription_renewal_reminders()["sent"] == 0
+        assert send_subscription_renewal_reminders()["sent"] == 0
+        assert (
+            Notification.objects.filter(notification_type=NotificationType.SUBSCRIPTION_RENEWAL_REMINDER).count() == 1
+        )
+
+    def test_online_rolling_sub_is_reminded_once_at_reminder_days_and_not_again(
+        self,
+        plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        MembershipSubscriptionPlan.objects.filter(pk=plan.pk).update(
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE
+        )
+        period_end_day = timezone.localdate() + timedelta(days=REMINDER_DAYS)
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            current_period_end=timezone.make_aware(datetime.combine(period_end_day, time(12, 0))),
+        )
+        assert send_subscription_renewal_reminders()["sent"] == 1
+        assert send_subscription_renewal_reminders()["sent"] == 0
+        # The next day's beat sees the period inside the window, but it was already reminded.
+        with freeze_time(timezone.now() + timedelta(days=1)):
+            assert send_subscription_renewal_reminders()["sent"] == 0
+        assert (
+            Notification.objects.filter(notification_type=NotificationType.SUBSCRIPTION_RENEWAL_REMINDER).count() == 1
+        )

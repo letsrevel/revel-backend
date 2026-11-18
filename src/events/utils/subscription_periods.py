@@ -9,6 +9,7 @@ import datetime
 from decimal import Decimal
 
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 
 from events.models import MembershipSubscriptionPlan
 from events.utils.currency import round_major_amount
@@ -16,8 +17,62 @@ from events.utils.currency import round_major_amount
 # Days before period_end at which the renewal reminder notification fires.
 REMINDER_DAYS = 3
 
+# An ONLINE calendar join closer than this to the next boundary gets a free stub (see ``is_free_stub``).
+FREE_STUB_MAX_REMAINING = datetime.timedelta(hours=1)
 
-def _is_calendar(plan: MembershipSubscriptionPlan) -> bool:
+# Stripe's minimum Checkout Session lifetime is 30 minutes from creation; the extra minute absorbs request latency.
+MIN_SESSION_MINUTES = 31
+
+# Stripe's minimum charge per currency, in major units (https://docs.stripe.com/currencies#minimum-and-maximum-charge-amounts).
+# A prorated first period below it cannot be billed, so the join gets a free stub instead.
+# Stripe publishes no native minimum for CNY, IDR, ILS, ISK, KRW, PHP, TRY and ZAR (they settle into the
+# account currency, where about 0.50 USD/EUR applies), so those entries are conservative approximations of
+# 0.50 USD rounded UP: erring high makes a near-minimum stub free rather than charged or carried.
+# A test asserts every accepted ``Currencies`` value has an entry.
+# ponytail: currencies outside that set fall back to a deliberately high floor (a few cents of free stub beats a
+# Stripe-side failure); add the currency here if it needs an exact figure.
+_MIN_CHARGE: dict[str, Decimal] = {
+    code: Decimal(amount)
+    for code, amount in {
+        "AED": "2.00",
+        "AUD": "0.50",
+        "BGN": "1.00",
+        "BRL": "0.50",
+        "CAD": "0.50",
+        "CHF": "0.50",
+        "CNY": "4.00",  # not published by Stripe: approximately 0.50 USD, rounded up (see the note above the table)
+        "CZK": "15.00",
+        "DKK": "2.50",
+        "EUR": "0.50",
+        "GBP": "0.30",
+        "HKD": "4.00",
+        "HUF": "175.00",
+        "IDR": "10000",  # approximate, see note
+        "ILS": "2.00",  # approximate, see note
+        "INR": "0.50",
+        "ISK": "70",  # approximate, see note
+        "JPY": "50",
+        "KRW": "700",  # approximate, see note
+        "MXN": "10.00",
+        "MYR": "2.00",
+        "NOK": "3.00",
+        "NZD": "0.50",
+        "PHP": "30.00",  # approximate, see note
+        "PLN": "2.00",
+        "RON": "2.00",
+        "SEK": "3.00",
+        "SGD": "0.50",
+        "THB": "10.00",
+        "TRY": "20.00",  # approximate, see note
+        "USD": "0.50",
+        "ZAR": "10.00",  # approximate, see note
+    }.items()
+}
+_DEFAULT_MIN_CHARGE = Decimal("1.00")
+
+
+def is_calendar_plan(plan: MembershipSubscriptionPlan) -> bool:
+    """True when ``plan`` bills on the shared calendar grid (00:00 UTC boundaries) rather than per member."""
     return plan.period_alignment == MembershipSubscriptionPlan.PeriodAlignment.CALENDAR
 
 
@@ -40,14 +95,74 @@ def _calendar_boundaries(
     raise ValueError(f"Unsupported calendar period unit: {plan.period_unit!r}")
 
 
+def same_period_grid(a: MembershipSubscriptionPlan, b: MembershipSubscriptionPlan) -> bool:
+    """True when switching between ``a`` and ``b`` keeps a subscription's billing anchor valid.
+
+    Two rolling plans share no grid (each subscription keeps its own anchor), so they always match;
+    two calendar plans match when their boundaries coincide (same unit and start month); a rolling
+    and a calendar plan never do.
+    """
+    if is_calendar_plan(a) != is_calendar_plan(b):
+        return False
+    if not is_calendar_plan(a):
+        return True
+    return (a.period_unit, a.calendar_start_month) == (b.period_unit, b.calendar_start_month)
+
+
 def first_period_end(plan: MembershipSubscriptionPlan, at: datetime.datetime) -> datetime.datetime | None:
     """End of the first period for a member joining at ``at``; ``None`` unless the plan is calendar-aligned."""
-    return _calendar_boundaries(at, plan)[1] if _is_calendar(plan) else None
+    return _calendar_boundaries(at, plan)[1] if is_calendar_plan(plan) else None
 
 
 def starts_mid_period(plan: MembershipSubscriptionPlan, at: datetime.datetime) -> bool:
     """True when ``at`` is not exactly a calendar boundary of ``plan``, so a period starting there is a stub."""
-    return _is_calendar(plan) and _calendar_boundaries(at, plan)[0] != at.astimezone(datetime.timezone.utc)
+    return is_calendar_plan(plan) and _calendar_boundaries(at, plan)[0] != at.astimezone(datetime.timezone.utc)
+
+
+def _prorated_price(plan: MembershipSubscriptionPlan, at: datetime.datetime) -> Decimal:
+    """``plan.price`` scaled by the share of the calendar period still remaining at ``at``."""
+    previous, following = _calendar_boundaries(at, plan)
+    remaining = (following - at).total_seconds()
+    total = (following - previous).total_seconds()
+    return round_major_amount(plan.price * Decimal(str(remaining)) / Decimal(str(total)), plan.currency)
+
+
+def checkout_expires_at(plan: MembershipSubscriptionPlan, now: datetime.datetime) -> datetime.datetime:
+    """When a Checkout Session minted at ``now`` for ``plan`` expires.
+
+    A calendar plan's billing anchor is fixed at creation, so the session must not outlive it: it expires one
+    minute before the next boundary, floored at Stripe's minimum lifetime (:data:`MIN_SESSION_MINUTES`).
+    """
+    expires_at = now + datetime.timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
+    anchor = first_period_end(plan, now)
+    if anchor is None:
+        return expires_at
+    return max(
+        min(expires_at, anchor - datetime.timedelta(minutes=1)), now + datetime.timedelta(minutes=MIN_SESSION_MINUTES)
+    )
+
+
+def is_free_stub(plan: MembershipSubscriptionPlan, at: datetime.datetime) -> bool:
+    """True when an ONLINE calendar member joining at ``at`` gets the first period for free.
+
+    A stub that Stripe cannot charge (prorated price below its minimum charge for the currency) or
+    that lasts under :data:`FREE_STUB_MAX_REMAINING` is not worth billing: Checkout then runs with
+    ``proration_behavior="none"``, so billing simply starts at the boundary. Stripe prorates when the
+    session *completes*, up to :func:`checkout_expires_at`, so the rule is decided at that worst-case
+    moment (a completion at or after the boundary is a free stub by construction). This is the one place
+    the rule lives; checkout and the quoted first-period price both read it.
+    """
+    if (
+        not is_calendar_plan(plan)
+        or plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE
+        or plan.first_period_pricing != MembershipSubscriptionPlan.FirstPeriodPricing.PRORATED
+    ):
+        return False
+    latest = checkout_expires_at(plan, at)
+    following = _calendar_boundaries(at, plan)[1]
+    if following - latest < FREE_STUB_MAX_REMAINING:
+        return True
+    return _prorated_price(plan, latest) < _MIN_CHARGE.get(plan.currency.upper(), _DEFAULT_MIN_CHARGE)
 
 
 def first_period_price(plan: MembershipSubscriptionPlan, at: datetime.datetime) -> Decimal | None:
@@ -55,18 +170,18 @@ def first_period_price(plan: MembershipSubscriptionPlan, at: datetime.datetime) 
 
     Returns:
         ``None`` for rolling plans (``first_period_pricing`` does not apply),
-        ``plan.price`` for FULL pricing, else ``plan.price`` scaled by the share of
+        ``plan.price`` for FULL pricing, zero for an ONLINE free stub
+        (:func:`is_free_stub`), else ``plan.price`` scaled by the share of
         the calendar period still remaining at ``at``. Joining exactly on a
         boundary leaves the whole period, so the price is the full price.
     """
-    if not _is_calendar(plan):
+    if not is_calendar_plan(plan):
         return None
     if plan.first_period_pricing == MembershipSubscriptionPlan.FirstPeriodPricing.FULL:
         return round_major_amount(plan.price, plan.currency)
-    previous, following = _calendar_boundaries(at, plan)
-    remaining = (following - at).total_seconds()
-    total = (following - previous).total_seconds()
-    return round_major_amount(plan.price * Decimal(str(remaining)) / Decimal(str(total)), plan.currency)
+    if is_free_stub(plan, at):
+        return round_major_amount(Decimal(0), plan.currency)
+    return _prorated_price(plan, at)
 
 
 def first_period(
@@ -101,7 +216,7 @@ def calculate_period_end(
     """
     if plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.LIFETIME:
         return None
-    if _is_calendar(plan):
+    if is_calendar_plan(plan):
         # Strictly after ``period_start``: a start sitting on a boundary (renewal
         # chaining from the previous period end) yields the following boundary.
         return _calendar_boundaries(period_start, plan)[1]

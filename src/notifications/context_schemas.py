@@ -883,6 +883,8 @@ class SubscriptionRevivalCheckoutContext(BaseNotificationContext):
     plan_name: str
     amount: str  # formatted "{amount} {currency}"
     checkout_url: str  # hosted Stripe Checkout the member completes to renew
+    next_charge_amount: t.NotRequired[str]  # calendar plan: the full price due at the first boundary
+    next_charge_date: t.NotRequired[str]  # ISO date of that boundary
 
 
 class SubscriptionPriceMigrationNoticeContext(BaseNotificationContext):

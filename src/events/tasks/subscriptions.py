@@ -7,6 +7,7 @@ import typing as t
 import structlog
 from celery import shared_task
 from django.db import models, transaction
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
@@ -241,13 +242,15 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
     """Fire SUBSCRIPTION_RENEWAL_REMINDER for subscriptions renewing in REMINDER_DAYS.
 
     Runs daily via Celery beat (see migration 0102). Processes only ACTIVE
-    subscriptions whose ``current_period_end`` falls exactly REMINDER_DAYS from
-    today and have ``cancel_at_period_end=False`` (no point reminding about a
-    subscription already scheduled to end).
+    subscriptions with ``cancel_at_period_end=False`` (no point reminding about a
+    subscription already scheduled to end) whose ``current_period_end`` falls
+    exactly REMINDER_DAYS from today, plus ONLINE ones whose period ends sooner
+    but has not ended yet: a calendar plan's first (stub) period can be shorter
+    than the window, and its first full charge still deserves a reminder.
 
-    Idempotency: the date-equality check naturally fires each subscription
-    exactly once per period. A missed day (Celery downtime) means missed
-    reminders that day — acceptable for a non-critical nudge.
+    Idempotency: ``renewal_reminded_for`` records the period end already reminded,
+    so each period is reminded once however often the beat runs. A missed day
+    (Celery downtime) means a missed reminder that day, acceptable for a nudge.
 
     Returns:
         Counters dict: {"sent": N}.
@@ -271,10 +274,18 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
     # transaction pooling (see #458).
     subs = list(
         MembershipSubscription.objects.filter(
+            # The exact target date, or a period that ends sooner (a short calendar first period,
+            # or a run missed while the beat was down) and hasn't been reminded yet.
+            models.Q(current_period_end__date=target_date)
+            | models.Q(current_period_end__date__lt=target_date, current_period_end__gt=timezone.now()),
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
             cancel_at_period_end=False,
-            current_period_end__date=target_date,
-        ).select_related("plan__tier__organization", "organization", "user")
+        )
+        # Dedupe per period-end *date*: a sync that nudges current_period_end by seconds
+        # (invoice vs Subscription period) must not re-send the same reminder.
+        .annotate(_reminded_on=TruncDate("renewal_reminded_for"), _ends_on=TruncDate("current_period_end"))
+        .filter(models.Q(renewal_reminded_for__isnull=True) | ~models.Q(_reminded_on=models.F("_ends_on")))
+        .select_related("plan__tier__organization", "organization", "user")
     )
     # No invoice exists yet, so the best estimate of the next charge is what the
     # member last actually paid: a price change mints a new Stripe Price and
@@ -298,6 +309,7 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
             notification_type=NotificationType.SUBSCRIPTION_RENEWAL_REMINDER,
             context=ctx,
         )
+        MembershipSubscription.objects.filter(pk=sub.pk).update(renewal_reminded_for=sub.current_period_end)
         sent += 1
     logger.info("send_subscription_renewal_reminders_done", sent=sent)
     return SubscriptionReminderCounters(sent=sent)
@@ -552,7 +564,18 @@ def reconcile_stripe_subscriptions() -> SubscriptionReconcileCounters:
             and latest_invoice.get("status") == "paid"
             and not MembershipPayment.objects.filter(stripe_invoice_id=latest_invoice["id"]).exists()
         ):
-            subscription_stripe_sync.record_stripe_payment_from_invoice(dict(latest_invoice), succeeded=True)
+            try:
+                subscription_stripe_sync.record_stripe_payment_from_invoice(dict(latest_invoice), succeeded=True)
+            except stripe_sdk.error.StripeError, ValueError:
+                # One subscription's unresolvable invoice (e.g. its stub Price can't be read)
+                # must not abort the sweep for every subscription after it.
+                counters["errors"] += 1
+                logger.exception(
+                    "subscription_reconcile_ledger_backfill_failed",
+                    subscription_id=str(sub_id),
+                    stripe_invoice_id=latest_invoice["id"],
+                )
+                continue
             counters["ledger_backfilled"] += 1
             logger.info(
                 "subscription_reconcile_ledger_backfilled",

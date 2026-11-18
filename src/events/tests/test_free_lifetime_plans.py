@@ -373,16 +373,6 @@ Alignment = MembershipSubscriptionPlan.PeriodAlignment
             },
             "only prorate the first period",
         ),
-        # ONLINE + calendar is refused until Stripe billing-cycle-anchor support (#1426).
-        (
-            {
-                "payment_method": SubscriptionPaymentMethod.ONLINE,
-                "price": Decimal("10"),
-                "period_unit": PeriodUnit.MONTH,
-                "period_alignment": Alignment.CALENDAR,
-            },
-            "not available for online payments yet",
-        ),
     ],
 )
 def test_calendar_shape_refusals(overrides: dict[str, t.Any], expected_fragment: str) -> None:

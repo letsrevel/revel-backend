@@ -4,7 +4,8 @@
 
 {%trans "Plan:"%} {{context.plan_name}}
 {%trans "Amount:"%} {{context.amount}}
-
+{%if context.next_charge_amount%}{%blocktranslate with amount=context.next_charge_amount date=context.next_charge_date %}Next charge: {{ amount }} on {{ date }}.{%endblocktranslate%}
+{%endif%}
 {%trans "Complete payment:"%} {{context.checkout_url}}
 
 {%trans "The payment link expires after a short while; if it no longer works, you can restart the renewal from your membership page."%}

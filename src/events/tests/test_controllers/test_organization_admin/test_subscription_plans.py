@@ -218,7 +218,24 @@ class TestCreatePlan:
         assert data["first_period_end"] is None
         assert data["first_period_price"] is None
 
-    def test_create_online_calendar_plan_is_rejected(
+    def test_create_online_calendar_plan_prorated_is_accepted(
+        self, organization_owner_client: Client, organization: Organization, tier: MembershipTier
+    ) -> None:
+        url = reverse("api:create_subscription_plan", kwargs={"slug": organization.slug, "tier_id": tier.id})
+        payload = {
+            "name": "Online calendar",
+            "price": "10.00",
+            "currency": "EUR",
+            "period_unit": "month",
+            "payment_method": "online",
+            "period_alignment": "calendar",
+        }
+        with mock.patch("events.service.subscription.plans._maybe_sync_plan_to_stripe", side_effect=lambda plan: plan):
+            response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 201, response.content
+        assert response.json()["period_alignment"] == "calendar"
+
+    def test_create_online_calendar_plan_with_full_first_period_is_rejected(
         self, organization_owner_client: Client, organization: Organization, tier: MembershipTier
     ) -> None:
         url = reverse("api:create_subscription_plan", kwargs={"slug": organization.slug, "tier_id": tier.id})
@@ -229,6 +246,7 @@ class TestCreatePlan:
             "period_unit": "month",
             "payment_method": "online",
             "period_alignment": "calendar",
+            "first_period_pricing": "full",
         }
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
         assert response.status_code == 422
