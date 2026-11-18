@@ -31,6 +31,7 @@ from events.service.subscription.offline import (
 )
 from events.utils.membership_payment_rules import edit_refusal, non_voided_payments, period_edit_refusal
 from events.utils.subscription_payment import is_never_paid_offline
+from events.utils.subscription_periods import starts_mid_period
 
 logger = structlog.get_logger(__name__)
 
@@ -127,10 +128,14 @@ def _apply_period_change(
     payment.occurred_at = new_occurred_at
     payment.period_start = period_start
     payment.period_end = row_period_end
-    # Still a prorated first period: keep the price captured when it was made (a later plan price
-    # change must not rewrite it). No longer one: clear it, so the row anchors on what was paid.
-    stamp = _full_period_amount(subscription.plan, previous_end, period_start, advance=advance)
-    payment.full_period_amount = (payment.full_period_amount or stamp) if stamp is not None else None
+    # Still a first mid-period payment: keep the price captured when it was made (a later change to
+    # the plan's price or first-period pricing must not rewrite it). No longer one: clear it, so the
+    # row anchors on what was paid. A missing stamp is created under the plan's current rules.
+    still_first_stub = advance and previous_end is None and starts_mid_period(subscription.plan, period_start)
+    if not still_first_stub:
+        payment.full_period_amount = None
+    elif payment.full_period_amount is None:
+        payment.full_period_amount = _full_period_amount(subscription.plan, previous_end, period_start, advance=advance)
     return ["status", "occurred_at", "period_start", "period_end", "full_period_amount"]
 
 

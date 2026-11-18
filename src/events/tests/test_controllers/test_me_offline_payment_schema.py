@@ -143,6 +143,8 @@ def test_admin_request_includes_plan(
         "period_unit": "year",
         "period_count": plan.period_count,
         "payment_method": "offline",
+        "period_alignment": "rolling",
+        "calendar_start_month": 1,
     }
 
 

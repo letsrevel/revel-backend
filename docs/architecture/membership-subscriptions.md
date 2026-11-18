@@ -696,9 +696,10 @@ Telegram templates under `notifications/templates/notifications/{email,in_app,te
 - `SUBSCRIPTION_RENEWAL_REMINDER` — Beat task at `period_end - 3 days`.
 - `SUBSCRIPTION_PRICE_MIGRATION_NOTICE` — Per affected sub in
   `migrate_plan_subscribers`. Skipped when the subscriber's last payment
-  matched the new price already. Proration invoices and the prorated first
-  period of a calendar plan never anchor the old price; with no other payment
-  there is no anchor and no notice.
+  matched the new price already. Proration invoices from a mid-cycle plan
+  change never anchor the old price; a prorated first calendar period anchors
+  at its stored full per-period price (`full_period_amount`), so such members
+  are notified too. With no payment there is no anchor and no notice.
 - `SUBSCRIPTION_REVIVAL_CHECKOUT` — Staff-initiated ONLINE revival: staff
   cannot pay on the member's behalf, so the member is emailed the hosted
   Checkout link to complete the renewal themselves.

@@ -238,6 +238,26 @@ class TestFullPeriodAmount:
         anchors = subscription_notifications.last_paid_amounts(MembershipSubscription.objects.filter(pk=sub.pk))
         assert anchors[sub.pk] == Decimal("10.00")
 
+    def test_date_correction_keeps_stamp_after_pricing_switched_to_full(
+        self, calendar_plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
+    ) -> None:
+        """Changing the plan's first-period pricing later must not erase the price captured at payment time."""
+        with freeze_time("2026-04-16 12:00:00"):
+            sub = subscription_lifecycle.create_subscription(calendar_plan, subscriber)
+            payment = subscription_lifecycle.record_payment(
+                sub, amount=Decimal("5.00"), currency="EUR", recorded_by=recorder
+            )
+            MembershipSubscriptionPlan.objects.filter(pk=calendar_plan.pk).update(
+                first_period_pricing=MembershipSubscriptionPlan.FirstPeriodPricing.FULL
+            )
+            payment_edits.update_payment(
+                payment,
+                changes={"occurred_at": datetime.datetime(2026, 4, 15, 9, tzinfo=datetime.timezone.utc)},
+                recorded_by=recorder,
+            )
+        payment.refresh_from_db()
+        assert payment.full_period_amount == Decimal("10.00")
+
     def test_boundary_exact_first_payment_records_none(
         self, calendar_plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
     ) -> None:
