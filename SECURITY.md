@@ -55,18 +55,19 @@ keep the auth, permission, and payment paths from regressing silently.
 
 ## AI-assisted security review
 
-The repository ships an adversarial, agent-based review harness under
-`.claude/` (run by maintainers during development, not in CI):
+Maintainers run an adversarial, agent-based review harness during development
+(not in CI): the open-source [Gauntlet](https://github.com/letsrevel/gauntlet)
+Claude Code plugin, configured for this repository in `.claude/review/`.
 
-- **`/vuln-scan`** — fans out region-scoped hunters across the codebase in
-  parallel, then runs an independent verification pass to adjudicate each
-  candidate finding and filter false positives.
-- **`vuln-analyst`** — the hunter agent; an adversarial application-security
-  reviewer specialized in this Django/Django-Ninja, multi-tenant, Celery
-  stack. Can also be invoked standalone for an ad-hoc review of a specific
-  endpoint, service, or app.
-- **`vuln-verifier`** — re-reads each candidate finding independently and
-  returns a verdict with a confidence score before anything is reported.
+- **`/gauntlet:vuln-scan`** — fans out security hunters over feature-slice
+  regions (`.claude/review/regions.md`), then runs an independent verifier per
+  candidate finding; findings are kept or dropped by verdict, not by score.
+- **Per-PR security lane** — changes that touch authentication, permissions,
+  payments, tokens, uploads, dependencies or CI also get a security hunter on
+  the diff before the PR is opened.
+- **Out of scope** — intended behaviour that is not a vulnerability, and the
+  boundary that still is, is listed in
+  [`.claude/review/by-design.md`](.claude/review/by-design.md).
 
 ## Dependency CVE suppression policy
 
