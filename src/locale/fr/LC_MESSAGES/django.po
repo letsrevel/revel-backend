@@ -3472,6 +3472,44 @@ msgstr "Ceci est un document de facturation automatique."
 msgid "Price cannot be null."
 msgstr "Le prix doit être renseigné."
 
+msgid "Calendar plans must use a monthly or yearly billing period."
+msgstr ""
+"Les plans calendaires doivent utiliser une période de facturation mensuelle "
+"ou annuelle."
+
+msgid "Calendar plans must have a period count of 1."
+msgstr "Les plans calendaires doivent avoir un nombre de périodes égal à 1."
+
+msgid ""
+"A calendar start month other than January is only allowed on calendar yearly "
+"plans."
+msgstr ""
+"Un mois de début autre que janvier n'est autorisé que pour les plans "
+"calendaires annuels."
+
+msgid "The billing period of a calendar plan cannot be changed."
+msgstr ""
+"La période de facturation d'un plan calendaire ne peut pas être modifiée."
+
+msgid ""
+"Calendar alignment and start month cannot be changed after the plan is "
+"created."
+msgstr ""
+"L'alignement sur le calendrier et le mois de début ne peuvent pas être "
+"modifiés après la création du plan."
+
+msgid "First period pricing cannot be null."
+msgstr "La tarification de la première période ne peut pas être nulle."
+
+msgid "Calendar-aligned plans are not available for online payments yet."
+msgstr ""
+"Les plans alignés sur le calendrier ne sont pas encore disponibles pour les "
+"paiements en ligne."
+
+msgid "Online plans can only prorate the first period."
+msgstr ""
+"Les plans en ligne ne peuvent calculer la première période qu'au prorata."
+
 msgid "Free plans must have a price of 0."
 msgstr "Les plans gratuits doivent avoir un prix de 0."
 
@@ -8796,3 +8834,47 @@ msgstr "<b>Place disponible !</b> pour <b>%(event)s</b>"
 
 msgid "<b>%(name)s</b> submitted the questionnaire <b>%(questionnaire)s</b>."
 msgstr "<b>%(name)s</b> a soumis le questionnaire <b>%(questionnaire)s</b>."
+
+msgid "Rolling"
+msgstr "Glissant"
+
+msgid "Calendar"
+msgstr "Calendaire"
+
+msgid "Prorated"
+msgstr "Au prorata"
+
+msgid "Full price"
+msgstr "Prix complet"
+
+msgid ""
+"ROLLING bills period_count units from each renewal. CALENDAR aligns periods "
+"to the calendar (1st of the month / 1st of calendar_start_month), at 00:00 "
+"UTC."
+msgstr ""
+"ROLLING facture period_count unités à partir de chaque renouvellement. "
+"CALENDAR aligne les périodes sur le calendrier (1er du mois / 1er de "
+"calendar_start_month), à 00h00 UTC."
+
+msgid ""
+"Month (1-12) a calendar YEAR plan's period starts on. Must be 1 for any "
+"other plan."
+msgstr ""
+"Mois (1-12) où commence la période d'un plan calendaire annuel. Doit valoir "
+"1 pour tout autre plan."
+
+msgid ""
+"How the first, partial calendar period is priced: PRORATED by remaining time "
+"or FULL price. Only meaningful for CALENDAR plans; ignored for ROLLING ones."
+msgstr ""
+"Comment est tarifée la première période calendaire partielle : PRORATED "
+"selon le temps restant ou FULL au prix complet. Pertinent uniquement pour "
+"les plans CALENDAR ; ignoré pour les plans ROLLING."
+
+#: events/models/subscription.py
+msgid ""
+"The plan's full per-period price when this payment covered a prorated first "
+"calendar period. Null otherwise."
+msgstr ""
+"Le prix complet par période du plan lorsque ce paiement couvrait une "
+"première période calendaire au prorata. Nul sinon."

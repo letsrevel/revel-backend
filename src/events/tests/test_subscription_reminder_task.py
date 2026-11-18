@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import (
+    MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
@@ -124,3 +125,40 @@ class TestRenewalReminderTask:
         )
         result = send_subscription_renewal_reminders()
         assert result["sent"] == 0
+
+    def test_prorated_calendar_joiner_is_quoted_the_full_period_price(
+        self,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """The first renewal after a prorated stub quotes the plan price, not the 2.00 stub."""
+        calendar_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Calendar",
+            price=Decimal("10"),
+            currency="EUR",
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+            period_alignment=MembershipSubscriptionPlan.PeriodAlignment.CALENDAR,
+        )
+        period_end_day = timezone.localdate() + timedelta(days=REMINDER_DAYS)
+        period_end = timezone.make_aware(datetime.combine(period_end_day, time(12, 0)))
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=calendar_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            current_period_end=period_end,
+        )
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=Decimal("2.00"),
+            full_period_amount=Decimal("10.00"),
+            currency="EUR",
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now(),
+            period_end=period_end,
+        )
+        assert send_subscription_renewal_reminders()["sent"] == 1
+        notification = Notification.objects.get(notification_type=NotificationType.SUBSCRIPTION_RENEWAL_REMINDER)
+        assert Decimal(notification.context["amount"].split()[0]) == Decimal("10")

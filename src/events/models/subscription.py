@@ -8,13 +8,16 @@ non-renewing term that leaves ``current_period_end`` NULL forever (which is
 what keeps the renewal/lapse/expiry beats from ever selecting it).
 """
 
+import datetime
+import functools
 import typing as t
 from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 
@@ -110,6 +113,14 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         # is ever billed again. ``period_count`` is meaningless here.
         LIFETIME = "lifetime", _("Lifetime")
 
+    class PeriodAlignment(models.TextChoices):
+        ROLLING = "rolling", _("Rolling")
+        CALENDAR = "calendar", _("Calendar")
+
+    class FirstPeriodPricing(models.TextChoices):
+        PRORATED = "prorated", _("Prorated")
+        FULL = "full", _("Full price")
+
     # Alias so callers keep the ``Model.PaymentMethod`` idiom; the class lives
     # at module level under a collision-free name (see its docstring, #782).
     PaymentMethod = SubscriptionPaymentMethod
@@ -144,6 +155,32 @@ class MembershipSubscriptionPlan(TimeStampedModel):
     period_count = models.PositiveSmallIntegerField(
         default=1,
         validators=[MinValueValidator(1)],
+    )
+    period_alignment = models.CharField(
+        max_length=10,
+        choices=PeriodAlignment.choices,
+        default=PeriodAlignment.ROLLING,
+        db_default=PeriodAlignment.ROLLING,
+        help_text=_(
+            "ROLLING bills period_count units from each renewal. CALENDAR aligns periods to the "
+            "calendar (1st of the month / 1st of calendar_start_month), at 00:00 UTC."
+        ),
+    )
+    calendar_start_month = models.PositiveSmallIntegerField(
+        default=1,
+        db_default=1,
+        validators=[MinValueValidator(1), MaxValueValidator(12)],
+        help_text=_("Month (1-12) a calendar YEAR plan's period starts on. Must be 1 for any other plan."),
+    )
+    first_period_pricing = models.CharField(
+        max_length=10,
+        choices=FirstPeriodPricing.choices,
+        default=FirstPeriodPricing.PRORATED,
+        db_default=FirstPeriodPricing.PRORATED,
+        help_text=_(
+            "How the first, partial calendar period is priced: PRORATED by remaining time or FULL price. "
+            "Only meaningful for CALENDAR plans; ignored for ROLLING ones."
+        ),
     )
     is_active = models.BooleanField(default=True, db_index=True)
     sales_status = models.CharField(
@@ -190,7 +227,13 @@ class MembershipSubscriptionPlan(TimeStampedModel):
     def __str__(self) -> str:
         return f"{self.tier} - {self.name}"
 
-    _BILLING_FIELDS: t.ClassVar[tuple[str, ...]] = ("currency", "period_unit", "period_count")
+    _BILLING_FIELDS: t.ClassVar[tuple[str, ...]] = (
+        "currency",
+        "period_unit",
+        "period_count",
+        "period_alignment",
+        "calendar_start_month",
+    )
     _save_fields: frozenset[str] | None = None
 
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
@@ -224,6 +267,10 @@ class MembershipSubscriptionPlan(TimeStampedModel):
             payment_method=self.payment_method,
             price=self.price,
             period_unit=self.period_unit,
+            period_alignment=self.period_alignment,
+            period_count=self.period_count,
+            calendar_start_month=self.calendar_start_month,
+            first_period_pricing=self.first_period_pricing,
         )
         if message:
             raise DjangoValidationError({"payment_method": message})
@@ -232,6 +279,9 @@ class MembershipSubscriptionPlan(TimeStampedModel):
 
     def _validate_no_billing_change_with_live_subscriptions(self) -> None:
         """Refuse currency / cadence changes against the persisted row while subscribers exist.
+
+        Calendar alignment, the start month and a calendar plan's period unit are
+        create-only: they are refused whether or not subscribers exist.
 
         Same rule as ``update_plan`` (#1423), enforced here for the paths that
         skip it: the Django admin form, a simple_history revert, shell writes.
@@ -246,7 +296,7 @@ class MembershipSubscriptionPlan(TimeStampedModel):
                 type(self)
                 .objects.select_for_update(of=("self",))
                 .filter(pk=self.pk)
-                .values("currency", "period_unit", "period_count")
+                .values(*self._BILLING_FIELDS)
                 .first()
             )
             self._refuse_billing_change(persisted)
@@ -261,6 +311,13 @@ class MembershipSubscriptionPlan(TimeStampedModel):
             return getattr(self, name) if written is None or name in written else persisted[name]
 
         period_unit = pending("period_unit")
+        for name in ("period_alignment", "calendar_start_month"):
+            if pending(name) != persisted[name]:
+                raise DjangoValidationError(
+                    {name: _("Calendar alignment and start month cannot be changed after the plan is created.")}
+                )
+        if persisted["period_alignment"] == self.PeriodAlignment.CALENDAR and period_unit != persisted["period_unit"]:
+            raise DjangoValidationError({"period_unit": _("The billing period of a calendar plan cannot be changed.")})
         unit_changed = period_unit != persisted["period_unit"]
         # LIFETIME ignores period_count, so editing it there changes nothing.
         count_changed = period_unit != self.PeriodUnit.LIFETIME and pending("period_count") != persisted["period_count"]
@@ -306,6 +363,16 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         return MembershipSubscription.objects.filter(models.Q(plan=self) | models.Q(pending_plan=self)).exclude(
             status__in=_TERMINAL_STATUS_VALUES
         )
+
+    @functools.cached_property
+    def first_period_quote(self) -> tuple[datetime.datetime | None, Decimal | None]:
+        """``(end, price)`` of the first period if a member joined now; ``(None, None)`` for rolling plans.
+
+        Cached per instance so both values come from one clock read.
+        """
+        from events.utils.subscription_periods import first_period  # lazy: that module imports this one
+
+        return first_period(self, timezone.now())
 
     def occupied_slot_count(self) -> int:
         """Count subscriptions occupying (or reserving) one of this plan's cap slots.
@@ -487,6 +554,16 @@ class MembershipPayment(TimeStampedModel):
         max_digits=10,
         decimal_places=2,
         validators=[MinValueValidator(0)],
+    )
+    full_period_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=_(
+            "The plan's full per-period price when this payment covered a prorated first calendar period. "
+            "Null otherwise."
+        ),
     )
     currency = models.CharField(max_length=3)
     status = models.CharField(

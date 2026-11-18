@@ -39,7 +39,7 @@ from events.service.subscription.offline import (
 from events.service.subscription.sales import ensure_plan_sales_capacity
 from events.utils.membership_access import banned_memberships, is_awaiting_payment_status, is_cancelled_status
 from events.utils.subscription_payment import is_never_paid_offline
-from events.utils.subscription_periods import calculate_period_end
+from events.utils.subscription_periods import calculate_period_end, starts_mid_period
 
 logger = structlog.get_logger(__name__)
 
@@ -88,6 +88,31 @@ def _validate_occurred_at(
             400,
             str(_("occurred_at cannot predate the lapsed period end of the subscription.")),
         )
+
+
+def _full_period_amount(
+    plan: MembershipSubscriptionPlan,
+    previous_end: datetime.datetime | None,
+    period_start: datetime.datetime,
+    *,
+    advance: bool,
+) -> Decimal | None:
+    """The plan's full per-period price when this payment is a prorated first calendar period, else None.
+
+    Only a subscription's first payment (no previous period) can be prorated: that is the one
+    place staff charge a fraction. A late renewal also starts mid-period but is paid in full, so
+    it anchors on what was paid; a join exactly on a boundary is a full-length period.
+    """
+    # ponytail: the stub after a rolling -> calendar plan switch is not stamped (payments don't
+    # record their plan), so MRR counts that one stub at its paid amount; record the plan on the
+    # payment if that ever matters.
+    first_stub = (
+        advance
+        and previous_end is None
+        and plan.first_period_pricing == MembershipSubscriptionPlan.FirstPeriodPricing.PRORATED
+        and starts_mid_period(plan, period_start)
+    )
+    return plan.price if first_stub else None
 
 
 def _payment_period(
@@ -341,6 +366,8 @@ def record_payment(
     payment = MembershipPayment.objects.create(
         subscription=subscription,
         amount=amount,
+        # A prorated first calendar period remembers the full per-period price it stands in for.
+        full_period_amount=_full_period_amount(plan, subscription.current_period_end, period_start, advance=advance),
         currency=currency,
         status=status,
         period_start=period_start,

@@ -53,6 +53,11 @@ def format_major_amount(amount: Decimal, currency: str) -> str:
     return f"{amount:.0f}" if _is_zero_decimal(currency) else f"{amount:.2f}"
 
 
+def round_major_amount(amount: Decimal, currency: str) -> Decimal:
+    """Round a major-unit amount half-up to the currency's minor unit (0 or 2 decimals)."""
+    return amount.quantize(Decimal("1") if _is_zero_decimal(currency) else Decimal("0.01"), ROUND_HALF_UP)
+
+
 def to_stripe_amount(amount: Decimal, currency: str) -> int:
     """Convert a major-unit amount to Stripe's smallest-unit integer representation.
 

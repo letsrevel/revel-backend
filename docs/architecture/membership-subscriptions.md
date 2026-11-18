@@ -88,6 +88,9 @@ All in `src/events/models/subscription.py`. Re-exported via
 | `payment_instructions` | Markdown, nullable. How to pay an OFFLINE plan. `effective_payment_instructions` returns this, falling back to `Organization.membership_payment_instructions`; empty when neither is set |
 | `price`, `currency` | `Decimal(10,2)` + ISO 4217. Currency is validated against the platform's supported list. Bound to `payment_method` — see the shape rules below |
 | `period_unit`, `period_count` | Rolling cadence — `(MONTH, 1)`, `(MONTH, 3)`, `(YEAR, 1)`, … — **or** `LIFETIME`, a non-renewing term. `LIFETIME` ignores `period_count`, leaves `current_period_end` NULL forever, and is therefore invisible to every renewal/lapse/expiry beat (they all filter on that column, which SQL NULL never matches) |
+| `period_alignment` | `ROLLING` (default) or `CALENDAR`. A calendar plan's periods end on fixed boundaries at 00:00 UTC (the 1st of the next month, or the next 1st of `calendar_start_month` for yearly plans) instead of a fixed duration after the start. Calendar plans must be `MONTH` or `YEAR` with `period_count = 1`. **Create-only**: re-aligning would shift every subscriber's boundaries, and `period_unit` is locked too |
+| `calendar_start_month` | 1-12, the month a calendar `YEAR` period starts on (e.g. 9 for a September season). Must stay 1 on any other plan. Create-only |
+| `first_period_pricing` | `PRORATED` (default) or `FULL`: how a calendar plan prices the first, partial period. `PRORATED` scales `price` by the share of the period remaining, rounded half-up to the currency's minor unit (whole units for zero-decimal currencies such as JPY). Patchable (affects future joiners only); never `null` |
 | `is_active` | Archived (`False`) plans are hidden from public listings but keep their FKs |
 | `sales_status` | `OPEN` (default) / `PAUSED`. Pausing stops **member self-service** sales (subscribe, revive, switching into the plan) without touching existing subscribers; staff endpoints bypass it. Orthogonal to archiving: archived = retired, paused = temporarily closed |
 | `max_subscriptions` | Cap on concurrent **non-terminal** subscriptions (the venue's "card stock"). `NULL` = unlimited. Counted live under a plan-row lock, so slots reclaim automatically when a subscription terminalizes — no counter to drift. Hard limit: applies to staff too |
@@ -109,10 +112,17 @@ at patch, against the *merged* post-patch values) so the two cannot drift.
 | `payment_method` | `price` | `period_unit` | Why |
 |---|---|---|---|
 | `OFFLINE` | ≥ 0 | any, incl. `LIFETIME` | Staff settle off-book; `LIFETIME` expresses a one-off paid membership |
-| `ONLINE` | > 0 | `MONTH` / `YEAR` only | Stripe has nothing to bill at 0, and its recurring intervals are month/year — a paid lifetime membership is expressible as OFFLINE, which has no Stripe object |
+| `ONLINE` | > 0 | `MONTH` / `YEAR` only | Stripe has nothing to bill at 0, and its recurring intervals are month/year — a paid lifetime membership is expressible as OFFLINE, which has no Stripe object. Also `ROLLING` only for now (calendar alignment needs Stripe billing-cycle-anchor support, #1426; one rule in `validate_plan_shape` to lift) and `first_period_pricing = PRORATED` only (Stripe-native pro rata, no trials or one-off line items) |
 | `FREE` | = 0 | `LIFETIME` only | A finite free term would be selected by the lapse beat and expire with no way to renew (there is no payment to record) |
 
 #### Currency and cadence guard
+
+`period_alignment`, `calendar_start_month` and a calendar plan's `period_unit` are
+create-only: `clean()` refuses any change to them on an existing row on every `save()`
+path, with or without subscribers (`update_plan` already refuses the unit and never
+accepts the other two), and the plan admin shows alignment and start month read-only
+once the plan exists. The same locked persisted read serves this check and the guard
+below, and under `update_fields` a field not being written keeps its persisted value.
 
 Changing `currency`, `period_unit` or `period_count` (the last is exempt on a
 `LIFETIME` plan) is refused while the plan has non-terminal subscriptions on
@@ -122,7 +132,7 @@ against the persisted row for every other `save()` path (Django admin, history
 revert, shell), as a field `ValidationError` (#1427). That check reads the persisted
 row `FOR UPDATE`, which serializes the save with in-flight creations when it runs inside a
 transaction (Django admin, `update_plan`); a bare autocommit shell save releases the lock before
-the UPDATE, so shell edits need an enclosing `transaction.atomic()` to hold the lock through the write. It is skipped for `save(update_fields=...)` that names none of the three fields, and otherwise compares only the billing fields the save writes.
+the UPDATE, so shell edits need an enclosing `transaction.atomic()` to hold the lock through the write. It is skipped for `save(update_fields=...)` that names none of the guarded fields, and otherwise compares only the billing fields the save writes.
 
 #### Sale controls
 
@@ -388,7 +398,7 @@ Everything that operates on a plan rather than on one subscriber's lifecycle.
 | Function | Responsibility |
 |---|---|
 | `create_plan` / `update_plan` / `archive_plan` / `delete_plan` | Plan CRUD. ONLINE plans trigger `ensure_stripe_price`. `update_plan` re-reads the plan under `select_for_update` and refuses currency and cadence (`period_unit` / `period_count`) edits while the plan has non-terminal subscriptions, including subscriptions with a downgrade scheduled into it (`pending_plan`); a `period_count` edit on a `LIFETIME` plan is allowed, since `LIFETIME` ignores it. Why (#1423): moving an ONLINE subscriber to a Price with another interval under `proration_behavior='none'` depends on the subscription's Stripe billing mode. Flexible mode stretches the paid period without an invoice (observed in test mode); classic mode resets the billing date and charges the new Price at once. `delete_plan` catches `ProtectedError` from the FK |
-| `migrate_plan_subscribers` | Force-migrates non-terminal subs on a plan to its current Stripe price (`proration_behavior='none'`). Per-sub errors are reported individually; no rollback. Each ONLINE sub is re-read under a row lock (`change_online_plan` holds the same lock) and skipped if its plan changed, it went terminal or it gained a schedule since the batch query, so a member's own plan change is never overwritten (#1427); OFFLINE subs get the same plan/terminal re-check just before their notice. Before each swap the subscriber's current Price and the plan's current Price are compared directly (not against the plan row): both must recur, with the same `interval` and `interval_count`, or the subscriber is reported as failed and never swapped (#1423). Batches the "previous price" lookup with `DISTINCT ON` to avoid N+1 |
+| `migrate_plan_subscribers` | Force-migrates non-terminal subs on a plan to its current Stripe price (`proration_behavior='none'`). Per-sub errors are reported individually; no rollback. Each ONLINE sub is re-read under a row lock (`change_online_plan` holds the same lock) and skipped if its plan changed, it went terminal or it gained a schedule since the batch query, so a member's own plan change is never overwritten (#1427); OFFLINE subs get the same plan/terminal re-check just before their notice. Before each swap the subscriber's current Price and the plan's current Price are compared directly (not against the plan row): both must recur, with the same `interval` and `interval_count`, or the subscriber is reported as failed and never swapped (#1423). Batches the "previous price" lookup through the shared `last_paid_amounts` helper (`Coalesce(full_period_amount, amount)`, so a prorated calendar stub quotes the full price) |
 
 ### `events/service/subscription/stripe/base.py`, `checkout.py`, `sync.py`
 
@@ -472,8 +482,22 @@ Per-organization metrics for the admin dashboard:
   (OFFLINE pre-payment, brand-new rows) — grandfathered ONLINE subscribers
   keep paying their old Stripe price, so `plan.price` alone would overstate
   them, and a one-off proration charge from a plan change is not a recurring
-  amount. A single batched `DISTINCT ON` query fetches those amounts, keeping
-  the per-sub loop N+1-free. Annual plans divide by `period_count * 12`. The
+  amount. A subscription's **first** payment on a PRORATED calendar plan, when it
+  covers a stub (a mid-period join), stores the plan's full per-period price in
+  `MembershipPayment.full_period_amount` (`core._full_period_amount`: no previous
+  period, payment advances the period, period start is not exactly a calendar
+  boundary; null otherwise). A join exactly on a boundary stores nothing, and a
+  late renewal, though it starts mid-period, is paid in full and anchors on what
+  was paid. The stub after a rolling-to-calendar switch is not stamped either
+  (payments don't record their plan), so it counts at its paid amount for that
+  one period. A staff edit keeps an already-recorded value while the payment is
+  still a prorated first period (a later plan price change never rewrites it) and
+  clears it otherwise. The anchor is
+  `Coalesce(full_period_amount, amount)`, computed by **one shared helper**,
+  `notifications.last_paid_amounts`, used by MRR, price-migration notices and
+  renewal reminders alike (one batched `DISTINCT ON` query, N+1-free). A
+  concession amount on a prorated stub still anchors at list price (accepted).
+  Annual plans divide by `period_count * 12`. The
   sum is quantized **once** at the end (`Decimal("0.01")`) to avoid
   accumulated rounding drift.
 - **`mrr_currency`** = the shared currency, or `"MIXED"` (with
@@ -494,7 +518,15 @@ FREE plans, never.
 
 Pure utilities:
 
-- `calculate_period_end(period_start, plan)` — uses
+- `calculate_period_end(period_start, plan)` — for a `CALENDAR` plan returns
+  the next 00:00 UTC boundary strictly after `period_start` (so renewals
+  chaining from a boundary get the following one). `first_period(plan, at)`
+  (built on `first_period_end` / `first_period_price`) gives the first period's end and
+  (prorated or full, rounded to the currency's minor unit) price for a member joining at
+  a given instant; both are `None` on rolling plans. The plan schemas expose them through
+  one mixin that reads the clock once per plan; the schema nested under a member's own
+  subscription omits them, since a join-now quote is misleading there.
+  For rolling plans it uses
   `dateutil.relativedelta` so Jan 31 + 1 month → Feb 28/29 behaves
   correctly. Explicit branch on `plan.period_unit` (`MONTH` / `YEAR`) so a
   future unit isn't silently treated as months. Returns **`None`** for
@@ -664,7 +696,9 @@ Telegram templates under `notifications/templates/notifications/{email,in_app,te
 - `SUBSCRIPTION_RENEWAL_REMINDER` — Beat task at `period_end - 3 days`.
 - `SUBSCRIPTION_PRICE_MIGRATION_NOTICE` — Per affected sub in
   `migrate_plan_subscribers`. Skipped when the subscriber's last payment
-  matched the new price already.
+  matched the new price already. Proration invoices and the prorated first
+  period of a calendar plan never anchor the old price; with no other payment
+  there is no anchor and no notice.
 - `SUBSCRIPTION_REVIVAL_CHECKOUT` — Staff-initiated ONLINE revival: staff
   cannot pay on the member's behalf, so the member is emailed the hosted
   Checkout link to complete the renewal themselves.

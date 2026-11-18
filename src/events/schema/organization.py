@@ -500,10 +500,11 @@ class MembershipRequestPlanSchema(ModelSchema):
 
     period_unit: models.MembershipSubscriptionPlan.PeriodUnit
     payment_method: models.SubscriptionPaymentMethod
+    period_alignment: models.MembershipSubscriptionPlan.PeriodAlignment
 
     class Meta:
         model = models.MembershipSubscriptionPlan
-        fields = ["id", "name", "price", "currency", "period_count"]
+        fields = ["id", "name", "price", "currency", "period_count", "calendar_start_month"]
 
 
 class OrganizationMembershipRequestRetrieve(ModelSchema):

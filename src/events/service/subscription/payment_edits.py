@@ -18,7 +18,12 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
-from events.service.subscription.core import _payment_period, _refuse_lapsed_period, _validate_occurred_at
+from events.service.subscription.core import (
+    _full_period_amount,
+    _payment_period,
+    _refuse_lapsed_period,
+    _validate_occurred_at,
+)
 from events.service.subscription.offline import (
     activate_on_first_payment,
     refuse_blacklisted_first_payment,
@@ -122,7 +127,11 @@ def _apply_period_change(
     payment.occurred_at = new_occurred_at
     payment.period_start = period_start
     payment.period_end = row_period_end
-    return ["status", "occurred_at", "period_start", "period_end"]
+    # Still a prorated first period: keep the price captured when it was made (a later plan price
+    # change must not rewrite it). No longer one: clear it, so the row anchors on what was paid.
+    stamp = _full_period_amount(subscription.plan, previous_end, period_start, advance=advance)
+    payment.full_period_amount = (payment.full_period_amount or stamp) if stamp is not None else None
+    return ["status", "occurred_at", "period_start", "period_end", "full_period_amount"]
 
 
 def _is_first_payment_edit(payment: MembershipPayment, subscription: MembershipSubscription, new_status: str) -> bool:

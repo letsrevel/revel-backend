@@ -18,13 +18,12 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.models import (
-    MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
 )
-from events.service.subscription.notifications import _dispatch_price_migration, _format_money
+from events.service.subscription.notifications import _dispatch_price_migration, _format_money, last_paid_amounts
 from events.service.subscription.stripe import checkout as stripe_checkout
 from events.service.subscription.stripe.base import ensure_stripe_price
 from events.service.ticket_service import check_online_payment_prerequisites
@@ -71,6 +70,9 @@ def create_plan(
     sales_status: str = MembershipSubscriptionPlan.SalesStatus.OPEN,
     max_subscriptions: int | None = None,
     payment_instructions: str | None = None,
+    period_alignment: str = MembershipSubscriptionPlan.PeriodAlignment.ROLLING,
+    calendar_start_month: int = 1,
+    first_period_pricing: str = MembershipSubscriptionPlan.FirstPeriodPricing.PRORATED,
 ) -> MembershipSubscriptionPlan:
     """Create a subscription plan for a membership tier.
 
@@ -94,6 +96,9 @@ def create_plan(
         sales_status=sales_status,
         max_subscriptions=max_subscriptions,
         payment_instructions=payment_instructions,
+        period_alignment=period_alignment,
+        calendar_start_month=calendar_start_month,
+        first_period_pricing=first_period_pricing,
     )
     return _maybe_sync_plan_to_stripe(plan)
 
@@ -149,17 +154,24 @@ def update_plan(
         .get(pk=plan.pk)
     )
 
+    new_unit = fields.get("period_unit", plan.period_unit)
+    if plan.period_alignment == MembershipSubscriptionPlan.PeriodAlignment.CALENDAR and new_unit != plan.period_unit:
+        raise HttpError(400, str(_("The billing period of a calendar plan cannot be changed.")))
+
     shape_error = validate_plan_shape(
         payment_method=plan.payment_method,
         price=fields.get("price", plan.price),
-        period_unit=fields.get("period_unit", plan.period_unit),
+        period_unit=new_unit,
+        period_alignment=plan.period_alignment,
+        period_count=fields.get("period_count", plan.period_count),
+        calendar_start_month=plan.calendar_start_month,
+        first_period_pricing=fields.get("first_period_pricing", plan.first_period_pricing),
     )
     if shape_error:
         raise HttpError(400, shape_error)
 
     new_currency = fields.get("currency")
     currency_changes = new_currency is not None and new_currency.upper() != plan.currency.upper()
-    new_unit = fields.get("period_unit", plan.period_unit)
     cadence_changes = new_unit != plan.period_unit or (
         # LIFETIME ignores period_count, so editing it there changes nothing.
         new_unit != MembershipSubscriptionPlan.PeriodUnit.LIFETIME
@@ -284,8 +296,8 @@ def migrate_plan_subscribers(
     )
     new_price = plan.price
 
-    # One query up front (no N+1); ONLINE subs re-read theirs under the lock below.
-    old_price_by_sub = _last_paid_amounts(qs)
+    # One batched anchor query (see ``last_paid_amounts``); ONLINE subs re-read theirs under the lock below.
+    old_price_by_sub = last_paid_amounts(qs)
 
     cadence_of = _memoised_cadence_lookup()
 
@@ -298,7 +310,7 @@ def migrate_plan_subscribers(
                 sub = locked_sub  # the notice must describe the row actually swapped
                 # ...and quote the last payment as of that same locked state (a renewal
                 # may have settled since the batch was listed).
-                old_price = _last_paid_amounts(MembershipSubscription.objects.filter(pk=sub.pk)).get(sub.id)
+                old_price = last_paid_amounts(MembershipSubscription.objects.filter(pk=sub.pk)).get(sub.id)
             else:
                 # OFFLINE: no Stripe call. We still dispatch the notification so
                 # the subscriber knows next renewal will be at the new amount.
@@ -423,25 +435,6 @@ def _swap_online_price_locked(
             result["skipped"] += 1
             return None
     return locked
-
-
-def _last_paid_amounts(subscriptions: t.Any) -> dict[t.Any, Decimal]:
-    """Each subscription's last SUCCEEDED per-period payment amount, in one query.
-
-    Postgres DISTINCT ON picks the most recent row per subscription. Proration
-    invoices from a mid-cycle upgrade are a partial-period delta, never the
-    subscriber's old per-period price, so they cannot anchor the notice.
-    """
-    return dict(
-        MembershipPayment.objects.filter(
-            subscription__in=subscriptions,
-            status=MembershipPayment.PaymentStatus.SUCCEEDED,
-        )
-        .exclude(raw_response__contains={"billing_reason": "subscription_update"})
-        .order_by("subscription_id", "-created_at")
-        .distinct("subscription_id")
-        .values_list("subscription_id", "amount")
-    )
 
 
 def _still_on_plan_and_live(sub: MembershipSubscription, plan: MembershipSubscriptionPlan) -> bool:

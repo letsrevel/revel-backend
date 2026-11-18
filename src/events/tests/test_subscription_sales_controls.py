@@ -22,7 +22,7 @@ from events.models import (
     MembershipTier,
     Organization,
 )
-from events.schema.subscription import PublicPlanSchema
+from events.schema.subscription_plan import PublicPlanSchema
 from events.service.subscription import lifecycle as subscription_lifecycle
 from events.service.subscription.lifecycle import InitialPayment
 from events.service.subscription.stripe import checkout as subscription_stripe_checkout
