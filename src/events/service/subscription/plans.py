@@ -135,7 +135,7 @@ def update_plan(
     # Compare against the committed row, not the caller's instance: concurrent
     # PATCHes on this plan serialize here, so a stale resend of the old cadence
     # cannot revert another PATCH's change. Subscription creation locks the plan
-    # row too (``ensure_plan_sales_capacity``: FOR UPDATE if capped, FOR KEY SHARE
+    # row too (``ensure_plan_sales_capacity``: FOR NO KEY UPDATE if capped, FOR KEY SHARE
     # otherwise; both conflict with this FOR UPDATE), so a creation in flight
     # either commits before this read or waits for this transaction (#1427).
     # (A bare FK insert would not serialize: Django's FK constraints are
