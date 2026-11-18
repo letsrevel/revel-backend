@@ -18,6 +18,7 @@ from pydantic import ValidationError as PydanticValidationError
 from events.exceptions import StripeRefundFailed as StripeRefundFailed
 from events.models import Payment, Refund, Ticket, TicketTier
 from events.models.ticket import CancellationBlockReason, CancellationSource
+from events.service import discount_code_service
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.refund_policy import RefundPolicy, validate_refund_policy
 
@@ -462,6 +463,7 @@ def _finalize_cancellation(
     from events.service.ticket_service import record_offline_payment_kept
 
     record_offline_payment_kept(locked_ticket)
+    was_pending = locked_ticket.status == Ticket.TicketStatus.PENDING
     locked_ticket.status = Ticket.TicketStatus.CANCELLED
     locked_ticket.cancelled_at = now
     locked_ticket.cancelled_by = user
@@ -481,5 +483,8 @@ def _finalize_cancellation(
     TicketTier.objects.filter(pk=locked_ticket.tier_id, quantity_sold__gt=0).update(
         quantity_sold=F("quantity_sold") - 1
     )
+    if was_pending:
+        # Unfinished checkout: give the code's use back (after the tier lock). A confirmed ticket keeps it.
+        discount_code_service.release_discount_uses([locked_ticket.discount_code_id])
 
     enqueue_waitlist_processing(locked_ticket.event_id)

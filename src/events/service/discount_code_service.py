@@ -1,20 +1,22 @@
 """Service layer for discount code validation and application."""
 
 import typing as t
+from collections import Counter
 from decimal import Decimal
 from uuid import UUID
 
 import structlog
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import F
+from django.db.models import F, Value
+from django.db.models.functions import Greatest
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.exceptions import DuplicateDiscountCodeError
-from events.models import Event, EventSeries, Organization, Ticket, TicketTier
+from events.models import Event, EventSeries, Organization, Payment, Ticket, TicketTier
 from events.models.discount_code import DiscountCode
 
 if t.TYPE_CHECKING:
@@ -174,9 +176,11 @@ def delete_discount_code(dc: DiscountCode) -> t.Literal["deleted", "deactivated"
     """Delete a discount code, hard-deleting it only when it was never used.
 
     A code is considered unused when its ``times_used`` counter is zero *and* no
-    ticket references it at all (any status). ``times_used`` never decrements, so
-    the two checks are belt-and-suspenders: either one being non-empty means the
-    code has redemption history worth keeping. Unused codes are hard-deleted,
+    ticket references it at all (any status). ``times_used`` only decrements when an
+    unfinished checkout (a still-PENDING ticket) is removed or cancelled, see
+    :func:`release_discount_uses`; a confirmed ticket keeps its use. The two checks
+    are belt-and-suspenders: either one being non-empty means the code has
+    redemption history worth keeping. Unused codes are hard-deleted,
     which also frees the ``(organization, code)`` slot for reuse. Used codes are
     deactivated (``is_active = False``) to preserve the redemption history on
     their tickets.
@@ -633,3 +637,71 @@ def apply_discount(discount_code: DiscountCode, user: RevelUser, batch_size: int
         code=discount_code.code,
         batch_size=batch_size,
     )
+
+
+def release_discount_uses(discount_code_ids: t.Iterable[UUID | None]) -> None:
+    """Give back the uses taken by PENDING tickets that are being removed or cancelled.
+
+    Counterpart of :func:`apply_discount` for **unfinished checkouts only**: pass one
+    ``discount_code_id`` per ticket that was *still PENDING* when the calling route removed
+    or cancelled it (``None`` entries, tickets without a code, are ignored). A confirmed
+    (ACTIVE / CHECKED_IN) ticket that is cancelled or refunded later keeps its use, so
+    callers must not pass those.
+
+    Callers derive the ids only after locking the rows that serialize the release (the
+    batch's Payment rows, or the ticket row for a single cancel), filtered to tickets that are
+    still PENDING, so a ticket released by one route (for example a user cancelling a pending
+    ticket) is never released again by another (the payment sweep). The decrement is floored
+    at zero.
+
+    Lock order: the ``DiscountCode`` rows are locked after the ticket tiers (``apply_discount``
+    also runs after the tier lock and ticket creation in checkout), and in pk order so
+    concurrent releases cannot deadlock. Never call this before locking tiers.
+
+    Args:
+        discount_code_ids: One entry per released PENDING ticket.
+    """
+    per_code: Counter[UUID] = Counter(cid for cid in discount_code_ids if cid is not None)
+    if not per_code:
+        return
+    # Materialise to take the row locks in pk order.
+    list(DiscountCode.objects.select_for_update().filter(pk__in=per_code).order_by("pk").values_list("pk", flat=True))
+    for code_id, count in sorted(per_code.items()):
+        DiscountCode.objects.filter(pk=code_id).update(times_used=Greatest(F("times_used") - count, Value(0)))
+    logger.info("discount_uses_released", released=sum(per_code.values()), codes=len(per_code))
+
+
+def release_uses_of_pending_tickets(*, event: Event | None = None, user: RevelUser | None = None) -> None:
+    """Give back the uses of the PENDING tickets a cascade delete of ``event`` / ``user`` is about to remove.
+
+    Deleting an event or an account cascade-deletes its tickets, and a PENDING one is an
+    unfinished checkout, so its use goes back (confirmed tickets keep theirs). Call it inside
+    the same transaction, before the delete.
+
+    Locks follow the canonical order: the candidate tickets' Payment rows (offline tickets have
+    none), then their TicketTier rows, then the Ticket rows themselves (serializing with user and
+    organizer cancels, which lock the ticket row), each in pk order. Candidates are every coded ticket in
+    scope regardless of status; only then are those that are still PENDING re-queried and passed to
+    :func:`release_discount_uses`, which locks the DiscountCode rows last.
+
+    Exactly one of ``event`` / ``user`` must be given.
+    """
+    if (event is None) == (user is None):
+        raise ValueError("Pass exactly one of event or user.")
+    # Status is deliberately not filtered here: a coded ticket may be moved back to PENDING (organizer
+    # unconfirm) before we hold its lock, so the PENDING check happens only under the locks below.
+    candidates = Ticket.objects.filter(discount_code_id__isnull=False)
+    candidates = candidates.filter(event=event) if event is not None else candidates.filter(user=user)
+    ticket_ids = list(candidates.values_list("pk", flat=True))
+    if not ticket_ids:
+        return
+    list(
+        Payment.objects.select_for_update().filter(ticket_id__in=ticket_ids).order_by("pk").values_list("pk", flat=True)
+    )
+    tier_ids = Ticket.objects.filter(pk__in=ticket_ids).values_list("tier_id", flat=True)
+    list(TicketTier.objects.select_for_update().filter(pk__in=tier_ids).order_by("pk").values_list("pk", flat=True))
+    list(Ticket.objects.select_for_update().filter(pk__in=ticket_ids).order_by("pk").values_list("pk", flat=True))
+    still_pending = Ticket.objects.filter(
+        pk__in=ticket_ids, status=Ticket.TicketStatus.PENDING, discount_code_id__isnull=False
+    )
+    release_discount_uses(still_pending.values_list("discount_code_id", flat=True))

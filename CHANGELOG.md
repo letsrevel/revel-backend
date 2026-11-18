@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Referral invitations are enrolled once the invitee's email address is verified, and only for the exact invited address.
 
 ### Fixed
+- Discount code uses taken by checkouts that are cancelled or expire are now given back, so abandoned checkouts no longer use up a limited code.
+  - Only unfinished checkouts give their use back; a confirmed ticket that is cancelled or refunded later keeps it.
 - **Billing period of a plan with members can no longer change**: changing a subscription plan's period (for example monthly to yearly) is now refused with a 400 while the plan has pending, active, paused or past-due subscriptions, or members with a downgrade scheduled into it.
   - Archive the plan and create a new one instead, as for currency changes.
   - A period-count edit on a lifetime plan is still allowed, since it changes nothing.

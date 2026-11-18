@@ -30,7 +30,7 @@ from events.models import (
     TicketTier,
 )
 from events.models.ticket import CancellationSource
-from events.service import small_business_scheme_service, tier_eligibility
+from events.service import discount_code_service, small_business_scheme_service, tier_eligibility
 from events.service.attendee_vat_service import get_effective_vat_rate
 from events.service.seating.pricing import price_paid_is_admin_entered, recorded_or_resolved_price
 from events.service.waitlist_service import enqueue_waitlist_processing
@@ -585,6 +585,7 @@ def _cancel_offline_ticket_core(
     TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(quantity_sold=F("quantity_sold") - 1)
 
     record_offline_payment_kept(ticket)
+    was_pending = ticket.status == Ticket.TicketStatus.PENDING
     ticket.status = Ticket.TicketStatus.CANCELLED
     ticket.cancelled_at = timezone.now()
     ticket.cancelled_by = cancelled_by
@@ -600,6 +601,10 @@ def _cancel_offline_ticket_core(
             "offline_refund_amount",
         ]
     )
+
+    if was_pending:
+        # Unfinished checkout: give the code's use back (after the tier lock). A confirmed ticket keeps it.
+        discount_code_service.release_discount_uses([ticket.discount_code_id])
 
     enqueue_waitlist_processing(ticket.event_id)
 

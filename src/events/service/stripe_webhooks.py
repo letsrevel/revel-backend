@@ -28,6 +28,7 @@ from events.models import (
     Ticket,
     TicketTier,
 )
+from events.service import discount_code_service
 from events.service.stripe_incidents import record_paid_session_without_payments, record_session_total_mismatch
 from events.service.stripe_webhook_disputes import DisputeHandlersMixin
 from events.service.stripe_webhook_refunds import TicketRefundHandlersMixin
@@ -622,6 +623,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
 
         raw_response = dict(event)
         canceled_tickets = []
+        released_discount_code_ids: list[uuid.UUID | None] = []
         affected_event_ids: set[uuid.UUID] = set()
 
         # Cancel any series pass stranded by the dead checkout FIRST, releasing its
@@ -642,6 +644,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             # Cancel the ticket
             ticket = payment.ticket
             already_cancelled = ticket.status == Ticket.TicketStatus.CANCELLED
+            was_pending = ticket.status == Ticket.TicketStatus.PENDING
             ticket.status = Ticket.TicketStatus.CANCELLED
             ticket.save(update_fields=["status"])
 
@@ -656,8 +659,15 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
                 TicketTier.objects.filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
                     quantity_sold=F("quantity_sold") - 1
                 )
+            if was_pending:
+                released_discount_code_ids.append(ticket.discount_code_id)
             affected_event_ids.add(ticket.event_id)
             canceled_tickets.append(ticket)
+
+        # Unfinished checkout: give back the discount uses of the tickets that were still PENDING.
+        # After the whole tier loop so DiscountCode rows are locked after every tier row
+        # (apply_discount's order); see discount_code_service.release_discount_uses.
+        discount_code_service.release_discount_uses(released_discount_code_ids)
 
         # One enqueue per event regardless of how many tickets cancelled inside it.
         for event_id in affected_event_ids:

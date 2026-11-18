@@ -9,7 +9,7 @@ from django.utils import timezone
 from events.exceptions import NothingToRefundError, RefundInsufficientBalanceError, StripeRefundFailed
 from events.models import Event, Payment, Refund, Ticket, TicketTier
 from events.models.ticket import CancellationSource
-from events.service import day_membership_service, refund_service, ticket_service
+from events.service import day_membership_service, discount_code_service, refund_service, ticket_service
 from events.tasks.attendees import build_attendee_visibility_flags
 from notifications.signals.payment import send_event_refund_summary
 
@@ -133,6 +133,9 @@ def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | Non
         )
         ticket_service.record_offline_payment_kept(locked_ticket)
         previous_status = locked_ticket.status
+        if previous_status == Ticket.TicketStatus.PENDING:
+            # Unfinished checkout: give the code's use back (after the tier lock). A confirmed ticket keeps it.
+            discount_code_service.release_discount_uses([locked_ticket.discount_code_id])
         Ticket.objects.filter(pk=locked_ticket.pk).update(
             status=Ticket.TicketStatus.CANCELLED,
             offline_refund_amount=locked_ticket.offline_refund_amount,

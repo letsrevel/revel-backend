@@ -72,7 +72,7 @@ class EventAdminCoreController(EventAdminBaseController):
     def delete_event(self, event_id: UUID) -> tuple[int, None]:
         """Delete event by ID."""
         event = self.get_one(event_id)
-        event.delete()
+        event_service.delete_event(event)
         return 204, None
 
     @route.patch(

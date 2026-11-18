@@ -24,6 +24,7 @@ from stripe.checkout import Session
 from accounts.models import RevelUser
 from common.service.stripe_config import configure_stripe
 from events.models import Payment, Ticket, TicketTier
+from events.service import discount_code_service
 from events.service.waitlist_service import enqueue_waitlist_processing
 
 logger = structlog.get_logger(__name__)
@@ -58,6 +59,21 @@ def _release_batch_tier_capacity(ticket_ids: list[UUID]) -> None:
     # Sorted for a deterministic tier lock order across concurrent releases.
     for tier_id, count in sorted(tickets_per_tier.items()):
         TicketTier.objects.filter(pk=tier_id).update(quantity_sold=Greatest(F("quantity_sold") - count, Value(0)))
+
+
+def _release_batch_discount_uses(ticket_ids: list[UUID]) -> None:
+    """Give back the discount code uses of the batch's still-PENDING tickets.
+
+    Same PENDING filter as ``_release_batch_tier_capacity`` (a user-cancelled ticket already
+    released its use), and called right after it, so ``DiscountCode`` rows are locked after the
+    tier rows (see ``discount_code_service.release_discount_uses``). Callers have already
+    locked the batch's Payment rows, and this must run before the tickets are deleted.
+    """
+    discount_code_service.release_discount_uses(
+        Ticket.objects.filter(
+            id__in=ticket_ids, discount_code_id__isnull=False, status=Ticket.TicketStatus.PENDING
+        ).values_list("discount_code_id", flat=True)
+    )
 
 
 # In-flight hold extension for the session-create step (#632): claimed before the
@@ -242,6 +258,7 @@ def _cleanup_expired_batch(payment: Payment) -> None:
 
     # Release capacity per tier before the rows disappear.
     _release_batch_tier_capacity(ticket_ids)
+    _release_batch_discount_uses(ticket_ids)
 
     # Clean up the pending tickets and payments in this batch. Non-PENDING
     # tickets (e.g. CANCELLED audit rows, past-event ACTIVE tickets) survive.
@@ -400,6 +417,7 @@ def cancel_pending_checkout(
 
     # Release capacity per tier before the rows disappear.
     _release_batch_tier_capacity(ticket_ids)
+    _release_batch_discount_uses(ticket_ids)
 
     # Delete the pending tickets and payments in this batch. Non-PENDING tickets
     # (e.g. CANCELLED audit rows, past-event ACTIVE tickets) survive.

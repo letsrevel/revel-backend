@@ -47,6 +47,11 @@ Policy-level intended behaviour that reviewers must not report as a finding. Eac
 - boundary: today no path may let two tickets in one cart end up with different effective prices. A change that introduces per-ticket price differences (per-seat-category pricing, partial discounts) must revisit every site that assumes a scalar cart price; flag a diff that does so without handling them.
 - reference: `docs/engineering-notes.md` (checkout reserve/session split); maintainer decision.
 
+## Discount uses follow unfinished checkouts
+- behaviour: a discount code use is given back when a still-PENDING ticket is cancelled or removed, including an offline ticket the organizer moved back to pending with "unconfirm" and then cancelled (it is unpaid again). Confirmed (paid) tickets that are later cancelled or refunded keep their use.
+- boundary: releasing a use twice for one ticket, or releasing for a ticket that never consumed one, is a bug.
+- reference: owner decision 2026-11-18.
+
 ## `SYSTEM_TESTING` flag
 - behaviour: `SYSTEM_TESTING` is an operational toggle for test and CI behaviour, set through the environment.
 - boundary: it must not be settable from a request, and production configuration must not enable it.
