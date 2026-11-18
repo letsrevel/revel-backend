@@ -318,7 +318,8 @@ class TestFreeStubInvoice:
         intent_alarm.assert_not_called()
         assert "subscription_invoice_application_fee_unresolved" not in [c.args[0] for c in log.warning.call_args_list]
         assert payment.amount == Decimal("0")
-        assert payment.full_period_amount == Decimal("120.00")
+        # A line-less invoice names no Price: the stamp is never guessed from plan.price.
+        assert payment.full_period_amount == (Decimal("120.00") if with_line else None)
         pending_calendar_sub.refresh_from_db()
         assert pending_calendar_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
         assert (pending_calendar_sub.current_period_start, pending_calendar_sub.current_period_end) == (JOIN, BOUNDARY)

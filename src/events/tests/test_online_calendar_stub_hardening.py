@@ -21,9 +21,12 @@ from events.models import (
     MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
+    OrganizationMember,
 )
+from events.service.subscription.stripe import calendar_stub as stub_module
 from events.service.subscription.stripe import checkout as subscription_stripe_checkout
 from events.service.subscription.stripe import sync as subscription_stripe_sync
+from events.tests import test_online_calendar_free_stub as free_stub
 from events.tests import test_online_calendar_plans as base
 from events.utils.subscription_periods import first_period_price, is_free_stub
 from notifications.enums import NotificationType
@@ -117,40 +120,102 @@ class TestStampResolvesTheLinesPrice:
         assert stripe_price_retrieve.call_args.args[0] == "price_grandfathered"
         assert stripe_price_retrieve.call_args.kwargs == {"stripe_account": "acct_test_org"}
 
+    def test_line_without_a_price_id_never_falls_back_to_plan_price(
+        self, pending_calendar_sub: MembershipSubscription, stripe_price_retrieve: mock.MagicMock
+    ) -> None:
+        invoice = _first_invoice()
+        invoice["lines"]["data"][0]["pricing"] = {}
+
+        with mock.patch.object(stub_module.logger, "error") as log_error:
+            payment = subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
+
+        assert payment is not None
+        assert payment.full_period_amount is None
+        stripe_price_retrieve.assert_not_called()
+        assert log_error.call_args.args[0] == "subscription_stub_line_without_price"
+
     @pytest.mark.parametrize(
-        "failure",
-        [
-            stripe.error.APIConnectionError("boom"),
-            None,  # a Price with no integer unit_amount (tiered/metered)
-        ],
-        ids=["stripe-error", "no-unit-amount"],
+        "failure", [stripe.error.APIConnectionError("boom"), None], ids=["stripe-error", "no-unit"]
     )
-    def test_unresolvable_price_fails_the_webhook_and_writes_nothing(
+    def test_unreadable_price_still_activates_and_records_with_a_null_stamp(
         self,
         pending_calendar_sub: MembershipSubscription,
         stripe_price_retrieve: mock.MagicMock,
         failure: Exception | None,
     ) -> None:
-        pending_calendar_sub.plan.stripe_price_id = "price_new"
-        pending_calendar_sub.plan.save(update_fields=["stripe_price_id"])
+        """invoice.paid: a paying member is never stranded over the best-effort anchor."""
+        invoice = _first_invoice()
+        invoice["lines"]["data"][0]["pricing"] = {"price_details": {"price": "price_grandfathered"}}
         if failure is None:
             stripe_price_retrieve.return_value = {"unit_amount": None}
         else:
             stripe_price_retrieve.side_effect = failure
 
-        with pytest.raises((stripe.error.StripeError, ValueError)):
-            subscription_stripe_sync.record_stripe_payment_from_invoice(_first_invoice(), succeeded=True)
+        with mock.patch.object(stub_module.logger, "error") as log_error:
+            payment = subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
 
-        assert not MembershipPayment.objects.filter(subscription=pending_calendar_sub).exists()
-        pending_calendar_sub.refresh_from_db()
-        assert pending_calendar_sub.status == MembershipSubscription.SubscriptionStatus.PENDING
-
-        # Stripe redelivers: with the Price readable again the stamp lands.
-        stripe_price_retrieve.side_effect = None
-        stripe_price_retrieve.return_value = {"unit_amount": 12000}
-        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(_first_invoice(), succeeded=True)
         assert payment is not None
-        assert payment.full_period_amount == Decimal("120.00")
+        assert payment.full_period_amount is None
+        assert payment.amount == Decimal("14.33")
+        pending_calendar_sub.refresh_from_db()
+        assert pending_calendar_sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+        assert OrganizationMember.objects.filter(user=pending_calendar_sub.user).exists()
+        kwargs = log_error.call_args.kwargs
+        assert (kwargs["subscription_id"], kwargs["stripe_invoice_id"], kwargs["stripe_price_id"]) == (
+            str(pending_calendar_sub.pk),
+            "in_first",
+            "price_grandfathered",
+        )
+        assert "email" not in kwargs
+
+    def test_unreadable_price_on_checkout_completion_still_links_and_activates(
+        self,
+        calendar_year_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        stripe_org: Organization,
+        stripe_price_retrieve: mock.MagicMock,
+    ) -> None:
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=calendar_year_plan,
+            organization=stripe_org,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_checkout_session_id="cs_cal",
+        )
+        stripe_price_retrieve.side_effect = stripe.error.APIConnectionError("boom")
+        invoice = _first_invoice()
+        invoice["lines"]["data"][0]["pricing"] = {"price_details": {"price": "price_grandfathered"}}
+        handler = free_stub._completion_handler(sub, invoice="in_first")
+
+        with mock.patch(free_stub.RETRIEVE_INVOICE, return_value={**invoice, "status": "paid"}):
+            handler.handle_subscription_checkout_completed(handler.event)
+
+        sub.refresh_from_db()
+        assert sub.stripe_subscription_id == "sub_cal"
+        assert sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+        payment = MembershipPayment.objects.get(subscription=sub)
+        assert payment.full_period_amount is None
+
+    def test_stub_decision_is_retaken_under_the_row_lock(
+        self, pending_calendar_sub: MembershipSubscription, stripe_price_retrieve: mock.MagicMock
+    ) -> None:
+        """The plan stopped being a calendar plan between the unlocked read and the lock: no stamp."""
+
+        def swap_plan(*args: t.Any, **kwargs: t.Any) -> dict[str, t.Any]:
+            MembershipSubscriptionPlan.objects.filter(pk=pending_calendar_sub.plan_id).update(
+                period_alignment=Plan.PeriodAlignment.ROLLING
+            )
+            return {"unit_amount": 9900}
+
+        stripe_price_retrieve.side_effect = swap_plan
+        invoice = _first_invoice()
+        invoice["lines"]["data"][0]["pricing"] = {"price_details": {"price": "price_grandfathered"}}
+
+        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
+
+        assert payment is not None
+        stripe_price_retrieve.assert_called_once()
+        assert payment.full_period_amount is None
 
 
 class TestFirstInvoiceShapes:
@@ -170,7 +235,7 @@ class TestFirstInvoiceShapes:
     def test_zero_total_first_invoice_is_the_free_stub(self, pending_calendar_sub: MembershipSubscription) -> None:
         invoice = _first_invoice(invoice_id="in_free0", amount=0)
         invoice.update(total=0, subtotal=0, payments={"data": []})
-        invoice["lines"]["data"] = []
+        invoice["lines"]["data"][0].update(amount=0, parent={})  # a zero line on the plan's Price, no proration flag
 
         payment = subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
 
@@ -214,6 +279,44 @@ class TestNewMemberGetsTheNextChargeLine:
 
         context = Notification.objects.get(user=sub.user, notification_type=NotificationType.MEMBERSHIP_GRANTED).context
         assert "next_charge_amount" not in context
+
+    def test_free_stub_without_an_invoice_still_states_the_next_charge(
+        self,
+        django_capture_on_commit_callbacks: t.Any,
+        calendar_year_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        stripe_org: Organization,
+    ) -> None:
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=calendar_year_plan,
+            organization=stripe_org,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+            stripe_checkout_session_id="cs_cal",
+        )
+        handler = free_stub._completion_handler(sub, invoice=None)
+        payload = base._subscription_payload(start=base.JOIN, end=base.BOUNDARY)
+        with (
+            django_capture_on_commit_callbacks(execute=True),
+            mock.patch(free_stub.RETRIEVE_SUBSCRIPTION, return_value=payload),
+        ):
+            handler.handle_subscription_checkout_completed(handler.event)
+
+        context = Notification.objects.get(user=sub.user, notification_type=NotificationType.MEMBERSHIP_GRANTED).context
+        assert "120" in context["next_charge_amount"]
+        assert context["next_charge_date"] == "2027-01-01"
+
+    def test_date_is_the_boundary_never_an_invoice_period_that_fell_back_to_now(
+        self, pending_calendar_sub: MembershipSubscription, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        invoice = free_stub._free_stub_invoice(with_line=False)  # no lines: ledger period falls back to now()
+        with django_capture_on_commit_callbacks(execute=True):
+            subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
+
+        context = Notification.objects.get(
+            user=pending_calendar_sub.user, notification_type=NotificationType.MEMBERSHIP_GRANTED
+        ).context
+        assert "next_charge_date" not in context
 
     @pytest.mark.parametrize("ext", ["email/{}.txt", "email/{}.html", "in_app/{}.md", "telegram/{}.md"])
     def test_template_renders_the_line_only_when_present(self, ext: str) -> None:

@@ -14,7 +14,7 @@ patchable in tests.
 """
 
 import typing as t
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from django.db.models.functions import Coalesce
@@ -26,6 +26,7 @@ from events.utils import format_organization_datetime
 from events.utils.frontend_urls import frontend_base_url_for
 from events.utils.subscription_payment import APPLICATION_PAYMENT_WINDOW_DAYS, is_never_paid_on_offline_plan
 from events.utils.subscription_periods import first_period
+from notifications.context_schemas import NextChargeContext
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
@@ -43,6 +44,23 @@ MEMBERSHIPS_PATH = "/account/memberships"
 def _format_money(amount: t.Any, currency: str) -> str:
     """Format an amount with its currency for display in notifications."""
     return f"{amount} {currency}"
+
+
+def next_charge_context(
+    subscription: MembershipSubscription, amount: Decimal | None, boundary: datetime | None = None
+) -> NextChargeContext:
+    """The "next charge" notice pair for a calendar plan's first (stub) period, or ``{}`` when unknown.
+
+    The date is the period boundary the full ``amount`` falls due on: the subscription's
+    ``current_period_end`` unless the caller (a revival, whose row still holds the old period) passes it.
+    """
+    boundary = boundary or subscription.current_period_end
+    if amount is None or boundary is None:
+        return {}
+    return {
+        "next_charge_amount": _format_money(amount, subscription.plan.currency),
+        "next_charge_date": boundary.date().isoformat(),
+    }
 
 
 def _charged_money(
@@ -200,11 +218,7 @@ def _dispatch_renewal_succeeded(
         amount=_charged_money(plan, amount, currency),
         period_end=(subscription.current_period_end.date().isoformat() if subscription.current_period_end else ""),
     )
-    if next_charge_amount is not None and subscription.current_period_end:
-        ctx.update(
-            next_charge_amount=_format_money(next_charge_amount, plan.currency),
-            next_charge_date=subscription.current_period_end.date().isoformat(),
-        )
+    ctx.update(next_charge_context(subscription, next_charge_amount))
     notification_requested.send(
         sender=MembershipSubscription,
         user=subscription.user,
@@ -338,12 +352,8 @@ def _dispatch_revival_checkout(subscription: MembershipSubscription, *, checkout
         amount=_format_money(plan.price if first_price is None else first_price, plan.currency),
         checkout_url=checkout_url,
     )
-    if first_end is not None:
-        # The stub can be tiny (or free) and followed by the full charge within hours: say so up front.
-        ctx.update(
-            next_charge_amount=_format_money(plan.price, plan.currency),
-            next_charge_date=first_end.date().isoformat(),
-        )
+    # The stub can be tiny (or free) and followed by the full charge within hours: say so up front.
+    ctx.update(next_charge_context(subscription, plan.price if first_end is not None else None, first_end))
     notification_requested.send(
         sender=MembershipSubscription,
         user=subscription.user,

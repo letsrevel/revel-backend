@@ -12,14 +12,13 @@ from datetime import datetime
 from decimal import Decimal
 
 import structlog
-from django.db import transaction
-from django.db.models import Q
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from common.models import SiteSettings
 from common.service.stripe_config import configure_stripe
 from common.service.vat_utils import b2b_fee_vat_from_gross
-from common.utils import get_or_create_with_race_protection
 from events.models import (
     MembershipPayment,
     MembershipRecord,
@@ -28,13 +27,15 @@ from events.models import (
     OrganizationMember,
     OrganizationMembershipRequest,
 )
-from events.service import member_register_linking, member_register_service, stripe_incidents
+from events.service import member_register_service, stripe_incidents
 from events.service.blacklist_service import check_user_hard_blacklisted
 from events.service.subscription import notifications
 from events.service.subscription.stripe.calendar_stub import (
+    StubPrice,
     invoice_period,
     is_calendar_first_stub,
     stub_full_price,
+    usable_stub_price,
 )
 from events.service.subscription.stripe.dispatch import (
     _dispatch_invoice_notifications,
@@ -91,7 +92,9 @@ def settle_originating_application(subscription: MembershipSubscription) -> None
     ).update(status=OrganizationMembershipRequest.Status.COMPLETED, updated_at=timezone.now())
 
 
-def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivation:
+def _ensure_active_member(
+    subscription: MembershipSubscription, next_charge_amount: Decimal | None = None
+) -> MemberActivation:
     """Make sure an ACTIVE :class:`OrganizationMember` exists for an ONLINE subscriber.
 
     Phase 1's signal-driven sync intentionally never *creates* members; that
@@ -123,6 +126,12 @@ def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivat
     :func:`settle_originating_application` — payment is the final step of the
     gated application pipeline. Not on ``"blocked"``: no membership was
     granted, so nothing completes.
+
+    Args:
+        subscription: The just-activated subscription (its ``current_period_end`` is the boundary).
+        next_charge_amount: For a calendar plan's first (stub) period, the full price due at that boundary.
+            A newly created member's MEMBERSHIP_GRANTED then states it (carried on the new row, see
+            :func:`events.signals.handle_membership_granted`).
 
     Returns:
         Which of the three cases applied — see :data:`MemberActivation`.
@@ -156,17 +165,24 @@ def _ensure_active_member(subscription: MembershipSubscription) -> MemberActivat
     # A concurrent webhook may be minting the same row; the loser reads the
     # winner's row back. Either way the row did not exist when we started, so
     # MEMBERSHIP_GRANTED has fired for it — "created" from the notifier's angle.
+    member = OrganizationMember(
+        organization=subscription.organization,
+        user=subscription.user,
+        tier=subscription.plan.tier,
+        status=OrganizationMember.MembershipStatus.ACTIVE,
+    )
+    # Read by the post_save receiver that sends MEMBERSHIP_GRANTED (same hand-off as ``_register_link_prev``).
+    member._next_charge = notifications.next_charge_context(subscription, next_charge_amount)  # type: ignore[attr-defined]
     with member_register_service.record_source(MembershipRecord.Source.SUBSCRIPTION):
-        get_or_create_with_race_protection(
-            OrganizationMember,
-            Q(organization=subscription.organization, user=subscription.user),
-            {
-                "organization": subscription.organization,
-                "user": subscription.user,
-                "tier": subscription.plan.tier,
-                "status": OrganizationMember.MembershipStatus.ACTIVE,
-            },
-        )
+        try:
+            with transaction.atomic():
+                member.save(force_insert=True)
+        except IntegrityError, ValidationError:
+            # Lost the race (unique violation, or full_clean's validate_constraints): the winner's row stands.
+            if not OrganizationMember.objects.filter(
+                organization=subscription.organization, user=subscription.user
+            ).exists():
+                raise
     settle_originating_application(subscription)
     return "created"
 
@@ -331,12 +347,17 @@ def _apply_status_transition(
 @transaction.atomic
 def sync_subscription_from_stripe(
     stripe_subscription: dict[str, t.Any],
+    *,
+    next_charge_amount: Decimal | None = None,
 ) -> MembershipSubscription | None:
     """Mirror Stripe Subscription state onto our local row.
 
     Used by ``customer.subscription.{created,updated,deleted}`` handlers.
     Returns ``None`` if we don't know the subscription locally — Stripe-side
     rows for unrelated Connect accounts are expected and silently ignored.
+
+    ``next_charge_amount`` is passed by the checkout-completion path for a free calendar stub that opened
+    no invoice: this sync then activates the member, and their MEMBERSHIP_GRANTED states the next charge.
     """
     stripe_id = stripe_subscription.get("id")
     if not stripe_id:
@@ -385,7 +406,7 @@ def sync_subscription_from_stripe(
     if update_fields:
         subscription.save(update_fields=[*update_fields, "updated_at"])
     if subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE.value:
-        _ensure_active_member(subscription)
+        _ensure_active_member(subscription, next_charge_amount)
     _dispatch_sync_notifications(subscription, prior_status=prior_status, prior_cap=prior_cap)
     return subscription
 
@@ -453,6 +474,7 @@ def _apply_invoice_outcome(
     succeeded: bool,
     period_start: datetime | None,
     period_end: datetime | None,
+    next_charge_amount: Decimal | None = None,
 ) -> MemberActivation | None:
     """Mirror an invoice outcome onto the subscription row (caller holds the lock).
 
@@ -501,7 +523,7 @@ def _apply_invoice_outcome(
         if subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE.value:
             # Guarded: a payment recorded against a non-revivable (e.g.
             # EXPIRED) row must not mint an ACTIVE OrganizationMember.
-            return _ensure_active_member(subscription)
+            return _ensure_active_member(subscription, next_charge_amount)
         return None
     # Mirror PAST_DUE; the grace-expiry Celery task takes over from here.
     if subscription.status in {
@@ -627,28 +649,35 @@ def _resolve_network_inputs(
     *,
     succeeded: bool,
     stub_first_invoice: bool,
-) -> tuple[InvoicePaymentDetails, Decimal | None]:
+) -> tuple[InvoicePaymentDetails, StubPrice | None]:
     """Everything :func:`record_stripe_payment_from_invoice` must fetch from Stripe, before the row lock.
 
     Returns the PaymentIntent/fee details and, for a calendar plan's first stub invoice that is not
-    stamped yet, the full price it stood in for (see :func:`stub_full_price`). A failure to resolve the
-    price propagates, so the delivery fails and Stripe redelivers; the already-stamped check keeps a
-    redelivery of a recorded invoice off the network.
+    stamped yet, the full price it stood in for (see :func:`stub_full_price`; best effort, ``None`` when
+    unreadable). The decision is the *unlocked* one: the caller re-checks it against the locked plan. The
+    already-stamped check keeps a redelivery of a recorded invoice off the network.
     """
     if succeeded and invoice.get("amount_paid") == 0:
         # Nothing was charged (a free calendar stub): there is no PaymentIntent or fee to resolve.
         payment_details = InvoicePaymentDetails("", 0)
     else:
         payment_details = invoice_payment_details(invoice, subscription.organization, need_fee=succeeded)
-    full_price: Decimal | None = None
+    stub_price: StubPrice | None = None
     if (
         stub_first_invoice
         and not MembershipPayment.objects.filter(
             stripe_invoice_id=invoice["id"], full_period_amount__isnull=False
         ).exists()
     ):
-        full_price = stub_full_price(lines_data, subscription.plan, subscription.organization, currency_code)
-    return payment_details, full_price
+        stub_price = stub_full_price(
+            lines_data,
+            subscription.plan,
+            subscription.organization,
+            currency_code,
+            subscription_id=str(subscription.pk),
+            invoice_id=t.cast(str, invoice["id"]),
+        )
+    return payment_details, stub_price
 
 
 @transaction.atomic
@@ -687,14 +716,13 @@ def record_stripe_payment_from_invoice(
         return None
     lines_data = (invoice.get("lines") or {}).get("data") or []
     currency_code = t.cast(str, invoice.get("currency") or unlocked_subscription.plan.currency).upper()
-    stub_first_invoice = succeeded and is_calendar_first_stub(invoice, unlocked_subscription.plan, lines_data)
-    payment_details, full_price = _resolve_network_inputs(
+    payment_details, stub_price = _resolve_network_inputs(
         invoice,
         unlocked_subscription,
         lines_data,
         currency_code,
         succeeded=succeeded,
-        stub_first_invoice=stub_first_invoice,
+        stub_first_invoice=succeeded and is_calendar_first_stub(invoice, unlocked_subscription.plan, lines_data),
     )
     payment_intent_id = payment_details.payment_intent_id
 
@@ -708,6 +736,10 @@ def record_stripe_payment_from_invoice(
         return None
 
     prior_status = subscription.status  # captured before mutations for D3 dispatch gates
+    # Decided from the LOCKED plan (a plan swap may have raced the unlocked read); the fetched price only
+    # counts if it is still the stub line's and the locked plan's.
+    stub_first_invoice = succeeded and is_calendar_first_stub(invoice, subscription.plan, lines_data)
+    full_price = usable_stub_price(stub_price, lines_data, subscription.plan) if stub_first_invoice else None
 
     # SUCCEEDED: amount_paid (what changed hands). FAILED: 0, raw_response keeps the attempted amount.
     if succeeded:
@@ -781,7 +813,8 @@ def record_stripe_payment_from_invoice(
         # a stub (prorated or free). Record the full price it stood in for so renewal reminders,
         # price-migration notices and MRR anchor on it rather than on the stub. Resolved from the invoice
         # line's own Price and only while unstamped (see :func:`_resolve_network_inputs`), so a racing
-        # redelivery writes the same figure.
+        # redelivery writes the same figure. Best effort: NULL on failure, the anchor then falls back to
+        # the paid stub amount.
         defaults["full_period_amount"] = full_price
 
     payment, created = MembershipPayment.objects.update_or_create(
@@ -793,25 +826,18 @@ def record_stripe_payment_from_invoice(
     if succeeded:
         _raise_payment_incidents(subscription, payment, invoice_id=invoice_id, currency=currency_code)
 
-    # A brand-new member is announced by MEMBERSHIP_GRANTED (the access row's post_save receiver), which is
-    # then also their first-payment confirmation: it states the next full charge like the renewal notice does.
-    next_charge = (
-        member_register_linking.NextCharge(
-            notifications._format_money(payment.full_period_amount, subscription.plan.currency),
-            period_end.date().isoformat(),
-        )
-        if stub_first_invoice and payment.full_period_amount is not None
-        else None
+    # A brand-new member is announced by MEMBERSHIP_GRANTED, which is then also their first-payment
+    # confirmation: it states the next full charge like the renewal notice does.
+    next_charge_amount = payment.full_period_amount if stub_first_invoice else None
+    member_activation = _apply_invoice_outcome(
+        subscription,
+        succeeded=succeeded,
+        # ``None`` for a proration-only invoice: it describes no billing period,
+        # so the anchor stays put and ``customer.subscription.updated`` supplies it.
+        period_start=period_start if recurring_period is not None else None,
+        period_end=period_end if recurring_period is not None else None,
+        next_charge_amount=next_charge_amount,
     )
-    with member_register_linking.announce_next_charge(next_charge):
-        member_activation = _apply_invoice_outcome(
-            subscription,
-            succeeded=succeeded,
-            # ``None`` for a proration-only invoice: it describes no billing period,
-            # so the anchor stays put and ``customer.subscription.updated`` supplies it.
-            period_start=period_start if recurring_period is not None else None,
-            period_end=period_end if recurring_period is not None else None,
-        )
 
     _dispatch_invoice_notifications(
         subscription,
@@ -834,7 +860,7 @@ def record_stripe_payment_from_invoice(
             else from_stripe_amount(int(invoice.get("amount_due") or 0), currency_code)
         ),
         currency=currency_code,
-        next_charge_amount=payment.full_period_amount if stub_first_invoice else None,
+        next_charge_amount=next_charge_amount,
     )
 
     logger.info(

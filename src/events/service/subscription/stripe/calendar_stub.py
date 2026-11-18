@@ -9,6 +9,7 @@ the full per-period price the stub stood in for. It never touches the database; 
 import typing as t
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID
 
 import stripe
 import structlog
@@ -110,12 +111,27 @@ def is_calendar_first_stub(
     return first_proration_line(lines_data) is not None or (invoice.get("total") == 0 and invoice.get("subtotal") == 0)
 
 
+class StubPrice(t.NamedTuple):
+    """The full per-period price a stub stood in for, and the line Price it was resolved from.
+
+    ``plan_id`` is set when it came from ``plan.price`` (the line is on the plan's own Price), so a
+    plan swap between the unlocked read and the row lock invalidates it.
+    """
+
+    price_id: str
+    amount: Decimal
+    plan_id: UUID | None = None
+
+
 def stub_full_price(
     lines_data: list[dict[str, t.Any]],
     plan: MembershipSubscriptionPlan,
     organization: t.Any,
     currency_code: str,
-) -> Decimal:
+    *,
+    subscription_id: str,
+    invoice_id: str = "",
+) -> StubPrice | None:
     """The full per-period price a calendar stub stood in for, resolved from the stub line's Stripe Price id.
 
     The line's ``unit_amount_decimal`` is not trusted (it can be 0 or prorated on stub/zero lines), and
@@ -123,19 +139,38 @@ def stub_full_price(
     grandfathered or since-replaced one) is retrieved on the organization's account. Makes a Stripe call:
     run it before the member row lock.
 
-    Raises:
-        stripe.error.StripeError: The Price could not be retrieved.
-        ValueError: The Price has no integer ``unit_amount`` (tiered or metered).
+    Best effort: it never raises, because a member who paid must never be stranded over a ledger anchor.
+    A line with no Price id, a Stripe error, or a Price without an integer ``unit_amount`` (tiered or
+    metered) returns ``None`` (the payment's ``full_period_amount`` stays NULL) and logs at ERROR.
     """
     price_id = line_price_id(stub_line(lines_data))
-    if not price_id or price_id == plan.stripe_price_id:
-        return plan.price
-    price = stripe.Price.retrieve(price_id, **stripe_account_kwargs(organization))
+    ids = {"subscription_id": subscription_id, "stripe_invoice_id": invoice_id, "stripe_price_id": price_id}
+    if not price_id:
+        logger.error("subscription_stub_line_without_price", **ids)
+        return None
+    if price_id == plan.stripe_price_id:
+        return StubPrice(price_id, plan.price, plan.pk)
+    try:
+        price = stripe.Price.retrieve(price_id, **stripe_account_kwargs(organization))
+    except stripe.error.StripeError:
+        logger.error("subscription_stub_price_unreadable", exc_info=True, **ids)
+        return None
     unit_amount = price.get("unit_amount")
     if not isinstance(unit_amount, int):
-        logger.warning("subscription_stub_line_price_unusable", stripe_price_id=price_id)
-        raise ValueError(f"Stripe Price {price_id} has no integer unit_amount")
-    return from_stripe_amount(unit_amount, currency_code)
+        logger.error("subscription_stub_price_unusable", **ids)
+        return None
+    return StubPrice(price_id, from_stripe_amount(unit_amount, currency_code))
+
+
+def usable_stub_price(
+    stub_price: StubPrice | None, lines_data: list[dict[str, t.Any]], plan: MembershipSubscriptionPlan
+) -> Decimal | None:
+    """The fetched stub price's amount if it still applies to the stub line and the (locked) plan."""
+    if stub_price is None or line_price_id(stub_line(lines_data)) != stub_price.price_id:
+        return None
+    if stub_price.plan_id is not None and stub_price.plan_id != plan.pk:
+        return None
+    return stub_price.amount
 
 
 def invoice_period(

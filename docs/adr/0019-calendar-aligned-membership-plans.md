@@ -64,9 +64,14 @@ Stripe was probed in test mode (API `2026-03-25.dahlia`) before deciding:
    staff take a first payment mid-period. The figure is resolved from the line's Stripe Price id
    (the plan's own price id gives `plan.price`; any other is retrieved on the organization's
    account), never from the line's `unit_amount_decimal` (0 or prorated on stub and zero lines) and
-   not from the mutable `plan.price` alone. If the Price cannot be resolved (Stripe error, no
-   integer `unit_amount`) the webhook fails before anything is written and Stripe redelivers. It
-   is stamped once: a redelivery never rewrites it. MRR, renewal reminders and
+   not from the mutable `plan.price` alone. The `plan.price` shortcut applies only when the line's
+   Price id equals the plan's; a line with no Price id is never guessed from the plan. The stamp is
+   best-effort: if the Price cannot be resolved (no Price id, Stripe error, no integer
+   `unit_amount`) it stays NULL and is logged at ERROR with the subscription, invoice and price ids,
+   and the anchor falls back to the paid stub amount. A member who paid is never stranded over it:
+   the webhook still links, activates and records the payment. The stub decision is re-taken
+   against the locked subscription's plan (the Stripe fetch stays outside the lock), and the fetched
+   price only counts if it is still the stub line's. It is stamped once: a redelivery never rewrites it. MRR, renewal reminders and
    price-migration notices read `Coalesce(full_period_amount, amount)` through one helper, so a
    stub never anchors a quote. A first invoice is a stub when it carries a proration line, or when its
    `total` and `subtotal` are both zero; `amount_paid` 0 alone is not enough, since a customer
@@ -90,7 +95,8 @@ Stripe was probed in test mode (API `2026-03-25.dahlia`) before deciding:
    after creation (Stripe's minimum is 30, plus latency). A session minted inside the last half
    hour can therefore still complete after the boundary; such a session is a free stub
    (`proration_behavior="none"`), so a late completion just pays the first full period from the
-   anchor. That a subscription whose anchor has already passed at completion is charged the full
+   anchor. Because the free-stub decision covers the latest completion time, the free-stub window is
+   bounded by the session expiry (`PAYMENT_DEFAULT_EXPIRY_MINUTES`). That a subscription whose anchor has already passed at completion is charged the full
    period from the anchor is Stripe's documented behavior; it was not probed. A session still open past the boundary it was
    minted for is treated as stale: the next subscribe expires it and mints a fresh one, so a
    member is never sent back to a payable page with a stale anchor. The `sub-checkout:{pk}`
@@ -99,8 +105,12 @@ Stripe was probed in test mode (API `2026-03-25.dahlia`) before deciding:
 7. **Notices state the next full charge.** A short or free stub can be followed by the full charge
    within hours, so the 3 day renewal reminder cannot warn the member. The checkout-link notice
    and the first-payment confirmation therefore also state the next charge (the plan price) and
-   its date (the boundary). The confirmation is `SUBSCRIPTION_RENEWAL_SUCCEEDED` for an existing
-   member and `MEMBERSHIP_GRANTED` for a brand-new one, and both carry the line.
+   its date: always the subscription's `current_period_end` (the boundary), never an invoice period
+   that may have fallen back to now. The confirmation is `SUBSCRIPTION_RENEWAL_SUCCEEDED` for an
+   existing member and `MEMBERSHIP_GRANTED` for a brand-new one, and both carry the line on every
+   activation path: the first invoice, and the free stub that opens no invoice (where
+   `checkout.session.completed` activates from the Subscription). The new member's access row
+   carries the line to the `MEMBERSHIP_GRANTED` receiver; there is no global state.
 
 ## Consequences
 
