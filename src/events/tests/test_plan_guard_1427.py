@@ -146,8 +146,11 @@ class TestPlanModelGuard:
         _make_sub(subscriber, plan, organization)
         old = plan.history.order_by("history_date").first()
         assert old is not None
-        with pytest.raises(ValidationError):
-            old.instance.save()
+        reverted = old.instance
+        reverted._state.adding = False  # what simple_history's admin revert does before saving
+        with pytest.raises(ValidationError) as exc_info:
+            reverted.save()
+        assert "period_unit" in exc_info.value.message_dict
 
 
 @pytest.fixture
@@ -191,10 +194,11 @@ def test_subscription_insert_blocks_concurrent_cadence_change(
 ) -> None:
     """A subscription created while ``update_plan`` is deciding cannot slip past the guard.
 
-    Subscription creation locks the plan row (``ensure_plan_sales_capacity``,
-    ``FOR UPDATE``) before inserting, and ``update_plan`` takes the same lock,
-    so whichever transaction is second waits for the first, and ``update_plan``
-    either sees the committed subscription or finishes before it exists. A bare
+    Subscription creation locks the plan row (``ensure_plan_sales_capacity``:
+    ``FOR KEY SHARE`` on an uncapped plan) before inserting, and ``update_plan``
+    takes ``FOR UPDATE``, which conflicts, so whichever transaction is second
+    waits for the first, and ``update_plan`` either sees the committed
+    subscription or finishes before it exists. A bare
     FK insert would not serialize: Django's FK constraints are DEFERRABLE
     INITIALLY DEFERRED, so the ``FOR KEY SHARE`` is only taken at commit.
 
@@ -245,6 +249,51 @@ def test_subscription_insert_blocks_concurrent_cadence_change(
     assert outcome["result"] == 400
     plan.refresh_from_db()
     assert plan.period_unit == Plan.PeriodUnit.MONTH
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_creations_on_uncapped_plan_do_not_serialize(plan: Plan) -> None:
+    """Uncapped plans take a shared lock, so one checkout's open transaction never blocks another's.
+
+    Under ATOMIC_REQUESTS the creation lock is held across the Checkout-session
+    Stripe call; an exclusive lock there would queue every subscriber of a plan.
+    ``transaction=True``: the two threads need their own connections and real
+    concurrent transactions.
+    """
+    assert plan.max_subscriptions is None
+    holding = threading.Event()
+    release = threading.Event()
+    second_done = threading.Event()
+
+    def first() -> None:
+        try:
+            with transaction.atomic():
+                ensure_plan_sales_capacity(plan)
+                holding.set()
+                release.wait(timeout=20)
+        finally:
+            holding.set()
+            close_old_connections()
+
+    def second() -> None:
+        try:
+            with transaction.atomic():
+                ensure_plan_sales_capacity(plan)
+                second_done.set()
+        finally:
+            close_old_connections()
+
+    thread_a = threading.Thread(target=first, daemon=True)
+    thread_b = threading.Thread(target=second, daemon=True)
+    try:
+        thread_a.start()
+        assert holding.wait(timeout=10)
+        thread_b.start()
+        assert second_done.wait(timeout=5), "a second creation waited for the first: uncapped plans must not serialize"
+    finally:
+        release.set()
+    thread_a.join(timeout=10)
+    thread_b.join(timeout=10)
 
 
 @pytest.fixture

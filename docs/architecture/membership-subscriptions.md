@@ -127,9 +127,10 @@ revert, shell), as a field `ValidationError` (#1427).
 `enforce_sales_status=False`) and `ensure_plan_sales_capacity` (cap check,
 everyone) live in `subscription.sales` and are enforced on **create**,
 **revive** and **plan switches**. The capacity check `select_for_update`s the
-plan row (always, cap or not) so concurrent creations serialize, mirroring the
-capacity-reclaim invariants of ticket tiers, and so `update_plan`'s
-currency/cadence guard (same lock) cannot miss a subscription in flight (#1427). The public plan schema exposes `sales_status` and a
+plan row so concurrent creations serialize when a cap is set, mirroring the
+capacity-reclaim invariants of ticket tiers. On an uncapped plan it takes `FOR KEY SHARE`
+instead: creations don't block each other, but `update_plan`'s `FOR UPDATE` conflicts with it,
+so the currency/cadence guard cannot miss a subscription in flight (#1427). The public plan schema exposes `sales_status` and a
 computed `sold_out` flag so the frontend can render "sold out" vs "sales
 paused" vs a normal subscribe CTA.
 

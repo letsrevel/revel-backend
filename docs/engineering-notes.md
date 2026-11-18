@@ -295,8 +295,10 @@ subscriptions. It cannot rely on the foreign key from a concurrent `MembershipSu
 insert to block it: Django creates FK constraints `DEFERRABLE INITIALLY DEFERRED` on PostgreSQL,
 so the `FOR KEY SHARE` that conflicts with `FOR UPDATE` is only taken at commit, after
 `update_plan` has already read "no subscribers" and changed the cadence. Subscription creation
-must therefore take the plan row lock itself, which `ensure_plan_sales_capacity` now always does
-(cap or not). The threaded regression test is `events/tests/test_plan_guard_1427.py`
+must therefore lock the plan row itself in `ensure_plan_sales_capacity`: `FOR UPDATE` when the
+plan is capped (it counts slots), `FOR KEY SHARE` when it is not. `KEY SHARE` locks don't conflict
+with each other, so uncapped checkouts don't queue behind one another across the Checkout-session
+Stripe call (held under `ATOMIC_REQUESTS`), but they conflict with `update_plan`'s `FOR UPDATE`. The threaded regression test is `events/tests/test_plan_guard_1427.py`
 (`transaction=True`, two real connections).
 
 ## Migration Squashing (one per app per PR, never hand-edit schema migrations)

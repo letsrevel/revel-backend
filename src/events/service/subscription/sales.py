@@ -8,6 +8,7 @@ Two independent knobs on ``MembershipSubscriptionPlan``:
   (the venue's "card stock"); applies to staff too.
 """
 
+from django.db import connection
 from django.utils.translation import gettext as _
 from ninja.errors import HttpError
 
@@ -36,13 +37,24 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
     plan (``pending_plan`` reserves the slot, since the Stripe schedule
     rollover re-points ``plan`` with no capacity re-check) — so a cancelled
     or expired subscription frees its slot automatically; there is no counter
-    to drift. The plan row is always locked (cap or not) so concurrent
+    to drift. With a cap, the plan row is locked ``FOR UPDATE`` so concurrent
     creations serialize (mirrors the capacity-reclaim invariants of ticket
-    tiers) and ``update_plan``'s currency/cadence guard, which takes the same
-    lock, cannot miss a subscription in flight (#1427); callers must already
-    be inside a transaction. Applies to staff
-    creation too: capacity is a hard limit, unlike the sales-status pause.
+    tiers). Without one, it takes ``FOR KEY SHARE``: creations don't block
+    each other (no serialization across the Checkout-session Stripe call),
+    but ``update_plan``'s ``FOR UPDATE`` waits for in-flight creations and
+    they wait for it, so its currency/cadence guard cannot miss one (#1427).
+    Django's FKs are ``DEFERRABLE INITIALLY DEFERRED``, so the insert itself
+    locks nothing until commit. Callers must already be inside a transaction.
+    Applies to staff creation too: capacity is a hard limit, unlike the
+    sales-status pause.
     """
+    if plan.max_subscriptions is None:
+        meta = MembershipSubscriptionPlan._meta
+        quote = connection.ops.quote_name
+        sql = f"SELECT 1 FROM {quote(meta.db_table)} WHERE {quote(meta.pk.attname)} = %s FOR KEY SHARE"  # noqa: S608  # nosec B608 - identifiers from model meta
+        with connection.cursor() as cursor:
+            cursor.execute(sql, [plan.pk])
+        return
     locked_plan = MembershipSubscriptionPlan.objects.select_for_update().get(pk=plan.pk)
     if locked_plan.max_subscriptions is None:  # changed since the unlocked read
         return
