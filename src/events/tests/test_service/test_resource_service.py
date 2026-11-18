@@ -34,7 +34,7 @@ class TestCreateResource:
             resource_type=models.AdditionalResource.ResourceTypes.TEXT,
             text="This is the content.",
         )
-        resource = resource_service.create_resource(organization, payload)
+        resource = resource_service.create_resource(organization, payload, uploader=organization_owner_user)
 
         assert resource.pk is not None
         assert resource.organization == organization
@@ -57,7 +57,7 @@ class TestCreateResource:
             event_ids=[event.id],
             event_series_ids=[event_series.id],
         )
-        resource = resource_service.create_resource(organization, payload)
+        resource = resource_service.create_resource(organization, payload, uploader=organization_owner_user)
 
         assert resource.events.count() == 1
         assert resource.events.first() == event
@@ -78,7 +78,7 @@ class TestCreateResource:
             event_ids=[another_event.id],
         )
         with pytest.raises(HttpError, match="One or more events do not exist or belong to this organization."):
-            resource_service.create_resource(organization, payload)
+            resource_service.create_resource(organization, payload, uploader=organization_owner_user)
 
         assert not models.AdditionalResource.objects.exists()
 

@@ -4,7 +4,6 @@ import typing as t
 import uuid
 from decimal import Decimal
 from functools import cached_property
-from pathlib import Path
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -15,6 +14,7 @@ from pydantic import BaseModel as PydanticBaseModel
 from pydantic import Field as PydanticField
 
 from common.fields import MarkdownField, ProtectedFileField, ProtectedImageField
+from common.file_types import extension_for_mime
 from common.models import TimeStampedModel
 from questionnaires.llms.llm_interfaces import EvaluationResponse
 
@@ -27,7 +27,10 @@ from .llms.llm_interfaces import FreeTextEvaluator
 def questionnaire_file_upload_path(instance: "QuestionnaireFile", filename: str) -> str:
     """Generate UUID-based path to prevent enumeration.
 
-    Path structure: questionnaire_files/{user_id}/{uuid}.{ext}
+    Path structure: questionnaire_files/{user_id}/{uuid}{ext}
+
+    The extension comes from the content type detected by ``file_service`` (set on
+    ``instance.mime_type`` before the file is saved), never from the client filename.
 
     This structure:
     - Uses UUIDs to prevent enumeration attacks
@@ -37,7 +40,7 @@ def questionnaire_file_upload_path(instance: "QuestionnaireFile", filename: str)
     Note: The 'protected/' prefix is added by ProtectedFileField, so this
     function returns paths without it.
     """
-    ext = Path(filename).suffix[:10]  # Limit extension length for safety
+    ext = extension_for_mime(instance.mime_type)
     return f"questionnaire_files/{instance.uploader_id}/{uuid.uuid4()}{ext}"
 
 

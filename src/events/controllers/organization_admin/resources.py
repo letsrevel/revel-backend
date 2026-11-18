@@ -66,7 +66,7 @@ class OrganizationAdminResourcesController(OrganizationAdminBaseController):
         # Django Ninja doesn't populate the File parameter when using Form[Schema]
         file = self.context.request.FILES.get("file") if self.context.request else None  # type: ignore[union-attr]
 
-        return resource_service.create_resource(organization, payload, file=file)  # type: ignore[arg-type]
+        return resource_service.create_resource(organization, payload, file=file, uploader=self.user())  # type: ignore[arg-type]
 
     @route.get(
         "/resources/{resource_id}",
