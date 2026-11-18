@@ -194,6 +194,28 @@ class TestPlanCadenceChange:
         with pytest.raises(HttpError, match="billing period"):
             subscription_plans.update_plan(offline_plan, period_unit=MembershipSubscriptionPlan.PeriodUnit.YEAR)
 
+    def test_stale_instance_cannot_revert_cadence_of_plan_with_members(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """The guard compares against the committed row, not the caller's possibly stale instance."""
+        stale = MembershipSubscriptionPlan.objects.get(pk=offline_plan.pk)  # still MONTH/1 in memory
+        MembershipSubscriptionPlan.objects.filter(pk=offline_plan.pk).update(
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.YEAR
+        )
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        with pytest.raises(HttpError, match="billing period"):
+            subscription_plans.update_plan(stale, period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH)
+        offline_plan.refresh_from_db()
+        assert offline_plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.YEAR
+
     def test_period_count_edit_allowed_on_lifetime_plan_with_members(
         self,
         offline_plan: MembershipSubscriptionPlan,

@@ -115,9 +115,12 @@ def update_plan(
     Refuses cadence (``period_unit`` / ``period_count``) changes under the same
     condition (both guards also count subscriptions with a downgrade scheduled
     into this plan via ``pending_plan``; a ``period_count`` edit on a LIFETIME
-    plan is not a cadence change): swapping an ONLINE subscriber onto a Price with a different
-    interval (``proration_behavior="none"``) makes Stripe stretch the paid
-    period to the new interval without invoicing (#1423).
+    plan is not a cadence change). Swapping an ONLINE subscriber onto a Price
+    with another interval (``proration_behavior="none"``) depends on the
+    subscription's Stripe billing mode: flexible mode stretches the paid
+    period without invoicing (observed in test mode, #1423), classic mode
+    resets the billing date and charges the new Price at once. Neither is
+    acceptable for existing subscribers.
 
     Also re-checks the (payment method, price, cadence) shape against the
     *merged* post-patch values: ``payment_method`` is not patchable, so a FREE
@@ -126,6 +129,11 @@ def update_plan(
     """
     if not fields:
         return plan
+
+    # Compare against the committed row, not the caller's instance: two
+    # concurrent PATCHes serialize here, so a stale resend of the old cadence
+    # cannot silently revert a plan that gained subscribers meanwhile.
+    plan = MembershipSubscriptionPlan.objects.select_for_update().select_related("tier__organization").get(pk=plan.pk)
 
     shape_error = validate_plan_shape(
         payment_method=plan.payment_method,
