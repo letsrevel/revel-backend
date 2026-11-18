@@ -105,6 +105,14 @@ def test_refresh_of_a_verified_users_token_rotates(client: Client, unverified: R
     assert response.status_code == 200
 
 
+def test_refresh_of_a_guests_token_still_rotates(client: Client, guest_user: RevelUser) -> None:
+    assert guest_user.email_verified is False
+
+    response = _post(client, "token_refresh", {"refresh": str(RefreshToken.for_user(guest_user))})
+
+    assert response.status_code == 200
+
+
 def test_guest_is_not_subject_to_the_requirement(guest_user: RevelUser) -> None:
     auth_service.require_verified_email(guest_user)
     assert auth_service.is_session_allowed(guest_user)

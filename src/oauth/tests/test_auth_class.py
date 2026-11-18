@@ -19,7 +19,6 @@ from oauth2_provider.settings import oauth2_settings
 from pytest_django.fixtures import Settings
 
 from accounts.models import RevelUser
-from common.auth_base import PermissionDenied
 from common.authentication import InvalidBearerToken, OAuthPrincipal, ScopedJWTAuth
 from oauth.models import OAuthApplication
 

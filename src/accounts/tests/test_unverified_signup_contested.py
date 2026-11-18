@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from django.core.files.base import ContentFile
 from django.test.client import Client
-from django.utils import timezone
 from django.urls import reverse
+from django.utils import timezone
 from ninja.errors import HttpError
 from ninja_jwt.token_blacklist.models import BlacklistedToken
 from ninja_jwt.tokens import RefreshToken
@@ -275,7 +275,7 @@ class TestPasswordResetOnContestedAccount:
         assert Referral.objects.filter(referred_user=stored).exists()
 
     def test_reset_reads_the_row_it_locked(self, stored: RevelUser, mock_delay: MagicMock) -> None:
-        """A contest committed after the caller loaded the user is still seen (adopts instead of keeping the profile)."""
+        """A contest committed after the caller loaded the user is still seen (the account is adopted)."""
         token = account_service.create_password_reset_token(stored)
         stale = RevelUser.objects.get(pk=stored.pk)
         _register()  # commits the contest after ``stale`` was loaded

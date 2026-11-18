@@ -8,6 +8,7 @@ import pytest
 from accounts.models import ReferralApplication, ReferralCode, RevelUser
 from accounts.service import account as account_service
 from accounts.service import oidc as oidc_service
+from accounts.service import referral_application_service
 
 pytestmark = pytest.mark.django_db
 
@@ -75,12 +76,53 @@ def test_email_change_confirm_on_an_unverified_account_enrols(
     assert _enrolled(changed, unverified)
 
 
-def test_verified_save_does_not_enrol_twice(application: ReferralApplication, unverified: RevelUser) -> None:
+@pytest.fixture
+def spy() -> t.Iterator[MagicMock]:
+    """Spy on the enrolment call the receiver makes (it is idempotent, so only a spy shows the transition gate)."""
+    with patch(
+        "accounts.service.referral_application_service.try_enroll_invitee",
+        wraps=referral_application_service.try_enroll_invitee,
+    ) as m:
+        yield m
+
+
+def test_enrolment_runs_once_on_the_transition_only(
+    application: ReferralApplication, unverified: RevelUser, spy: MagicMock
+) -> None:
     unverified.email_verified = True
     unverified.save()
+    assert spy.call_count == 1
+
     unverified.first_name = "Changed"
-    unverified.save()
-    assert ReferralCode.objects.filter(user=unverified).count() == 1
+    unverified.save()  # full save of an already-verified user
+    unverified.save(update_fields=["email_verified"])  # field list naming email_verified, value unchanged
+    unverified.save(update_fields=["first_name"])
+    assert spy.call_count == 1
+
+
+def test_update_fields_verification_enrols_once(
+    application: ReferralApplication, unverified: RevelUser, spy: MagicMock
+) -> None:
+    unverified.email_verified = True
+    unverified.save(update_fields=["email_verified"])
+    unverified.save(update_fields=["email_verified"])
+    assert spy.call_count == 1
+    assert _enrolled(application, unverified)
+
+
+def test_guest_verified_save_is_not_enrolled_but_conversion_is(
+    application: ReferralApplication, django_user_model: type[RevelUser], spy: MagicMock
+) -> None:
+    guest = django_user_model.objects.create(username=EMAIL, email=EMAIL, guest=True, email_verified=False)
+    guest.email_verified = True
+    guest.save()
+    spy.assert_not_called()
+    assert not _enrolled(application, guest)
+
+    assert account_service.convert_guest(guest) is True
+
+    assert spy.call_count == 1
+    assert _enrolled(application, guest)
 
 
 def test_verification_link_enrols_once(application: ReferralApplication, unverified: RevelUser) -> None:
