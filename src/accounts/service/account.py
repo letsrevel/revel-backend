@@ -24,7 +24,7 @@ from accounts.exceptions import (
 )
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import blacklist_user_tokens, check_blacklist, create_token
-from accounts.models import Referral, ReferralCode, RevelUser
+from accounts.models import EmailVerificationReminderTracking, Referral, ReferralCode, RevelUser
 from accounts.password_validation import validate_password
 from accounts.service import referral_application_service
 from accounts.service.referral_cleanup import assess_referral_forfeiture
@@ -36,6 +36,7 @@ from common.testing import (
     TOKEN_TYPE_VERIFICATION,
     store_test_token,
 )
+from common.thumbnails.service import delete_image_with_derivatives
 
 logger = structlog.get_logger(__name__)
 
@@ -117,8 +118,6 @@ def reset_unverified_credentials(user: RevelUser, *, password: str | None) -> No
 
 def _mark_email_verified(user: RevelUser) -> None:
     """Activate the account, mark its email verified, stop the reminders and enroll an approved invitee."""
-    from accounts.models import EmailVerificationReminderTracking
-
     user.is_active = user.email_verified = True
     user.save(update_fields=["is_active", "email_verified"])
     # Delete reminder tracking record to stop all reminder emails
@@ -152,9 +151,30 @@ def _restart_unverified_signup(
     2FA, sessions and Telegram link are replaced, and any verification link sent before is void.
     """
     logger.info("user_registration_restarted_unverified", user_id=str(user.id), email=payload.email)
+    # The earlier signup's profile is not carried over (``language`` stays); a deactivated account is
+    # active again and the reminder schedule restarts, exactly as for a new signup.
+    delete_image_with_derivatives(user, "profile_picture")
     user.first_name = payload.first_name
     user.last_name = payload.last_name
-    user.save(update_fields=["first_name", "last_name"])
+    user.preferred_name = ""
+    user.pronouns = ""
+    user.bio = ""
+    user.phone_number = None
+    user.is_active = True
+    user.date_joined = timezone.now()
+    user.save(
+        update_fields=[
+            "first_name",
+            "last_name",
+            "preferred_name",
+            "pronouns",
+            "bio",
+            "phone_number",
+            "is_active",
+            "date_joined",
+        ]
+    )
+    EmailVerificationReminderTracking.objects.filter(user=user).delete()
     Referral.objects.filter(referred_user=user).delete()
     _apply_referral_code(user, referral_code_obj)
     reset_unverified_credentials(user, password=payload.password1)

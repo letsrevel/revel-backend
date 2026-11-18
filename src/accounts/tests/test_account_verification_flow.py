@@ -7,8 +7,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.conf import settings
+from django.core.files.base import ContentFile
 from django.test.client import Client
 from django.urls import reverse
+from django.utils import timezone
 from freezegun import freeze_time
 from ninja.errors import HttpError
 from ninja_jwt.tokens import RefreshToken
@@ -132,6 +134,43 @@ class TestRepeatSignupOnUnverifiedAccount:
             assert exc.value.status_code == 400
             assert account_service.verify_email(new_link).email_verified is True
             assert _login_status(NEW_PASSWORD) == 200
+
+    def test_profile_is_reset_and_schedule_restarts(
+        self, unverified: RevelUser, mock_delay: MagicMock, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        unverified.preferred_name = "Old Name"
+        unverified.pronouns = "they/them"
+        unverified.bio = "old bio"
+        unverified.phone_number = "+4366012345678"
+        unverified.language = "de"
+        unverified.is_active = False
+        unverified.date_joined = timezone.now() - datetime.timedelta(days=29)
+        unverified.save()
+        EmailVerificationReminderTracking.objects.create(user=unverified)
+
+        with django_capture_on_commit_callbacks(execute=True):
+            response = Client().post(
+                reverse("api:register-account"), data=_payload().model_dump_json(), content_type="application/json"
+            )
+
+        assert response.status_code == 201
+        body = response.json()
+        assert (body["preferred_name"], body["pronouns"], body["bio"]) == ("", "", "")
+        assert body["is_active"] is True
+        unverified.refresh_from_db()
+        assert (unverified.preferred_name, unverified.pronouns, unverified.bio) == ("", "", "")
+        assert unverified.phone_number is None
+        assert RevelUser.objects.get(pk=unverified.pk).language == "de"
+        assert unverified.is_active is True
+        assert timezone.now() - unverified.date_joined < datetime.timedelta(minutes=1)
+        assert not EmailVerificationReminderTracking.objects.filter(user=unverified).exists()
+
+    def test_profile_picture_is_removed(self, unverified: RevelUser, mock_delay: MagicMock) -> None:
+        unverified.profile_picture.save("a.png", ContentFile(b"x"), save=True)
+        assert unverified.profile_picture
+        account_service.register_user(_payload())
+        unverified.refresh_from_db()
+        assert not unverified.profile_picture
 
     def test_replaces_old_referral_and_applies_new_code(
         self, unverified: RevelUser, mock_delay: MagicMock, revel_user_factory: RevelUserFactory
