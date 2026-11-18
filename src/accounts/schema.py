@@ -20,7 +20,7 @@ from pydantic import (
     model_validator,
 )
 
-from accounts.exceptions import EmailChangeErrorCode, LinkTokenErrorCode
+from accounts.exceptions import EmailChangeErrorCode, LinkTokenErrorCode, LoginErrorCode
 from accounts.password_validation import validate_password
 from common.schema import (
     BillingInfoSchemaMixin,
@@ -606,6 +606,17 @@ class LinkTokenErrorSchema(Schema):
 
     detail: str
     code: LinkTokenErrorCode
+
+
+class LoginErrorSchema(Schema):
+    """403 body when a login is refused because the account's email is not verified.
+
+    ``detail`` is translated and must never be matched on; ``code`` is the stable
+    machine-readable discriminator.
+    """
+
+    detail: str
+    code: LoginErrorCode
 
 
 class EmailChangeErrorSchema(Schema):

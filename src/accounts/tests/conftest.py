@@ -32,6 +32,7 @@ def user(django_user_model: t.Type[RevelUser]) -> RevelUser:
         password="strong-password-123!",
         first_name="Test",
         last_name="User",
+        email_verified=True,
     )
 
 
@@ -43,6 +44,7 @@ def totp_user(django_user_model: t.Type[RevelUser]) -> RevelUser:
         email="totpuser@example.com",
         password="strong-password-123!",
         totp_active=True,
+        email_verified=True,
     )
 
 

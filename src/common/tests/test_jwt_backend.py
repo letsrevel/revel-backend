@@ -64,6 +64,7 @@ def test_refresh_signed_with_old_key(
     user: RevelUser, settings: t.Any, rotate: t.Callable[[str, list[str]], None]
 ) -> None:
     old = settings.SECRET_KEY
+    RevelUser.objects.filter(pk=user.pk).update(email_verified=True)  # refresh needs a verified email
     refresh = str(RefreshToken.for_user(user))
     rotate("brand-new-secret", [])
     assert _refresh(refresh) == 401

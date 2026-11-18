@@ -26,6 +26,7 @@ from ninja_jwt.tokens import RefreshToken
 from ninja_jwt.utils import datetime_from_epoch
 
 from accounts.models import RevelUser
+from accounts.service import auth as auth_service
 from accounts.service import tenant_session
 
 logger = structlog.get_logger(__name__)
@@ -153,18 +154,22 @@ def rotate(raw_refresh: str) -> TokenRefreshOutputSchema:
     """Exchange a refresh token for a new pair, honouring the single-use reuse grace.
 
     Raises:
-        InvalidToken: The token is invalid, expired, revoked, or reused outside the grace (401).
+        InvalidToken: The token is invalid, expired, revoked, reused outside the grace, bound to a dead
+            tenant host, or owned by a non-guest account whose email is not verified (401).
     """
     token = _verify(raw_refresh)
     with transaction.atomic():
         user = _lock_user(token[_USER_ID])
         # Checked after the lock wait, right before issuing, so a domain removed while this request queued
         # behind another refresh is seen (the lock wait is the only non-trivial gap).
-        if tenant_session.is_tenant_session_valid(token.payload, check_reactivation=True):
+        # An account whose email is unverified holds no session (login refuses it too); a missing user keeps
+        # the existing path, which rejects the token.
+        session_allowed = user is None or auth_service.is_session_allowed(user)
+        if session_allowed and tenant_session.is_tenant_session_valid(token.payload, check_reactivation=True):
             return _rotate_locked(token, user)
-        # Dead tenant session: blacklist without raising inside the block, so the write is kept. Under
-        # ATOMIC_REQUESTS this is a savepoint; ninja turns InvalidToken into a 401 response and the request
-        # transaction still commits.
+        # Refused session (dead tenant host or unverified account): blacklist without raising inside the block,
+        # so the write is kept. Under ATOMIC_REQUESTS this is a savepoint; ninja turns InvalidToken into a 401
+        # response and the request transaction still commits.
         _blacklist(token)
     raise InvalidToken
 
