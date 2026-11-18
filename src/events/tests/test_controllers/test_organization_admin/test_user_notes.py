@@ -341,7 +341,7 @@ class TestMemberListExposure:
         assert OrganizationUserNote.objects.filter(organization=organization, user=member_user).exists()
         assert self._list(organization_owner_client, organization).json()["results"] == []
 
-        organization_service.add_member(organization, member_user, member.tier)  # type: ignore[arg-type]
+        OrganizationMember.objects.create(organization=organization, user=member_user, tier=member.tier)
         rows = self._list(organization_owner_client, organization).json()["results"]
         assert rows[0]["private_note"] == "VIP"
 

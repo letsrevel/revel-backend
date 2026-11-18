@@ -8790,3 +8790,43 @@ msgid ""
 msgstr ""
 "El precio completo por periodo del plan cuando este pago cubrió un primer "
 "periodo de calendario prorrateado. Nulo en caso contrario."
+
+msgid "Membership invitation"
+msgstr "Invitación de membresía"
+
+#, python-format
+msgid "%(org)s invited you to become a member"
+msgstr "%(org)s te ha invitado a hacerte miembro"
+
+msgid "Accept invitation"
+msgstr "Aceptar la invitación"
+
+msgid "This account cannot be invited to the organization."
+msgstr "Esta cuenta no se puede invitar a la organización."
+
+msgid "This account has no connection to the organization yet. Invite them first."
+msgstr "Esta cuenta aún no tiene relación con la organización. Invítala primero."
+
+#, python-format
+msgid "%(org)s invited you to become a member (%(tier)s). You only become a member if you accept."
+msgstr "%(org)s te ha invitado a hacerte miembro (%(tier)s). Solo te harás miembro si aceptas."
+
+#, python-format
+msgid "This invitation expires on %(expires)s. If you don't want to join, you can ignore it."
+msgstr "Esta invitación caduca el %(expires)s. Si no quieres unirte, puedes ignorarla."
+
+#, python-format
+msgid "This invitation expires on %(expires)s. If you don't want to join, you can ignore this email."
+msgstr "Esta invitación caduca el %(expires)s. Si no quieres unirte, puedes ignorar este correo."
+
+#, python-format
+msgid "**%(org)s** invited you to become a member (%(tier)s). You only become a member if you accept."
+msgstr "**%(org)s** te ha invitado a hacerte miembro (%(tier)s). Solo te harás miembro si aceptas."
+
+#, python-format
+msgid "<b>%(org)s</b> invited you to become a member (%(tier)s). You only become a member if you accept."
+msgstr "<b>%(org)s</b> te ha invitado a hacerte miembro (%(tier)s). Solo te harás miembro si aceptas."
+
+#, python-format
+msgid "<strong>%(org)s</strong> invited you to become a member (%(tier)s). You only become a member if you accept."
+msgstr "<strong>%(org)s</strong> te ha invitado a hacerte miembro (%(tier)s). Solo te harás miembro si aceptas."

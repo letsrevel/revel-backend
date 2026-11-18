@@ -135,7 +135,10 @@ Mounted under `/organization-admin/{slug}`, all requiring `manage_members` and *
 | `GET` | `/member-register/possible-duplicates` | Unlinked entries that may duplicate a linked open one |
 | `GET` | `/membership-requests/{id}/register-matches` | Unlinked entries that may be this applicant |
 | `POST` | `/member-register/export` | Start an xlsx export (`active_on`, `include_merged`); 202 with a `FileExport` to poll. Export-throttled; see [Exports](exports.md) |
-| `GET` | `/users/lookup?email=` | Resolve an **exact** verified email to a `user_id` plus their membership status, open register entry and pending request, for the add-member and add-staff flows. Every non-match (no account, unverified, guest, inactive) returns the same 404; throttled to 30 per hour per user because it is an account-existence oracle |
+| `GET` | `/users/lookup?email=` | Resolve an **exact** verified email to a `user_id` plus their membership status, open register entry, pending request and pending invitation (`pending_invitation_id`), for the member-invitation flow. It returns a display name, never contact details. Every non-match (no account, unverified, guest, inactive) returns the same 404; throttled to 30 per hour per user because it is an account-existence oracle |
+| `GET` | `/member-invitations` | Pending personal invitations (not expired, not yet accepted): invitee display name, tier, expiry |
+| `POST` | `/member-invitations` | Invite an existing account (`user_id`, `tier_id`). Creates no membership and no register entry: the account gets a personal link (`membership_invitation_received`) and becomes a member only by accepting it via `/organizations/claim-invitation/{token}` (register source `token`). Valid 14 days; one invitation per account and organization, so inviting again renews it. 400 `already_member` if the account has a membership row in any status |
+| `DELETE` | `/member-invitations/{id}` | Withdraw a pending invitation |
 
 Single-entry invites are bound by the controller's write throttle, and the public preview by an anonymous 20/min throttle. The literal routes (`invite-all`, `possible-duplicates`, `export`) are registered before the `{id}` routes.
 

@@ -123,3 +123,30 @@ def test_lapse_links_to_org_membership_page(channel: str) -> None:
     assert "join or apply again" in lapsed.lower()
     assert "start a new subscription" not in lapsed
     assert url not in ended
+
+
+# ---- 10. membership invitation ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("channel", list(CHANNELS))
+def test_membership_invitation_renders_accept_link_and_expiry(channel: str) -> None:
+    url = "https://platform.example/account/membership-invitations/tok123"
+
+    body = _render("membership_invitation_received", channel, accept_url=url, expires_at="2 Dec 2026, 15:30 CET")
+
+    assert "Acme Club" in body
+    assert "Gold" in body
+    assert url in body
+    assert "2 Dec 2026, 15:30 CET" in body
+    assert "only become a member if you accept" in body
+    assert "None" not in body
+    assert "{{" not in body
+
+
+def test_membership_invitation_sets_membership_and_notification_policies() -> None:
+    from notifications.enums import MANDATORY_TYPES, TENANT_ORG_SENDER_TYPES, TRANSACTIONAL_TYPES, NotificationType
+
+    ntype = NotificationType.MEMBERSHIP_INVITATION_RECEIVED
+    assert ntype in TRANSACTIONAL_TYPES
+    assert ntype in TENANT_ORG_SENDER_TYPES
+    assert ntype not in MANDATORY_TYPES

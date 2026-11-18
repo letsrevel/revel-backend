@@ -174,7 +174,7 @@ Paths are relative to `/api`.
 | Platform integrations | `/organization-admin/{slug}/integrations*`, `/event-admin/{id}/integrations*` | Third-party credentials (e.g. Eventbrite); not in any scope |
 | Questionnaire file uploads | `/questionnaire-files/*` | Not in any scope |
 | The OAuth provider itself | `/oauth/apps/*`, `/oauth/authorize`, `/oauth/connections*`, `/oauth/scopes/` | An app must never manage apps or approve its own consent |
-| Member register, notes and lookup | `/organization-admin/{slug}/member-register*`, `…/membership-requests/{id}/register-matches`, `…/users/{user_id}/note`, `…/users/lookup`, `…/custom-domain*` | These controllers use `I18nJWTAuth` and refuse app tokens; they gate on `manage_members` or ownership, which no scope's label covers |
+| Member register, notes, lookup and member invitations | `/organization-admin/{slug}/member-register*`, `…/membership-requests/{id}/register-matches`, `…/users/{user_id}/note`, `…/users/lookup`, `…/member-invitations*`, `…/custom-domain*` | These controllers use `I18nJWTAuth` and refuse app tokens; they gate on `manage_members` or ownership, which no scope's label covers |
 
 ### Single routes inside app-token controllers
 

@@ -91,7 +91,9 @@ def list_organization_tokens(organization: Organization, user: RevelUser) -> Que
     Staff-granting tokens are owner-only to create/update/delete, and the id is a bearer
     credential, so non-owners must not be able to read them either.
     """
-    qs = OrganizationToken.objects.filter(organization=organization).select_related("organization", "membership_tier")
+    qs = OrganizationToken.objects.filter(organization=organization, invitee__isnull=True).select_related(
+        "organization", "membership_tier"
+    )
     if organization.owner_id != user.pk:
         qs = qs.exclude(grants_staff_status=True)
     return qs
@@ -280,6 +282,9 @@ def claim_invitation(user: RevelUser, token: str) -> Organization | None:
         .first()
     )
     if organization_token is None:
+        return None
+    # A personal invitation is only for the account it names; anyone else gets the unknown-token answer.
+    if organization_token.invitee_id is not None and organization_token.invitee_id != user.pk:
         return None
     if organization_token.max_uses and organization_token.uses >= organization_token.max_uses:
         return None

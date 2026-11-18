@@ -60,6 +60,7 @@ The following notification types are supported across all channels:
 | `membership_granted` | User was granted membership directly |
 | `membership_card_updated` | The member's tier changed, so the wallet card needs re-adding |
 | `membership_payment_requested` | A membership on an offline plan is awaiting payment (to the member). Transactional and mandatory |
+| `membership_invitation_received` | Staff invited the user's account to become a member; it carries the personal accept link (valid 14 days). Delivered immediately, can be turned off |
 | `membership_offline_joined` | Staff heads-up: someone joined an offline plan directly and now owes a payment |
 | `staff_member_record_auto_linked` | Staff heads-up: a member-register entry was linked to an account by verified-email match. See [Member register](member-register.md) |
 
@@ -102,6 +103,7 @@ payment, ticket and subscription lifecycle types. They are time- and money-sensi
 - `subscription_renewal_succeeded`, `subscription_payment_failed`, `subscription_expired`,
   `subscription_cancellation_confirmed`, `subscription_revival_checkout`
 - `membership_payment_requested`
+- `membership_invitation_received` (its link expires, so it must not wait for a digest)
 
 `subscription_renewal_reminder` and `subscription_price_migration_notice` are advance notices
 with days of slack and stay on the digest cadence.

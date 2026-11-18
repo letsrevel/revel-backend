@@ -23,6 +23,7 @@ from events.controllers.permissions import (
     controller_uses_app_token,
 )
 from events.service import organization_service, user_note_service
+from events.service.organization_service import member_invitations
 from events.utils.subscription_payment import annotate_payment_progress
 from oauth.permissions import RequireScope
 
@@ -259,22 +260,6 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         organization_service.remove_member(organization, user_to_remove)
         return 204, None
 
-    @route.post(
-        "/members/{user_id}",
-        url_name="create_organization_member",
-        response={201: schema.OrganizationMemberSchema, 400: schema.AlreadyMemberErrorSchema | ErrorDetail},
-    )
-    def add_member(
-        self, slug: str, user_id: UUID, payload: schema.MemberAddSchema
-    ) -> tuple[int, models.OrganizationMember]:
-        """Add a member to an organization."""
-        organization = self.get_one(slug)
-        user_to_add = get_object_or_404(RevelUser, id=user_id)
-        tier = get_object_or_404(
-            models.MembershipTier.objects.standard(), pk=payload.tier_id, organization=organization
-        )
-        return 201, self._with_note(organization, organization_service.add_member(organization, user_to_add, tier))
-
     # ---- Membership Tiers ----
 
     @route.get(
@@ -385,7 +370,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     @route.post(
         "/staff/{user_id}",
         url_name="create_organization_staff",
-        response={201: schema.OrganizationStaffSchema},
+        response={201: schema.OrganizationStaffSchema, 400: schema.InvitationRequiredErrorSchema | ErrorDetail},
         # Owner-only, enforced in the handler body rather than by ``IsOrganizationOwner()``, so
         # the permission list alone does not show it. Granting staff powers with an arbitrary
         # permission map is strictly more dangerous than the removal pinned above, so it is
@@ -400,6 +385,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         if organization.owner != self.user():
             raise HttpError(403, str(_("Only the organization owner can create staff members.")))
         users_to_add = get_object_or_404(RevelUser, id=user_id)
+        member_invitations.require_relationship(organization, users_to_add)
         return 201, organization_service.add_staff(organization, users_to_add, permissions=payload)
 
     @route.put(

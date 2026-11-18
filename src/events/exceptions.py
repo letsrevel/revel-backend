@@ -16,6 +16,10 @@ class AlreadyMemberError(Exception):
     """Raised when a user is already a member of an organization."""
 
 
+class InvitationRequiredError(Exception):
+    """Raised when staff act on an account that has no connection to the organization yet."""
+
+
 class PendingMembershipRequestExistsError(Exception):
     """Raised when a pending membership request already exists for a user and organization."""
 

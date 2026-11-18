@@ -26,8 +26,8 @@ from events.models import MembershipRecord, MembershipRecordLinkMethod, Organiza
 from events.service import blacklist_service
 from events.service.user_note_transfer import transfer_record_note
 from events.utils.frontend_urls import frontend_base_url_for
-from notifications.context_schemas import MembershipContext, StaffMemberRecordAutoLinkedContext
 from notifications.enums import NotificationType
+from notifications.membership_context_schemas import MembershipContext, StaffMemberRecordAutoLinkedContext
 from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
 

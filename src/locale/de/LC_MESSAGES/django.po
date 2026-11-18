@@ -8861,3 +8861,43 @@ msgid ""
 msgstr ""
 "Der volle Preis pro Zeitraum des Plans, wenn diese Zahlung einen anteilig "
 "berechneten ersten Kalenderzeitraum abdeckte. Sonst leer."
+
+msgid "Membership invitation"
+msgstr "Mitgliedschaftseinladung"
+
+#, python-format
+msgid "%(org)s invited you to become a member"
+msgstr "%(org)s hat dich eingeladen, Mitglied zu werden"
+
+msgid "Accept invitation"
+msgstr "Einladung annehmen"
+
+msgid "This account cannot be invited to the organization."
+msgstr "Dieses Konto kann nicht in die Organisation eingeladen werden."
+
+msgid "This account has no connection to the organization yet. Invite them first."
+msgstr "Dieses Konto hat noch keine Verbindung zur Organisation. Lade die Person zuerst ein."
+
+#, python-format
+msgid "%(org)s invited you to become a member (%(tier)s). You only become a member if you accept."
+msgstr "%(org)s hat dich eingeladen, Mitglied zu werden (%(tier)s). Du wirst nur Mitglied, wenn du annimmst."
+
+#, python-format
+msgid "This invitation expires on %(expires)s. If you don't want to join, you can ignore it."
+msgstr "Diese Einladung läuft am %(expires)s ab. Wenn du nicht beitreten möchtest, kannst du sie ignorieren."
+
+#, python-format
+msgid "This invitation expires on %(expires)s. If you don't want to join, you can ignore this email."
+msgstr "Diese Einladung läuft am %(expires)s ab. Wenn du nicht beitreten möchtest, kannst du diese E-Mail ignorieren."
+
+#, python-format
+msgid "**%(org)s** invited you to become a member (%(tier)s). You only become a member if you accept."
+msgstr "**%(org)s** hat dich eingeladen, Mitglied zu werden (%(tier)s). Du wirst nur Mitglied, wenn du annimmst."
+
+#, python-format
+msgid "<b>%(org)s</b> invited you to become a member (%(tier)s). You only become a member if you accept."
+msgstr "<b>%(org)s</b> hat dich eingeladen, Mitglied zu werden (%(tier)s). Du wirst nur Mitglied, wenn du annimmst."
+
+#, python-format
+msgid "<strong>%(org)s</strong> invited you to become a member (%(tier)s). You only become a member if you accept."
+msgstr "<strong>%(org)s</strong> hat dich eingeladen, Mitglied zu werden (%(tier)s). Du wirst nur Mitglied, wenn du annimmst."

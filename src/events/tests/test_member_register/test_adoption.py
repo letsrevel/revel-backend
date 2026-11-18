@@ -1,6 +1,6 @@
 """Prevention at the source: opening a STANDARD record first adopts a verifiably matching unlinked one (#1319).
 
-Covers the approval, ``add_member`` and token-claim paths (all reach ``open_standard_record`` through the
+Covers the approval and token-claim paths (all reach ``open_standard_record`` through the
 mirror), the staff alert, tier and evidence handling, flag-only matches, and approve-and-link.
 """
 
@@ -126,22 +126,6 @@ class TestAdoptionAtSource:
         earlier.refresh_from_db()
         later.refresh_from_db()
         assert earlier.user == user and later.user is None
-
-    def test_add_member_adopts(
-        self,
-        organization: Organization,
-        make_record: RecordFactory,
-        link_tier: MembershipTier,
-        django_user_model: type[RevelUser],
-    ) -> None:
-        record = make_record()
-        user = _user(django_user_model)
-
-        membership_service.add_member(organization, user, link_tier)
-
-        record.refresh_from_db()
-        assert record.user == user
-        assert _open_records(organization, user) == [record]
 
     def test_token_claim_adopts(
         self,

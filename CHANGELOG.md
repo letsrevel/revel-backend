@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A password reset on an account whose email was never verified now also verifies it and clears any 2FA setup and Telegram link made before.
 - The verification email now includes a link to delete the account for people who did not sign up.
 - Referral invitations are enrolled once the invitee's email address is verified, and only for the exact invited address.
+- Staff now invite an existing account to become a member instead of adding it directly. `POST /organization-admin/{slug}/member-invitations` (`user_id`, `tier_id`) sends the account a personal invitation link (new `membership_invitation_received` notification). The account becomes a member at that tier only by accepting it through the usual `/organizations/claim-invitation/{token}`. The invitation is valid for 14 days, nobody else can accept it, and inviting the same account again renews it. Staff list pending invitations with `GET …/member-invitations` and withdraw one with `DELETE …/member-invitations/{id}`. Pending invitations are not listed with the organization's shareable invitation links. The account lookup returns `pending_invitation_id`.
+- **Breaking:** `POST /organization-admin/{slug}/members/{user_id}` is removed; use the member invitation route. The frontend must regenerate its API client.
+- Adding a staff member (`POST /organization-admin/{slug}/staff/{user_id}`) and creating a subscription for someone (`POST /organization-admin/{slug}/subscriptions`) now require the account to already have a connection to the organization: a membership in any status, a membership application, a member-register entry, a staff role, or ownership. Otherwise the answer is a 400 with `code: "invitation_required"`.
 
 ### Fixed
 - Discount code uses taken by checkouts that are cancelled or expire are now given back, so abandoned checkouts no longer use up a limited code.

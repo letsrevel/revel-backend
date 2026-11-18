@@ -35,6 +35,8 @@ def test_mandatory_types_contents() -> None:
         # Owner mail about a custom domain going live or failing (#1148): opt-out-able, but the owner waits on it.
         NotificationType.ORG_CUSTOM_DOMAIN_ACTIVE,
         NotificationType.ORG_CUSTOM_DOMAIN_FAILED,
+        # A membership invitation expires, so it skips the digest, but the invitee can turn it off.
+        NotificationType.MEMBERSHIP_INVITATION_RECEIVED,
     }
     assert NotificationType.ACCOUNT_BANNED in MANDATORY_TYPES
     assert NotificationType.SYSTEM_ANNOUNCEMENT in MANDATORY_TYPES

@@ -19,6 +19,7 @@ from events.models import (
     MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
+    OrganizationMembershipRequest,
     OrganizationStaff,
     PermissionMap,
     PermissionsSchema,
@@ -179,6 +180,7 @@ class TestSubscriptionEndpoints:
         plan: MembershipSubscriptionPlan,
         subscriber: RevelUser,
     ) -> None:
+        OrganizationMembershipRequest.objects.get_or_create(organization=organization, user=subscriber)
         url = reverse("api:create_subscription", kwargs={"slug": organization.slug})
         payload = {
             "plan_id": str(plan.id),
