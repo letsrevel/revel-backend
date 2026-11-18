@@ -25,6 +25,7 @@ from events.models import MembershipPayment, MembershipSubscription, MembershipS
 from events.utils import format_organization_datetime
 from events.utils.frontend_urls import frontend_base_url_for
 from events.utils.subscription_payment import APPLICATION_PAYMENT_WINDOW_DAYS, is_never_paid_on_offline_plan
+from events.utils.subscription_periods import first_period_end, first_period_price
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
@@ -181,6 +182,7 @@ def _dispatch_renewal_succeeded(
     *,
     amount: Decimal | None = None,
     currency: str = "",
+    next_charge_amount: Decimal | None = None,
 ) -> None:
     """Fire SUBSCRIPTION_RENEWAL_SUCCEEDED for a renewal payment.
 
@@ -188,6 +190,9 @@ def _dispatch_renewal_succeeded(
     invoice's ``amount_paid``, or the amount staff recorded offline). Left
     unset, the notification quotes the plan's current list price, which is
     wrong for a grandfathered subscriber — pass them whenever known.
+
+    ``next_charge_amount`` is set for the first (stub) payment of a calendar plan: a short stub can
+    be followed by the full charge within hours, so the confirmation states it and its date.
     """
     plan = subscription.plan
     ctx = _common_subscription_context(subscription)
@@ -195,6 +200,11 @@ def _dispatch_renewal_succeeded(
         amount=_charged_money(plan, amount, currency),
         period_end=(subscription.current_period_end.date().isoformat() if subscription.current_period_end else ""),
     )
+    if next_charge_amount is not None and subscription.current_period_end:
+        ctx.update(
+            next_charge_amount=_format_money(next_charge_amount, plan.currency),
+            next_charge_date=subscription.current_period_end.date().isoformat(),
+        )
     notification_requested.send(
         sender=MembershipSubscription,
         user=subscription.user,
@@ -322,10 +332,20 @@ def _dispatch_revival_checkout(subscription: MembershipSubscription, *, checkout
     """
     plan = subscription.plan
     ctx = _common_subscription_context(subscription)
+    # A calendar plan's checkout charges the prorated stub up to the next boundary, not the full price.
+    now = timezone.now()
+    first_price = first_period_price(plan, now)
+    first_end = first_period_end(plan, now)
     ctx.update(
-        amount=_format_money(plan.price, plan.currency),
+        amount=_format_money(plan.price if first_price is None else first_price, plan.currency),
         checkout_url=checkout_url,
     )
+    if first_end is not None:
+        # The stub can be tiny (or free) and followed by the full charge within hours: say so up front.
+        ctx.update(
+            next_charge_amount=_format_money(plan.price, plan.currency),
+            next_charge_date=first_end.date().isoformat(),
+        )
     notification_requested.send(
         sender=MembershipSubscription,
         user=subscription.user,

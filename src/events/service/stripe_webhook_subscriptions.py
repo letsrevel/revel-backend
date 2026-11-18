@@ -20,6 +20,7 @@ from django.utils import timezone
 from events.models import MembershipPayment, MembershipSubscription
 from events.service import stripe_incidents
 from events.utils.currency import from_stripe_amount
+from events.utils.subscription_periods import is_calendar_plan
 
 logger = structlog.get_logger(__name__)
 
@@ -211,6 +212,14 @@ class SubscriptionWebhookHandlersMixin:
         invoice_ref = session.get("invoice")
         invoice_id = invoice_ref.get("id") if isinstance(invoice_ref, dict) else invoice_ref
         if not invoice_id:
+            if is_calendar_plan(subscription.plan):
+                # A free calendar stub (``proration_behavior="none"``) may open no invoice at all, so
+                # no ``invoice.paid`` will ever activate the row; and any ``customer.subscription.*``
+                # that beat this link was dropped. Mirror the Subscription itself.
+                stripe_sub = stripe.Subscription.retrieve(
+                    t.cast(str, subscription.stripe_subscription_id), **stripe_account_kwargs(subscription.organization)
+                )
+                subscription_stripe_sync.sync_subscription_from_stripe(dict(stripe_sub))
             return
         if MembershipPayment.objects.filter(stripe_invoice_id=invoice_id).exists():
             return

@@ -64,6 +64,7 @@ from events.service.subscription.stripe import checkout as stripe_checkout
 from events.service.subscription.stripe import plan_change as stripe_plan_change
 from events.service.subscription.stripe.payloads import stripe_account_kwargs
 from events.utils.subscription_payment import is_never_paid_offline
+from events.utils.subscription_periods import same_period_grid
 
 logger = structlog.get_logger(__name__)
 
@@ -613,10 +614,6 @@ def _validate_change_plan_target(
         raise HttpError(400, str(_("New plan must belong to the same organization as the subscription.")))
     if not new_plan.is_active:
         raise HttpError(400, str(_("This plan is archived and no longer accepts new subscriptions.")))
-    if subscription.plan_id != new_plan.pk:
-        if enforce_sales_status:
-            ensure_plan_on_sale(new_plan)
-        ensure_plan_sales_capacity(new_plan)
     if new_plan.payment_method != subscription.plan.payment_method:
         raise HttpError(
             400,
@@ -624,6 +621,25 @@ def _validate_change_plan_target(
         )
     if new_plan.currency.upper() != subscription.plan.currency.upper():
         raise HttpError(400, str(_("New plan must use the same currency as the current plan.")))
+    # Both ONLINE plan-change paths keep Stripe's billing anchor (upgrade = price swap, downgrade =
+    # schedule phase 2 at the old period end), so a plan on another grid would bill off its calendar.
+    if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE and not same_period_grid(
+        subscription.plan, new_plan
+    ):
+        raise HttpError(
+            400,
+            str(
+                _(
+                    "Online subscriptions can only switch to a plan with the same billing calendar. "
+                    "Cancel and subscribe to the other plan instead."
+                )
+            ),
+        )
+    # Sales checks last: a structurally impossible switch must answer 400 without taking the plan lock.
+    if subscription.plan_id != new_plan.pk:
+        if enforce_sales_status:
+            ensure_plan_on_sale(new_plan)
+        ensure_plan_sales_capacity(new_plan)
 
 
 @transaction.atomic

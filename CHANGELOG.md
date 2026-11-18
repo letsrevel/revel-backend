@@ -11,7 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Calendar-aligned membership plans**: a plan can now bill on calendar boundaries (the 1st of each month, or the 1st of a chosen month each year, at 00:00 UTC) instead of a fixed duration after the member joins.
   - New plan fields `period_alignment`, `calendar_start_month` and `first_period_pricing`; alignment and start month are set at creation and cannot be changed, and the billing period of a calendar plan is locked.
   - The first, partial period is either prorated by the time remaining (rounded to the currency's smallest unit, so whole units for yen) or charged in full; plan responses show the first period's end and price as if a member joined now.
-  - Calendar plans are offline only for now: online plans are refused with a clear message when calendar-aligned, and can only prorate the first period.
+  - Online (Stripe) calendar plans anchor Checkout and revival on the next boundary, so a member joining mid-period pays a prorated first charge and the full price on each boundary.
+    - Online plans can only prorate the first period (no trials, no one-off line items), and renewal reminders and price-migration notices quote the full price rather than the prorated first charge.
+    - A first period too small for Stripe to charge, or under an hour long, is free: billing starts at the boundary and the quoted first-period price is zero.
+    - The checkout-link and first-payment notices state the next full charge and its date.
+  - An online subscription can only change plan within its own calendar: rolling to rolling, or calendar to calendar with the same period and start month. Any other switch is refused with a message to cancel and subscribe to the other plan.
   - Plan responses gain `period_alignment`, `calendar_start_month` and `first_period_pricing`, plus the first period's end and price on the staff and public plan views; the plan shown on a member's own subscription omits the join-now values.
   - Membership request responses show the requested plan's alignment and start month.
 

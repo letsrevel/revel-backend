@@ -9,6 +9,7 @@
     <div class="info-row"><span class="label">{% trans "Plan:" %}</span> {{ context.plan_name }}</div>
     <div class="info-row"><span class="label">{% trans "Amount charged:" %}</span> <strong>{{ context.amount }}</strong></div>
     <div class="info-row"><span class="label">{% trans "Next renewal:" %}</span> {{ context.period_end }}</div>
+    {% if context.next_charge_amount %}<div class="info-row">{% blocktranslate with amount=context.next_charge_amount date=context.next_charge_date %}Next charge: {{ amount }} on {{ date }}.{% endblocktranslate %}</div>{% endif %}
 </div>
 {% if context.manage_subscription_url %}
 <center>

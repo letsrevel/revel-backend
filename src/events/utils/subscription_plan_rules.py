@@ -32,13 +32,8 @@ def _calendar_shape_error(
     return None
 
 
-def _online_shape_error(
-    price: Decimal, period_unit: str, period_alignment: str, first_period_pricing: str
-) -> str | None:
+def _online_shape_error(price: Decimal, period_unit: str, first_period_pricing: str) -> str | None:
     """Return a message when an ONLINE plan's shape is not Stripe-billable."""
-    # ponytail: lift this one rule when Stripe billing-cycle-anchor support lands (#1426).
-    if period_alignment == MembershipSubscriptionPlan.PeriodAlignment.CALENDAR:
-        return str(_("Calendar-aligned plans are not available for online payments yet."))
     if first_period_pricing == MembershipSubscriptionPlan.FirstPeriodPricing.FULL:
         return str(_("Online plans can only prorate the first period."))
     if price <= Decimal("0"):
@@ -112,7 +107,7 @@ def validate_plan_shape(
         return None
 
     if payment_method == SubscriptionPaymentMethod.ONLINE:
-        return _online_shape_error(price, period_unit, period_alignment, first_period_pricing)
+        return _online_shape_error(price, period_unit, first_period_pricing)
 
     # OFFLINE: staff settle the money off-book, so any price >= 0 (enforced by
     # the field validator) and any cadence — including LIFETIME — is coherent.

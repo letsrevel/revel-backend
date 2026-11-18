@@ -818,6 +818,9 @@ class SubscriptionRenewalSucceededContext(BaseNotificationContext):
     amount: str  # formatted "{amount} {currency}"
     period_end: str  # ISO date
     manage_subscription_url: t.NotRequired[str | None]  # ONLINE only — FE /account/memberships (POST /billing-portal)
+    # Calendar plan's first (stub) payment: the full price due when the stub ends, and that date (ISO).
+    next_charge_amount: t.NotRequired[str]
+    next_charge_date: t.NotRequired[str]
 
 
 class SubscriptionPaymentFailedContext(BaseNotificationContext):
@@ -883,6 +886,9 @@ class SubscriptionRevivalCheckoutContext(BaseNotificationContext):
     plan_name: str
     amount: str  # formatted "{amount} {currency}"
     checkout_url: str  # hosted Stripe Checkout the member completes to renew
+    # Calendar plan: the full price due when the first (stub) period ends, and that date (ISO).
+    next_charge_amount: t.NotRequired[str]
+    next_charge_date: t.NotRequired[str]
 
 
 class SubscriptionPriceMigrationNoticeContext(BaseNotificationContext):

@@ -5,7 +5,8 @@
 {%trans "Plan:"%} {{context.plan_name}}
 {%trans "Amount charged:"%} {{context.amount}}
 {%trans "Next renewal:"%} {{context.period_end}}
-
+{%if context.next_charge_amount%}{%blocktranslate with amount=context.next_charge_amount date=context.next_charge_date %}Next charge: {{ amount }} on {{ date }}.{%endblocktranslate%}
+{%endif%}
 {%if context.manage_subscription_url%}{%trans "Manage billing:"%} {{context.manage_subscription_url}}
 
 {%endif%}{% include "notifications/email/_footer.txt" %}

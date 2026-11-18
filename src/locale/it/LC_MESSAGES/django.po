@@ -3460,10 +3460,13 @@ msgstr ""
 msgid "First period pricing cannot be null."
 msgstr "Il prezzo del primo periodo non può essere nullo."
 
-msgid "Calendar-aligned plans are not available for online payments yet."
+msgid ""
+"Online subscriptions can only switch to a plan with the same billing "
+"calendar. Cancel and subscribe to the other plan instead."
 msgstr ""
-"I piani allineati al calendario non sono ancora disponibili per i pagamenti "
-"online."
+"Gli abbonamenti online possono passare solo a un piano con lo stesso "
+"calendario di fatturazione. Annulla l'abbonamento e sottoscrivi l'altro "
+"piano."
 
 msgid "Online plans can only prorate the first period."
 msgstr "I piani online possono calcolare il primo periodo solo in proporzione."
@@ -5856,6 +5859,10 @@ msgstr "Importo addebitato:"
 
 msgid "Next renewal:"
 msgstr "Prossimo rinnovo:"
+
+#, python-format
+msgid "Next charge: %(amount)s on %(date)s."
+msgstr "Prossimo addebito: %(amount)s il %(date)s."
 
 #, python-format
 msgid "Your %(plan)s membership at %(org)s has been successfully renewed."
