@@ -8,7 +8,7 @@ import piexif
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from ninja.errors import HttpError
-from PIL import Image
+from PIL import Image, ImageFile, PngImagePlugin
 
 from accounts.models import RevelUser
 from common.models import FileUploadAudit
@@ -86,6 +86,35 @@ def test_jpeg_exif_is_stripped(organization: models.Organization, organization_o
     assert str(resource.file.name).endswith(".jpg")
     with resource.file.open("rb") as stored:
         assert not dict(Image.open(stored).getexif())
+
+
+def test_multi_page_tiff_keeps_all_pages(organization: models.Organization, organization_owner_user: RevelUser) -> None:
+    buffer = BytesIO()
+    first = Image.new("RGB", (10, 10), "red")
+    first.save(buffer, format="tiff", save_all=True, append_images=[Image.new("RGB", (10, 10), "blue")])
+
+    resource = _create(organization, "scan.tiff", buffer.getvalue(), organization_owner_user)
+
+    with resource.file.open("rb") as stored:
+        assert getattr(Image.open(stored), "n_frames", 1) == 2
+
+
+def test_image_with_oversized_text_chunk_is_refused_with_422(
+    organization: models.Organization, organization_owner_user: RevelUser, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pillow raises ValueError (not OSError) for this input; it must still be a 422."""
+    # weasyprint / pillow_heif switch this on process-wide, which makes Pillow swallow the error.
+    monkeypatch.setattr(ImageFile, "LOAD_TRUNCATED_IMAGES", False)
+    info = PngImagePlugin.PngInfo()
+    info.add_text("k", "x" * (PngImagePlugin.MAX_TEXT_CHUNK + 1), zip=True)
+    buffer = BytesIO()
+    Image.new("RGB", (4, 4)).save(buffer, format="png", pnginfo=info)
+
+    with pytest.raises(HttpError) as exc_info:
+        _create(organization, "chunk.png", buffer.getvalue(), organization_owner_user)
+
+    assert exc_info.value.status_code == 422
+    assert not models.AdditionalResource.objects.filter(organization=organization).exists()
 
 
 def test_audit_and_scan_are_registered(

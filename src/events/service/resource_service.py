@@ -2,6 +2,7 @@ import hashlib
 import re
 import typing as t
 import uuid
+from io import BytesIO
 
 import magic
 from django.core.exceptions import ValidationError
@@ -10,6 +11,7 @@ from django.db.models import QuerySet
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
+from PIL import Image
 
 from accounts.models import RevelUser
 from common.file_types import extension_for_mime
@@ -121,10 +123,17 @@ def _prepare_resource_file(file: UploadedFile) -> tuple[UploadedFile, str]:
 
     if detected_mime_type in IMAGE_MIME_TYPES:
         try:
-            file = strip_exif(file)  # type: ignore[assignment]
-        except OSError, ValidationError:
+            with Image.open(BytesIO(content)) as image:
+                frame_count = getattr(image, "n_frames", 1)
+            # ponytail: metadata is kept on multi-frame images (multi-page TIFF, animated GIF/WebP)
+            # because strip_exif re-saves only the first frame. Upgrade path: a frame-preserving
+            # metadata strip (save_all/append_images) with pixel limits over the whole sequence.
+            if frame_count == 1:
+                file = strip_exif(file)  # type: ignore[assignment]
+        except OSError, ValueError, ValidationError, Image.DecompressionBombError:
             # OSError covers PIL.UnidentifiedImageError (content libmagic accepts but Pillow cannot
-            # decode); ValidationError is the oversized-image guard.
+            # decode); ValueError is Pillow's error for some malformed data; ValidationError is the
+            # oversized-image guard.
             raise HttpError(422, str(_("File is not a valid image.")))
         content = file.read()
         file.seek(0)

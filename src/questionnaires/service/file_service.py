@@ -75,9 +75,10 @@ def upload_questionnaire_file(user: RevelUser, file: UploadedFile) -> Questionna
     if detected_mime_type in IMAGE_MIME_TYPES:
         try:
             file = strip_exif(file)  # type: ignore[assignment]
-        except OSError, ValidationError:
+        except OSError, ValueError, ValidationError:
             # OSError covers PIL.UnidentifiedImageError (content libmagic accepts but Pillow
-            # cannot decode); ValidationError is the oversized-image guard.
+            # cannot decode); ValueError is Pillow's error for some malformed data; ValidationError is
+            # the oversized-image guard.
             raise InvalidFileMimeTypeError(str(_("File is not a valid image.")))
         # Re-read the processed content for hashing
         file_content = file.read()

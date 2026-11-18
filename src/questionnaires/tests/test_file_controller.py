@@ -7,6 +7,7 @@ This module tests:
 - DELETE /{file_id} - Hard delete file
 """
 
+from io import BytesIO
 from unittest import mock
 from uuid import uuid4
 
@@ -15,6 +16,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
 from django.urls import reverse
 from ninja_jwt.tokens import RefreshToken
+from PIL import Image, ImageFile, PngImagePlugin
 
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
@@ -136,6 +138,25 @@ class TestUploadFile:
         uploaded_file = SimpleUploadedFile(name="bad.webp", content=malformed, content_type="image/webp")
 
         response = user_client.post(url, {"file": uploaded_file}, format="multipart")
+
+        assert response.status_code == 422
+        assert not QuestionnaireFile.objects.filter(uploader=user).exists()
+
+    def test_image_with_oversized_text_chunk_is_refused_with_422(
+        self, user_client: Client, user: RevelUser, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pillow raises ValueError (not OSError) for this input; it must still be a 422."""
+        # weasyprint / pillow_heif switch this on process-wide, which makes Pillow swallow the error.
+        monkeypatch.setattr(ImageFile, "LOAD_TRUNCATED_IMAGES", False)
+        info = PngImagePlugin.PngInfo()
+        info.add_text("k", "x" * (PngImagePlugin.MAX_TEXT_CHUNK + 1), zip=True)
+        buffer = BytesIO()
+        Image.new("RGB", (4, 4)).save(buffer, format="png", pnginfo=info)
+        uploaded_file = SimpleUploadedFile(name="chunk.png", content=buffer.getvalue(), content_type="image/png")
+
+        response = user_client.post(
+            reverse("api:upload_questionnaire_file"), {"file": uploaded_file}, format="multipart"
+        )
 
         assert response.status_code == 422
         assert not QuestionnaireFile.objects.filter(uploader=user).exists()
