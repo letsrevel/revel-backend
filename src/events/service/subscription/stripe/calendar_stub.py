@@ -173,25 +173,27 @@ def usable_stub_price(
     subscription_id: str,
     invoice_id: str,
 ) -> Decimal | None:
-    """The fetched stub price's amount if it still applies to the stub line and the (locked) plan.
+    """The full per-period price to stamp on a calendar stub, decided under the row lock.
 
-    ``still_stub`` is the locked re-check of the stub decision. Logs at WARNING when a fetched price is
-    dropped because that re-check, the line or the plan changed since the fetch.
+    ``still_stub`` is the locked re-check of the stub decision: not a stub -> nothing to stamp. A stub
+    whose pre-lock price is missing or no longer matches the line or the (locked) plan falls back to
+    ``plan.price`` with a WARNING, like an unreadable Price: the plan price is almost always right and
+    the paid stub amount (possibly 0) never is.
     """
-    if stub_price is None:
+    if not still_stub:
         return None
     if (
-        not still_stub
+        stub_price is None
         or line_price_id(stub_line(lines_data)) != stub_price.price_id
         or (stub_price.plan_id is not None and stub_price.plan_id != plan.pk)
     ):
         logger.warning(
-            "subscription_stub_price_dropped_under_lock",
+            "subscription_stub_price_dropped_under_lock_using_plan_price",
             subscription_id=subscription_id,
             stripe_invoice_id=invoice_id,
-            stripe_price_id=stub_price.price_id,
+            stripe_price_id=stub_price.price_id if stub_price else None,
         )
-        return None
+        return plan.price
     return stub_price.amount
 
 

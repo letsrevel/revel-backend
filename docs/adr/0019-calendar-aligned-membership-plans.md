@@ -102,15 +102,17 @@ Stripe was probed in test mode (API `2026-03-25.dahlia`) before deciding:
    member is never sent back to a payable page with a stale anchor. The `sub-checkout:{pk}`
    idempotency key is only reused for the same create call, never across that replacement (the
    stale PENDING row is cleared and a new row, hence a new key, is created).
-7. **The next charge is stated before payment and reminded before every charge.** A short or free
+7. **The next charge is stated before payment, and short periods are reminded too.** A short or free
    stub can be followed by the full charge within hours. The Stripe Checkout page shows the
    upcoming charge, and the revival checkout-link notice (`SUBSCRIPTION_REVIVAL_CHECKOUT`) states
    the next charge (the plan price) and its date, both known before the member pays. Post-payment
    notices (`MEMBERSHIP_GRANTED`, `SUBSCRIPTION_RENEWAL_SUCCEEDED`) carry no next-charge line. The
-   renewal reminder beat also reminds an ONLINE subscription whose current period ends inside the
-   reminder window, so a stub shorter than `REMINDER_DAYS` is reminded before its first full
-   charge. `MembershipSubscription.renewal_reminded_for` records the period end already reminded,
-   which keeps it to one reminder per period.
+   renewal reminder beat also reminds any subscription whose current period ends inside the
+   reminder window and has not been reminded yet, so a stub shorter than `REMINDER_DAYS` is
+   reminded before its first full charge **if a daily run falls inside it**; a stub that starts and
+   ends between two runs (under a day) relies on the Checkout page. `renewal_reminded_for` records
+   the period end already reminded (compared by date), one reminder per period; migration `0148`
+   backfills it so the deploy-day run doesn't re-remind periods the old exact-day rule covered.
 
 ## Consequences
 

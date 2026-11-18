@@ -207,13 +207,12 @@ class TestStampResolvesTheLinesPrice:
         invoice = _first_invoice()
         invoice["lines"]["data"][0]["pricing"] = {"price_details": {"price": "price_grandfathered"}}
 
-        with mock.patch.object(stub_module.logger, "warning") as log_warning:
+        with mock.patch.object(stub_module.logger, "warning"):
             payment = subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
 
         assert payment is not None
         stripe_price_retrieve.assert_called_once()
         assert payment.full_period_amount is None
-        assert "subscription_stub_price_dropped_under_lock" in [c.args[0] for c in log_warning.call_args_list]
 
 
 class TestFirstInvoiceShapes:

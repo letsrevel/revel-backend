@@ -7,6 +7,7 @@ import typing as t
 import structlog
 from celery import shared_task
 from django.db import models, transaction
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
@@ -273,16 +274,17 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
     # transaction pooling (see #458).
     subs = list(
         MembershipSubscription.objects.filter(
+            # The exact target date, or a period that ends sooner (a short calendar first period,
+            # or a run missed while the beat was down) and hasn't been reminded yet.
             models.Q(current_period_end__date=target_date)
-            | models.Q(
-                plan__payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE.value,
-                current_period_end__date__lt=target_date,
-                current_period_end__gt=timezone.now(),
-            ),
+            | models.Q(current_period_end__date__lt=target_date, current_period_end__gt=timezone.now()),
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
             cancel_at_period_end=False,
         )
-        .exclude(renewal_reminded_for=models.F("current_period_end"))
+        # Dedupe per period-end *date*: a sync that nudges current_period_end by seconds
+        # (invoice vs Subscription period) must not re-send the same reminder.
+        .annotate(_reminded_on=TruncDate("renewal_reminded_for"), _ends_on=TruncDate("current_period_end"))
+        .filter(models.Q(renewal_reminded_for__isnull=True) | ~models.Q(_reminded_on=models.F("_ends_on")))
         .select_related("plan__tier__organization", "organization", "user")
     )
     # No invoice exists yet, so the best estimate of the next charge is what the

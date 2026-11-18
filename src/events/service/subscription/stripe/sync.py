@@ -634,8 +634,9 @@ def _resolve_network_inputs(
     """Everything :func:`record_stripe_payment_from_invoice` must fetch from Stripe, before the row lock.
 
     Returns the PaymentIntent/fee details and, for a calendar plan's first stub invoice that is not
-    stamped yet, the full price it stood in for (see :func:`stub_full_price`; best effort, ``None`` when
-    unreadable). The decision is the *unlocked* one: the caller re-checks it against the locked plan. The
+    stamped yet, the full price it stood in for (see :func:`stub_full_price`; falls back to the plan
+    price when the line's Price is unreadable; ``None`` only when the invoice is not such a stub).
+    The decision is the *unlocked* one: the caller re-checks it against the locked plan. The
     already-stamped check keeps a redelivery of a recorded invoice off the network.
     """
     if succeeded and invoice.get("amount_paid") == 0:
@@ -792,17 +793,16 @@ def record_stripe_payment_from_invoice(
     # the per-member lock, so no race with a concurrent write. Strictly == FAILED:
     # a redelivered paid invoice (SUCCEEDED) or a terminal-refunded row (REFUNDED)
     # must not count as a recovery.
-    prior_payment_status = (
-        MembershipPayment.objects.filter(stripe_invoice_id=invoice_id).values_list("status", flat=True).first()
-    )
+    prior_payment_status, prior_stamp = MembershipPayment.objects.filter(stripe_invoice_id=invoice_id).values_list(
+        "status", "full_period_amount"
+    ).first() or (None, None)
 
-    if full_price is not None:
+    if full_price is not None and prior_stamp is None:
         # The ONLINE analogue of ``core._full_period_amount``: the first invoice of a calendar plan is
         # a stub (prorated or free). Record the full price it stood in for so renewal reminders,
         # price-migration notices and MRR anchor on it rather than on the stub. Resolved from the invoice
-        # line's own Price and only while unstamped (see :func:`_resolve_network_inputs`), so a racing
-        # redelivery writes the same figure. Best effort: NULL on failure, the anchor then falls back to
-        # the paid stub amount.
+        # line's own Price; never overwritten once stamped (a redelivery skips the fetch, so it would
+        # otherwise fall back to the plan price). Unreadable Price -> the plan price (see stub_full_price).
         defaults["full_period_amount"] = full_price
 
     payment, created = MembershipPayment.objects.update_or_create(
