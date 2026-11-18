@@ -62,6 +62,10 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
         if plan.max_subscriptions is None:
             return
         # A cap was set while we waited: count against the locked row below.
+        # ponytail: two creations that both hold KEY SHARE and both upgrade here
+        # deadlock; Postgres aborts one (that request errors, the cap holds). Only
+        # possible right after an uncapped plan gains a cap mid-checkout; upgrade
+        # path if it ever matters: catch the deadlock and retry the lock once.
     locked_plan = MembershipSubscriptionPlan.objects.select_for_update().get(pk=plan.pk)
     plan.refresh_from_db()
     if locked_plan.max_subscriptions is None:  # changed since the unlocked read
