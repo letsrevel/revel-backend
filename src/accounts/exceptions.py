@@ -122,6 +122,22 @@ class LinkTokenError(Exception):
         self.code = code
 
 
+class LoginErrorCode(models.TextChoices):
+    """Stable machine-readable reasons a login is refused after the credentials checked out. Renaming is breaking."""
+
+    EMAIL_NOT_VERIFIED = "email_not_verified"
+
+
+class EmailNotVerifiedError(Exception):
+    """Raised when a non-guest account whose email is not verified tries to start or refresh a session (403).
+
+    The handler renders ``{"detail": <translated message>, "code": "email_not_verified"}``. Clients
+    branch on ``code`` (e.g. to offer a resend of the verification link); ``detail`` is translated text.
+    """
+
+    code = LoginErrorCode.EMAIL_NOT_VERIFIED
+
+
 class EmailChangeErrorCode(models.TextChoices):
     """Stable machine-readable reasons an email-change confirmation is refused. Renaming a value is breaking."""
 

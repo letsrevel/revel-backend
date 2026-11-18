@@ -63,7 +63,7 @@ def test_verify_email_success(
     response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 200
-    mock_verify.assert_called_once_with("valid.verification.token")
+    mock_verify.assert_called_once_with("valid.verification.token", return_host=None)
     mock_get_token.assert_called_once_with(user)
     data = response.json()
     assert data["user"]["email"] == user.email

@@ -8,9 +8,19 @@ from uuid import uuid4
 from django.conf import settings
 from ninja import ModelSchema, Schema
 from ninja_jwt.schema import TokenObtainPairOutputSchema
-from pydantic import UUID4, AwareDatetime, EmailStr, Field, field_serializer, field_validator, model_validator
+from pydantic import (
+    UUID4,
+    AwareDatetime,
+    EmailStr,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_serializer,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
-from accounts.exceptions import EmailChangeErrorCode, LinkTokenErrorCode
+from accounts.exceptions import EmailChangeErrorCode, LinkTokenErrorCode, LoginErrorCode
 from accounts.password_validation import validate_password
 from common.schema import (
     BillingInfoSchemaMixin,
@@ -237,7 +247,23 @@ class BaseEmailJWTPayloadSchema(Schema):
 
 
 class VerifyEmailJWTPayloadSchema(BaseEmailJWTPayloadSchema):
+    # Optional so links minted before this claim existed still decode; compared with
+    # ``RevelUser.credentials_changed_at`` at verification.
+    iat: AwareDatetime | None = None
     type: t.Literal["email_verification"] = "email_verification"
+
+    @field_serializer("iat")
+    def serialize_iat(self, value: datetime.datetime | None) -> int | None:
+        """Serialize the issue time to a Unix timestamp (floored, like the expiry)."""
+        return None if value is None else int(value.timestamp())
+
+    @model_serializer(mode="wrap")
+    def drop_missing_iat(self, handler: SerializerFunctionWrapHandler) -> dict[str, t.Any]:
+        """Leave ``iat`` out of the dumped claims when absent (a null claim is not a valid JWT ``iat``)."""
+        data: dict[str, t.Any] = handler(self)
+        if data.get("iat") is None:
+            data.pop("iat", None)
+        return data
 
 
 class PasswordResetJWTPayloadSchema(BaseEmailJWTPayloadSchema):
@@ -580,6 +606,17 @@ class LinkTokenErrorSchema(Schema):
 
     detail: str
     code: LinkTokenErrorCode
+
+
+class LoginErrorSchema(Schema):
+    """403 body when a login is refused because the account's email is not verified.
+
+    ``detail`` is translated and must never be matched on; ``code`` is the stable
+    machine-readable discriminator.
+    """
+
+    detail: str
+    code: LoginErrorCode
 
 
 class EmailChangeErrorSchema(Schema):

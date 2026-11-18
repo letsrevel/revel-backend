@@ -142,10 +142,12 @@ class AccountController(UserAwareController):
         """Create a new user account with email and password.
 
         Creates a new account and sends a verification email. The account is created but not
-        fully active until email is verified via POST /account/verify. If an unverified account
-        with the same email exists, resends the verification email. Returns 400 if a verified
-        account already exists. When bot protection is configured, a valid `turnstile_token` is
-        required (400 otherwise).
+        fully active until email is verified via POST /account/verify. Returns 400 if a verified
+        account with the same email already exists, or if the email belongs to a guest account
+        (which also receives an activation email). If an unverified account with the same email
+        exists, nothing stored on it changes: it is only marked as contested, a new verification
+        link is sent, and the response echoes the submitted details. When bot protection is
+        configured, a valid `turnstile_token` is required (400 otherwise).
         """
         request = t.cast(HttpRequest, self.context.request)  # type: ignore[union-attr]
         verify_turnstile_request(payload.turnstile_token, request)
@@ -166,7 +168,7 @@ class AccountController(UserAwareController):
         the account and returns the verified user profile along with JWT tokens for immediate login.
         The verification token is single-use and expires after a set period.
         """
-        user = account_service.verify_email(payload.token)
+        user = account_service.verify_email(payload.token, return_host=self._return_host())
         token = get_token_pair_for_user(user)
         return schema.VerifyEmailResponseSchema(user=RevelUserSchema.from_orm(user), token=token)
 

@@ -7,6 +7,7 @@ from django.utils import timezone
 from oauth2_provider.oauth2_validators import OAuth2Validator
 
 from accounts.models import RevelUser
+from accounts.service.auth import is_session_allowed
 from common.signing import get_file_url
 
 
@@ -88,6 +89,42 @@ class RevelOAuth2Validator(OAuth2Validator):  # type: ignore[misc]
             True, always.
         """
         return True
+
+    def validate_bearer_token(self, token: str | None, scopes: t.Any, request: t.Any) -> bool:
+        """Refuse an app token whose owner is a non-guest account with an unverified email.
+
+        Args:
+            token: The presented access token.
+            scopes: The scopes the endpoint requires.
+            request: The oauthlib request; ``request.user`` is set by DOT on success.
+
+        Returns:
+            Whether the token is valid and its owner may hold a session.
+        """
+        if not super().validate_bearer_token(token, scopes, request):
+            return False
+        # A userless token (client credentials) has no account to gate; the auth class refuses it separately.
+        return request.user is None or is_session_allowed(request.user)
+
+    def validate_refresh_token(
+        self, refresh_token: str, client: t.Any, request: t.Any, *args: t.Any, **kwargs: t.Any
+    ) -> bool:
+        """Refuse a refresh grant for a non-guest account with an unverified email.
+
+        Args:
+            refresh_token: The presented refresh token.
+            client: The authenticated client.
+            request: The oauthlib request; ``request.user`` is set by DOT on success.
+            *args: Passed through to DOT.
+            **kwargs: Passed through to DOT.
+
+        Returns:
+            Whether the refresh token is valid and its owner may hold a session.
+        """
+        if not super().validate_refresh_token(refresh_token, client, request, *args, **kwargs):
+            return False
+        # A userless token (client credentials) has no account to gate; the auth class refuses it separately.
+        return request.user is None or is_session_allowed(request.user)
 
     def get_additional_claims(self, request: t.Any) -> dict[str, t.Any]:
         """Build the claims granted by ``request``'s scopes.

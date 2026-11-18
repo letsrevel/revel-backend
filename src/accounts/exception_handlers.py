@@ -20,6 +20,7 @@ from ninja.responses import Response
 
 from accounts.exceptions import (
     EmailChangeError,
+    EmailNotVerifiedError,
     LinkTokenError,
     OIDCLoginError,
     ReferralAlreadyActiveError,
@@ -97,6 +98,12 @@ def handle_email_change_error(request: HttpRequest, exc: Exception | t.Type[Exce
     return Response(status=400, data={"detail": str(error), "code": error.code.value})
 
 
+def handle_email_not_verified(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Render an :class:`EmailNotVerifiedError` as ``{"detail": <message>, "code": "email_not_verified"}`` (403)."""
+    error = t.cast(EmailNotVerifiedError, exc)
+    return Response(status=403, data={"detail": str(error), "code": error.code.value})
+
+
 def make_referral_application_handler(status: int) -> ExceptionHandler:
     """Render a :class:`ReferralApplicationError` as ``{"detail": <message>, "code": <code>}``.
 
@@ -121,6 +128,7 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     TurnstileFailedError: make_simple_handler(400),
     LinkTokenError: handle_link_token_error,
     EmailChangeError: handle_email_change_error,
+    EmailNotVerifiedError: handle_email_not_verified,
 }
 
 

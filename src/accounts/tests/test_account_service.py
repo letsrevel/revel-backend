@@ -1,7 +1,7 @@
 # src/accounts/tests/test_account_service.py
 
 import typing as t
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from django.conf import settings
@@ -83,7 +83,7 @@ def test_register_user_success(mock_send_email: MagicMock, valid_register_payloa
     assert not user.email_verified
     assert user.is_active  # Active by default to allow email verification
     mock_send_email.assert_called_once_with(
-        AccountEmail.VERIFICATION, user.email, token=token, context={"language": user.language}
+        AccountEmail.VERIFICATION, user.email, token=token, context={"language": user.language, "deletion_token": ANY}
     )
 
 
@@ -261,18 +261,31 @@ def test_resend_verification_email_blocks_guest_user(mock_send: MagicMock, guest
 
 @patch("accounts.tasks.send_account_email.delay")
 def test_register_user_existing_unverified_non_guest(
-    mock_send_email: MagicMock, user: RevelUser, valid_register_payload: schema.RegisterUserSchema
+    mock_send_email: MagicMock,
+    user: RevelUser,
+    valid_register_payload: schema.RegisterUserSchema,
+    django_capture_on_commit_callbacks: t.Any,
 ) -> None:
-    """Test that re-registering with an existing unverified non-guest email resends verification and raises."""
+    """Re-registering an unverified non-guest email contests it, sends a new link and changes nothing stored."""
     valid_register_payload.email = user.email
     user.email_verified = False
     user.save(update_fields=["email_verified"])
+    stored_hash = RevelUser.objects.get(pk=user.pk).password
+    stored_first_name = RevelUser.objects.get(pk=user.pk).first_name
+    assert stored_first_name != valid_register_payload.first_name
 
-    with pytest.raises(HttpError, match="A user with this email already exists."):
-        account_service.register_user(valid_register_payload)
+    with django_capture_on_commit_callbacks(execute=True):
+        returned, token = account_service.register_user(valid_register_payload)
 
+    assert returned.pk != user.pk  # built from the payload, not the stored row
+    assert returned.first_name == valid_register_payload.first_name
     assert RevelUser.objects.count() == 1
+    user.refresh_from_db()
+    assert user.signup_contested_at is not None
+    assert user.password == stored_hash
+    assert user.first_name == stored_first_name
     mock_send_email.assert_called_once()
+    assert mock_send_email.call_args.kwargs["token"] == token
 
 
 # transaction=True: request_password_reset dispatches send_account_email via transaction.on_commit.

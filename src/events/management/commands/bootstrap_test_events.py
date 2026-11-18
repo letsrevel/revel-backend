@@ -646,6 +646,7 @@ This event has:
                 username=f"dummy{i}@test.com",
                 password="password123",
                 email=f"dummy{i}@test.com",
+                email_verified=True,
             )
             events_models.EventRSVP.objects.create(
                 event=self.events["full"],
@@ -663,6 +664,7 @@ This event has:
                 username=f"ticketholder{i}@test.com",
                 password="password123",
                 email=f"ticketholder{i}@test.com",
+                email_verified=True,
             )
             events_models.Ticket.objects.create(
                 guest_name=ticket_user.get_display_name(),

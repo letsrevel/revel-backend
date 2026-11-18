@@ -36,7 +36,11 @@ ProviderKey = t.Annotated[str, Path(..., pattern=KEY_PATTERN)]
 
 @api_controller("/auth", tags=["Auth"], throttle=AuthThrottle())
 class AuthController(TokenObtainPairController):
-    @route.post("/token/pair", response=TokenObtainPairOutputSchema | schema.TempToken, url_name="token_obtain_pair")
+    @route.post(
+        "/token/pair",
+        response={200: TokenObtainPairOutputSchema | schema.TempToken, 403: schema.LoginErrorSchema},
+        url_name="token_obtain_pair",
+    )
     def obtain_token(  # type: ignore[override]  # adds ``request``; ninja_jwt's untyped supertype has none
         self, request: HttpRequest, user_token: TokenObtainPairInputSchema
     ) -> TokenObtainPairOutputSchema | schema.TempToken:
@@ -46,8 +50,11 @@ class AuthController(TokenObtainPairController):
         For users with TOTP enabled: Returns a temporary token that must be exchanged for
         a full token pair via POST /auth/token/pair/otp along with the TOTP code.
         Users may also sign in through a configured OpenID Connect provider via GET /auth/oidc/{provider}/start.
+        Returns 403 with code `email_not_verified` when the password is correct but the account's email
+        has not been verified yet; the client should offer to resend the verification link.
         """
         user: RevelUser = t.cast(RevelUser, user_token._user)
+        auth_service.require_verified_email(user)
         if user and user.totp_active:
             token = auth_service.get_temporary_otp_jwt(user)
             return schema.TempToken(token=token)
@@ -57,7 +64,11 @@ class AuthController(TokenObtainPairController):
             tenant_session.restamp_pair_for_tenant(pair, tenant_host)
         return pair
 
-    @route.post("/token/pair/otp", response=TokenObtainPairOutputSchema, url_name="token_obtain_pair_otp")
+    @route.post(
+        "/token/pair/otp",
+        response={200: TokenObtainPairOutputSchema, 403: schema.LoginErrorSchema},
+        url_name="token_obtain_pair_otp",
+    )
     def obtain_token_with_otp(
         self, request: HttpRequest, payload: schema.TempTokenWithTOTP
     ) -> TokenObtainPairOutputSchema:
@@ -65,11 +76,13 @@ class AuthController(TokenObtainPairController):
 
         Call this after POST /auth/token/pair returns a temporary token for a 2FA-enabled user.
         Validates the TOTP code from the user's authenticator app and returns a standard JWT token
-        pair on success. Returns 401 if the TOTP code is invalid.
+        pair on success. Returns 401 if the TOTP code is invalid, and 403 with code `email_not_verified`
+        when the account's email has not been verified.
         """
         user, verified = auth_service.verify_otp_jwt(payload.token, payload.otp)
         if not verified:
             raise HttpError(401, str(_("Invalid OTP.")))
+        auth_service.require_verified_email(user)
         return auth_service.get_token_pair_for_user(
             user, tenant_host=tenant_host_from_origin(request.headers.get("origin"))
         )

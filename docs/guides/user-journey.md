@@ -33,6 +33,8 @@ sequenceDiagram
 
 When Cloudflare Turnstile is configured on the instance, registration requires a valid `turnstile_token`; guest RSVP and guest checkout require one too (see [Guest Checkout](#guest-checkout-guest-to-user-upgrade)). The frontend reads the public site key from `GET /api/version` (`turnstile_site_key`, absent when Turnstile is off).
 
+Registering again with the address of an account that is still unverified changes nothing on that account: it is marked as contested and receives a new verification link (the response echoes the submitted details). Verifying a contested account restarts it (password cleared, profile, referral, 2FA and sessions removed) and sends a set-password email. A verified or guest address answers `400`. See [Authentication and sessions](../architecture/auth-sessions.md#unverified-accounts).
+
 ### Authentication
 
 === "Standard Login"
@@ -48,11 +50,12 @@ When Cloudflare Turnstile is configured on the instance, registration requires a
     ```
 
     Returns an access/refresh JWT token pair. The field is `username` (it holds the email
-    address: every account's username is its email).
+    address: every account's username is its email). A non-guest account whose email is not
+    verified gets `403` with code `email_not_verified` instead (after the password checks out).
 
 === "With 2FA (TOTP)"
 
-    If the user has TOTP enabled, the initial login returns a partial token. The user must then submit the TOTP code to complete authentication.
+    If the user has TOTP enabled, the initial login returns a partial token. The user must then submit the TOTP code to complete authentication (`POST /api/auth/token/pair/otp`). An unverified account gets `403 email_not_verified` at the password step, before any partial token is issued; `/api/auth/token/pair/otp` answers the same for a partial token issued earlier.
 
 === "Google SSO"
 
@@ -673,15 +676,15 @@ sequenceDiagram
     API-->>A: "Application received" email
     API-->>Adm: Pushover ping
 
-    alt Approve, account exists
+    alt Approve, verified account exists
         Adm->>API: Approve
         API->>API: Create ReferralCode, link application
         API-->>A: "You're enrolled" email
-    else Approve, no account yet
+    else Approve, no verified account
         Adm->>API: Approve (or Invite by email)
         API-->>A: Invite email → /register?referral_invite=<id>
         A->>API: Register / SSO login with that email
-        API->>API: post_save: enroll by email match
+        API->>API: Enroll once the email is verified (exact address match)
         API-->>A: "You're enrolled" email
     else Reject / Reject permanently
         Adm->>API: Reject (+ optional note)
@@ -696,8 +699,13 @@ sequenceDiagram
 | Reject permanently | Row closed, future applications from that email silently dropped | Same rejection email |
 | Invite by email | Pre-approved application created by the admin | Invite or enrolled email |
 
-Guest accounts created by guest checkout are not signups: they are enrolled when the
-guest becomes a full user (password set or OIDC login). Enrollment never blocks account
+Enrollment needs a verified email that matches the invited address exactly (case-insensitive;
+plus-tags and dots are not folded). A password signup is enrolled when its email is verified
+(or confirmed by a password reset); an SSO account is verified at creation and enrolled then.
+Approving an application whose email belongs to an unverified account sends the invite
+instead of enrolling. The invitee verifies that account (link or password reset) instead of registering
+again, and is enrolled on verification. Guest accounts created by guest checkout are not signups: they are
+enrolled when the guest becomes a full user (password set or OIDC login). Enrollment never blocks account
 creation — a code taken in the meantime is logged and left for the admin.
 
 ### Payout Documents

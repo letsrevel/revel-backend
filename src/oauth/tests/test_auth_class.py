@@ -19,7 +19,6 @@ from oauth2_provider.settings import oauth2_settings
 from pytest_django.fixtures import Settings
 
 from accounts.models import RevelUser
-from common.auth_base import PermissionDenied
 from common.authentication import InvalidBearerToken, OAuthPrincipal, ScopedJWTAuth
 from oauth.models import OAuthApplication
 
@@ -131,11 +130,34 @@ def test_401_carries_resource_metadata(user: RevelUser, oauth_app: OAuthApplicat
 
 
 def test_requires_verified_email_applies_to_app_tokens(user: RevelUser, oauth_app: OAuthApplication) -> None:
+    """An unverified non-guest is refused whether or not the route asks for a verified email."""
     user.email_verified = False
     user.save(update_fields=["email_verified"])
     raw = make_access_token(user, oauth_app, "org:read")
-    with pytest.raises(PermissionDenied):
+    with pytest.raises(InvalidBearerToken):
         _auth(raw, requires_verified_email=True)
+
+
+def test_unverified_user_is_refused_on_every_route(user: RevelUser, oauth_app: OAuthApplication) -> None:
+    """An unverified non-guest holds no app-token session, even where verification is not required."""
+    user.email_verified = False
+    user.save(update_fields=["email_verified"])
+    raw = make_access_token(user, oauth_app, "org:read")
+    with pytest.raises(InvalidBearerToken):
+        _auth(raw)
+
+
+def test_verified_user_and_unverified_guest_are_unaffected(user: RevelUser, oauth_app: OAuthApplication) -> None:
+    user.email_verified = True
+    user.save(update_fields=["email_verified"])
+    _, result = _auth(make_access_token(user, oauth_app, "org:read"))
+    assert isinstance(result, OAuthPrincipal)
+
+    user.email_verified = False
+    user.guest = True
+    user.save(update_fields=["email_verified", "guest"])
+    _, result = _auth(make_access_token(user, oauth_app, "org:read"))
+    assert isinstance(result, OAuthPrincipal)
 
 
 def test_staff_flag_refuses_app_tokens(user: RevelUser, oauth_app: OAuthApplication) -> None:

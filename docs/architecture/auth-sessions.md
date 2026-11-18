@@ -42,12 +42,13 @@ Some events end all of a user's sessions, not one lineage. They call `accounts.j
 | Email change confirmed | `accounts/service/account.py` |
 | Global ban | `accounts/service/global_ban_service.py` |
 | OIDC adoption of an unverified account | `accounts/service/oidc.py` |
+| Adoption of an unverified account (verifying a contested one, password reset on an unverified one) | `accounts/service/account.py` |
 
 A **tenant-domain** session is handled differently: it carries `tenant_host` claims and is refused whenever its host stops serving, on every request and at refresh time. See [White-Label](white-label.md).
 
 ### `credentials_changed_at`
 
-Blacklisting refresh tokens leaves already-issued access tokens alive for up to an hour. `RevelUser.credentials_changed_at` closes that gap: when a password reset or an OIDC adoption stamps it, any access token whose `iat` is earlier is refused with `401` (`common/auth_base.py`). `iat` has whole-second precision, so a token minted in the same second as the change still passes. The same timestamp voids pending email-change links issued before it.
+Blacklisting refresh tokens leaves already-issued access tokens alive for up to an hour. `RevelUser.credentials_changed_at` closes that gap: when a password reset or the adoption of an unverified account (OIDC login, a password reset, or verifying a contested account) stamps it, any access token whose `iat` is earlier is refused with `401` (`common/auth_base.py`). `iat` has whole-second precision, so a token minted in the same second as the change still passes. The same timestamp voids pending email-change links and email-verification links issued before it. Verification links carry an `iat`; one minted in an earlier second than the stamp is refused (same whole-second rule as access tokens). Links minted before they carried an `iat` are refused once the account has been stamped, and still work on an account that never was.
 
 ## Refresh reuse grace
 
@@ -79,6 +80,29 @@ Revel is an OIDC relying party ([ADR-0016](../adr/0016-oidc-relying-party.md)). 
 - `credentials_changed_at` stamped.
 
 A verified existing account is linked without any of this.
+
+## Unverified accounts
+
+Until its email is verified, nothing proves an account belongs to the person who set its password, 2FA or profile, and an unauthenticated request must never change what such an account stores.
+
+**No session without a verified email.** `POST /auth/token/pair` (once the password is correct) and `POST /auth/token/pair/otp` answer `403` with `{"detail": "Please verify your email address before signing in.", "code": "email_not_verified"}` (clients branch on `code`; `detail` is translated) for a non-guest account whose email is unverified; a wrong password gets the usual refusal, so the response never says whether an account exists. The check is `auth_service.require_verified_email`. Refresh rotation refuses such an account like any other dead session (`401`, the presented token is blacklisted). Per-request session access-token validation is unchanged, but the other long-lived channels hold to the same rule: an OAuth app token of an unverified non-guest is refused on API routes, userinfo and the OAuth refresh grant (`common/authentication.py` and `oauth/validator.py`, `401` or `invalid_grant`), and the Telegram bot treats a linked unverified non-guest like a deactivated account (`telegram/middleware.py`, via `is_session_allowed`). The frontend handles the code with a message and a "resend verification email" action. Guests never log in with a password and are not subject to the check; verification, email-change confirmation and OIDC all produce verified accounts before issuing a session.
+
+**Repeat signup is a contest, not an overwrite.** `POST /account/register` with the address of an unverified account changes nothing the account stores. It stamps `RevelUser.signup_contested_at`, sends a fresh verification link, validates the referral code (`422` if invalid) without applying it, and answers `201` with a body built from the submitted payload only. A **verified** address still gets `400`, and so does a guest address (which also receives the activation email).
+
+**Adoption.** The first proof of ownership restarts the account through `adopt_unverified_account` in `accounts/service/account.py`: `reset_unverified_credentials` (new password or an unusable one, 2FA off with a new secret, every session and app token revoked, Telegram accounts detached, `credentials_changed_at` stamped), then, only if the account was contested, a profile reset (preferred name, pronouns, bio, phone, picture; names and `language` are kept) and deletion of its `Referral`, then the account is marked verified and `signup_contested_at` cleared. Adoption (OIDC login, a password reset, or verifying a contested account) restarts the account as described; an uncontested verification link only marks it verified.
+
+| Trigger | What happens |
+|---|---|
+| OIDC login asserting the address | Adopted with an unusable password. |
+| Verification link on a **contested** account (old or new link) | Adopted with an unusable password; the response still carries a session, and a password-reset email is sent so the person can set a password. |
+| Verification link on an uncontested account | Marked verified; password, profile and 2FA are kept. |
+| Password reset on an unverified, non-guest account | Adopted with the new password (profile and referral reset only if contested). A verified account keeps its 2FA. |
+
+`verify_email` loads the user with `select_for_update`, so concurrent links cannot interleave. Data the account created before a restart (tickets, memberships, questionnaire answers) stays attached to it. Creating an organization requires a verified email.
+
+Every verification email also carries a "didn't sign up? delete your account" link to `/account/confirm-deletion`, the same link the verification reminders carry.
+
+Referral invitations are enrolled by a single `post_save` receiver (`accounts/signals.py`) when a non-guest account becomes verified, whichever path does it.
 
 ## Bot protection (Cloudflare Turnstile)
 

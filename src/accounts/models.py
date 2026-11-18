@@ -83,6 +83,13 @@ class RevelUser(ExifStripMixin, StripeConnectMixin, AbstractUser):
         editable=False,
         help_text="Last password reset; single-use links issued before it are rejected.",
     )
+    signup_contested_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="Set when someone signs up again with this unverified account's email; verifying the account "
+        "then restarts it (password, profile, referral).",
+    )
     language = models.CharField(
         max_length=7,
         choices=settings.LANGUAGES,

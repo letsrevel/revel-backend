@@ -61,6 +61,9 @@ def oauth_app(user: RevelUser) -> "OAuthApplication":
     from oauth.models import OAuthApplication
     from oauth.scopes import SCOPES
 
+    # App tokens are refused for unverified accounts, so the owner of a working app is verified.
+    user.email_verified = True
+    user.save(update_fields=["email_verified"])
     app = OAuthApplication(
         user=user,
         name="Test App",

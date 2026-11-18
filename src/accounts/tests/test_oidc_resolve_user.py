@@ -348,7 +348,7 @@ def test_adopting_unverified_account_rejects_earlier_access_tokens(unverified_us
     from common.authentication import I18nJWTAuth
 
     token = str(RefreshToken.for_user(unverified_user).access_token)  # type: ignore[attr-defined]
-    with patch("accounts.service.oidc.timezone.now", return_value=timezone.now() + timedelta(seconds=2)):
+    with patch("accounts.service.account.timezone.now", return_value=timezone.now() + timedelta(seconds=2)):
         oidc._resolve_user(GOOGLE, claims(email=unverified_user.email))
     request = RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
     with pytest.raises(SessionRevoked):

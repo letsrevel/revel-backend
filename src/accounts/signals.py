@@ -1,8 +1,10 @@
 """Signal handlers for account-related operations."""
 
+import typing as t
+
 import structlog
 from django.db import transaction
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 from accounts.dispatch import guest_converted
@@ -74,22 +76,40 @@ def notify_admin_on_guest_conversion(sender: type[RevelUser], user: RevelUser, *
         _dispatch_user_joined_notifications(user, converted=True)
 
 
-@receiver(post_save, sender=RevelUser)
-def enroll_referral_invitee_on_creation(
-    sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: object
+@receiver(pre_save, sender=RevelUser)
+def stash_previous_verified_state(
+    sender: type[RevelUser], instance: RevelUser, update_fields: t.Iterable[str] | None = None, **kwargs: t.Any
 ) -> None:
-    """Turn an approved referral invite into a ReferralCode when the invitee signs up.
+    """Remember the stored ``(email_verified, guest)`` so ``post_save`` can tell a verification from any other save."""
+    if instance._state.adding or (update_fields is not None and "email_verified" not in set(update_fields)):
+        instance._enroll_prev = None  # type: ignore[attr-defined]
+        return
+    instance._enroll_prev = (  # type: ignore[attr-defined]
+        RevelUser.objects.filter(pk=instance.pk).values("email_verified", "guest").first()
+    )
 
-    Only real signups count: guest accounts (created by guest checkout, possibly by somebody
-    else typing the invitee's email, and never verified) are skipped — the same line the admin
-    signup notification draws. A guest is enrolled later, when they become a full user through
-    ``account.convert_guest`` (password reset, OIDC login or the admin "Convert guest" action).
+
+@receiver(post_save, sender=RevelUser)
+def enroll_referral_invitee_on_verification(
+    sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: t.Any
+) -> None:
+    """Turn an approved referral invite into a ReferralCode when the invitee's email becomes verified.
+
+    The one place this happens for a non-guest account: created already verified (OIDC), or
+    ``email_verified`` flipping from False to True on any save (verification link, password reset,
+    OIDC adoption, the Django admin, email-change confirmation). An unverified signup never enrols,
+    since anyone can type an invitee's address into the signup form. A guest is enrolled when it
+    converts (``account.convert_guest``), which this receiver deliberately leaves to it.
 
     Delegates to :func:`try_enroll_invitee`, which never raises: a referral perk must not block
-    account creation.
+    the account change.
     """
-    if not created or instance.guest:
+    if instance.guest or not instance.email_verified:
         return
+    if not created:
+        prev: dict[str, t.Any] | None = getattr(instance, "_enroll_prev", None)
+        if prev is None or prev["email_verified"] or prev["guest"]:
+            return
     referral_application_service.try_enroll_invitee(instance)
 
 

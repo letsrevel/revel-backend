@@ -129,7 +129,7 @@ class TestSubmitApplication:
     def test_already_enrolled_email_is_silently_dropped(
         self, applications_enabled: None, revel_user_factory: t.Any, mock_email: MagicMock
     ) -> None:
-        user = revel_user_factory(email="a@example.com")
+        user = revel_user_factory(email="a@example.com", email_verified=True)
         ReferralCode.objects.create(user=user, code="have")
         assert svc.submit_application(email="a@example.com", code="new", note="hi") is None
         mock_email.assert_not_called()
@@ -139,8 +139,10 @@ class TestSubmitApplication:
         self, applications_enabled: None, revel_user_factory: t.Any, mock_email: MagicMock
     ) -> None:
         """The code check runs first, so the response cannot reveal that the email is enrolled."""
-        ReferralCode.objects.create(user=revel_user_factory(email="other@example.com"), code="taken")
-        ReferralCode.objects.create(user=revel_user_factory(email="a@example.com"), code="have")
+        ReferralCode.objects.create(
+            user=revel_user_factory(email="other@example.com", email_verified=True), code="taken"
+        )
+        ReferralCode.objects.create(user=revel_user_factory(email="a@example.com", email_verified=True), code="have")
         with pytest.raises(ReferralApplicationConflictError) as exc:
             svc.submit_application(email="a@example.com", code="TAKEN", note="hi")
         assert str(exc.value) == "This referral code is already taken."
@@ -183,7 +185,7 @@ class TestApprove:
         mock_email: MagicMock,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        user = revel_user_factory(email="new@example.com")
+        user = revel_user_factory(email="new@example.com", email_verified=True)
         pending.revenue_share_percent = Decimal("20.00")
         pending.save()
 
@@ -203,7 +205,7 @@ class TestApprove:
         revel_user_factory: t.Any,
         mock_email: MagicMock,
     ) -> None:
-        user = revel_user_factory(email="new@example.com")
+        user = revel_user_factory(email="new@example.com", email_verified=True)
         ReferralCode.objects.create(user=user, code="oldcode", is_active=False)
 
         svc.approve(pending, actor=admin)
@@ -219,7 +221,7 @@ class TestApprove:
         revel_user_factory: t.Any,
         mock_email: MagicMock,
     ) -> None:
-        user = revel_user_factory(email="new@example.com")
+        user = revel_user_factory(email="new@example.com", email_verified=True)
         ReferralCode.objects.create(user=user, code="already")
 
         with pytest.raises(ReferralAlreadyActiveError):
@@ -319,7 +321,7 @@ class TestEnrollOnSignup:
         mock_email.reset_mock()
 
         with django_capture_on_commit_callbacks(execute=True):
-            user = revel_user_factory(email="New@Example.com")
+            user = revel_user_factory(email="New@Example.com", email_verified=True)
 
         code = ReferralCode.objects.get(user=user)
         assert code.code == "newcode"
@@ -328,11 +330,11 @@ class TestEnrollOnSignup:
         assert mock_email.call_args.args == ("referral_enrolled", user.email)
 
     def test_signup_without_invite_is_noop(self, revel_user_factory: t.Any, mock_email: MagicMock) -> None:
-        user = revel_user_factory(email="nobody@example.com")
+        user = revel_user_factory(email="nobody@example.com", email_verified=True)
         assert not ReferralCode.objects.filter(user=user).exists()
 
     def test_pending_application_does_not_enroll(self, pending: ReferralApplication, revel_user_factory: t.Any) -> None:
-        user = revel_user_factory(email="new@example.com")
+        user = revel_user_factory(email="new@example.com", email_verified=True)
         assert not ReferralCode.objects.filter(user=user).exists()
 
     def test_code_clash_does_not_block_account_creation(
@@ -344,9 +346,11 @@ class TestEnrollOnSignup:
     ) -> None:
         """A referral perk must never break signup: the account is created, enrollment is skipped."""
         svc.approve(pending, actor=admin)
-        ReferralCode.objects.create(user=revel_user_factory(email="squatter@example.com"), code="NEWCODE")
+        ReferralCode.objects.create(
+            user=revel_user_factory(email="squatter@example.com", email_verified=True), code="NEWCODE"
+        )
 
-        user = revel_user_factory(email="new@example.com")
+        user = revel_user_factory(email="new@example.com", email_verified=True)
 
         assert not ReferralCode.objects.filter(user=user).exists()
         pending.refresh_from_db()
@@ -376,7 +380,7 @@ class TestCreateInviteGuards:
     def test_reinvite_after_enrollment_is_a_silent_enrolled_conflict(
         self, admin: RevelUser, revel_user_factory: t.Any, mock_email: MagicMock
     ) -> None:
-        user = revel_user_factory(email="done@example.com")
+        user = revel_user_factory(email="done@example.com", email_verified=True)
         svc.create_invite(
             email="done@example.com", code="mine", revenue_share_percent=Decimal("15.00"), note="", actor=admin
         )
@@ -393,7 +397,7 @@ class TestApproveCodeClash:
         self, pending: ReferralApplication, admin: RevelUser, revel_user_factory: t.Any, mock_email: MagicMock
     ) -> None:
         """Two live applications may hold one code; minting the second must not 500 the admin."""
-        user = revel_user_factory(email="new@example.com")
+        user = revel_user_factory(email="new@example.com", email_verified=True)
         ReferralCode.objects.create(user=revel_user_factory(), code="NEWCODE")
 
         with pytest.raises(ReferralApplicationConflictError, match="already taken"):
@@ -444,7 +448,7 @@ class TestGuestEnrollment:
         self, approved: ReferralApplication, revel_user_factory: t.Any, mock_email: MagicMock
     ) -> None:
         ReferralCode.objects.create(user=revel_user_factory(), code="newcode")
-        user = revel_user_factory(email="other@example.com")
+        user = revel_user_factory(email="other@example.com", email_verified=True)
         user.email = "new@example.com"
         user.save(update_fields=["email"])
 

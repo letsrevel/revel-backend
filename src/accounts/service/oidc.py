@@ -18,7 +18,6 @@ from uuid import uuid4
 
 import httpx
 import jwt
-import pyotp
 import structlog
 from django.conf import settings
 from django.core.cache import cache
@@ -27,7 +26,6 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404
-from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -38,7 +36,6 @@ from pydantic import BaseModel, EmailStr, Field, ValidationError
 from accounts.exceptions import OIDCLoginError
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import (
-    blacklist_user_tokens,
     check_blacklist,
     consume_one_shot_token,
     create_oidc_login_token,
@@ -342,16 +339,10 @@ def _adopt_unverified_account(user: RevelUser) -> None:
     Nothing proved the address belonged to whoever set those credentials, so the IdP's
     assertion is the first proof of ownership. The account starts over like an OIDC-created one:
     no usable password, no 2FA enrollment, no live sessions or linked Telegram account, and
-    ``credentials_changed_at`` voids any pending email-change link and earlier access tokens.
+    ``credentials_changed_at`` voids any pending email-change link and earlier access tokens. An
+    account somebody signed up for again meanwhile also loses its profile and referral.
     """
-    user.email_verified = True
-    user.set_unusable_password()
-    user.totp_active = False
-    user.totp_secret = pyotp.random_base32()
-    user.credentials_changed_at = timezone.now()
-    user.save(update_fields=["email_verified", "password", "totp_active", "totp_secret", "credentials_changed_at"])
-    blacklist_user_tokens(user)
-    user.telegram_users.update(user=None)
+    account_service.adopt_unverified_account(user, password=None)
     logger.info("oidc_unverified_account_adopted", user_id=str(user.id))
 
 

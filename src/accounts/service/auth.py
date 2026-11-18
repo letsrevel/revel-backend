@@ -15,6 +15,7 @@ from ninja_jwt.schema import TokenObtainPairOutputSchema
 from ninja_jwt.tokens import RefreshToken
 
 from accounts import schema
+from accounts.exceptions import EmailNotVerifiedError
 from accounts.jwt import TOTPJWTPayload, check_blacklist, create_token, validate_otp_jwt
 from accounts.jwt import blacklist as blacklist_token
 from accounts.models import RevelUser
@@ -59,6 +60,26 @@ def verify_otp_jwt(token: str, otp: str) -> tuple[RevelUser, bool]:
     )
     logging_method(result, user_id=str(user.id), email=user.email)
     return user, is_valid
+
+
+def is_session_allowed(user: RevelUser) -> bool:
+    """Whether the account may hold a session: guests always, everyone else only with a verified email."""
+    return user.guest or user.email_verified
+
+
+def require_verified_email(user: RevelUser) -> None:
+    """Refuse a login for a non-guest account whose email nobody has verified.
+
+    Call it once the password has checked out and before any 2FA step (``/auth/token/pair`` calls it
+    ahead of the TOTP branch), so the refusal never tells a caller anything about an account they could
+    not already prove the password for.
+
+    Raises:
+        EmailNotVerifiedError: The account's email is not verified (403, code ``email_not_verified``).
+    """
+    if not is_session_allowed(user):
+        logger.info("login_refused_email_not_verified", user_id=str(user.id))
+        raise EmailNotVerifiedError(str(_("Please verify your email address before signing in.")))
 
 
 def get_token_pair_for_user(user: RevelUser, *, tenant_host: str | None = None) -> TokenObtainPairOutputSchema:

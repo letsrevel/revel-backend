@@ -98,7 +98,7 @@ class TestChangeForm:
     def test_approve_active_referrer_shows_error_and_stays_pending(
         self, admin_client: Client, pending: ReferralApplication, revel_user_factory: t.Any
     ) -> None:
-        user = revel_user_factory(email="p@example.com")
+        user = revel_user_factory(email="p@example.com", email_verified=True)
         ReferralCode.objects.create(user=user, code="already")
         data = _form_data(pending, accounts_referralapplication_approve="1")
         response = admin_client.post(_change_url(pending), data, follow=True)
@@ -122,7 +122,7 @@ class TestChangeForm:
         self, admin_client: Client, pending: ReferralApplication, revel_user_factory: t.Any
     ) -> None:
         """The row still shows the typed code, so the message must say which code actually won."""
-        user = revel_user_factory(email="p@example.com")
+        user = revel_user_factory(email="p@example.com", email_verified=True)
         ReferralCode.objects.create(user=user, code="oldcode", is_active=False)
 
         data = _form_data(pending, code="newcode", accounts_referralapplication_approve="1")
@@ -186,7 +186,7 @@ class TestInvitePage:
         assert mock_email.call_args.args == ("referral_invite", "new@example.com")
 
     def test_post_for_existing_user_enrolls(self, admin_client: Client, revel_user_factory: t.Any) -> None:
-        user = revel_user_factory(email="here@example.com")
+        user = revel_user_factory(email="here@example.com", email_verified=True)
         data = {"email": "here@example.com", "code": "fresh", "revenue_share_percent": "15.00", "note": ""}
         admin_client.post(INVITE_URL, data)
         assert ReferralCode.objects.get(user=user).code == "fresh"
@@ -206,7 +206,7 @@ class TestInvitePage:
 
     @NO_MANIFEST_STORAGE
     def test_active_referrer_is_a_form_error(self, admin_client: Client, revel_user_factory: t.Any) -> None:
-        user = revel_user_factory(email="active@example.com")
+        user = revel_user_factory(email="active@example.com", email_verified=True)
         ReferralCode.objects.create(user=user, code="have")
         data = {"email": "active@example.com", "code": "fresh", "revenue_share_percent": "15.00", "note": ""}
         response = admin_client.post(INVITE_URL, data)

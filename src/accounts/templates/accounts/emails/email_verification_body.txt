@@ -3,6 +3,9 @@
 {% blocktrans %}Please verify your email and finish setting up your account.{% endblocktrans %}
 
 {{ action_link|safe }}
-
+{% if deletion_link %}
+{% blocktrans %}If you didn't sign up for Revel, you can delete your account:{% endblocktrans %}
+{{ deletion_link|safe }}
+{% endif %}
 {% blocktrans %}Thank you,
 The Revel Team{% endblocktrans %}

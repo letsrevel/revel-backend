@@ -285,6 +285,9 @@ msgstr "Ya existe una cuenta con este correo electrónico."
 msgid "Invalid verification token."
 msgstr "Token de verificación no válido."
 
+msgid "Please verify your email address before signing in."
+msgstr "Verifica tu dirección de correo electrónico antes de iniciar sesión."
+
 msgid "A user with this email no longer exists."
 msgstr "Ya no existe ninguna cuenta con este correo electrónico."
 

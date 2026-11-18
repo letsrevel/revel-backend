@@ -144,6 +144,9 @@ def send_account_email(
 
             - ``"return_url"`` (a relative path, used only by the verification email) is appended
               as a fully percent-encoded ``returnUrl`` query param.
+            - ``"deletion_token"`` (verification email only) adds the "didn't sign up? delete your
+              account" link; it gets the same ``return_host`` hint as the action link. Absent from
+              messages queued by an older web process, which then render without that line.
             - ``"return_host"`` (white-label, #1156) is the hostname of the tenant (custom) domain
               the request came from, appended as a percent-encoded ``return_host`` query param so
               the platform page can send the user back after the action. SECURITY: the link itself
@@ -183,6 +186,11 @@ def send_account_email(
         if return_host := caller_context.get("return_host"):
             action_link += ("&" if "?" in action_link else "?") + "return_host=" + quote(return_host, safe="")
         body_context["action_link"] = action_link
+        if email_type == AccountEmail.VERIFICATION and (deletion_token := caller_context.get("deletion_token")):
+            deletion_link = site_settings.frontend_base_url + f"/account/confirm-deletion?token={deletion_token}"
+            if return_host:
+                deletion_link += "&return_host=" + quote(return_host, safe="")
+            body_context["deletion_link"] = deletion_link
 
     # Workers have no active language: render in the recipient's. The caller passes it in ``context``
     # because a lookup by ``to`` misses when the address is not (yet) the user's, e.g. an email change.

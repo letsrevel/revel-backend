@@ -251,7 +251,8 @@ class ScopedJWTAuth(I18nJWTAuth):
 
         Raises:
             InvalidBearerToken: The token is unknown, expired, userless, issued for a
-                deactivated app or user, a DCR registration token, or the route demands
+                deactivated app or user, a non-guest user without a verified email, a DCR
+                registration token, or the route demands
                 staff/superuser (which an app token never is).
             PermissionDenied: The route requires a verified email and the user has none.
         """
@@ -276,6 +277,11 @@ class ScopedJWTAuth(I18nJWTAuth):
         # there would be no ``client_id`` to build a principal from. Refuse rather than crash.
         app = access_token.application
         if user is None or not user.is_active or app is None or oauth2_settings.DCR_REGISTRATION_SCOPE in scopes:
+            raise InvalidBearerToken()
+        # Same rule as password login and refresh rotation (``accounts.service.auth.is_session_allowed``),
+        # checked inline because ``common`` never imports from apps: an unverified non-guest account holds
+        # no long-lived credential, on any route.
+        if not (user.guest or user.email_verified):
             raise InvalidBearerToken()
         # An app token is never a staff credential (spec §7.2). Deliberately a 401, not
         # the 403 the session path returns: the token itself is unusable here.

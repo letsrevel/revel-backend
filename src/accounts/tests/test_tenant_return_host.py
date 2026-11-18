@@ -8,12 +8,13 @@ account-security token must never be placed on a tenant-domain link, even when t
 import inspect
 import re
 import typing as t
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import orjson
 import pytest
 from django.test.client import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from accounts.service import account as account_service
@@ -57,6 +58,8 @@ def _action_link(mock_send: MagicMock) -> str:
     body = mock_send.call_args_list[0].kwargs["body"]
     base = re.escape(SiteSettings.get_solo().frontend_base_url)
     links = re.findall(rf"{base}/\S+", body)
+    if any("/login/confirm-email" in link for link in links):  # the verification email also carries a deletion link
+        links = [link for link in links if "/account/confirm-deletion" not in link]
     assert len(links) == 1, body
     return str(links[0])
 
@@ -273,5 +276,28 @@ def test_verification_dispatch_merges_return_url_and_hint_in_context(user: Revel
         AccountEmail.VERIFICATION,
         user.email,
         token=token,
-        context={"language": user.language, "return_url": "/oauth/authorize?client_id=x", "return_host": HOST},
+        context={
+            "language": user.language,
+            "return_url": "/oauth/authorize?client_id=x",
+            "return_host": HOST,
+            "deletion_token": ANY,
+        },
     )
+
+
+def test_verify_contested_account_set_password_email_carries_the_hint(
+    client: Client, unverified_user: RevelUser, run_email_task_inline: MagicMock
+) -> None:
+    """The set-password email queued when verifying a contested account keeps the tenant return hint."""
+    RevelUser.objects.filter(pk=unverified_user.pk).update(signup_contested_at=timezone.now())
+    link = account_service.create_verification_token(unverified_user)
+
+    response = client.post(
+        reverse("api:verify-email"),
+        data=orjson.dumps({"token": link}),
+        content_type="application/json",
+        HTTP_ORIGIN=TENANT_ORIGIN,
+    )
+
+    assert response.status_code == 200
+    _assert_platform_link_with_hint(_action_link(run_email_task_inline), "/login/reset-password")

@@ -6,5 +6,8 @@
 <div class="card">
   <a href="{{ action_link }}" class="button">{% trans "Verify Email" %}</a>
 </div>
+{% if deletion_link %}<p style="color:#666;font-size:0.9em;">
+  {% blocktrans with link=deletion_link %}If you didn't sign up for Revel, you can <a href="{{ link }}">delete your account</a>.{% endblocktrans %}
+</p>{% endif %}
 <p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
 {% endblock %}
