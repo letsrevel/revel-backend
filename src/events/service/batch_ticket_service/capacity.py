@@ -28,12 +28,13 @@ def event_seats_available(
     The single source of the ticket-capacity counting rules, shared by
     ``BatchTicketService.assert_event_capacity`` and the series pass flows: committed
     (non-cancelled) tickets PLUS pending unexpired waitlist offers, excluding
-    cutoff-batch offers (they race FCFS against real seats) and the buyer's own offer
-    (it reserves a seat FOR them). Mirrors ``EventManager._assert_capacity``.
+    cutoff-batch offers (they race FCFS against real seats) and, when ``exclude_own_offer``
+    is True, the buyer's own offer (it reserves a seat FOR them). Mirrors
+    ``EventManager._assert_capacity``.
 
     Args:
         locked_event: The Event, already row-locked (``select_for_update``) by the caller.
-        user: The buyer (their own pending offer is not counted against them).
+        user: The buyer (with ``exclude_own_offer``, their own pending offer is not counted against them).
         effective_cap: ``Event.effective_capacity``; must be non-zero (0 = unlimited).
         exclude_own_offer: Whether the buyer's own pending offer is left out of the count. True only
             for flows that go on to claim that offer (batch checkout); the series pass flows pass

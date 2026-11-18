@@ -193,6 +193,10 @@ class SeriesPassPurchaseService:
         future_links: list[SeriesPassTierLink] = list(
             self.series_pass.tier_links.filter(event__start__gte=now).select_related("event").order_by("tier_id")
         )
+        # An event linked between the lock-free gate pass and this locked re-query has not been gated yet.
+        gated_event_ids = {link.event_id for link in pre_links}
+        if late_links := [link for link in future_links if link.event_id not in gated_event_ids]:
+            self._assert_covered_events_eligible(late_links)
         if not future_links:
             # Defense-in-depth (#632): get_quote's remaining<2 gate above already
             # blocks this in the normal case, but it and this future_links query each
