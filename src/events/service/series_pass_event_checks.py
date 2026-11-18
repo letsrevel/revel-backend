@@ -10,7 +10,9 @@ ticket purchase applies to each of those events:
   events); ``TicketSalesGate`` and ``AvailabilityGate`` by the pass-level quote and the
   tier/event capacity assertions.
 - Event capacity uses the counting rules of ``BatchTicketService.assert_event_capacity``
-  (``event_seats_available``).
+  (``event_seats_available``), except that the buyer's own pending waitlist offer counts like
+  anyone else's (the pass flows never claim it).
+- Owners and staff are exempt from the blacklist check in the backfill and extension too.
 
 Lock order for every writer that uses these helpers: pass row, then tiers pk-ordered, then
 events pk-ordered. This is the batch checkout's own order (tier -> event).
@@ -55,7 +57,11 @@ def is_blocked_by_blacklist(user: RevelUser, event: Event) -> bool:
     """Whether the blacklist gate blocks ``user`` (hard or fuzzy, honouring member/whitelist bypass).
 
     The blacklist is organization-wide, so any one covered event answers for all of them.
+    Owners and staff are never blocked: the normal flow's ``PrivilegedAccessGate`` short-circuits
+    before ``BlacklistGate``, and the pass purchase exempts them the same way.
     """
+    if event.organization.is_owner_or_staff(user):
+        return False
     return EligibilityService(user, event).check_gates((BlacklistGate,)) is not None
 
 
@@ -73,6 +79,13 @@ def lock_events_and_find_full(events: t.Iterable[Event], user: RevelUser) -> set
     full: set[UUID] = set()
     for event in locked:
         cap = event.effective_capacity
-        if cap and event_seats_available(event, user, cap) <= 0:
+        # ponytail: event_seats_available row-locks every non-cancelled ticket of each covered event,
+        # which widens the existing lock-order inversion with cleanup_expired_payments / cancellation_service
+        # to N events. Upgrade path: count without row locks (the Event row lock above already
+        # serializes capacity writers).
+        # ponytail: exclude_own_offer=False counts the buyer's own pending waitlist offer like anyone else's
+        # (conservative, never oversells). Claiming the offer would be the alternative; the buyer's waitlist
+        # row is left as is.
+        if cap and event_seats_available(event, user, cap, exclude_own_offer=False) <= 0:
             full.add(event.pk)
     return full

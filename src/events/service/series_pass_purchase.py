@@ -158,12 +158,21 @@ class SeriesPassPurchaseService:
         checkout-session endpoint to obtain the Stripe checkout URL (#632).
         """
         self._assert_purchasable_by_user()
-        quote = series_pass_service.get_quote(self.series_pass)
+        # The per-event status gate below gives the richer verdict (and exempts owners/staff).
+        quote = series_pass_service.get_quote(self.series_pass, check_event_status=False)
         if not quote.purchasable:
             raise SeriesPassNotPurchasableError(quote.reason or str(_("This pass cannot be purchased.")))
         if self._has_active_held_pass():
             raise SeriesPassNotPurchasableError(str(_("You already hold this pass.")))
         self._assert_series_questionnaires()
+
+        # Light, lock-free checks first: the covered future events and the per-event gates run before the
+        # pass row lock so a refused buyer never holds it. The links are re-queried under the lock below.
+        now = timezone.now()
+        pre_links: list[SeriesPassTierLink] = list(
+            self.series_pass.tier_links.filter(event__start__gte=now).select_related("event")
+        )
+        self._assert_covered_events_eligible(pre_links)
 
         # Re-assert the total_quantity cap under a row lock — the quote above checked
         # it unlocked (fast path), so two concurrent buyers could both pass it. Lock
@@ -181,7 +190,6 @@ class SeriesPassPurchaseService:
         if locked_pass.total_quantity is not None and locked_pass.quantity_sold >= locked_pass.total_quantity:
             raise SeriesPassNotPurchasableError(str(_("This pass is sold out.")))
 
-        now = timezone.now()
         future_links: list[SeriesPassTierLink] = list(
             self.series_pass.tier_links.filter(event__start__gte=now).select_related("event").order_by("tier_id")
         )
@@ -199,8 +207,6 @@ class SeriesPassPurchaseService:
         compliance.assert_sale_allowed(
             self.org, self.series_pass.payment_method, [quote.price], [link.event for link in future_links]
         )
-
-        self._assert_covered_events_eligible(future_links)
 
         # Lock all mapped tiers in pk order (deadlock discipline, mirrors BatchTicketService).
         locked_tiers = {

@@ -24,6 +24,7 @@ from events.models import (
     SeriesPassTierLink,
     TicketTier,
 )
+from events.service.series_pass_questionnaires import missing_series_questionnaires
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 pytestmark = pytest.mark.django_db
@@ -224,10 +225,12 @@ def test_anchor_skips_non_open_event(
 ) -> None:
     Event.objects.filter(pk=covered_events[0].pk).update(status=Event.EventStatus.CANCELLED)
 
-    body = _quote(free_pass, revel_user)
+    # The quote itself is no longer purchasable with a non-OPEN covered event (no questionnaire
+    # payload then), so exercise the anchor selection directly.
+    missing, anchor_event_id, _routes = missing_series_questionnaires(free_pass, revel_user)
 
-    assert body["questionnaires_missing"] == [str(questionnaire.id)]
-    assert body["questionnaire_event_id"] == str(covered_events[1].id)
+    assert missing == [questionnaire.id]
+    assert anchor_event_id == covered_events[1].id
 
 
 def test_not_purchasable_quote_is_clear(

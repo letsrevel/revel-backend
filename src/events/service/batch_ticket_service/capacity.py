@@ -20,7 +20,9 @@ if t.TYPE_CHECKING:
     from events.service.batch_ticket_service.context import CartGroup
 
 
-def event_seats_available(locked_event: Event, user: RevelUser, effective_cap: int) -> int:
+def event_seats_available(
+    locked_event: Event, user: RevelUser, effective_cap: int, *, exclude_own_offer: bool = True
+) -> int:
     """Count the seats still free on an event, under the caller's Event row lock.
 
     The single source of the ticket-capacity counting rules, shared by
@@ -33,6 +35,9 @@ def event_seats_available(locked_event: Event, user: RevelUser, effective_cap: i
         locked_event: The Event, already row-locked (``select_for_update``) by the caller.
         user: The buyer (their own pending offer is not counted against them).
         effective_cap: ``Event.effective_capacity``; must be non-zero (0 = unlimited).
+        exclude_own_offer: Whether the buyer's own pending offer is left out of the count. True only
+            for flows that go on to claim that offer (batch checkout); the series pass flows pass
+            False so the offer counts like anyone else's.
 
     Returns:
         Free seats; zero or negative means the event is full.
@@ -55,13 +60,16 @@ def event_seats_available(locked_event: Event, user: RevelUser, effective_cap: i
         )
         .count()
     )
-    has_own_offer = WaitlistOffer.objects.filter(
-        event=locked_event,
-        user=user,
-        status=WaitlistOffer.WaitlistOfferStatus.PENDING,
-        expires_at__gt=now,
-        is_cutoff_batch=False,
-    ).exists()
+    has_own_offer = (
+        exclude_own_offer
+        and WaitlistOffer.objects.filter(
+            event=locked_event,
+            user=user,
+            status=WaitlistOffer.WaitlistOfferStatus.PENDING,
+            expires_at__gt=now,
+            is_cutoff_batch=False,
+        ).exists()
+    )
     if has_own_offer:
         pending_offers = max(0, pending_offers - 1)
 

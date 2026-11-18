@@ -8,6 +8,7 @@ import typing as t
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 from django.utils import timezone
@@ -26,6 +27,7 @@ from events.models import (
     SeriesPassTierLink,
     Ticket,
     TicketTier,
+    WaitlistOffer,
 )
 from events.service import series_pass_service
 from events.service.event_manager import Reasons, UserIsIneligibleError
@@ -84,6 +86,20 @@ def buyer(revel_user_factory: RevelUserFactory) -> RevelUser:
     return revel_user_factory(
         username="buyer@example.com", email="buyer@example.com", first_name="John", last_name="Smith"
     )
+
+
+def _privileged_user(role: str, organization: Organization, revel_user_factory: RevelUserFactory) -> RevelUser:
+    """An owner or a (non-member) staff user whose name matches ``John Smith``."""
+    if role == "owner":
+        user = organization.owner
+        user.first_name, user.last_name = "John", "Smith"
+        user.save()
+        return user
+    user = revel_user_factory(
+        username="staffer@example.com", email="staffer@example.com", first_name="John", last_name="Smith"
+    )
+    OrganizationStaff.objects.create(organization=organization, user=user)
+    return user
 
 
 def _assert_nothing_written(series_pass: SeriesPass, tiers: list[TicketTier]) -> None:
@@ -149,15 +165,7 @@ class TestPurchaseEligibility:
         role: str,
     ) -> None:
         """Mirrors PrivilegedAccessGate: exempt from blacklist-fuzzy, status and profile gates."""
-        if role == "owner":
-            user = organization.owner
-            user.first_name, user.last_name = "John", "Smith"
-            user.save()
-        else:
-            user = revel_user_factory(
-                username="staffer@example.com", email="staffer@example.com", first_name="John", last_name="Smith"
-            )
-            OrganizationStaff.objects.create(organization=organization, user=user)
+        user = _privileged_user(role, organization, revel_user_factory)
         _covered(organization, event_series, free_pass, "ex1", requires_full_profile=True)
         event, _ = _covered(organization, event_series, free_pass, "ex2", days=8)
         Event.objects.filter(pk=event.pk).update(status=Event.EventStatus.DRAFT)
@@ -185,9 +193,18 @@ class TestPurchaseEligibility:
 
 
 class TestPurchaseEventCapacity:
+    @pytest.mark.parametrize("role", ["buyer", "owner", "staff"])
     def test_full_event_refused_with_429_nothing_written(
-        self, organization: Organization, event_series: EventSeries, free_pass: SeriesPass, buyer: RevelUser
+        self,
+        organization: Organization,
+        event_series: EventSeries,
+        free_pass: SeriesPass,
+        buyer: RevelUser,
+        revel_user_factory: RevelUserFactory,
+        role: str,
     ) -> None:
+        """Event capacity applies to everyone: owners and staff are exempt from gates, not from capacity."""
+        user = buyer if role == "buyer" else _privileged_user(role, organization, revel_user_factory)
         _, t1 = _covered(organization, event_series, free_pass, "cp1")
         full, t2 = _covered(organization, event_series, free_pass, "cp2", days=8, max_attendees=1)
         other = RevelUser.objects.create_user(username="other@example.com", email="other@example.com")
@@ -195,7 +212,7 @@ class TestPurchaseEventCapacity:
         TicketTier.objects.filter(pk=t2.pk).update(quantity_sold=1)
 
         with pytest.raises(HttpError) as exc:
-            SeriesPassPurchaseService(free_pass, buyer).purchase()
+            SeriesPassPurchaseService(free_pass, user).purchase()
 
         assert exc.value.status_code == 429
         assert full.name in str(exc.value.message)
@@ -206,6 +223,39 @@ class TestPurchaseEventCapacity:
         t1.refresh_from_db()
         t2.refresh_from_db()
         assert (t1.quantity_sold, t2.quantity_sold) == (0, 1)
+
+    def test_own_pending_waitlist_offer_counts_against_buyer(
+        self, organization: Organization, event_series: EventSeries, free_pass: SeriesPass, buyer: RevelUser
+    ) -> None:
+        """The pass never claims the buyer's offer, so it must not be treated as reserved for them."""
+        _, t1 = _covered(organization, event_series, free_pass, "wo1")
+        event, t2 = _covered(organization, event_series, free_pass, "wo2", days=8, max_attendees=2)
+        other = RevelUser.objects.create_user(username="other@example.com", email="other@example.com")
+        Ticket.objects.create(event=event, tier=t2, user=other, status=Ticket.TicketStatus.ACTIVE, guest_name="Other")
+        WaitlistOffer.objects.create(
+            event=event, user=buyer, expires_at=timezone.now() + timedelta(hours=1), batch_id=uuid4()
+        )
+
+        with pytest.raises(HttpError) as exc:
+            SeriesPassPurchaseService(free_pass, buyer).purchase()
+
+        assert exc.value.status_code == 429
+        assert not HeldSeriesPass.objects.filter(series_pass=free_pass).exists()
+
+    def test_gates_refuse_before_taking_the_pass_lock(
+        self, organization: Organization, event_series: EventSeries, free_pass: SeriesPass, buyer: RevelUser
+    ) -> None:
+        _covered(organization, event_series, free_pass, "lk1")
+        _covered(organization, event_series, free_pass, "lk2", days=8)
+        Blacklist.objects.create(
+            organization=organization, first_name="John", last_name="Smith", created_by=organization.owner
+        )
+
+        with patch.object(SeriesPass.objects, "select_for_update") as lock:
+            with pytest.raises(UserIsIneligibleError):
+                SeriesPassPurchaseService(free_pass, buyer).purchase()
+
+        lock.assert_not_called()
 
 
 class TestBackfillAndExtensionSkips:
@@ -289,3 +339,57 @@ class TestBackfillAndExtensionSkips:
         assert not Ticket.objects.filter(held_pass=holder_pass, event__in=[full, open_event]).exists()
         assert not Ticket.objects.filter(held_pass=clean_pass, event=full).exists()
         assert Ticket.objects.filter(held_pass=clean_pass, event=open_event).exists()
+
+    @pytest.mark.parametrize("role", ["owner", "staff"])
+    def test_backfill_and_extension_exempt_owner_and_staff(
+        self,
+        organization: Organization,
+        event_series: EventSeries,
+        free_pass: SeriesPass,
+        revel_user_factory: RevelUserFactory,
+        role: str,
+    ) -> None:
+        """A privileged holder whose name fuzzy-matches the blacklist still gets both kinds of tickets."""
+        user = _privileged_user(role, organization, revel_user_factory)
+        _covered(organization, event_series, free_pass, "pv1")
+        _covered(organization, event_series, free_pass, "pv2", days=9)
+        held = SeriesPassPurchaseService(free_pass, user).purchase()
+        assert isinstance(held, HeldSeriesPass)
+        HeldSeriesPass.objects.filter(pk=held.pk).update(status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE)
+        Blacklist.objects.create(
+            organization=organization, first_name="John", last_name="Smith", created_by=organization.owner
+        )
+        backfill_event, _ = _covered(organization, event_series, free_pass, "pv-bf")
+        extension_event, _ = _covered(organization, event_series, free_pass, "pv-ex", days=10)
+
+        created = series_pass_service.backfill_missing_tickets(held)
+        assert {ticket.event_id for ticket in created} == {backfill_event.id, extension_event.id}
+
+        Ticket.objects.filter(held_pass=held, event=extension_event).delete()
+        with patch("notifications.signals.series_pass.send_series_pass_extended"):
+            materialize_series_pass_holders(str(free_pass.id), [str(extension_event.id)])
+        assert Ticket.objects.filter(held_pass=held, event=extension_event).exists()
+
+    def test_extension_redispatch_does_not_report_already_ticketed_full_event_as_skipped(
+        self,
+        organization: Organization,
+        event_series: EventSeries,
+        free_pass: SeriesPass,
+        holder_pass: HeldSeriesPass,
+    ) -> None:
+        HeldSeriesPass.objects.filter(pk=holder_pass.pk).update(status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE)
+        event, tier = _covered(organization, event_series, free_pass, "rd", max_attendees=1)
+        Ticket.objects.create(
+            event=event,
+            tier=tier,
+            user=holder_pass.user,
+            held_pass=holder_pass,
+            status=Ticket.TicketStatus.ACTIVE,
+            guest_name="John Smith",
+        )  # the holder already holds the only seat: the event is "full" because of them
+
+        with patch("events.tasks.series_pass.logger") as log:
+            materialize_series_pass_holders(str(free_pass.id), [str(event.id)])
+
+        done = [c for c in log.info.call_args_list if c.args and c.args[0] == "series_pass_extension_done"]
+        assert done[0].kwargs["skipped"] == 0
