@@ -8,6 +8,9 @@ Two independent knobs on ``MembershipSubscriptionPlan``:
   (the venue's "card stock"); applies to staff too.
 """
 
+import typing as t
+
+from django.db import connection
 from django.utils.translation import gettext as _
 from ninja.errors import HttpError
 
@@ -28,6 +31,13 @@ def ensure_plan_on_sale(plan: MembershipSubscriptionPlan) -> None:
         raise HttpError(400, str(_("Sales for this plan are currently paused.")))
 
 
+# Every plain column, derived so fields added to the plan later are refreshed too;
+# relations are left out so cached FKs (tier, tier.organization) stay loaded.
+_LOCK_REFRESH_FIELDS = [
+    f.attname for f in MembershipSubscriptionPlan._meta.concrete_fields if not f.is_relation and not f.primary_key
+]
+
+
 def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
     """Enforce the plan's cap on concurrent non-terminal subscriptions.
 
@@ -36,17 +46,46 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
     plan (``pending_plan`` reserves the slot, since the Stripe schedule
     rollover re-points ``plan`` with no capacity re-check) — so a cancelled
     or expired subscription frees its slot automatically; there is no counter
-    to drift. When a cap is set the plan row is locked so concurrent
+    to drift. With a cap, the plan row is locked ``FOR NO KEY UPDATE`` so concurrent
     creations serialize (mirrors the capacity-reclaim invariants of ticket
-    tiers); callers must already be inside a transaction. Applies to staff
-    creation too: capacity is a hard limit, unlike the sales-status pause.
+    tiers). Without one, it takes ``FOR KEY SHARE``: creations don't block
+    each other (no serialization across the Checkout-session Stripe call),
+    but ``update_plan``'s ``FOR UPDATE`` waits for in-flight creations and
+    they wait for it, so its currency/cadence guard cannot miss one (#1427).
+    Django's FKs are ``DEFERRABLE INITIALLY DEFERRED``, so the insert itself
+    locks nothing until commit. Callers must already be inside a transaction.
+    Once the lock is held the caller's ``plan`` instance is refreshed in place,
+    so the rest of the creation uses the committed currency, cadence, price,
+    Stripe price and cap even if it waited out a concurrent ``update_plan``.
+    The local sales-pause and active checks are not repeated after the lock: a
+    checkout that passed them before a pause or archive committed carries on (an
+    archived plan's Stripe Price may then reject the session). An
+    uncapped plan that gained a cap while waiting falls through to the capped
+    path.
+    Applies to staff creation too: capacity is a hard limit, unlike the
+    sales-status pause.
     """
     if plan.max_subscriptions is None:
+        meta = MembershipSubscriptionPlan._meta
+        quote = connection.ops.quote_name
+        sql = f"SELECT 1 FROM {quote(meta.db_table)} WHERE {quote(meta.pk.attname)} = %s FOR KEY SHARE"  # noqa: S608  # nosec B608 - identifiers from model meta
+        with connection.cursor() as cursor:
+            cursor.execute(sql, [plan.pk])
+        plan.refresh_from_db(fields=_LOCK_REFRESH_FIELDS)  # we may have waited out an update_plan
+        if plan.max_subscriptions is None:
+            return
+        # A cap was set while we waited: count against the locked row below.
+    # FOR NO KEY UPDATE: serializes capped creators and conflicts with update_plan's FOR UPDATE,
+    # but not with the uncapped path's FOR KEY SHARE, so a plan that just gained a cap cannot deadlock.
+    plan.refresh_from_db(
+        fields=_LOCK_REFRESH_FIELDS,
+        from_queryset=MembershipSubscriptionPlan.objects.select_for_update(no_key=True),
+    )
+    # refresh_from_db may have changed it after mypy narrowed the attribute above.
+    cap = t.cast("int | None", plan.max_subscriptions)
+    if cap is None:  # changed since the unlocked read
         return
-    locked_plan = MembershipSubscriptionPlan.objects.select_for_update().get(pk=plan.pk)
-    if locked_plan.max_subscriptions is None:  # changed since the unlocked read
-        return
-    if locked_plan.occupied_slot_count() >= locked_plan.max_subscriptions:
+    if plan.occupied_slot_count() >= cap:
         raise HttpError(400, str(_("This plan is sold out.")))
 
 

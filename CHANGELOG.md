@@ -20,8 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A period-count edit on a lifetime plan is still allowed, since it changes nothing.
   - Before, migrating online subscribers to the new period either stretched their paid period without charging for it or charged the new price at once, depending on the subscription's Stripe billing mode.
   - "Migrate subscribers" now refuses to move an online subscriber to a price with a different billing period and reports them as failed, which also covers plans whose period changed before this fix or through Django admin.
-  - A subscription or downgrade that starts at the same moment as the edit can still slip past the check on plans without a subscriber cap (#1427), but migration will not stretch its period.
   - Members whose period was already stretched by an earlier migration are not corrected automatically.
+- **Plan currency and period guard now covers Django admin, history reverts and races**: changing a plan's currency or billing period while it has live subscribers is refused on every save path, not just the API.
+  - The model's validation (`clean()`) refuses the change, so the admin form shows a field error and a history revert fails instead of letting the plan drift from what subscribers are billed.
+  - Creating a subscription now takes a shared lock on the plan row on plans without a subscriber cap, so it can no longer slip past a plan edit made at the same moment, while checkouts on the same plan still run in parallel.
+  - "Migrate subscribers" re-reads each online subscription under a row lock and skips ones whose plan changed or that gained a scheduled downgrade since the batch started, so it cannot overwrite a member's own plan change.
+  - A subscription creation that waited out a plan edit now continues with the plan's committed currency, period, price and cap, without repeating the local sales-pause and active checks (an archived plan's Stripe Price may then reject the session).
+  - Saving a plan through the admin, a history revert or the shell now locks the plan row, and a save that touches no currency or period field is no longer blocked by the guard; shell edits need an enclosing `transaction.atomic()` to hold the lock through the write.
+  - "Migrate subscribers" also skips an offline subscriber who moved to another plan or ended after the batch started, instead of sending them a price notice.
+  - Subscription admin no longer lets staff change the plan or organization of an existing subscription.
 
 ## [2.38.2] - 2026-11-17
 

@@ -12,7 +12,7 @@ from decimal import Decimal
 
 import structlog
 from django.db import transaction
-from django.db.models import ProtectedError, Q
+from django.db.models import ProtectedError
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -134,9 +134,14 @@ def update_plan(
 
     # Compare against the committed row, not the caller's instance: concurrent
     # PATCHes on this plan serialize here, so a stale resend of the old cadence
-    # cannot revert another PATCH's change. (Subscription creation on uncapped
-    # plans does not take this lock; see #1427.) ``of=("self",)`` keeps the
-    # tier/org rows unlocked across the Stripe calls below.
+    # cannot revert another PATCH's change. Subscription creation locks the plan
+    # row too (``ensure_plan_sales_capacity``: FOR NO KEY UPDATE if capped, FOR KEY SHARE
+    # otherwise; both conflict with this FOR UPDATE), so a creation in flight
+    # either commits before this read or waits for this transaction (#1427).
+    # (A bare FK insert would not serialize: Django's FK constraints are
+    # DEFERRABLE INITIALLY DEFERRED, so the FOR KEY SHARE is taken at commit,
+    # after this check.) ``of=("self",)`` keeps the tier/org rows unlocked
+    # across the Stripe calls below.
     plan = (
         MembershipSubscriptionPlan.objects.select_for_update(of=("self",))
         .select_related("tier__organization")
@@ -162,12 +167,7 @@ def update_plan(
     if currency_changes or cadence_changes:
         # A scheduled downgrade (``pending_plan``) already pins this plan's
         # current Stripe Price into the subscriber's schedule.
-        has_active_subs = (
-            MembershipSubscription.objects.filter(Q(plan=plan) | Q(pending_plan=plan))
-            .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
-            .exists()
-        )
-        if has_active_subs:
+        if plan.has_live_subscriptions():
             if currency_changes:
                 msg = _(
                     "Cannot change currency when active subscriptions exist. Archive and create a new plan instead."
@@ -262,6 +262,12 @@ def migrate_plan_subscribers(
     ``skipped_schedule_managed`` and never touched — same carve-out, and same
     reasons, as :func:`stripe_checkout.resync_subscription_application_fees`.
     Re-run the migration once their schedule releases.
+
+    Subscribers that moved plans or ended since the batch was listed, and
+    subscribers left behind because the plan's price changed again mid-run
+    (this run's notice quotes the batch price), are also counted as
+    ``skipped``; the latter log ``migrate_plan_subscribers_skipped_price_changed_mid_run``
+    and need the migration run that second change calls for.
     """
     result: MigrationResult = {
         "migrated": 0,
@@ -277,57 +283,41 @@ def migrate_plan_subscribers(
     )
     new_price = plan.price
 
-    # Single-query lookup for the subscriber's last SUCCEEDED payment amount,
-    # to avoid N+1 inside the migration loop. Postgres DISTINCT ON picks the
-    # most-recent row per subscription according to the ORDER BY. Proration
-    # invoices from a mid-cycle upgrade are a partial-period delta, never the
-    # subscriber's old per-period price, so they cannot anchor the notice.
-    old_price_by_sub: dict[t.Any, Decimal] = dict(
-        MembershipPayment.objects.filter(
-            subscription__in=qs,
-            status=MembershipPayment.PaymentStatus.SUCCEEDED,
-        )
-        .exclude(raw_response__contains={"billing_reason": "subscription_update"})
-        .order_by("subscription_id", "-created_at")
-        .distinct("subscription_id")
-        .values_list("subscription_id", "amount")
-    )
+    # One query up front (no N+1); ONLINE subs re-read theirs under the lock below.
+    old_price_by_sub = _last_paid_amounts(qs)
 
     for sub in qs:
         try:
             if sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
-                if sub.stripe_schedule_id:
-                    # Stripe rejects a plain ``Subscription.modify`` while a schedule
-                    # is attached, and releasing the schedule would silently drop the
-                    # pending plan change. Without this the modify 502s straight into
-                    # ``failed``, where a staff-triggered batch (202 + logs only)
-                    # reads as a Stripe outage rather than the deliberate carve-out
-                    # it is.
-                    result["skipped_schedule_managed"] += 1
-                    logger.warning(
-                        "migrate_plan_subscribers_skipped_schedule_managed",
-                        plan_id=str(plan.pk),
-                        subscription_id=str(sub.pk),
-                        schedule_id=sub.stripe_schedule_id,
-                    )
+                locked_sub = _swap_online_price_locked(plan, sub, result)
+                if locked_sub is None:
                     continue
-                changed = stripe_checkout.update_subscription_price(sub)
-                if not changed:
-                    result["skipped"] += 1
-                    continue
-            # OFFLINE: no Stripe call. We still dispatch the notification so
-            # the subscriber knows next renewal will be at the new amount.
-
-            old_price = old_price_by_sub.get(sub.id)
+                sub = locked_sub  # the notice must describe the row actually swapped
+                # ...and quote the last payment as of that same locked state (a renewal
+                # may have settled since the batch was listed).
+                old_price = _last_paid_amounts(MembershipSubscription.objects.filter(pk=sub.pk)).get(sub.id)
+            else:
+                # OFFLINE: no Stripe call. We still dispatch the notification so
+                # the subscriber knows next renewal will be at the new amount.
+                old_price = old_price_by_sub.get(sub.id)
+            offline = sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE
+            if offline and not _still_on_plan_and_live(sub, plan):
+                # OFFLINE: the sub moved plans or ended since the batch was listed.
+                result["skipped"] += 1
+                continue
+            if offline and not _plan_price_unchanged(
+                MembershipSubscriptionPlan.objects.only("price", "currency").get(pk=plan.pk), plan
+            ):
+                _log_left_for_rerun(plan, sub)  # same rule as ONLINE: don't quote a stale price
+                result["skipped"] += 1
+                continue
             if old_price is None or old_price == new_price:
                 # Skip the price-migration notification when there's no prior
                 # successful payment to anchor against (would render X→X), or
                 # when the subscriber already paid the new price.
                 result["migrated"] += 1
                 continue
-            if sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE and (
-                _price_migration_already_notified(sub, new_price)
-            ):
+            if offline and _price_migration_already_notified(sub, new_price):
                 # OFFLINE re-run safety: nothing on the row records the
                 # migration (the last-paid-price anchor stays stale until the
                 # next renewal), so dedupe on the already-sent notice.
@@ -352,6 +342,104 @@ def migrate_plan_subscribers(
         **result,
     )
     return result
+
+
+def _swap_online_price_locked(
+    plan: MembershipSubscriptionPlan, sub: MembershipSubscription, result: MigrationResult
+) -> MembershipSubscription | None:
+    """Swap one ONLINE subscriber onto the plan's current Price; ``None`` when skipped (counted in ``result``).
+
+    Re-reads the subscription under a row lock: ``change_online_plan`` holds the
+    same lock across its Stripe calls and an upgrade re-points ``plan`` before
+    it commits, so the two serialize and the swap cannot overwrite a member's
+    own change made after the batch query (#1427). Holding one subscription's
+    row lock across its own Stripe call matches ``change_online_plan``'s
+    per-member blast radius.
+    """
+    with transaction.atomic():
+        locked = (
+            MembershipSubscription.objects.select_for_update(of=("self",))
+            .select_related("plan", "organization", "user")
+            .filter(pk=sub.pk)
+            .first()
+        )
+        if (
+            locked is None  # deleted since the batch was listed
+            or locked.plan_id != plan.pk
+            or locked.status in MembershipSubscription.TERMINAL_STATUSES
+        ):
+            result["skipped"] += 1
+            return None
+        if locked.stripe_schedule_id:
+            # Stripe rejects a plain ``Subscription.modify`` while a schedule
+            # is attached, and releasing the schedule would silently drop the
+            # pending plan change. Without this the modify 502s straight into
+            # ``failed``, where a staff-triggered batch (202 + logs only)
+            # reads as a Stripe outage rather than the deliberate carve-out
+            # it is.
+            result["skipped_schedule_managed"] += 1
+            logger.warning(
+                "migrate_plan_subscribers_skipped_schedule_managed",
+                plan_id=str(plan.pk),
+                subscription_id=str(locked.pk),
+                schedule_id=locked.stripe_schedule_id,
+            )
+            return None
+        # The select_related plan came from the lock's own statement, so it can predate a
+        # concurrent plan edit; re-read it now that the lock is held and target Stripe with it.
+        locked.plan = MembershipSubscriptionPlan.objects.get(pk=plan.pk)
+        if not _plan_price_unchanged(locked.plan, plan):
+            # The plan's price changed again mid-run; this run's notice quotes
+            # ``plan.price``, so leave the subscriber to the migration run that
+            # change calls for (logged so a non-zero ``skipped`` is not read as done).
+            _log_left_for_rerun(plan, locked)
+            result["skipped"] += 1
+            return None
+        if not stripe_checkout.update_subscription_price(locked):
+            result["skipped"] += 1
+            return None
+    return locked
+
+
+def _last_paid_amounts(subscriptions: t.Any) -> dict[t.Any, Decimal]:
+    """Each subscription's last SUCCEEDED per-period payment amount, in one query.
+
+    Postgres DISTINCT ON picks the most recent row per subscription. Proration
+    invoices from a mid-cycle upgrade are a partial-period delta, never the
+    subscriber's old per-period price, so they cannot anchor the notice.
+    """
+    return dict(
+        MembershipPayment.objects.filter(
+            subscription__in=subscriptions,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+        )
+        .exclude(raw_response__contains={"billing_reason": "subscription_update"})
+        .order_by("subscription_id", "-created_at")
+        .distinct("subscription_id")
+        .values_list("subscription_id", "amount")
+    )
+
+
+def _still_on_plan_and_live(sub: MembershipSubscription, plan: MembershipSubscriptionPlan) -> bool:
+    """True when ``sub`` is still on ``plan`` and non-terminal (re-checked right before an OFFLINE notice)."""
+    return (
+        MembershipSubscription.objects.filter(pk=sub.pk, plan=plan)
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .exists()
+    )
+
+
+def _plan_price_unchanged(current: MembershipSubscriptionPlan, snapshot: MembershipSubscriptionPlan) -> bool:
+    """True when the plan still bills what this run's notice quotes (a same-amount re-provisioned Price is fine)."""
+    return current.price == snapshot.price and current.currency.upper() == snapshot.currency.upper()
+
+
+def _log_left_for_rerun(plan: MembershipSubscriptionPlan, sub: MembershipSubscription) -> None:
+    logger.warning(
+        "migrate_plan_subscribers_skipped_price_changed_mid_run",
+        plan_id=str(plan.pk),
+        subscription_id=str(sub.pk),
+    )
 
 
 def _price_migration_already_notified(subscription: MembershipSubscription, new_price: t.Any) -> bool:

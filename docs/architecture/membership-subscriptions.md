@@ -112,14 +112,32 @@ at patch, against the *merged* post-patch values) so the two cannot drift.
 | `ONLINE` | > 0 | `MONTH` / `YEAR` only | Stripe has nothing to bill at 0, and its recurring intervals are month/year — a paid lifetime membership is expressible as OFFLINE, which has no Stripe object |
 | `FREE` | = 0 | `LIFETIME` only | A finite free term would be selected by the lapse beat and expire with no way to renew (there is no payment to record) |
 
+#### Currency and cadence guard
+
+Changing `currency`, `period_unit` or `period_count` (the last is exempt on a
+`LIFETIME` plan) is refused while the plan has non-terminal subscriptions on
+`plan` or `pending_plan` (`MembershipSubscriptionPlan.has_live_subscriptions`).
+`update_plan` enforces it under the plan row lock (400); `clean()` enforces it
+against the persisted row for every other `save()` path (Django admin, history
+revert, shell), as a field `ValidationError` (#1427). That check reads the persisted
+row `FOR UPDATE`, which serializes the save with in-flight creations when it runs inside a
+transaction (Django admin, `update_plan`); a bare autocommit shell save releases the lock before
+the UPDATE, so shell edits need an enclosing `transaction.atomic()` to hold the lock through the write. It is skipped for `save(update_fields=...)` that names none of the three fields, and otherwise compares only the billing fields the save writes.
+
 #### Sale controls
 
 `ensure_plan_on_sale` (PAUSED check, member paths only — staff callers pass
 `enforce_sales_status=False`) and `ensure_plan_sales_capacity` (cap check,
 everyone) live in `subscription.sales` and are enforced on **create**,
 **revive** and **plan switches**. The capacity check `select_for_update`s the
-plan row so concurrent creations serialize, mirroring the capacity-reclaim
-invariants of ticket tiers. The public plan schema exposes `sales_status` and a
+plan row (`FOR NO KEY UPDATE`) so concurrent creations serialize when a cap is set, mirroring the
+capacity-reclaim invariants of ticket tiers. On an uncapped plan it takes `FOR KEY SHARE`
+instead: creations don't block each other, but `update_plan`'s `FOR UPDATE` conflicts with it,
+so the currency/cadence guard cannot miss a subscription in flight (#1427). Once locked, the
+caller's plan instance is refreshed in place, so the rest of the creation uses the committed
+currency, cadence, price, Stripe price and cap; the local sales-pause and active checks are not repeated after the lock, so a checkout
+that passed them before a pause or archive committed carries on (an archived plan's Stripe Price may then reject the session). An uncapped plan that gained
+a cap while the caller waited falls through to the capped path. The public plan schema exposes `sales_status` and a
 computed `sold_out` flag so the frontend can render "sold out" vs "sales
 paused" vs a normal subscribe CTA.
 
@@ -370,7 +388,7 @@ Everything that operates on a plan rather than on one subscriber's lifecycle.
 | Function | Responsibility |
 |---|---|
 | `create_plan` / `update_plan` / `archive_plan` / `delete_plan` | Plan CRUD. ONLINE plans trigger `ensure_stripe_price`. `update_plan` re-reads the plan under `select_for_update` and refuses currency and cadence (`period_unit` / `period_count`) edits while the plan has non-terminal subscriptions, including subscriptions with a downgrade scheduled into it (`pending_plan`); a `period_count` edit on a `LIFETIME` plan is allowed, since `LIFETIME` ignores it. Why (#1423): moving an ONLINE subscriber to a Price with another interval under `proration_behavior='none'` depends on the subscription's Stripe billing mode. Flexible mode stretches the paid period without an invoice (observed in test mode); classic mode resets the billing date and charges the new Price at once. `delete_plan` catches `ProtectedError` from the FK |
-| `migrate_plan_subscribers` | Force-migrates non-terminal subs on a plan to its current Stripe price (`proration_behavior='none'`). Per-sub errors are reported individually; no rollback. Before each swap the subscriber's current Price and the plan's current Price are compared directly (not against the plan row): both must recur, with the same `interval` and `interval_count`, or the subscriber is reported as failed and never swapped (#1423). Batches the "previous price" lookup with `DISTINCT ON` to avoid N+1 |
+| `migrate_plan_subscribers` | Force-migrates non-terminal subs on a plan to its current Stripe price (`proration_behavior='none'`). Per-sub errors are reported individually; no rollback. Each ONLINE sub is re-read under a row lock (`change_online_plan` holds the same lock) and skipped if its plan changed, it went terminal or it gained a schedule since the batch query, so a member's own plan change is never overwritten (#1427); OFFLINE subs get the same plan/terminal re-check just before their notice. Before each swap the subscriber's current Price and the plan's current Price are compared directly (not against the plan row): both must recur, with the same `interval` and `interval_count`, or the subscriber is reported as failed and never swapped (#1423). Batches the "previous price" lookup with `DISTINCT ON` to avoid N+1 |
 
 ### `events/service/subscription/stripe/base.py`, `checkout.py`, `sync.py`
 

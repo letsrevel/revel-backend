@@ -14,7 +14,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 
@@ -190,6 +190,20 @@ class MembershipSubscriptionPlan(TimeStampedModel):
     def __str__(self) -> str:
         return f"{self.tier} - {self.name}"
 
+    _BILLING_FIELDS: t.ClassVar[tuple[str, ...]] = ("currency", "period_unit", "period_count")
+    _save_fields: frozenset[str] | None = None
+
+    def save(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Remember which fields an ``update_fields`` save writes, so the billing guard checks only those."""
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = update_fields = list(update_fields)  # may be a one-shot iterator
+        self._save_fields = None if update_fields is None else frozenset(update_fields)
+        try:
+            super().save(*args, **kwargs)
+        finally:
+            self._save_fields = None
+
     def clean(self) -> None:
         """Enforce the (payment method, price, cadence) shape rules.
 
@@ -213,6 +227,62 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         )
         if message:
             raise DjangoValidationError({"payment_method": message})
+        if self._save_fields is None or not set(self._BILLING_FIELDS).isdisjoint(self._save_fields):
+            self._validate_no_billing_change_with_live_subscriptions()
+
+    def _validate_no_billing_change_with_live_subscriptions(self) -> None:
+        """Refuse currency / cadence changes against the persisted row while subscribers exist.
+
+        Same rule as ``update_plan`` (#1423), enforced here for the paths that
+        skip it: the Django admin form, a simple_history revert, shell writes.
+        The persisted row is read ``FOR UPDATE``, which serializes the save with
+        in-flight subscription creations (as ``update_plan`` does) when the save
+        runs inside a transaction (Django admin, ``update_plan``). A bare
+        autocommit shell save releases the lock before the UPDATE, so wrap shell
+        edits in ``transaction.atomic()``.
+        """
+        with transaction.atomic():
+            persisted = (
+                type(self)
+                .objects.select_for_update(of=("self",))
+                .filter(pk=self.pk)
+                .values("currency", "period_unit", "period_count")
+                .first()
+            )
+            self._refuse_billing_change(persisted)
+
+    def _refuse_billing_change(self, persisted: t.Mapping[str, t.Any] | None) -> None:
+        if persisted is None:
+            return
+        # An ``update_fields`` save writes only its named fields; the rest keep their persisted value.
+        written = self._save_fields
+
+        def pending(name: str) -> t.Any:
+            return getattr(self, name) if written is None or name in written else persisted[name]
+
+        period_unit = pending("period_unit")
+        unit_changed = period_unit != persisted["period_unit"]
+        # LIFETIME ignores period_count, so editing it there changes nothing.
+        count_changed = period_unit != self.PeriodUnit.LIFETIME and pending("period_count") != persisted["period_count"]
+        currency_changed = (pending("currency") or "").upper() != persisted["currency"].upper()
+        if not (currency_changed or unit_changed or count_changed) or not self.has_live_subscriptions():
+            return
+        if currency_changed:
+            raise DjangoValidationError(
+                {
+                    "currency": _(
+                        "Cannot change currency when active subscriptions exist. Archive and create a new plan instead."
+                    )
+                }
+            )
+        raise DjangoValidationError(
+            {
+                "period_unit" if unit_changed else "period_count": _(
+                    "Cannot change the billing period when active subscriptions exist. "
+                    "Archive and create a new plan instead."
+                )
+            }
+        )
 
     @property
     def effective_payment_instructions(self) -> str | None:
@@ -228,6 +298,15 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         """Convenience proxy for permission / scoping helpers."""
         return self.tier.organization_id
 
+    def has_live_subscriptions(self) -> bool:
+        """Whether any non-terminal subscription is on this plan or scheduled to downgrade into it."""
+        return self._live_subscriptions().exists()
+
+    def _live_subscriptions(self) -> "models.QuerySet[MembershipSubscription]":
+        return MembershipSubscription.objects.filter(models.Q(plan=self) | models.Q(pending_plan=self)).exclude(
+            status__in=_TERMINAL_STATUS_VALUES
+        )
+
     def occupied_slot_count(self) -> int:
         """Count subscriptions occupying (or reserving) one of this plan's cap slots.
 
@@ -240,11 +319,7 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         the reservation. Single source of truth for
         ``ensure_plan_sales_capacity`` and the schema resolvers' fallbacks.
         """
-        return (
-            MembershipSubscription.objects.filter(models.Q(plan=self) | models.Q(pending_plan=self))
-            .exclude(status__in=_TERMINAL_STATUS_VALUES)
-            .count()
-        )
+        return self._live_subscriptions().count()
 
 
 class MembershipSubscription(TimeStampedModel):
