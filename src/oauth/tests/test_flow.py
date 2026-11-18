@@ -459,3 +459,34 @@ def test_widening_scope_after_a_grant_needs_consent_again(
     )
     assert resp.status_code == 200, resp.content
     assert [s["name"] for s in resp.json()["scopes"]] == ["org:read", "org:events"]
+
+
+def _unverify(user: RevelUser) -> None:
+    user.email_verified = False
+    user.save(update_fields=["email_verified"])
+
+
+def test_userinfo_refuses_a_token_of_an_unverified_account(
+    user: RevelUser, session_client: Client, client: Client, public_oauth_app: OAuthApplication
+) -> None:
+    tokens = run_code_flow(session_client, client, public_oauth_app, "openid org:read offline_access")
+    bearer = f"Bearer {tokens['access_token']}"
+    assert client.get("/o/userinfo", HTTP_AUTHORIZATION=bearer).status_code == 200
+    _unverify(user)
+    assert client.get("/o/userinfo", HTTP_AUTHORIZATION=bearer).status_code == 401
+
+
+def test_refresh_grant_refuses_an_unverified_account(
+    user: RevelUser, session_client: Client, client: Client, public_oauth_app: OAuthApplication
+) -> None:
+    tokens = run_code_flow(session_client, client, public_oauth_app, "openid org:read offline_access")
+    _unverify(user)
+    resp = client.post(
+        "/o/token",
+        {
+            "grant_type": "refresh_token",
+            "refresh_token": tokens["refresh_token"],
+            "client_id": public_oauth_app.client_id,
+        },
+    )
+    assert resp.status_code == 400 and resp.json()["error"] == "invalid_grant"
