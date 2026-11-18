@@ -702,3 +702,27 @@ class TestFileResourceSignedUrls:
         assert response.status_code == 200
         data = response.json()
         assert data.get("file_url") is None
+
+
+class TestFileResourceTypeValidation:
+    """File resources are validated from their content, not the client's name or header."""
+
+    def test_create_file_resource_with_disallowed_content_fails(
+        self, organization_owner_client: Client, organization: models.Organization
+    ) -> None:
+        url = reverse("api:create_organization_resource", kwargs={"slug": organization.slug})
+        payload = {
+            "name": "Bad",
+            "resource_type": "file",
+            "visibility": "public",
+            "file": SimpleUploadedFile(
+                "report.pdf",
+                b"<!DOCTYPE html><html><body><script>alert(1)</script></body></html>",
+                content_type="application/pdf",
+            ),
+        }
+
+        response = organization_owner_client.post(url, data=payload, format="multipart")
+
+        assert response.status_code == 422
+        assert not models.AdditionalResource.objects.filter(organization=organization).exists()

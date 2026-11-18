@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Membership request responses show the requested plan's alignment and start month.
 
 ### Changed
+- Organization resource files are now limited to documents, images, audio, video and archives up to 25 MB, and are scanned like other uploads. Stored file names no longer keep the uploaded file's extension: it is chosen from the detected file type, for questionnaire uploads too.
 - Signing in with a password now requires a verified email address. Until the address is verified, a correct password is answered with a 403 and the code `email_not_verified` (also at the 2FA step), and existing sessions of such accounts can no longer be refreshed. Third-party app tokens (OAuth) and the Telegram bot are refused for them too. The frontend shows a message and offers to resend the verification email.
 - Signing up again with an email address that has not been verified yet no longer changes the existing account. It only notes the repeat attempt and sends a new verification link. If the account is then verified, it starts over: its password is cleared (a set-password email is sent), and its profile, referral, 2FA setup, Telegram link and sessions are removed.
 - A password reset on an account whose email was never verified now also verifies it and clears any 2FA setup and Telegram link made before.
