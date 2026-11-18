@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Calendar-aligned membership plans**: a plan can now bill on calendar boundaries (the 1st of each month, or the 1st of a chosen month each year, at 00:00 UTC) instead of a fixed duration after the member joins.
+  - New plan fields `period_alignment`, `calendar_start_month` and `first_period_pricing`; alignment and start month are set at creation and cannot be changed, and the billing period of a calendar plan is locked.
+  - The first, partial period is either prorated by the time remaining (rounded to the currency's smallest unit, so whole units for yen) or charged in full; plan responses show the first period's end and price as if a member joined now.
+  - Calendar plans are offline only for now: online plans are refused with a clear message when calendar-aligned, and can only prorate the first period.
+  - Plan responses gain `period_alignment`, `calendar_start_month` and `first_period_pricing`, plus the first period's end and price on the staff and public plan views; the plan shown on a member's own subscription omits the join-now values.
+  - Membership request responses show the requested plan's alignment and start month.
+
 ### Changed
 - Signing in with a password now requires a verified email address. Until the address is verified, a correct password is answered with a 403 and the code `email_not_verified` (also at the 2FA step), and existing sessions of such accounts can no longer be refreshed. Third-party app tokens (OAuth) and the Telegram bot are refused for them too. The frontend shows a message and offers to resend the verification email.
 - Signing up again with an email address that has not been verified yet no longer changes the existing account. It only notes the repeat attempt and sends a new verification link. If the account is then verified, it starts over: its password is cleared (a set-password email is sent), and its profile, referral, 2FA setup, Telegram link and sessions are removed.

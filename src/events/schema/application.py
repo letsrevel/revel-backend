@@ -10,7 +10,7 @@ from events.service.membership_manager import MembershipEligibility, MembershipN
 from events.service.membership_manager.enums import MembershipReasonCode
 
 from .mixins import get_image_field_url
-from .subscription import MemberPlanSchema
+from .subscription_plan import MemberPlanSchema
 
 
 class JoinEligibilityQuery(Schema):

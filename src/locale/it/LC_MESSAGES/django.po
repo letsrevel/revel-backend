@@ -3430,6 +3430,44 @@ msgstr "Questo è un documento di fatturazione automatico."
 msgid "Price cannot be null."
 msgstr "Il prezzo non può essere nullo."
 
+msgid "Calendar plans must use a monthly or yearly billing period."
+msgstr ""
+"I piani a calendario devono usare un periodo di fatturazione mensile o "
+"annuale."
+
+msgid "Calendar plans must have a period count of 1."
+msgstr "I piani a calendario devono avere un numero di periodi pari a 1."
+
+msgid ""
+"A calendar start month other than January is only allowed on calendar yearly "
+"plans."
+msgstr ""
+"Un mese di inizio diverso da gennaio è consentito solo per i piani a "
+"calendario annuali."
+
+msgid "The billing period of a calendar plan cannot be changed."
+msgstr ""
+"Il periodo di fatturazione di un piano a calendario non può essere "
+"modificato."
+
+msgid ""
+"Calendar alignment and start month cannot be changed after the plan is "
+"created."
+msgstr ""
+"L'allineamento al calendario e il mese di inizio non possono essere "
+"modificati dopo la creazione del piano."
+
+msgid "First period pricing cannot be null."
+msgstr "Il prezzo del primo periodo non può essere nullo."
+
+msgid "Calendar-aligned plans are not available for online payments yet."
+msgstr ""
+"I piani allineati al calendario non sono ancora disponibili per i pagamenti "
+"online."
+
+msgid "Online plans can only prorate the first period."
+msgstr "I piani online possono calcolare il primo periodo solo in proporzione."
+
 msgid "Free plans must have a price of 0."
 msgstr "I piani gratuiti devono avere un prezzo pari a 0."
 
@@ -8755,3 +8793,47 @@ msgstr "<b>Posto disponibile!</b> per <b>%(event)s</b>"
 
 msgid "<b>%(name)s</b> submitted the questionnaire <b>%(questionnaire)s</b>."
 msgstr "<b>%(name)s</b> ha inviato il questionario <b>%(questionnaire)s</b>."
+
+msgid "Rolling"
+msgstr "Mobile"
+
+msgid "Calendar"
+msgstr "Calendario"
+
+msgid "Prorated"
+msgstr "Proporzionale"
+
+msgid "Full price"
+msgstr "Prezzo intero"
+
+msgid ""
+"ROLLING bills period_count units from each renewal. CALENDAR aligns periods "
+"to the calendar (1st of the month / 1st of calendar_start_month), at 00:00 "
+"UTC."
+msgstr ""
+"ROLLING fattura period_count unità a partire da ogni rinnovo. CALENDAR "
+"allinea i periodi al calendario (1° del mese / 1° di calendar_start_month), "
+"alle 00:00 UTC."
+
+msgid ""
+"Month (1-12) a calendar YEAR plan's period starts on. Must be 1 for any "
+"other plan."
+msgstr ""
+"Mese (1-12) in cui inizia il periodo di un piano a calendario annuale. Deve "
+"essere 1 per qualsiasi altro piano."
+
+msgid ""
+"How the first, partial calendar period is priced: PRORATED by remaining time "
+"or FULL price. Only meaningful for CALENDAR plans; ignored for ROLLING ones."
+msgstr ""
+"Come viene calcolato il prezzo del primo periodo parziale: PRORATED in base "
+"al tempo rimanente oppure FULL a prezzo intero. Rilevante solo per i piani "
+"CALENDAR; ignorato per i piani ROLLING."
+
+#: events/models/subscription.py
+msgid ""
+"The plan's full per-period price when this payment covered a prorated first "
+"calendar period. Null otherwise."
+msgstr ""
+"Il prezzo pieno per periodo del piano quando questo pagamento copriva un "
+"primo periodo di calendario in proporzione. Nullo altrimenti."

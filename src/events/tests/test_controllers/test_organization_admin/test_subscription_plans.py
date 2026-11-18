@@ -182,6 +182,84 @@ class TestCreatePlan:
         data = response.json()
         assert data["name"] == "Annual"
 
+    def test_create_and_read_calendar_plan(
+        self, organization_owner_client: Client, organization: Organization, tier: MembershipTier
+    ) -> None:
+        url = reverse("api:create_subscription_plan", kwargs={"slug": organization.slug, "tier_id": tier.id})
+        payload = {
+            "name": "Season",
+            "price": "120.00",
+            "currency": "EUR",
+            "period_unit": "year",
+            "period_alignment": "calendar",
+            "calendar_start_month": 9,
+            "first_period_pricing": "full",
+        }
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 201
+        data = response.json()
+        assert data["period_alignment"] == "calendar"
+        assert data["calendar_start_month"] == 9
+        assert data["first_period_pricing"] == "full"
+        assert data["first_period_price"] == "120.00"
+        assert data["first_period_end"] is not None
+
+        list_url = reverse("api:list_subscription_plans", kwargs={"slug": organization.slug, "tier_id": tier.id})
+        listed = organization_owner_client.get(list_url).json()
+        assert listed[0]["period_alignment"] == "calendar"
+
+    def test_create_rolling_plan_has_no_first_period(
+        self, organization_owner_client: Client, organization: Organization, tier: MembershipTier
+    ) -> None:
+        url = reverse("api:create_subscription_plan", kwargs={"slug": organization.slug, "tier_id": tier.id})
+        payload = {"name": "Monthly", "price": "10.00", "currency": "EUR", "period_unit": "month"}
+        data = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json").json()
+        assert data["period_alignment"] == "rolling"
+        assert data["first_period_end"] is None
+        assert data["first_period_price"] is None
+
+    def test_create_online_calendar_plan_is_rejected(
+        self, organization_owner_client: Client, organization: Organization, tier: MembershipTier
+    ) -> None:
+        url = reverse("api:create_subscription_plan", kwargs={"slug": organization.slug, "tier_id": tier.id})
+        payload = {
+            "name": "Bad",
+            "price": "10.00",
+            "currency": "EUR",
+            "period_unit": "month",
+            "payment_method": "online",
+            "period_alignment": "calendar",
+        }
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 422
+
+    def test_patch_null_first_period_pricing_is_400(
+        self, organization_owner_client: Client, organization: Organization, tier: MembershipTier
+    ) -> None:
+        plan = subscription_plans.create_plan(
+            tier, name="Cal", price=Decimal("10.00"), currency="EUR", period_unit="month", period_alignment="calendar"
+        )
+        url = reverse("api:update_subscription_plan", kwargs={"slug": organization.slug, "plan_id": plan.id})
+        response = organization_owner_client.patch(
+            url, data=orjson.dumps({"first_period_pricing": None}), content_type="application/json"
+        )
+        assert response.status_code == 400
+        assert "First period pricing cannot be null." in response.json()["detail"]
+
+    def test_create_calendar_lifetime_plan_is_rejected(
+        self, organization_owner_client: Client, organization: Organization, tier: MembershipTier
+    ) -> None:
+        url = reverse("api:create_subscription_plan", kwargs={"slug": organization.slug, "tier_id": tier.id})
+        payload = {
+            "name": "Bad",
+            "price": "10.00",
+            "currency": "EUR",
+            "period_unit": "lifetime",
+            "period_alignment": "calendar",
+        }
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 422
+
     def test_create_persists_payment_instructions(
         self, organization_owner_client: Client, organization: Organization, tier: MembershipTier
     ) -> None:
@@ -286,6 +364,34 @@ class TestUpdateArchiveDeletePlan:
         assert response.status_code == 200
         plan.refresh_from_db()
         assert plan.price == Decimal("12.00")
+
+    def test_patch_ignores_period_alignment_and_refuses_unit_change_on_calendar_plan(
+        self, organization_owner_client: Client, organization: Organization, tier: MembershipTier
+    ) -> None:
+        plan = subscription_plans.create_plan(
+            tier,
+            name="Cal",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            period_alignment="calendar",
+        )
+        url = reverse("api:update_subscription_plan", kwargs={"slug": organization.slug, "plan_id": plan.id})
+        response = organization_owner_client.patch(
+            url,
+            data=orjson.dumps({"period_alignment": "rolling", "calendar_start_month": 5, "name": "Cal2"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        plan.refresh_from_db()
+        assert plan.name == "Cal2"
+        assert plan.period_alignment == "calendar"
+        assert plan.calendar_start_month == 1
+
+        response = organization_owner_client.patch(
+            url, data=orjson.dumps({"period_unit": "year"}), content_type="application/json"
+        )
+        assert response.status_code == 400
 
     def test_patch_persists_payment_instructions(
         self, organization_owner_client: Client, organization: Organization, plan: MembershipSubscriptionPlan

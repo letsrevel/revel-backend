@@ -22,16 +22,31 @@ class MembershipSubscriptionPlanAdmin(GuardedHistoryAdmin, ModelAdmin):  # type:
         "currency",
         "period_unit",
         "period_count",
+        "period_alignment",
         "payment_method",
         "is_active",
     ]
-    list_filter = ["is_active", "payment_method", "period_unit", "currency", "tier__organization__name"]
+    list_filter = [
+        "is_active",
+        "payment_method",
+        "period_unit",
+        "period_alignment",
+        "currency",
+        "tier__organization__name",
+    ]
     list_select_related = ["tier", "tier__organization"]
     search_fields = ["name", "tier__name", "tier__organization__name", "stripe_price_id", "stripe_product_id"]
     autocomplete_fields = ["tier"]
     # Stripe IDs are populated by the service layer on save; keep them readonly
     # so admins don't accidentally desync the local row from Stripe.
     readonly_fields = ["stripe_product_id", "stripe_price_id", "created_at", "updated_at"]
+
+    def get_readonly_fields(self, request: HttpRequest, obj: models.MembershipSubscriptionPlan | None = None) -> t.Any:
+        """Calendar alignment and start month are create-only, so lock them on existing plans."""
+        fields = list(super().get_readonly_fields(request, obj))
+        if obj is not None:
+            fields += ["period_alignment", "calendar_start_month"]
+        return fields
 
 
 @admin.register(models.MembershipSubscription)

@@ -24,7 +24,7 @@ from events.models import (
     OrganizationMember,
     SubscriptionPaymentMethod,
 )
-from events.schema.subscription import PlanCreateSchema
+from events.schema.subscription_plan import PlanCreateSchema
 from events.service.subscription import lifecycle as subscription_lifecycle
 from events.service.subscription import plans as subscription_plans
 from events.service.subscription.core import create_subscription
@@ -310,3 +310,171 @@ def test_cancelling_a_free_subscription_terminalizes_immediately(
     assert cancelled.cancel_at_period_end is False
     member = OrganizationMember.objects.get(organization=organization, user=user)
     assert member.status == OrganizationMember.MembershipStatus.CANCELLED
+
+
+# --------------------------------------------------------------------------- #
+# Calendar-aligned plans: shape rules and immutability
+# --------------------------------------------------------------------------- #
+
+Alignment = MembershipSubscriptionPlan.PeriodAlignment
+
+
+@pytest.mark.parametrize(
+    "overrides, expected_fragment",
+    [
+        # Calendar + lifetime (hence never FREE).
+        ({"period_alignment": Alignment.CALENDAR}, "monthly or yearly"),
+        (
+            {
+                "period_alignment": Alignment.CALENDAR,
+                "period_unit": PeriodUnit.LIFETIME,
+                "payment_method": SubscriptionPaymentMethod.OFFLINE,
+                "price": Decimal("5"),
+            },
+            "monthly or yearly",
+        ),
+        (
+            {
+                "period_alignment": Alignment.CALENDAR,
+                "period_unit": PeriodUnit.MONTH,
+                "period_count": 3,
+                "payment_method": SubscriptionPaymentMethod.OFFLINE,
+                "price": Decimal("5"),
+            },
+            "period count of 1",
+        ),
+        # Start month != 1 only on calendar YEAR plans.
+        (
+            {
+                "period_unit": PeriodUnit.YEAR,
+                "calendar_start_month": 9,
+                "payment_method": SubscriptionPaymentMethod.OFFLINE,
+                "price": Decimal("5"),
+            },
+            "only allowed on calendar yearly",
+        ),
+        (
+            {
+                "period_alignment": Alignment.CALENDAR,
+                "period_unit": PeriodUnit.MONTH,
+                "calendar_start_month": 9,
+                "payment_method": SubscriptionPaymentMethod.OFFLINE,
+                "price": Decimal("5"),
+            },
+            "only allowed on calendar yearly",
+        ),
+        # ONLINE is prorated-only.
+        (
+            {
+                "payment_method": SubscriptionPaymentMethod.ONLINE,
+                "price": Decimal("10"),
+                "period_unit": PeriodUnit.MONTH,
+                "first_period_pricing": MembershipSubscriptionPlan.FirstPeriodPricing.FULL,
+            },
+            "only prorate the first period",
+        ),
+        # ONLINE + calendar is refused until Stripe billing-cycle-anchor support (#1426).
+        (
+            {
+                "payment_method": SubscriptionPaymentMethod.ONLINE,
+                "price": Decimal("10"),
+                "period_unit": PeriodUnit.MONTH,
+                "period_alignment": Alignment.CALENDAR,
+            },
+            "not available for online payments yet",
+        ),
+    ],
+)
+def test_calendar_shape_refusals(overrides: dict[str, t.Any], expected_fragment: str) -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        PlanCreateSchema(**_payload(**overrides))
+    assert expected_fragment in str(exc_info.value)
+
+
+@pytest.mark.parametrize(("month", "valid"), [(0, False), (1, True), (12, True), (13, False)])
+def test_calendar_start_month_bounds(month: int, valid: bool) -> None:
+    payload = _payload(
+        period_unit=PeriodUnit.YEAR,
+        period_alignment=Alignment.CALENDAR,
+        calendar_start_month=month,
+        payment_method=SubscriptionPaymentMethod.OFFLINE,
+        price=Decimal("5"),
+    )
+    if valid:
+        assert PlanCreateSchema(**payload).calendar_start_month == month
+    else:
+        with pytest.raises(ValidationError) as exc_info:
+            PlanCreateSchema(**payload)
+        assert "calendar_start_month" in str(exc_info.value)
+
+
+def test_direct_orm_save_refuses_calendar_lifetime_plan(tier: MembershipTier) -> None:
+    with pytest.raises(DjangoValidationError):
+        MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Bad",
+            price=Decimal("5.00"),
+            currency="EUR",
+            period_unit=PeriodUnit.LIFETIME,
+            period_alignment=Alignment.CALENDAR,
+            payment_method=SubscriptionPaymentMethod.OFFLINE,
+        )
+
+
+@pytest.fixture
+def calendar_plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
+    payload = PlanCreateSchema(
+        **_payload(
+            name="Season",
+            price=Decimal("120.00"),
+            period_unit=PeriodUnit.YEAR,
+            period_alignment=Alignment.CALENDAR,
+            calendar_start_month=9,
+            payment_method=SubscriptionPaymentMethod.OFFLINE,
+        )
+    )
+    return subscription_plans.create_plan(tier, **payload.model_dump())
+
+
+def test_create_calendar_plan_persists_fields(calendar_plan: MembershipSubscriptionPlan) -> None:
+    calendar_plan.refresh_from_db()
+    assert calendar_plan.period_alignment == Alignment.CALENDAR
+    assert calendar_plan.calendar_start_month == 9
+    assert calendar_plan.first_period_pricing == MembershipSubscriptionPlan.FirstPeriodPricing.PRORATED
+
+
+def test_update_refuses_period_unit_change_on_calendar_plan(calendar_plan: MembershipSubscriptionPlan) -> None:
+    with pytest.raises(HttpError) as exc_info:
+        subscription_plans.update_plan(calendar_plan, period_unit=PeriodUnit.MONTH)
+    assert exc_info.value.status_code == 400
+    assert "calendar plan cannot be changed" in str(exc_info.value)
+
+
+def test_update_refuses_period_count_change_on_calendar_plan(calendar_plan: MembershipSubscriptionPlan) -> None:
+    with pytest.raises(HttpError) as exc_info:
+        subscription_plans.update_plan(calendar_plan, period_count=2)
+    assert "period count of 1" in str(exc_info.value)
+
+
+def test_update_allows_first_period_pricing_on_calendar_plan(calendar_plan: MembershipSubscriptionPlan) -> None:
+    updated = subscription_plans.update_plan(
+        calendar_plan, first_period_pricing=MembershipSubscriptionPlan.FirstPeriodPricing.FULL
+    )
+    assert updated.first_period_pricing == MembershipSubscriptionPlan.FirstPeriodPricing.FULL
+
+
+def test_update_refuses_full_first_period_pricing_on_online_plan(online_plan: MembershipSubscriptionPlan) -> None:
+    with pytest.raises(HttpError) as exc_info:
+        subscription_plans.update_plan(
+            online_plan, first_period_pricing=MembershipSubscriptionPlan.FirstPeriodPricing.FULL
+        )
+    assert exc_info.value.status_code == 400
+    assert "only prorate the first period" in str(exc_info.value)
+
+
+def test_update_refuses_null_first_period_pricing(calendar_plan: MembershipSubscriptionPlan) -> None:
+    """An explicit ``{"first_period_pricing": null}`` is refused with a 400 by the shape guard."""
+    with pytest.raises(HttpError) as exc_info:
+        subscription_plans.update_plan(calendar_plan, first_period_pricing=None)
+    assert exc_info.value.status_code == 400
+    assert "cannot be null" in str(exc_info.value)

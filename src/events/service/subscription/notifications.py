@@ -17,6 +17,7 @@ import typing as t
 from datetime import timedelta
 from decimal import Decimal
 
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from common.models import SiteSettings
@@ -66,7 +67,10 @@ def _charged_money(
 
 
 def last_paid_amounts(subscriptions: t.Iterable[MembershipSubscription]) -> dict[t.Any, Decimal]:
-    """Map subscription id → the amount of its last real (non-proration) payment.
+    """Map subscription id → the per-period price anchored by its last real (non-proration) payment.
+
+    This is the one anchor query: MRR, price-migration notices and renewal reminders all use it.
+    A prorated calendar stub anchors on the full price it stood in for (``full_period_amount``).
 
     Single query (Postgres ``DISTINCT ON``) so callers can resolve a whole
     cohort without an N+1. Mirrors the anchor ``migrate_plan_subscribers`` uses:
@@ -81,7 +85,7 @@ def last_paid_amounts(subscriptions: t.Iterable[MembershipSubscription]) -> dict
         .exclude(raw_response__contains={"billing_reason": "subscription_update"})
         .order_by("subscription_id", "-created_at")
         .distinct("subscription_id")
-        .values_list("subscription_id", "amount")
+        .values_list("subscription_id", Coalesce("full_period_amount", "amount"))
     )
 
 

@@ -18,6 +18,7 @@ from events.models import (
     MembershipSubscriptionPlan,
     Organization,
 )
+from events.service.subscription.notifications import last_paid_amounts
 from events.utils.membership_payment_rules import with_latest_payment_id
 
 
@@ -94,17 +95,9 @@ def get_organization_metrics(organization: Organization) -> SubscriptionMetrics:
     # (``@>``) is used rather than a key-transform ``exclude`` because the latter
     # is NULL on rows with no ``billing_reason`` (manual/OFFLINE payments) and
     # would silently drop them.
-    # Single batched DISTINCT ON query keeps this out of the per-sub loop (N+1).
-    paid_by_sub: dict[t.Any, Decimal] = dict(
-        MembershipPayment.objects.filter(
-            subscription__in=active_subs,
-            status=MembershipPayment.PaymentStatus.SUCCEEDED,
-        )
-        .exclude(raw_response__contains={"billing_reason": "subscription_update"})
-        .order_by("subscription_id", "-created_at")
-        .distinct("subscription_id")
-        .values_list("subscription_id", "amount")
-    )
+    # One batched anchor query (``last_paid_amounts``) keeps this out of the per-sub loop (N+1);
+    # a prorated calendar stub anchors on the full price it stood in for.
+    paid_by_sub = last_paid_amounts(active_subs)
 
     # Only plans that actually contribute recurring revenue get a vote on the
     # currency. A LIFETIME plan normalizes to 0, so counting its currency here

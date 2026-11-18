@@ -1,5 +1,6 @@
 """Tests for events.service.subscription.reporting."""
 
+import datetime as dt
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
@@ -480,3 +481,72 @@ class TestSubscriptionMetricsEndpoint:
         url = reverse("api:get_subscription_metrics", kwargs={"slug": organization.slug})
         resp = client.get(url)
         assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+class TestMRRCalendarFirstPeriod:
+    """A calendar plan's MRR anchors on the full per-period price, never on a prorated amount."""
+
+    def _sub_with_payment(
+        self,
+        organization: Organization,
+        tier: MembershipTier,
+        make_user: t.Callable[..., RevelUser],
+        **payment_fields: t.Any,
+    ) -> None:
+        from events.models import MembershipPayment
+
+        plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Calendar",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+            period_alignment=MembershipSubscriptionPlan.PeriodAlignment.CALENDAR,
+        )
+        sub = MembershipSubscription.objects.create(
+            user=make_user(),
+            plan=plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        MembershipPayment.objects.create(
+            subscription=sub,
+            currency="EUR",
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_end=dt.datetime(2026, 5, 1, tzinfo=dt.timezone.utc),
+            **payment_fields,
+        )
+
+    def test_prorated_first_payment_counts_full_period_price(
+        self,
+        organization: Organization,
+        tier: MembershipTier,
+        make_user: t.Callable[..., RevelUser],
+    ) -> None:
+        # Joined mid-month: paid 2.00 for Apr 28 -> May 1, standing in for the 10.00 period.
+        self._sub_with_payment(
+            organization,
+            tier,
+            make_user,
+            amount=Decimal("2.00"),
+            full_period_amount=Decimal("10.00"),
+            period_start=dt.datetime(2026, 4, 28, 12, tzinfo=dt.timezone.utc),
+        )
+        assert subscription_reporting.get_organization_metrics(organization)["mrr"] == Decimal("10.00")
+
+    def test_payment_without_full_period_amount_counts_its_own_amount(
+        self,
+        organization: Organization,
+        tier: MembershipTier,
+        make_user: t.Callable[..., RevelUser],
+    ) -> None:
+        # A row with no full_period_amount counts what was paid, wherever its period starts.
+        self._sub_with_payment(
+            organization,
+            tier,
+            make_user,
+            amount=Decimal("8.00"),
+            period_start=dt.datetime(2026, 4, 12, tzinfo=dt.timezone.utc),
+        )
+        assert subscription_reporting.get_organization_metrics(organization)["mrr"] == Decimal("8.00")
