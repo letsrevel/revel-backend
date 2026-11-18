@@ -7,6 +7,8 @@ from unittest import mock
 from unittest.mock import patch
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from ninja.errors import HttpError
 
@@ -211,8 +213,12 @@ class TestPlanCadenceChange:
             organization=organization,
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
         )
-        with pytest.raises(HttpError, match="billing period"):
+        with CaptureQueriesContext(connection) as ctx, pytest.raises(HttpError, match="billing period"):
             subscription_plans.update_plan(stale, period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH)
+        # Locks the plan row only, never the joined tier/organization rows.
+        assert any('FOR UPDATE OF "events_membershipsubscriptionplan"' in q["sql"] for q in ctx.captured_queries), (
+            "update_plan must re-read the plan under a row lock"
+        )
         offline_plan.refresh_from_db()
         assert offline_plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.YEAR
 

@@ -102,9 +102,11 @@ def update_plan(
     plan: MembershipSubscriptionPlan,
     **fields: t.Any,
 ) -> MembershipSubscriptionPlan:
-    """Update a plan in-place.
+    """Update a plan and return the updated instance.
 
-    Callers pass only the fields to change; full_clean runs on save. When the
+    The plan is re-read under a row lock, so the caller's instance is not
+    mutated: use the return value. Callers pass only the fields to change;
+    full_clean runs on save. When the
     plan is ONLINE and any pricing-shape field changes, the Stripe Price is
     archived and a fresh one created (Stripe Prices are immutable).
 
@@ -130,10 +132,16 @@ def update_plan(
     if not fields:
         return plan
 
-    # Compare against the committed row, not the caller's instance: two
-    # concurrent PATCHes serialize here, so a stale resend of the old cadence
-    # cannot silently revert a plan that gained subscribers meanwhile.
-    plan = MembershipSubscriptionPlan.objects.select_for_update().select_related("tier__organization").get(pk=plan.pk)
+    # Compare against the committed row, not the caller's instance: concurrent
+    # PATCHes on this plan serialize here, so a stale resend of the old cadence
+    # cannot revert another PATCH's change. (Subscription creation on uncapped
+    # plans does not take this lock; see #1427.) ``of=("self",)`` keeps the
+    # tier/org rows unlocked across the Stripe calls below.
+    plan = (
+        MembershipSubscriptionPlan.objects.select_for_update(of=("self",))
+        .select_related("tier__organization")
+        .get(pk=plan.pk)
+    )
 
     shape_error = validate_plan_shape(
         payment_method=plan.payment_method,
