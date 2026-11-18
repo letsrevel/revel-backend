@@ -28,7 +28,7 @@ from telegram.models import TelegramUser
 
 pytestmark = pytest.mark.django_db
 
-EMAIL = "victim@example.com"
+EMAIL = "person@example.com"
 OLD_PASSWORD = "old-Strong-password-123!"
 NEW_PASSWORD = "new-Strong-password-456!"
 
