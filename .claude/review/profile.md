@@ -6,7 +6,7 @@ Revel is an event management and ticketing platform. The backend is a Django 5.2
 ## Gate
 1. `make format`, then `make check` (ruff format and lint, mypy `--strict`, migration check, i18n check, i18n literals, file length, task names).
 2. Targeted tests only: `uv run pytest <test paths for the touched modules> -q`. Never run the full suite.
-3. If error responses changed: `uv run pytest src/api/tests/test_error_response_contracts.py`.
+3. If error responses changed: run the contract tests of the app(s) touched: `uv run pytest src/events/tests/test_controllers/test_error_response_contracts.py src/oauth/tests/test_error_response_contracts.py src/integrations/tests/test_error_response_contracts.py`.
 4. If migrations changed: one migration per app per PR; squash by deleting the branch's schema migrations and regenerating them with `makemigrations`; never hand-edit a schema migration (data migrations are hand-written). NOT NULL columns need `db_default` because rolling deploys run the migration while old code still inserts.
 5. If translatable strings changed: run `make makemessages` once at the end, translate fresh, leave zero fuzzy entries, run `make compilemessages`, commit the `.po` files only (never `.mo`).
 6. If the API surface changed: the frontend must run `pnpm generate:api`; say so in the PR.
