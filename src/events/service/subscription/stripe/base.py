@@ -6,6 +6,8 @@ Bottom of the subscription Stripe stack (next to
 extracted so the two can depend on this module instead of on each other.
 """
 
+import typing as t
+
 import stripe
 import structlog
 from django.utils.translation import gettext_lazy as _
@@ -27,6 +29,14 @@ def require_stripe_connected(organization: Organization) -> None:
         raise HttpError(400, str(_("This organization is not configured to accept payments.")))
 
 
+def recurring_cadence(price: t.Mapping[str, t.Any]) -> tuple[str, int] | None:
+    """``(interval, interval_count)`` of a Stripe Price, or None if it does not recur."""
+    recurring = price.get("recurring") or {}
+    if not recurring.get("interval"):
+        return None
+    return recurring["interval"], recurring.get("interval_count") or 1
+
+
 def _price_inputs_changed(plan: MembershipSubscriptionPlan, price: stripe.Price) -> bool:
     """True when ``plan``'s pricing inputs no longer match the Stripe Price."""
     if not price.active:
@@ -35,10 +45,7 @@ def _price_inputs_changed(plan: MembershipSubscriptionPlan, price: stripe.Price)
         return True
     if (price.currency or "").upper() != plan.currency.upper():
         return True
-    recurring = price.recurring
-    if recurring is None or recurring.interval != plan.period_unit:
-        return True
-    if recurring.interval_count != plan.period_count:
+    if recurring_cadence(price) != (plan.period_unit, plan.period_count):
         return True
     return False
 

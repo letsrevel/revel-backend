@@ -22,6 +22,7 @@ from events.models import (
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
+    Organization,
 )
 from events.service.subscription.notifications import _dispatch_price_migration, _format_money
 from events.service.subscription.stripe import checkout as stripe_checkout
@@ -286,10 +287,12 @@ def migrate_plan_subscribers(
     # One query up front (no N+1); ONLINE subs re-read theirs under the lock below.
     old_price_by_sub = _last_paid_amounts(qs)
 
+    cadence_of = _memoised_cadence_lookup()
+
     for sub in qs:
         try:
             if sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
-                locked_sub = _swap_online_price_locked(plan, sub, result)
+                locked_sub = _swap_online_price_locked(plan, sub, result, cadence_of)
                 if locked_sub is None:
                     continue
                 sub = locked_sub  # the notice must describe the row actually swapped
@@ -344,8 +347,29 @@ def migrate_plan_subscribers(
     return result
 
 
+def _memoised_cadence_lookup() -> stripe_checkout.CadenceLookup:
+    """A per-run Price cadence lookup that fetches each (Price, Stripe account) once.
+
+    Keyed by the Price being installed and the account it is read on (the locked
+    subscription's), so a re-provisioned Price or a changed account is fetched afresh.
+    A failed fetch raises before it is stored: that subscriber fails, the next retries.
+    """
+    cadences: dict[tuple[str, str | None], tuple[str, int] | None] = {}
+
+    def cadence_of(price_id: str, organization: Organization) -> tuple[str, int] | None:
+        key = (price_id, organization.stripe_account_id)
+        if key not in cadences:
+            cadences[key] = stripe_checkout.fetch_price_cadence(price_id, organization)
+        return cadences[key]
+
+    return cadence_of
+
+
 def _swap_online_price_locked(
-    plan: MembershipSubscriptionPlan, sub: MembershipSubscription, result: MigrationResult
+    plan: MembershipSubscriptionPlan,
+    sub: MembershipSubscription,
+    result: MigrationResult,
+    cadence_of: stripe_checkout.CadenceLookup,
 ) -> MembershipSubscription | None:
     """Swap one ONLINE subscriber onto the plan's current Price; ``None`` when skipped (counted in ``result``).
 
@@ -395,7 +419,7 @@ def _swap_online_price_locked(
             _log_left_for_rerun(plan, locked)
             result["skipped"] += 1
             return None
-        if not stripe_checkout.update_subscription_price(locked):
+        if not stripe_checkout.update_subscription_price(locked, cadence_of=cadence_of):
             result["skipped"] += 1
             return None
     return locked
