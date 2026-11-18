@@ -1,8 +1,6 @@
 """Exact-email lookup of an account by an org admin (privacy-sensitive: an existence oracle)."""
 
 import structlog
-from django.db.models import F, Q
-from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import (
@@ -10,9 +8,9 @@ from events.models import (
     Organization,
     OrganizationMember,
     OrganizationMembershipRequest,
-    OrganizationToken,
 )
 from events.schema import OrgUserLookupSchema
+from events.service.organization_service.member_invitations import list_pending_invitations
 from events.utils.membership_access import is_eligible_status
 
 logger = structlog.get_logger(__name__)
@@ -56,16 +54,7 @@ def lookup_user_by_email(organization: Organization, actor: RevelUser, email: st
         .values_list("pk", flat=True)
         .first()
     )
-    invitation_id = (
-        OrganizationToken.objects.filter(
-            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
-            organization=organization,
-            invitee=user,
-            uses__lt=F("max_uses"),
-        )
-        .values_list("pk", flat=True)
-        .first()
-    )
+    invitation_id = list_pending_invitations(organization).filter(invitee=user).values_list("pk", flat=True).first()
     return OrgUserLookupSchema(
         user_id=user.pk,
         # Never fall back to ``username``: it is the email address.

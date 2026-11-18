@@ -693,6 +693,11 @@ class OrganizationToken(TokenMixin):
         blank=True,
         help_text="Set on a personal membership invitation: only this account can claim the token.",
     )
+    invitation_notified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Set on a personal membership invitation: when the invitee was last notified about it.",
+    )
 
     class Meta:
         constraints = [

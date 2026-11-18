@@ -38,10 +38,6 @@ def get_notification_keyboard(notification: Notification) -> InlineKeyboardMarku
         event_id = context.get("event_id")
         return _get_simple_event_link(event_id) if event_id else None
 
-    if notification_type == NotificationType.MEMBERSHIP_INVITATION_RECEIVED:
-        accept_url = context.get("accept_url")
-        return _get_accept_invitation_link(accept_url) if accept_url else None
-
     if _is_membership_notification(notification_type):
         org_id = context.get("organization_id")
         return _get_organization_link(org_id) if org_id else None
@@ -210,13 +206,6 @@ def _get_simple_event_link(event_id: str) -> InlineKeyboardMarkup:
 
     builder = InlineKeyboardBuilder()
     builder.button(text="📅 View Event", url=frontend_url)
-    return builder.as_markup()
-
-
-def _get_accept_invitation_link(accept_url: str) -> InlineKeyboardMarkup:
-    """Build a single button deep-linking to the membership invitation accept page."""
-    builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Accept invitation", url=accept_url)
     return builder.as_markup()
 
 

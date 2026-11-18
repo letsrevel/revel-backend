@@ -226,24 +226,6 @@ def test_membership_notification_without_organization_id_has_no_keyboard(notifie
     assert get_notification_keyboard(notification) is None
 
 
-def test_membership_invitation_gets_an_accept_link(notified_user: RevelUser) -> None:
-    """The invitation keyboard deep-links to the accept page, not the organization page."""
-    url = "https://app.example/account/membership-invitations/tok"
-    notification = _notify(notified_user, NotificationType.MEMBERSHIP_INVITATION_RECEIVED, {"accept_url": url})
-
-    markup = get_notification_keyboard(notification)
-
-    assert markup is not None
-    assert _urls(markup) == [url]
-
-
-def test_membership_invitation_without_accept_url_has_no_keyboard(notified_user: RevelUser) -> None:
-    """A missing accept_url yields no keyboard."""
-    notification = _notify(notified_user, NotificationType.MEMBERSHIP_INVITATION_RECEIVED, {"tier_name": "Gold"})
-
-    assert get_notification_keyboard(notification) is None
-
-
 # --- Types with no keyboard at all ---
 
 

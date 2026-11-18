@@ -22,7 +22,6 @@ from events.service.organization_service.lifecycle import (
     update_organization,
 )
 from events.service.organization_service.member_invitations import (
-    MEMBER_INVITATION_TTL,
     has_relationship,
     invite_member,
     list_pending_invitations,
@@ -63,7 +62,6 @@ from events.service.organization_service.tokens import (
 __all__ = [
     "GRANT_INVARIANT_MESSAGE",
     "MEMBERSHIP_POLICY_MANAGE_SUBSCRIPTIONS_MESSAGE",
-    "MEMBER_INVITATION_TTL",
     "MEMBERSHIP_TIER_REQUIRED_MESSAGE",
     "REVENUE_CADENCE_OWNER_ONLY_MESSAGE",
     "STAFF_GRANT_FORBIDDEN_MESSAGE",

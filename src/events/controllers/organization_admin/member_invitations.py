@@ -11,7 +11,7 @@ from common.schema import ErrorDetail
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import OrganizationPermission
-from events.service.organization_service import member_invitations
+from events.service import organization_service
 
 from .base import OrganizationAdminBaseController
 
@@ -35,7 +35,7 @@ class OrganizationAdminMemberInvitationsController(OrganizationAdminBaseControll
     @paginate(PageNumberPaginationExtra, page_size=20)
     def list_member_invitations(self, slug: str) -> QuerySet[models.OrganizationToken]:
         """List invitations that were sent and not yet accepted or expired."""
-        return member_invitations.list_pending_invitations(self.get_one(slug))
+        return organization_service.list_pending_invitations(self.get_one(slug))
 
     @route.post(
         "/member-invitations",
@@ -48,11 +48,11 @@ class OrganizationAdminMemberInvitationsController(OrganizationAdminBaseControll
     ) -> tuple[int, models.OrganizationToken]:
         """Invite an account to join at the given tier (re-inviting refreshes the same invitation)."""
         organization = self.get_one(slug)
-        invitee = get_object_or_404(RevelUser, pk=payload.user_id, is_active=True, guest=False)
+        invitee = get_object_or_404(RevelUser, pk=payload.user_id, is_active=True, guest=False, email_verified=True)
         tier = get_object_or_404(
             models.MembershipTier.objects.standard(), pk=payload.tier_id, organization=organization
         )
-        invitation = member_invitations.invite_member(organization, invitee, tier, self.user())
+        invitation = organization_service.invite_member(organization, invitee, tier, self.user())
         return 201, invitation
 
     @route.delete(
@@ -63,5 +63,5 @@ class OrganizationAdminMemberInvitationsController(OrganizationAdminBaseControll
     )
     def revoke_member_invitation(self, slug: str, invitation_id: str) -> tuple[int, None]:
         """Revoke a pending invitation."""
-        member_invitations.revoke_invitation(self.get_one(slug), invitation_id)
+        organization_service.revoke_invitation(self.get_one(slug), invitation_id)
         return 204, None

@@ -52,6 +52,12 @@ def _claim(user: RevelUser, token_id: t.Any) -> t.Any:
     return _client(user).post(url)
 
 
+@pytest.fixture(autouse=True)
+def _verified_invitee(nonmember_user: RevelUser) -> None:
+    """Invitees must have a verified email; individual tests flip it back to cover the refusal."""
+    RevelUser.objects.filter(pk=nonmember_user.pk).update(email_verified=True)
+
+
 @pytest.fixture
 def tier(organization: Organization) -> MembershipTier:
     return MembershipTier.objects.create(organization=organization, name="Gold")
@@ -196,6 +202,66 @@ class TestInvite:
         assert OrganizationToken.objects.filter(organization=organization, invitee=nonmember_user).count() == 1
         assert send.call_count == 1
 
+    def test_reinvite_within_cooldown_refreshes_without_notifying(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        nonmember_user: RevelUser,
+        tier: MembershipTier,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        first_id = _invite(organization_owner_client, organization, nonmember_user, tier).json()["id"]
+        other_tier = MembershipTier.objects.create(organization=organization, name="Silver")
+        OrganizationToken.objects.filter(pk=first_id).update(expires_at=timezone.now() + dt.timedelta(days=1))
+
+        with (
+            patch("notifications.signals.notification_requested.send") as send,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            response = _invite(organization_owner_client, organization, nonmember_user, other_tier)
+
+        assert response.status_code == 201
+        token = OrganizationToken.objects.get(pk=first_id)
+        assert token.membership_tier_id == other_tier.pk
+        assert token.expires_at is not None and token.expires_at > timezone.now() + dt.timedelta(days=13)
+        assert send.call_count == 0
+
+    def test_reinvite_after_cooldown_notifies_again(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        nonmember_user: RevelUser,
+        tier: MembershipTier,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        first_id = _invite(organization_owner_client, organization, nonmember_user, tier).json()["id"]
+        OrganizationToken.objects.filter(pk=first_id).update(
+            invitation_notified_at=timezone.now() - dt.timedelta(hours=25)
+        )
+
+        with (
+            patch("notifications.signals.notification_requested.send") as send,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            _invite(organization_owner_client, organization, nonmember_user, tier)
+
+        assert send.call_count == 1
+        token = OrganizationToken.objects.get(pk=first_id)
+        assert token.invitation_notified_at is not None
+        assert timezone.now() - token.invitation_notified_at < dt.timedelta(minutes=1)
+
+    def test_unverified_invitee_is_404(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        nonmember_user: RevelUser,
+        tier: MembershipTier,
+    ) -> None:
+        RevelUser.objects.filter(pk=nonmember_user.pk).update(email_verified=False)
+
+        assert _invite(organization_owner_client, organization, nonmember_user, tier).status_code == 404
+        assert not OrganizationToken.objects.filter(invitee=nonmember_user).exists()
+
     def test_already_member_refused_in_any_status(
         self,
         organization_owner_client: Client,
@@ -285,6 +351,42 @@ class TestListAndRevoke:
 
         assert not OrganizationToken.objects.filter(pk=token_id).exists()
         assert _claim(nonmember_user, token_id).status_code == 400
+
+    def test_invitee_who_became_member_another_way_is_not_pending(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        nonmember_user: RevelUser,
+        tier: MembershipTier,
+    ) -> None:
+        token_id = _invite(organization_owner_client, organization, nonmember_user, tier).json()["id"]
+        OrganizationMember.objects.create(organization=organization, user=nonmember_user, tier=tier)
+
+        assert organization_owner_client.get(_list_url(organization)).json()["count"] == 0
+        lookup = reverse("api:lookup_organization_user", kwargs={"slug": organization.slug})
+        body = organization_owner_client.get(lookup, {"email": nonmember_user.email}).json()
+        assert body["pending_invitation_id"] is None
+        url = reverse("api:revoke_member_invitation", kwargs={"slug": organization.slug, "invitation_id": token_id})
+        assert organization_owner_client.delete(url).status_code == 404
+
+    @pytest.mark.parametrize("state", ["used", "expired"])
+    def test_revoke_only_pending_invitations(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        nonmember_user: RevelUser,
+        tier: MembershipTier,
+        state: str,
+    ) -> None:
+        token_id = _invite(organization_owner_client, organization, nonmember_user, tier).json()["id"]
+        if state == "used":
+            OrganizationToken.objects.filter(pk=token_id).update(uses=1)
+        else:
+            OrganizationToken.objects.filter(pk=token_id).update(expires_at=timezone.now() - dt.timedelta(minutes=1))
+        url = reverse("api:revoke_member_invitation", kwargs={"slug": organization.slug, "invitation_id": token_id})
+
+        assert organization_owner_client.delete(url).status_code == 404
+        assert OrganizationToken.objects.filter(pk=token_id).exists()
 
     def test_revoke_rejects_generic_token_of_same_org(
         self,
@@ -404,6 +506,17 @@ class TestRelationshipGates:
             user=nonmember_user,
             status=OrganizationMembershipRequest.Status.REJECTED,
         )
+        assert organization_service.has_relationship(organization, nonmember_user)
+
+    @pytest.mark.parametrize("status", list(OrganizationMember.MembershipStatus))
+    def test_has_relationship_via_member_row_in_any_status(
+        self, organization: Organization, nonmember_user: RevelUser, status: OrganizationMember.MembershipStatus
+    ) -> None:
+        OrganizationMember.objects.create(organization=organization, user=nonmember_user, status=status)
+        assert organization_service.has_relationship(organization, nonmember_user)
+
+    def test_has_relationship_via_staff_row(self, organization: Organization, nonmember_user: RevelUser) -> None:
+        OrganizationStaff.objects.create(organization=organization, user=nonmember_user)
         assert organization_service.has_relationship(organization, nonmember_user)
 
     def test_has_relationship_via_register_record(self, organization: Organization, nonmember_user: RevelUser) -> None:

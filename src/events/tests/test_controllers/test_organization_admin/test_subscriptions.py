@@ -194,6 +194,20 @@ class TestSubscriptionEndpoints:
         sub = MembershipSubscription.objects.get(user=subscriber)
         assert sub.payments.count() == 1
 
+    def test_create_subscription_without_relationship_requires_invitation(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        url = reverse("api:create_subscription", kwargs={"slug": organization.slug})
+        payload = {"plan_id": str(plan.id), "user_id": str(subscriber.id)}
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 400
+        assert response.json()["code"] == "invitation_required"
+        assert not MembershipSubscription.objects.filter(user=subscriber).exists()
+
     def test_record_payment(
         self,
         organization_owner_client: Client,
