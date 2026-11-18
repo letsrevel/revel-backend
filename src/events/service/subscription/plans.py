@@ -262,6 +262,12 @@ def migrate_plan_subscribers(
     ``skipped_schedule_managed`` and never touched — same carve-out, and same
     reasons, as :func:`stripe_checkout.resync_subscription_application_fees`.
     Re-run the migration once their schedule releases.
+
+    Subscribers that moved plans or ended since the batch was listed, and
+    subscribers left behind because the plan's price changed again mid-run
+    (this run's notice quotes the batch price), are also counted as
+    ``skipped``; the latter log ``migrate_plan_subscribers_skipped_price_changed_mid_run``
+    and need the migration run that second change calls for.
     """
     result: MigrationResult = {
         "migrated": 0,
@@ -305,6 +311,12 @@ def migrate_plan_subscribers(
             offline = sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE
             if offline and not _still_on_plan_and_live(sub, plan):
                 # OFFLINE: the sub moved plans or ended since the batch was listed.
+                result["skipped"] += 1
+                continue
+            if offline and not _plan_price_unchanged(
+                MembershipSubscriptionPlan.objects.only("price", "currency").get(pk=plan.pk), plan
+            ):
+                _log_left_for_rerun(plan, sub)  # same rule as ONLINE: don't quote a stale price
                 result["skipped"] += 1
                 continue
             if old_price is None or old_price == new_price:
@@ -366,10 +378,11 @@ def _swap_online_price_locked(
         ):
             result["skipped"] += 1
             return False
-        if locked.plan.stripe_price_id != plan.stripe_price_id:
-            # The plan's Price changed again mid-run; this run's notice quotes
+        if not _plan_price_unchanged(locked.plan, plan):
+            # The plan's price changed again mid-run; this run's notice quotes
             # ``plan.price``, so leave the subscriber to the migration run that
-            # change calls for.
+            # change calls for (logged so a non-zero ``skipped`` is not read as done).
+            _log_left_for_rerun(plan, locked)
             result["skipped"] += 1
             return False
         if locked.stripe_schedule_id:
@@ -399,6 +412,19 @@ def _still_on_plan_and_live(sub: MembershipSubscription, plan: MembershipSubscri
         MembershipSubscription.objects.filter(pk=sub.pk, plan=plan)
         .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
         .exists()
+    )
+
+
+def _plan_price_unchanged(current: MembershipSubscriptionPlan, snapshot: MembershipSubscriptionPlan) -> bool:
+    """True when the plan still bills what this run's notice quotes (a same-amount re-provisioned Price is fine)."""
+    return current.price == snapshot.price and current.currency.upper() == snapshot.currency.upper()
+
+
+def _log_left_for_rerun(plan: MembershipSubscriptionPlan, sub: MembershipSubscription) -> None:
+    logger.warning(
+        "migrate_plan_subscribers_skipped_price_changed_mid_run",
+        plan_id=str(plan.pk),
+        subscription_id=str(sub.pk),
     )
 
 

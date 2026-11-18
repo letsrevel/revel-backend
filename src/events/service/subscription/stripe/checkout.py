@@ -722,7 +722,7 @@ def update_subscription_price(subscription: MembershipSubscription) -> bool:
     Callers must filter out schedule-managed rows (``stripe_schedule_id`` set)
     first — Stripe rejects a plain ``Subscription.modify`` while a schedule is
     attached, so this raises the module's 502 rather than migrating them. See
-    ``subscription.lifecycle.migrate_plan_subscribers`` and
+    ``subscription.plans.migrate_plan_subscribers`` and
     :func:`resync_subscription_application_fees` for the carve-out.
 
     Returns True when modify was called; False when already current or skipped.

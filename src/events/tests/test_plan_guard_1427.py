@@ -669,6 +669,17 @@ class TestMigrateOfflineRecheck:
         mock_dispatch.assert_called_once()
         assert result["migrated"] == 1
 
+    def test_no_notice_when_plan_price_changed_again_mid_run(
+        self, plan: Plan, organization: Organization, subscriber: RevelUser, organization_owner_user: RevelUser
+    ) -> None:
+        """The notice would quote the batch price, which the plan no longer bills."""
+        self._setup(plan, organization, subscriber)
+        result, mock_dispatch = self._run(
+            plan, organization_owner_user, lambda: Plan.objects.filter(pk=plan.pk).update(price=plan.price + 7)
+        )
+        mock_dispatch.assert_not_called()
+        assert (result["migrated"], result["skipped"]) == (0, 1)
+
 
 @pytest.mark.django_db
 class TestMigrateOnlinePriceRecheck:
@@ -718,12 +729,27 @@ class TestMigrateOnlinePriceRecheck:
         result, mock_modify = self._run(
             online_plan,
             organization_owner_user,
-            lambda: Plan.objects.filter(pk=online_plan.pk).update(stripe_price_id="price_newer"),
+            # A second price edit mid-run: new amount, new Price.
+            lambda: Plan.objects.filter(pk=online_plan.pk).update(
+                price=online_plan.price + 5, stripe_price_id="price_newer"
+            ),
         )
         assert mock_modify.call_count == 1
         for call in mock_modify.call_args_list:
             assert call.kwargs["items"][0]["price"] == "price_new"
         assert (result["migrated"], result["skipped"], result["failed"]) == (1, 1, 0)
+
+    def test_same_amount_reprovisioned_price_still_migrates(
+        self, online_plan: Plan, two_subs: list[Sub], organization_owner_user: RevelUser
+    ) -> None:
+        """Only the Price id changed (e.g. an archived Price re-created): the notice is still right, so migrate."""
+        result, mock_modify = self._run(
+            online_plan,
+            organization_owner_user,
+            lambda: Plan.objects.filter(pk=online_plan.pk).update(stripe_price_id="price_newer"),
+        )
+        assert (result["migrated"], result["skipped"], result["failed"]) == (2, 0, 0)
+        assert "price_newer" in [c.kwargs["items"][0]["price"] for c in mock_modify.call_args_list]
 
     def test_row_deleted_mid_run_is_skipped_not_failed(
         self, online_plan: Plan, organization: Organization, subscriber: RevelUser, organization_owner_user: RevelUser
