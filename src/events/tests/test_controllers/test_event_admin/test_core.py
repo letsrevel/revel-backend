@@ -962,3 +962,32 @@ def test_edit_slug_by_unauthorized_users(
     response = client.patch(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == expected_status_code
+
+
+def test_delete_event_releases_pending_discount_uses(
+    organization_owner_client: Client, event: Event, organization_owner_user: RevelUser
+) -> None:
+    """Deleting an event cascades its PENDING tickets, so their discount code uses are given back."""
+    from decimal import Decimal
+
+    from events.models.discount_code import DiscountCode
+
+    tier = TicketTier.objects.create(event=event, name="Offline", price=Decimal("10.00"), total_quantity=10)
+    code = DiscountCode.objects.create(
+        code="DELCODE",
+        organization=event.organization,
+        discount_type=DiscountCode.DiscountType.PERCENTAGE,
+        discount_value=Decimal("5.00"),
+        max_uses=5,
+        is_active=True,
+        times_used=1,
+    )
+    Ticket.objects.create(
+        event=event, tier=tier, user=organization_owner_user, status=Ticket.TicketStatus.PENDING, discount_code=code
+    )
+
+    response = organization_owner_client.delete(reverse("api:delete_event", kwargs={"event_id": event.pk}))
+
+    assert response.status_code == 204
+    code.refresh_from_db()
+    assert code.times_used == 0

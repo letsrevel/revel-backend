@@ -32,7 +32,7 @@ from common.utils import update_db_instance
 from events import models
 from events.exceptions import EventRefundsStartedError
 from events.schema import EventCreateSchema, EventEditSchema, SeriesPassLinkInputSchema
-from events.service import day_membership_service, series_pass_service
+from events.service import day_membership_service, discount_code_service, series_pass_service
 from events.service.waitlist_service import enqueue_waitlist_processing, revoke_all_pending_offers
 from events.utils.schedule import EventScheduleSession
 from events.utils.visibility_settings import build_visibility_settings_update, validate_visibility_settings
@@ -373,3 +373,10 @@ def update_event_schedule(event: models.Event, sessions: list[EventScheduleSessi
 # ``SlugAlreadyExistsError`` to clients. Kept here so the service owns the
 # canonical wording while the controller only does HTTP mapping.
 SLUG_ALREADY_EXISTS_MESSAGE = _("An event with this slug already exists in your organization.")
+
+
+@transaction.atomic
+def delete_event(event: models.Event) -> None:
+    """Delete an event; its PENDING tickets cascade, so their discount code uses are given back first."""
+    discount_code_service.release_uses_of_pending_tickets(event=event)
+    event.delete()

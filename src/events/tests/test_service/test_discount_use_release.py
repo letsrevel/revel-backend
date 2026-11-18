@@ -14,6 +14,8 @@ from unittest.mock import MagicMock
 
 import pytest
 import stripe
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from ninja.errors import HttpError
 
@@ -21,7 +23,14 @@ from accounts.models import RevelUser
 from conftest import RevelUserFactory
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.models.discount_code import DiscountCode
-from events.service import cancellation_service, discount_code_service, stripe_service, ticket_service
+from events.service import (
+    cancellation_service,
+    discount_code_service,
+    event_service,
+    refund_service,
+    stripe_service,
+    ticket_service,
+)
 from events.service.stripe_webhooks import StripeEventHandler
 from events.tasks import cleanup_expired_payments
 
@@ -366,3 +375,126 @@ class TestEventCancellationSweep:
         assert _used(code) == 1
         refund_one_cancelled_event_ticket(str(confirmed.pk))
         assert _used(code) == 1
+
+
+def _user_cancel(ticket: Ticket, user: RevelUser) -> None:
+    """User cancel of a PENDING ticket: releases the use, leaves the Payment PENDING."""
+    cancellation_service._finalize_cancellation(
+        Ticket.objects.select_related("tier").get(pk=ticket.pk),
+        user,
+        "",
+        timezone.now(),
+        Decimal("0.00"),
+        "EUR",
+    )
+
+
+def _code(organization: Organization, name: str) -> DiscountCode:
+    return DiscountCode.objects.create(
+        code=name,
+        organization=organization,
+        discount_type=DiscountCode.DiscountType.PERCENTAGE,
+        discount_value=Decimal("5.00"),
+        max_uses=10,
+        max_uses_per_user=10,
+        is_active=True,
+    )
+
+
+class TestPaymentIntentCanceledAfterUserCancel:
+    def test_user_cancelled_ticket_is_not_released_again(
+        self, online_tier: TicketTier, organization: Organization, user_a: RevelUser, user_b: RevelUser
+    ) -> None:
+        code = _code(organization, "PICXL")
+        (a_ticket,) = _reserve(online_tier, user_a, code, intent="pi_a")
+        _reserve(online_tier, user_b, code)  # sibling use, so the floor cannot mask a double release
+        assert _used(code) == 2
+        _user_cancel(a_ticket, user_a)
+        assert _used(code) == 1
+        assert _payment_of(a_ticket).status == Payment.PaymentStatus.PENDING
+
+        payload = {"id": "pi_a_0"}
+        stripe_event = MagicMock(spec=stripe.Event)
+        stripe_event.type = "payment_intent.canceled"
+        stripe_event.data = MagicMock()
+        stripe_event.data.object = payload
+        StripeEventHandler(stripe_event).handle_payment_intent_canceled(stripe_event)
+
+        assert _used(code) == 1
+
+
+class TestBatchHelperPendingFilter:
+    @pytest.mark.parametrize("route", ["cancel_pending_checkout", "cleanup_expired_batch"])
+    def test_user_cancelled_ticket_of_batch_is_not_released_again(
+        self, online_tier: TicketTier, organization: Organization, user_a: RevelUser, user_b: RevelUser, route: str
+    ) -> None:
+        code = _code(organization, "BATCHF")
+        first, second = _reserve(online_tier, user_a, code, count=2, expired=route == "cleanup_expired_batch")
+        _reserve(online_tier, user_b, code)  # sibling checkout
+        assert _used(code) == 3
+        _user_cancel(first, user_a)
+        assert _used(code) == 2
+
+        if route == "cancel_pending_checkout":
+            stripe_service.cancel_pending_checkout(str(_payment_of(second).pk), user_a)
+        else:
+            stripe_service._cleanup_expired_batch(_payment_of(second))
+
+        # Only the still-PENDING ticket is released; B's use survives.
+        assert _used(code) == 1
+
+
+class TestOrganizerCancelOnlineTicket:
+    def test_pending_online_ticket_locks_payment_after_ticket_and_releases_once(
+        self,
+        online_tier: TicketTier,
+        organization: Organization,
+        user_a: RevelUser,
+        user_b: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        code = _code(organization, "ADMCXL")
+        (ticket,) = _reserve(online_tier, user_a, code)
+        _reserve(online_tier, user_b, code)
+        assert _used(code) == 2
+
+        with CaptureQueriesContext(connection) as ctx:
+            refund_service.admin_cancel_ticket(
+                ticket, cancelled_by=organization_owner_user, reason=None, refund_amount=None
+            )
+
+        locks = [q["sql"] for q in ctx.captured_queries if "FOR UPDATE" in q["sql"]]
+        ticket_idx = next(i for i, q in enumerate(locks) if Ticket._meta.db_table in q.split("FROM")[1].split()[0])
+        payment_idx = next(i for i, q in enumerate(locks) if Payment._meta.db_table in q.split("FROM")[1].split()[0])
+        assert ticket_idx < payment_idx
+        assert _used(code) == 1
+
+
+class TestCascadeDeletes:
+    def test_event_delete_releases_pending_keeps_confirmed(
+        self, offline_tier: TicketTier, organization: Organization, user_a: RevelUser, user_b: RevelUser
+    ) -> None:
+        code = _code(organization, "EVTDEL")
+        _reserve(offline_tier, user_a, code, with_payment=False)
+        (confirmed,) = _reserve(offline_tier, user_b, code, with_payment=False)
+        Ticket.objects.filter(pk=confirmed.pk).update(status=Ticket.TicketStatus.ACTIVE)
+        assert _used(code) == 2
+
+        event_service.delete_event(offline_tier.event)
+
+        assert _used(code) == 1
+
+    def test_account_deletion_releases_pending_uses(
+        self, offline_tier: TicketTier, organization: Organization, user_a: RevelUser, user_b: RevelUser
+    ) -> None:
+        from accounts.tasks import delete_user_account
+
+        code = _code(organization, "ACCDEL")
+        _reserve(offline_tier, user_a, code, with_payment=False)
+        _reserve(offline_tier, user_b, code, with_payment=False)
+        assert _used(code) == 2
+
+        delete_user_account(str(user_a.pk))
+
+        assert _used(code) == 1
+        assert not RevelUser.objects.filter(pk=user_a.pk).exists()

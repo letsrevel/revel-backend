@@ -237,12 +237,14 @@ pending tickets, both in `confirm_held_pass_payment` and in the Stripe
 `checkout.session.completed` handler (`_activate_series_passes` runs before the
 payments loop). Reversing either would let two transactions wait on each other.
 
-`DiscountCode` rows come **last** in that order, after the tier, ticket and payment locks:
-`apply_discount` runs after the tier lock and the ticket inserts in checkout, so every path that
-gives uses back (`discount_code_service.release_discount_uses`: cancel/expiry of an unfinished
-checkout) must lock the codes only after the tiers it touches, in pk order. Release only for
-tickets that were still PENDING under the lock the path already holds, and call it once after the
-whole tier loop (as `handle_payment_intent_canceled` does) rather than interleaved per ticket.
+`DiscountCode` rows are locked **after the tiers**: `apply_discount` runs after the tier lock and
+the ticket inserts in checkout, so every path that gives uses back
+(`discount_code_service.release_discount_uses`: cancel/expiry of an unfinished checkout) must lock
+the codes only after the tiers it touches, in pk order. Derive the ids only after the Payment rows
+(batch routes) or the ticket row (single cancel) are locked, filtered to PENDING tickets; the
+organizer cancel therefore locks the ticket's Payment rows even when no refund is issued, so it
+serializes with the Payment-locking reclaim routes. Call it once after the whole tier loop (as
+`handle_payment_intent_canceled` does) rather than interleaved per ticket.
 
 Don't do network I/O after numbering: the per-org sequence lock serializes ticket
 issuance for that organization until the transaction commits.

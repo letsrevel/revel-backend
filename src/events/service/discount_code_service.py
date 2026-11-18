@@ -16,7 +16,7 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.exceptions import DuplicateDiscountCodeError
-from events.models import Event, EventSeries, Organization, Ticket, TicketTier
+from events.models import Event, EventSeries, Organization, Payment, Ticket, TicketTier
 from events.models.discount_code import DiscountCode
 
 if t.TYPE_CHECKING:
@@ -648,15 +648,15 @@ def release_discount_uses(discount_code_ids: t.Iterable[UUID | None]) -> None:
     (ACTIVE / CHECKED_IN) ticket that is cancelled or refunded later keeps its use, so
     callers must not pass those.
 
-    Callers derive the ids from the row-locked snapshot they already hold, filtered to
-    tickets that are still PENDING, so a ticket released by one route (for example a user
-    cancelling a pending ticket) is never released again by another (the payment sweep).
-    The decrement is floored at zero.
+    Callers derive the ids only after locking the rows that serialize the release (the
+    batch's Payment rows, or the ticket row for a single cancel), filtered to tickets that are
+    still PENDING, so a ticket released by one route (for example a user cancelling a pending
+    ticket) is never released again by another (the payment sweep). The decrement is floored
+    at zero.
 
-    Lock order: the ``DiscountCode`` rows are locked LAST, after the tier / ticket / payment
-    locks every caller already holds (``apply_discount`` also runs after the tier lock and
-    ticket creation in checkout), and in pk order so concurrent releases cannot deadlock.
-    Never call this before locking tiers.
+    Lock order: the ``DiscountCode`` rows are locked after the ticket tiers (``apply_discount``
+    also runs after the tier lock and ticket creation in checkout), and in pk order so
+    concurrent releases cannot deadlock. Never call this before locking tiers.
 
     Args:
         discount_code_ids: One entry per released PENDING ticket.
@@ -669,3 +669,22 @@ def release_discount_uses(discount_code_ids: t.Iterable[UUID | None]) -> None:
     for code_id, count in sorted(per_code.items()):
         DiscountCode.objects.filter(pk=code_id).update(times_used=Greatest(F("times_used") - count, Value(0)))
     logger.info("discount_uses_released", released=sum(per_code.values()), codes=len(per_code))
+
+
+def release_uses_of_pending_tickets(*, event: Event | None = None, user: RevelUser | None = None) -> None:
+    """Give back the uses of the PENDING tickets a cascade delete of ``event`` / ``user`` is about to remove.
+
+    Deleting an event or an account cascade-deletes its tickets, and a PENDING one is an
+    unfinished checkout, so its use goes back (confirmed tickets keep theirs). Call it inside
+    the same transaction, before the delete. The tickets' Payment rows are locked first so this
+    serializes with the other Payment-locking reclaim routes, then the ids are derived under
+    that lock (see :func:`release_discount_uses`).
+
+    Exactly one of ``event`` / ``user`` must be given.
+    """
+    if (event is None) == (user is None):
+        raise ValueError("Pass exactly one of event or user.")
+    pending = Ticket.objects.filter(status=Ticket.TicketStatus.PENDING, discount_code_id__isnull=False)
+    pending = pending.filter(event=event) if event is not None else pending.filter(user=user)
+    list(Payment.objects.select_for_update().filter(ticket__in=pending).values_list("pk", flat=True))
+    release_discount_uses(pending.values_list("discount_code_id", flat=True))
