@@ -79,13 +79,11 @@ def lock_events_and_find_full(events: t.Iterable[Event], user: RevelUser) -> set
     full: set[UUID] = set()
     for event in locked:
         cap = event.effective_capacity
-        # ponytail: event_seats_available row-locks every non-cancelled ticket of each covered event,
-        # which widens the existing lock-order inversion with cleanup_expired_payments / cancellation_service
-        # to N events. Upgrade path: count without row locks (the Event row lock above already
-        # serializes capacity writers).
+        # Counted without per-row locks: the Event row lock above serializes every writer that adds a
+        # ticket or offer, and locking each ticket row of N events would deadlock with cancellations.
         # ponytail: exclude_own_offer=False counts the buyer's own pending waitlist offer like anyone else's
         # (conservative, never oversells). Claiming the offer would be the alternative; the buyer's waitlist
         # row is left as is.
-        if cap and event_seats_available(event, user, cap, exclude_own_offer=False) <= 0:
+        if cap and event_seats_available(event, user, cap, exclude_own_offer=False, lock_rows=False) <= 0:
             full.add(event.pk)
     return full

@@ -21,7 +21,12 @@ if t.TYPE_CHECKING:
 
 
 def event_seats_available(
-    locked_event: Event, user: RevelUser, effective_cap: int, *, exclude_own_offer: bool = True
+    locked_event: Event,
+    user: RevelUser,
+    effective_cap: int,
+    *,
+    exclude_own_offer: bool = True,
+    lock_rows: bool = True,
 ) -> int:
     """Count the seats still free on an event, under the caller's Event row lock.
 
@@ -39,28 +44,26 @@ def event_seats_available(
         exclude_own_offer: Whether the buyer's own pending offer is left out of the count. True only
             for flows that go on to claim that offer (batch checkout); the series pass flows pass
             False so the offer counts like anyone else's.
+        lock_rows: Whether the counted ticket and offer rows are row-locked too (batch checkout keeps
+            its existing behaviour). The series pass flows pass False: every writer that adds a ticket
+            or an offer serializes on the Event row lock the caller already holds, and a concurrent
+            cancellation can only lower the count, so locking each row adds deadlock exposure with
+            the cancellation and expiry routes without adding safety.
 
     Returns:
         Free seats; zero or negative means the event is full.
     """
-    current_count = (
-        Ticket.objects.select_for_update()
-        .filter(event=locked_event)
-        .exclude(status=Ticket.TicketStatus.CANCELLED)
-        .count()
-    )
+    tickets = Ticket.objects.select_for_update() if lock_rows else Ticket.objects.all()
+    offers = WaitlistOffer.objects.select_for_update() if lock_rows else WaitlistOffer.objects.all()
+    current_count = tickets.filter(event=locked_event).exclude(status=Ticket.TicketStatus.CANCELLED).count()
 
     now = timezone.now()
-    pending_offers = (
-        WaitlistOffer.objects.select_for_update()
-        .filter(
-            event=locked_event,
-            status=WaitlistOffer.WaitlistOfferStatus.PENDING,
-            expires_at__gt=now,
-            is_cutoff_batch=False,
-        )
-        .count()
-    )
+    pending_offers = offers.filter(
+        event=locked_event,
+        status=WaitlistOffer.WaitlistOfferStatus.PENDING,
+        expires_at__gt=now,
+        is_cutoff_batch=False,
+    ).count()
     has_own_offer = (
         exclude_own_offer
         and WaitlistOffer.objects.filter(
