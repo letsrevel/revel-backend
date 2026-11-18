@@ -12,7 +12,7 @@ from decimal import Decimal
 
 import structlog
 from django.db import transaction
-from django.db.models import ProtectedError
+from django.db.models import ProtectedError, Q
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -102,15 +102,27 @@ def update_plan(
     plan: MembershipSubscriptionPlan,
     **fields: t.Any,
 ) -> MembershipSubscriptionPlan:
-    """Update a plan in-place.
+    """Update a plan and return the updated instance.
 
-    Callers pass only the fields to change; full_clean runs on save. When the
+    The plan is re-read under a row lock, so the caller's instance is not
+    mutated: use the return value. Callers pass only the fields to change;
+    full_clean runs on save. When the
     plan is ONLINE and any pricing-shape field changes, the Stripe Price is
     archived and a fresh one created (Stripe Prices are immutable).
 
     Refuses currency changes when the plan has any non-terminal subscriptions
     — cross-currency migration is risky and out of roadmap; staff must archive
     and create a new plan instead.
+
+    Refuses cadence (``period_unit`` / ``period_count``) changes under the same
+    condition (both guards also count subscriptions with a downgrade scheduled
+    into this plan via ``pending_plan``; a ``period_count`` edit on a LIFETIME
+    plan is not a cadence change). Swapping an ONLINE subscriber onto a Price
+    with another interval (``proration_behavior="none"``) depends on the
+    subscription's Stripe billing mode: flexible mode stretches the paid
+    period without invoicing (observed in test mode, #1423), classic mode
+    resets the billing date and charges the new Price at once. Neither is
+    acceptable for existing subscribers.
 
     Also re-checks the (payment method, price, cadence) shape against the
     *merged* post-patch values: ``payment_method`` is not patchable, so a FREE
@@ -119,6 +131,17 @@ def update_plan(
     """
     if not fields:
         return plan
+
+    # Compare against the committed row, not the caller's instance: concurrent
+    # PATCHes on this plan serialize here, so a stale resend of the old cadence
+    # cannot revert another PATCH's change. (Subscription creation on uncapped
+    # plans does not take this lock; see #1427.) ``of=("self",)`` keeps the
+    # tier/org rows unlocked across the Stripe calls below.
+    plan = (
+        MembershipSubscriptionPlan.objects.select_for_update(of=("self",))
+        .select_related("tier__organization")
+        .get(pk=plan.pk)
+    )
 
     shape_error = validate_plan_shape(
         payment_method=plan.payment_method,
@@ -129,14 +152,31 @@ def update_plan(
         raise HttpError(400, shape_error)
 
     new_currency = fields.get("currency")
-    if new_currency is not None and new_currency.upper() != plan.currency.upper():
+    currency_changes = new_currency is not None and new_currency.upper() != plan.currency.upper()
+    new_unit = fields.get("period_unit", plan.period_unit)
+    cadence_changes = new_unit != plan.period_unit or (
+        # LIFETIME ignores period_count, so editing it there changes nothing.
+        new_unit != MembershipSubscriptionPlan.PeriodUnit.LIFETIME
+        and fields.get("period_count", plan.period_count) != plan.period_count
+    )
+    if currency_changes or cadence_changes:
+        # A scheduled downgrade (``pending_plan``) already pins this plan's
+        # current Stripe Price into the subscriber's schedule.
         has_active_subs = (
-            MembershipSubscription.objects.filter(plan=plan)
+            MembershipSubscription.objects.filter(Q(plan=plan) | Q(pending_plan=plan))
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
             .exists()
         )
         if has_active_subs:
-            msg = _("Cannot change currency when active subscriptions exist. Archive and create a new plan instead.")
+            if currency_changes:
+                msg = _(
+                    "Cannot change currency when active subscriptions exist. Archive and create a new plan instead."
+                )
+            else:
+                msg = _(
+                    "Cannot change the billing period when active subscriptions exist. "
+                    "Archive and create a new plan instead."
+                )
             raise HttpError(400, str(msg))
 
     for field, value in fields.items():

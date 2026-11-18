@@ -369,8 +369,8 @@ Everything that operates on a plan rather than on one subscriber's lifecycle.
 
 | Function | Responsibility |
 |---|---|
-| `create_plan` / `update_plan` / `archive_plan` / `delete_plan` | Plan CRUD. ONLINE plans trigger `ensure_stripe_price`. Currency edits are refused when active subs exist. `delete_plan` catches `ProtectedError` from the FK |
-| `migrate_plan_subscribers` | Force-migrates non-terminal subs on a plan to its current Stripe price (`proration_behavior='none'`). Per-sub errors are reported individually; no rollback. Batches the "previous price" lookup with `DISTINCT ON` to avoid N+1 |
+| `create_plan` / `update_plan` / `archive_plan` / `delete_plan` | Plan CRUD. ONLINE plans trigger `ensure_stripe_price`. `update_plan` re-reads the plan under `select_for_update` and refuses currency and cadence (`period_unit` / `period_count`) edits while the plan has non-terminal subscriptions, including subscriptions with a downgrade scheduled into it (`pending_plan`); a `period_count` edit on a `LIFETIME` plan is allowed, since `LIFETIME` ignores it. Why (#1423): moving an ONLINE subscriber to a Price with another interval under `proration_behavior='none'` depends on the subscription's Stripe billing mode. Flexible mode stretches the paid period without an invoice (observed in test mode); classic mode resets the billing date and charges the new Price at once. `delete_plan` catches `ProtectedError` from the FK |
+| `migrate_plan_subscribers` | Force-migrates non-terminal subs on a plan to its current Stripe price (`proration_behavior='none'`). Per-sub errors are reported individually; no rollback. Before each swap the subscriber's current Price and the plan's current Price are compared directly (not against the plan row): both must recur, with the same `interval` and `interval_count`, or the subscriber is reported as failed and never swapped (#1423). Batches the "previous price" lookup with `DISTINCT ON` to avoid N+1 |
 
 ### `events/service/subscription/stripe/base.py`, `checkout.py`, `sync.py`
 
@@ -601,7 +601,7 @@ Guarded by `OrganizationPermission("manage_subscriptions")`.
 | GET | `/subscriptions/metrics` | Per-org MRR / churn / status breakdown |
 | GET | `/plans` | List plans across every tier of the org (`is_active` filter) |
 | GET / POST | `/tiers/{tier_id}/plans` | List / create plans on a tier |
-| PATCH | `/plans/{plan_id}` | Edit plan (currency edits refused with active subs) |
+| PATCH | `/plans/{plan_id}` | Edit plan (currency and cadence edits refused while the plan has non-terminal subscriptions, including scheduled downgrades into it; `period_count` on a `LIFETIME` plan stays editable) |
 | POST | `/plans/{plan_id}/archive` | `is_active = False` |
 | DELETE | `/plans/{plan_id}` | Hard-delete (`ProtectedError` if subs reference it) |
 | POST | `/plans/{plan_id}/migrate-subscribers` | Force-migrate non-terminal subs to the plan's current price |

@@ -708,6 +708,14 @@ def cancel_online_subscription(
 # See subscription.lifecycle.change_plan for the dispatch entry-point.
 
 
+def _recurring_cadence(price: t.Mapping[str, t.Any]) -> tuple[str, int] | None:
+    """``(interval, interval_count)`` of a Stripe Price, or None if it does not recur."""
+    recurring = price.get("recurring") or {}
+    if not recurring.get("interval"):
+        return None
+    return recurring["interval"], recurring.get("interval_count") or 1
+
+
 def update_subscription_price(subscription: MembershipSubscription) -> bool:
     """Swap the Stripe Price to the plan's current price (proration_behavior='none').
 
@@ -718,6 +726,11 @@ def update_subscription_price(subscription: MembershipSubscription) -> bool:
     :func:`resync_subscription_application_fees` for the carve-out.
 
     Returns True when modify was called; False when already current or skipped.
+
+    Raises:
+        ValueError: If the subscriber's Stripe Price and the plan's current
+            Price recur on different intervals (or either does not recur);
+            ``migrate_plan_subscribers`` reports it as a per-subscription failure.
     """
     if not subscription.stripe_subscription_id:
         return False
@@ -736,8 +749,29 @@ def update_subscription_price(subscription: MembershipSubscription) -> bool:
     if not items:
         return False
     item = items[0]
-    if (item.get("price") or {}).get("id") == current_price_id:
+    item_price = item.get("price") or {}
+    if item_price.get("id") == current_price_id:
         return False
+    # With proration_behavior="none", Stripe stretches the paid period to a new
+    # interval without invoicing (#1423). Compare the two Prices themselves, not
+    # the plan row, which an admin edit can leave out of sync with its Price.
+    try:
+        target_price = stripe.Price.retrieve(current_price_id, **kwargs)
+    except stripe.error.StripeError as exc:
+        logger.error(
+            "subscription_stripe_target_price_retrieve_failed",
+            subscription_id=str(subscription.pk),
+            target_price_id=current_price_id,
+            error=str(exc),
+        )
+        raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
+    current_cadence = _recurring_cadence(item_price)
+    target_cadence = _recurring_cadence(target_price)
+    if current_cadence is None or current_cadence != target_cadence:
+        raise ValueError(
+            f"Billing period differs (current Price {current_cadence}, plan Price {target_cadence}): not migrated. "
+            "Move the subscriber to a plan with a matching billing period."
+        )
     try:
         stripe.Subscription.modify(
             subscription.stripe_subscription_id,

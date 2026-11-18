@@ -3138,6 +3138,13 @@ msgstr ""
 "No se puede cambiar la moneda mientras existan suscripciones activas. "
 "Archiva el plan y crea uno nuevo en su lugar."
 
+msgid ""
+"Cannot change the billing period when active subscriptions exist. Archive "
+"and create a new plan instead."
+msgstr ""
+"No se puede cambiar el periodo de facturación mientras existan suscripciones "
+"activas. Archiva el plan y crea uno nuevo."
+
 msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
 msgstr ""
 "No se puede eliminar un plan con suscripciones existentes. Archívalo en su "

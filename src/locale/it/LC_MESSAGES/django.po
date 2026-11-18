@@ -3143,6 +3143,13 @@ msgstr ""
 "Impossibile cambiare la valuta quando esistono abbonamenti attivi. Archivia "
 "e crea un nuovo piano invece."
 
+msgid ""
+"Cannot change the billing period when active subscriptions exist. Archive "
+"and create a new plan instead."
+msgstr ""
+"Impossibile cambiare il periodo di fatturazione quando esistono abbonamenti "
+"attivi. Archivia il piano e creane uno nuovo."
+
 msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
 msgstr ""
 "Impossibile eliminare un piano con abbonamenti esistenti. Archivialo invece."
