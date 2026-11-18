@@ -41,7 +41,7 @@ from events.service import (
 )
 from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
 from events.service.follow_service import get_followers_for_new_event_notification
-from events.service.member_register_linking import notify_membership_granted
+from events.service.member_register_linking import notify_membership_granted, pending_next_charge
 from events.service.potluck_service import release_potluck_claims_unless_entitled, unclaim_user_potluck_items
 from events.service.tenant_service import invalidate_tenant_cache, tenant_host_from_origin
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
@@ -343,7 +343,8 @@ def handle_membership_granted(
         # An awaiting member is granted nothing yet: activation on first payment sends the notification.
         return
 
-    transaction.on_commit(lambda: notify_membership_granted(instance))
+    next_charge = pending_next_charge()  # read now: on_commit runs outside the declaring block
+    transaction.on_commit(lambda: notify_membership_granted(instance, next_charge))
 
 
 @receiver(post_delete, sender=OrganizationMember)

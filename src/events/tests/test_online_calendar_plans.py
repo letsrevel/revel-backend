@@ -183,7 +183,7 @@ class TestCheckoutParams:
         plan = _online_plan(tier, period_unit=Plan.PeriodUnit.MONTH, period_alignment=Plan.PeriodAlignment.CALENDAR)
         with (
             mock.patch(CREATE_SESSION, return_value=_session()) as create,
-            mock.patch("events.service.subscription.stripe.checkout.settings.PAYMENT_DEFAULT_EXPIRY_MINUTES", 24 * 60),
+            mock.patch("events.utils.subscription_periods.settings.PAYMENT_DEFAULT_EXPIRY_MINUTES", 24 * 60),
         ):
             subscription_stripe_checkout.start_online_subscription(plan, subscriber)
 

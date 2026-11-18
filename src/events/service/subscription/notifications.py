@@ -25,7 +25,7 @@ from events.models import MembershipPayment, MembershipSubscription, MembershipS
 from events.utils import format_organization_datetime
 from events.utils.frontend_urls import frontend_base_url_for
 from events.utils.subscription_payment import APPLICATION_PAYMENT_WINDOW_DAYS, is_never_paid_on_offline_plan
-from events.utils.subscription_periods import first_period_end, first_period_price
+from events.utils.subscription_periods import first_period
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
@@ -333,9 +333,7 @@ def _dispatch_revival_checkout(subscription: MembershipSubscription, *, checkout
     plan = subscription.plan
     ctx = _common_subscription_context(subscription)
     # A calendar plan's checkout charges the prorated stub up to the next boundary, not the full price.
-    now = timezone.now()
-    first_price = first_period_price(plan, now)
-    first_end = first_period_end(plan, now)
+    first_end, first_price = first_period(plan, timezone.now())
     ctx.update(
         amount=_format_money(plan.price if first_price is None else first_price, plan.currency),
         checkout_url=checkout_url,

@@ -11,7 +11,6 @@ import typing as t
 from datetime import datetime
 from decimal import Decimal
 
-import stripe
 import structlog
 from django.db import transaction
 from django.db.models import Q
@@ -29,8 +28,14 @@ from events.models import (
     OrganizationMember,
     OrganizationMembershipRequest,
 )
-from events.service import member_register_service, stripe_incidents
+from events.service import member_register_linking, member_register_service, stripe_incidents
 from events.service.blacklist_service import check_user_hard_blacklisted
+from events.service.subscription import notifications
+from events.service.subscription.stripe.calendar_stub import (
+    invoice_period,
+    is_calendar_first_stub,
+    stub_full_price,
+)
 from events.service.subscription.stripe.dispatch import (
     _dispatch_invoice_notifications,
     _dispatch_sync_notifications,
@@ -40,11 +45,9 @@ from events.service.subscription.stripe.payloads import (
     epoch_to_dt,
     invoice_payment_details,
     invoice_subscription_id,
-    stripe_account_kwargs,
     subscription_period_epochs,
 )
 from events.utils.currency import from_stripe_amount
-from events.utils.subscription_periods import is_calendar_plan
 
 logger = structlog.get_logger(__name__)
 
@@ -510,116 +513,6 @@ def _apply_invoice_outcome(
     return None
 
 
-def _line_price_id(line: dict[str, t.Any]) -> str:
-    """Best-effort price id for an invoice line, across dahlia and legacy shapes."""
-    pricing = line.get("pricing") or {}
-    details = pricing.get("price_details") or {}
-    if details.get("price"):
-        return t.cast(str, details["price"])
-    price = line.get("price") or {}
-    return t.cast(str, price.get("id") or "")
-
-
-def _line_is_proration(line: dict[str, t.Any]) -> bool:
-    """Whether an invoice line is a proration, across dahlia and legacy shapes.
-
-    The pinned API version dropped the line's top-level ``proration`` flag: it
-    now lives under ``parent.subscription_item_details`` (subscription lines) or
-    ``parent.invoice_item_details`` (invoice-item lines). Reading only the legacy
-    field makes *every* proration on a dahlia payload look like a recurring line.
-    """
-    parent = line.get("parent") or {}
-    for details_key in ("subscription_item_details", "invoice_item_details"):
-        details = parent.get(details_key) or {}
-        if details.get("proration"):
-            return True
-    return bool(line.get("proration"))
-
-
-def _recurring_line_period(lines_data: list[dict[str, t.Any]], plan_price_id: str) -> dict[str, t.Any] | None:
-    """Pick the billing period from the *recurring* line of an invoice.
-
-    Stripe sorts invoice lines with "pending invoice items (including
-    prorations)" first, so ``lines.data[0]`` is the proration line on any invoice
-    carrying one — and a proration's period starts when it was calculated, not at
-    the billing anchor. Writing that onto ``current_period_start`` corrupts the
-    anchor ``_is_full_refund_of_current_period`` compares against, which silently
-    suppresses the refund auto-cancel.
-
-    Prefer the line whose price matches the plan, then the last non-proration
-    line. Returns ``None`` when the invoice carries *only* prorations (a
-    mid-cycle upgrade under ``always_invoice``): that invoice describes no
-    billing period, so the caller must leave the subscription's anchor alone and
-    let ``customer.subscription.updated`` supply the authoritative one.
-
-    Args:
-        lines_data: ``invoice["lines"]["data"]``.
-        plan_price_id: The subscription plan's current Stripe price id.
-
-    Returns:
-        The chosen line's ``period`` mapping, or ``None`` when no recurring line
-        is present.
-    """
-    if not lines_data:
-        return None
-    if plan_price_id:
-        for line in lines_data:
-            if _line_price_id(line) == plan_price_id and not _line_is_proration(line):
-                return t.cast(dict[str, t.Any], line.get("period") or {})
-    non_proration = [line for line in lines_data if not _line_is_proration(line)]
-    if non_proration:
-        return t.cast(dict[str, t.Any], non_proration[-1].get("period") or {})
-    return None
-
-
-def _first_proration_line(lines_data: list[dict[str, t.Any]]) -> dict[str, t.Any] | None:
-    return next((line for line in lines_data if _line_is_proration(line)), None)
-
-
-def _is_calendar_first_stub(
-    invoice: dict[str, t.Any], plan: MembershipSubscriptionPlan, lines_data: list[dict[str, t.Any]]
-) -> bool:
-    """Whether ``invoice`` is a calendar plan's first invoice for a stub period.
-
-    That is a ``subscription_create`` invoice carrying a proration line (the prorated stub) or
-    nothing to pay at all (the free stub: ``proration_behavior="none"``). A first invoice with
-    neither is a full period joined exactly on a boundary.
-    """
-    return (
-        invoice.get("billing_reason") == "subscription_create"
-        and is_calendar_plan(plan)
-        and (_first_proration_line(lines_data) is not None or invoice.get("amount_paid") == 0)
-    )
-
-
-def _stub_full_price(
-    lines_data: list[dict[str, t.Any]],
-    plan: MembershipSubscriptionPlan,
-    organization: t.Any,
-    currency_code: str,
-) -> Decimal | None:
-    """The full per-period price a calendar stub stood in for, read off the invoice line's own Stripe Price.
-
-    ``plan.price`` is mutable (an edit between session creation and the invoice would restamp the
-    wrong figure), and the dahlia proration line carries no ``unit_amount_decimal``, so the line's
-    Price is retrieved. Makes a Stripe call: run it before the member row lock. Falls back to
-    ``plan.price`` only when the line's Price is the plan's current one; ``None`` otherwise (the
-    stamp is retried on redelivery).
-    """
-    line = _first_proration_line(lines_data) or (lines_data[0] if lines_data else {})
-    unit_amount = (line.get("pricing") or {}).get("unit_amount_decimal")
-    if unit_amount not in (None, ""):
-        return from_stripe_amount(int(Decimal(str(unit_amount)).to_integral_value()), currency_code)
-    price_id = _line_price_id(line) or plan.stripe_price_id
-    try:
-        price = stripe.Price.retrieve(price_id, **stripe_account_kwargs(organization))
-    except stripe.error.StripeError:
-        logger.warning("subscription_stub_line_price_fetch_failed", stripe_price_id=price_id)
-        return plan.price if price_id == plan.stripe_price_id else None
-    unit_minor = price.get("unit_amount")
-    return from_stripe_amount(int(unit_minor), currency_code) if unit_minor is not None else None
-
-
 def _raise_payment_incidents(
     subscription: MembershipSubscription,
     payment: MembershipPayment,
@@ -733,60 +626,29 @@ def _resolve_network_inputs(
     currency_code: str,
     *,
     succeeded: bool,
+    stub_first_invoice: bool,
 ) -> tuple[InvoicePaymentDetails, Decimal | None]:
     """Everything :func:`record_stripe_payment_from_invoice` must fetch from Stripe, before the row lock.
 
     Returns the PaymentIntent/fee details and, for a calendar plan's first stub invoice that is not
-    stamped yet, the full price it stood in for (see :func:`_stub_full_price`).
+    stamped yet, the full price it stood in for (see :func:`stub_full_price`). A failure to resolve the
+    price propagates, so the delivery fails and Stripe redelivers; the already-stamped check keeps a
+    redelivery of a recorded invoice off the network.
     """
     if succeeded and invoice.get("amount_paid") == 0:
         # Nothing was charged (a free calendar stub): there is no PaymentIntent or fee to resolve.
         payment_details = InvoicePaymentDetails("", 0)
     else:
         payment_details = invoice_payment_details(invoice, subscription.organization, need_fee=succeeded)
-    stub_full_price: Decimal | None = None
+    full_price: Decimal | None = None
     if (
-        succeeded
-        and _is_calendar_first_stub(invoice, subscription.plan, lines_data)
+        stub_first_invoice
         and not MembershipPayment.objects.filter(
             stripe_invoice_id=invoice["id"], full_period_amount__isnull=False
         ).exists()
     ):
-        stub_full_price = _stub_full_price(lines_data, subscription.plan, subscription.organization, currency_code)
-    return payment_details, stub_full_price
-
-
-def _invoice_period(
-    lines_data: list[dict[str, t.Any]],
-    plan: MembershipSubscriptionPlan,
-    stub_first_invoice: bool,
-) -> tuple[datetime, datetime, dict[str, t.Any] | None]:
-    """``(period_start, period_end, recurring_period)`` for an invoice's ledger row.
-
-    ``recurring_period`` is the billing period the *subscription* may adopt, or ``None`` for an invoice
-    describing none (a proration-only upgrade). A calendar plan's first invoice may carry only the
-    prorated stub line, whose period is the subscription item's own (join -> boundary); without
-    taking it, the row would stay NULL whenever ``customer.subscription.*`` was dropped before the
-    checkout linked it.
-    """
-    recurring_period = _recurring_line_period(lines_data, plan.stripe_price_id)
-    if recurring_period is None and stub_first_invoice:
-        stub_line = _first_proration_line(lines_data) or (lines_data[0] if lines_data else {})
-        stub_period = stub_line.get("period") or {}
-        if stub_period.get("start") and stub_period.get("end"):
-            recurring_period = stub_period
-    # The payment row records what this invoice actually covered — for a
-    # proration-only invoice that is the proration window, which is correct.
-    ledger_period = (
-        recurring_period
-        if recurring_period is not None
-        else ((lines_data[0].get("period") or {}) if lines_data else {})
-    )
-    return (
-        epoch_to_dt(ledger_period.get("start")) or timezone.now(),
-        epoch_to_dt(ledger_period.get("end")) or timezone.now(),
-        recurring_period,
-    )
+        full_price = stub_full_price(lines_data, subscription.plan, subscription.organization, currency_code)
+    return payment_details, full_price
 
 
 @transaction.atomic
@@ -825,8 +687,14 @@ def record_stripe_payment_from_invoice(
         return None
     lines_data = (invoice.get("lines") or {}).get("data") or []
     currency_code = t.cast(str, invoice.get("currency") or unlocked_subscription.plan.currency).upper()
-    payment_details, stub_full_price = _resolve_network_inputs(
-        invoice, unlocked_subscription, lines_data, currency_code, succeeded=succeeded
+    stub_first_invoice = succeeded and is_calendar_first_stub(invoice, unlocked_subscription.plan, lines_data)
+    payment_details, full_price = _resolve_network_inputs(
+        invoice,
+        unlocked_subscription,
+        lines_data,
+        currency_code,
+        succeeded=succeeded,
+        stub_first_invoice=stub_first_invoice,
     )
     payment_intent_id = payment_details.payment_intent_id
 
@@ -856,8 +724,7 @@ def record_stripe_payment_from_invoice(
         invoice_id=invoice_id,
     )
 
-    stub_first_invoice = succeeded and _is_calendar_first_stub(invoice, subscription.plan, lines_data)
-    period_start, period_end, recurring_period = _invoice_period(lines_data, subscription.plan, stub_first_invoice)
+    period_start, period_end, recurring_period = invoice_period(lines_data, subscription.plan, stub_first_invoice)
 
     if not succeeded:
         # Monotonicity guard: Stripe gives no delivery-order guarantee, and a
@@ -909,17 +776,13 @@ def record_stripe_payment_from_invoice(
         MembershipPayment.objects.filter(stripe_invoice_id=invoice_id).values_list("status", flat=True).first()
     )
 
-    if (
-        stub_full_price is not None
-        and not MembershipPayment.objects.filter(
-            stripe_invoice_id=invoice_id, full_period_amount__isnull=False
-        ).exists()
-    ):
+    if full_price is not None:
         # The ONLINE analogue of ``core._full_period_amount``: the first invoice of a calendar plan is
         # a stub (prorated or free). Record the full price it stood in for so renewal reminders,
-        # price-migration notices and MRR anchor on it rather than on the stub. Stamped once; a
-        # redelivery never rewrites it.
-        defaults["full_period_amount"] = stub_full_price
+        # price-migration notices and MRR anchor on it rather than on the stub. Resolved from the invoice
+        # line's own Price and only while unstamped (see :func:`_resolve_network_inputs`), so a racing
+        # redelivery writes the same figure.
+        defaults["full_period_amount"] = full_price
 
     payment, created = MembershipPayment.objects.update_or_create(
         stripe_invoice_id=invoice_id,
@@ -930,14 +793,25 @@ def record_stripe_payment_from_invoice(
     if succeeded:
         _raise_payment_incidents(subscription, payment, invoice_id=invoice_id, currency=currency_code)
 
-    member_activation = _apply_invoice_outcome(
-        subscription,
-        succeeded=succeeded,
-        # ``None`` for a proration-only invoice: it describes no billing period,
-        # so the anchor stays put and ``customer.subscription.updated`` supplies it.
-        period_start=period_start if recurring_period is not None else None,
-        period_end=period_end if recurring_period is not None else None,
+    # A brand-new member is announced by MEMBERSHIP_GRANTED (the access row's post_save receiver), which is
+    # then also their first-payment confirmation: it states the next full charge like the renewal notice does.
+    next_charge = (
+        member_register_linking.NextCharge(
+            notifications._format_money(payment.full_period_amount, subscription.plan.currency),
+            period_end.date().isoformat(),
+        )
+        if stub_first_invoice and payment.full_period_amount is not None
+        else None
     )
+    with member_register_linking.announce_next_charge(next_charge):
+        member_activation = _apply_invoice_outcome(
+            subscription,
+            succeeded=succeeded,
+            # ``None`` for a proration-only invoice: it describes no billing period,
+            # so the anchor stays put and ``customer.subscription.updated`` supplies it.
+            period_start=period_start if recurring_period is not None else None,
+            period_end=period_end if recurring_period is not None else None,
+        )
 
     _dispatch_invoice_notifications(
         subscription,

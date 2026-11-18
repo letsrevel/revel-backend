@@ -9,6 +9,7 @@ import datetime
 from decimal import Decimal
 
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 
 from events.models import MembershipSubscriptionPlan
 from events.utils.currency import round_major_amount
@@ -18,6 +19,9 @@ REMINDER_DAYS = 3
 
 # An ONLINE calendar join closer than this to the next boundary gets a free stub (see ``is_free_stub``).
 FREE_STUB_MAX_REMAINING = datetime.timedelta(hours=1)
+
+# Stripe's minimum Checkout Session lifetime is 30 minutes from creation; the extra minute absorbs request latency.
+MIN_SESSION_MINUTES = 31
 
 # Stripe's minimum charge per currency, in major units (https://docs.stripe.com/currencies#minimum-and-maximum-charge-amounts).
 # A prorated first period below it cannot be billed, so the join gets a free stub instead.
@@ -111,12 +115,29 @@ def _prorated_price(plan: MembershipSubscriptionPlan, at: datetime.datetime) -> 
     return round_major_amount(plan.price * Decimal(str(remaining)) / Decimal(str(total)), plan.currency)
 
 
+def checkout_expires_at(plan: MembershipSubscriptionPlan, now: datetime.datetime) -> datetime.datetime:
+    """When a Checkout Session minted at ``now`` for ``plan`` expires.
+
+    A calendar plan's billing anchor is fixed at creation, so the session must not outlive it: it expires one
+    minute before the next boundary, floored at Stripe's minimum lifetime (:data:`MIN_SESSION_MINUTES`).
+    """
+    expires_at = now + datetime.timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
+    anchor = first_period_end(plan, now)
+    if anchor is None:
+        return expires_at
+    return max(
+        min(expires_at, anchor - datetime.timedelta(minutes=1)), now + datetime.timedelta(minutes=MIN_SESSION_MINUTES)
+    )
+
+
 def is_free_stub(plan: MembershipSubscriptionPlan, at: datetime.datetime) -> bool:
     """True when an ONLINE calendar member joining at ``at`` gets the first period for free.
 
     A stub that Stripe cannot charge (prorated price below its minimum charge for the currency) or
     that lasts under :data:`FREE_STUB_MAX_REMAINING` is not worth billing: Checkout then runs with
-    ``proration_behavior="none"``, so billing simply starts at the boundary. This is the one place
+    ``proration_behavior="none"``, so billing simply starts at the boundary. Stripe prorates when the
+    session *completes*, up to :func:`checkout_expires_at`, so the rule is decided at that worst-case
+    moment (a completion at or after the boundary is a free stub by construction). This is the one place
     the rule lives; checkout and the quoted first-period price both read it.
     """
     if (
@@ -125,9 +146,11 @@ def is_free_stub(plan: MembershipSubscriptionPlan, at: datetime.datetime) -> boo
         or plan.first_period_pricing != MembershipSubscriptionPlan.FirstPeriodPricing.PRORATED
     ):
         return False
-    if _calendar_boundaries(at, plan)[1] - at < FREE_STUB_MAX_REMAINING:
+    latest = checkout_expires_at(plan, at)
+    following = _calendar_boundaries(at, plan)[1]
+    if following - latest < FREE_STUB_MAX_REMAINING:
         return True
-    return _prorated_price(plan, at) < _MIN_CHARGE.get(plan.currency.upper(), _DEFAULT_MIN_CHARGE)
+    return _prorated_price(plan, latest) < _MIN_CHARGE.get(plan.currency.upper(), _DEFAULT_MIN_CHARGE)
 
 
 def first_period_price(plan: MembershipSubscriptionPlan, at: datetime.datetime) -> Decimal | None:

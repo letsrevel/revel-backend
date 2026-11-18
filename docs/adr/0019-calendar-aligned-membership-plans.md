@@ -54,20 +54,28 @@ Stripe was probed in test mode (API `2026-03-25.dahlia`) before deciding:
    then. Charging a few cents is either impossible (Stripe cannot collect it) or not worth a
    payment that is followed by the full charge within hours. The rule lives in one place,
    `is_free_stub`, which checkout and the quoted first-period price (zero for such a join) both
-   read. It applies to ONLINE only; OFFLINE keeps the prorated amount.
+   read. It applies to ONLINE only; OFFLINE keeps the prorated amount. Stripe prorates when the
+   session completes, not when it is created, so the decision is taken at the session's latest
+   completion time (`expires_at`, see 6): the stub is free if it would be free then, and a session
+   that could complete at or after the boundary is free by construction.
 4. **The first payment records the full price it stood in for.** The prorated first invoice
    (`billing_reason=subscription_create`, one proration line, period join to boundary) is stored
    with `MembershipPayment.full_period_amount` set, the ONLINE twin of what OFFLINE records when
-   staff take a first payment mid-period. The figure is the line's own Stripe Price (retrieved,
-   because the dahlia proration line has no `unit_amount_decimal`), not the mutable `plan.price`,
-   and it is stamped once: a redelivery never rewrites it. MRR, renewal reminders and
+   staff take a first payment mid-period. The figure is resolved from the line's Stripe Price id
+   (the plan's own price id gives `plan.price`; any other is retrieved on the organization's
+   account), never from the line's `unit_amount_decimal` (0 or prorated on stub and zero lines) and
+   not from the mutable `plan.price` alone. If the Price cannot be resolved (Stripe error, no
+   integer `unit_amount`) the webhook fails before anything is written and Stripe redelivers. It
+   is stamped once: a redelivery never rewrites it. MRR, renewal reminders and
    price-migration notices read `Coalesce(full_period_amount, amount)` through one helper, so a
-   stub never anchors a quote. A first invoice with no proration line is a full period joined on a
-   boundary and is not stamped; neither is a `subscription_update` proration. A proration-only
+   stub never anchors a quote. A first invoice is a stub when it carries a proration line, or when its
+   `total` and `subtotal` are both zero; `amount_paid` 0 alone is not enough, since a customer
+   credit balance or a coupon also leaves a full period paid with nothing. A first invoice with
+   neither is a full period joined on a boundary and is not stamped; neither is a `subscription_update` proration. A proration-only
    invoice carries no recurring line, so for this first invoice the period comes from the
    proration line itself (it equals the Subscription item's period); without that the row would
    stay without a period whenever `customer.subscription.*` events beat `checkout.session.completed`
-   and were dropped. A free stub is the same invoice with `amount_paid` 0, or no invoice at all:
+   and were dropped. A free stub is the same invoice with zero total, or no invoice at all:
    the ledger row (if any) has amount 0 and raises no unresolved-PaymentIntent or fee alarm, and
    `checkout.session.completed` mirrors the Subscription when the session carries no invoice.
    Notices never turn that 0 into the plan price.
@@ -80,10 +88,10 @@ Stripe was probed in test mode (API `2026-03-25.dahlia`) before deciding:
 6. **The Checkout session must not outlive its anchor.** The anchor is fixed when the session is
    created. `expires_at` is capped at one minute before the boundary and floored at 31 minutes
    after creation (Stripe's minimum is 30, plus latency). A session minted inside the last half
-   hour can therefore still complete after the boundary; because that session was minted under an
-   hour before the boundary, it is a free stub (`proration_behavior="none"`), so a late completion
-   just pays the first full period from the anchor. What Stripe does with an anchor that has
-   already passed at completion was not probed. A session still open past the boundary it was
+   hour can therefore still complete after the boundary; such a session is a free stub
+   (`proration_behavior="none"`), so a late completion just pays the first full period from the
+   anchor. That a subscription whose anchor has already passed at completion is charged the full
+   period from the anchor is Stripe's documented behavior; it was not probed. A session still open past the boundary it was
    minted for is treated as stale: the next subscribe expires it and mints a fresh one, so a
    member is never sent back to a payable page with a stale anchor. The `sub-checkout:{pk}`
    idempotency key is only reused for the same create call, never across that replacement (the
@@ -91,7 +99,8 @@ Stripe was probed in test mode (API `2026-03-25.dahlia`) before deciding:
 7. **Notices state the next full charge.** A short or free stub can be followed by the full charge
    within hours, so the 3 day renewal reminder cannot warn the member. The checkout-link notice
    and the first-payment confirmation therefore also state the next charge (the plan price) and
-   its date (the boundary).
+   its date (the boundary). The confirmation is `SUBSCRIPTION_RENEWAL_SUCCEEDED` for an existing
+   member and `MEMBERSHIP_GRANTED` for a brand-new one, and both carry the line.
 
 ## Consequences
 

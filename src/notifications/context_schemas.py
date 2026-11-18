@@ -438,7 +438,14 @@ class InvitationRequestCreatedContext(BaseNotificationContext):
 # ===== Membership Contexts =====
 
 
-class MembershipContext(BaseNotificationContext):
+class NextChargeContext(t.TypedDict):
+    """A calendar plan's first (stub) period: the full price due when it ends, and that date (ISO)."""
+
+    next_charge_amount: t.NotRequired[str]
+    next_charge_date: t.NotRequired[str]
+
+
+class MembershipContext(BaseNotificationContext, NextChargeContext):
     """Context for membership notifications."""
 
     organization_id: str
@@ -808,7 +815,7 @@ class StaffSeriesPassCancelledContext(SeriesPassCancelledContext):
 # ===== Subscription Contexts =====
 
 
-class SubscriptionRenewalSucceededContext(BaseNotificationContext):
+class SubscriptionRenewalSucceededContext(BaseNotificationContext, NextChargeContext):
     """Context for SUBSCRIPTION_RENEWAL_SUCCEEDED notification."""
 
     organization_id: str
@@ -818,9 +825,6 @@ class SubscriptionRenewalSucceededContext(BaseNotificationContext):
     amount: str  # formatted "{amount} {currency}"
     period_end: str  # ISO date
     manage_subscription_url: t.NotRequired[str | None]  # ONLINE only — FE /account/memberships (POST /billing-portal)
-    # Calendar plan's first (stub) payment: the full price due when the stub ends, and that date (ISO).
-    next_charge_amount: t.NotRequired[str]
-    next_charge_date: t.NotRequired[str]
 
 
 class SubscriptionPaymentFailedContext(BaseNotificationContext):
@@ -877,7 +881,7 @@ class SubscriptionRenewalReminderContext(BaseNotificationContext):
     payment_instructions: t.NotRequired[str]  # OFFLINE only; "" when none defined
 
 
-class SubscriptionRevivalCheckoutContext(BaseNotificationContext):
+class SubscriptionRevivalCheckoutContext(BaseNotificationContext, NextChargeContext):
     """Context for SUBSCRIPTION_REVIVAL_CHECKOUT notification."""
 
     organization_id: str
@@ -886,9 +890,6 @@ class SubscriptionRevivalCheckoutContext(BaseNotificationContext):
     plan_name: str
     amount: str  # formatted "{amount} {currency}"
     checkout_url: str  # hosted Stripe Checkout the member completes to renew
-    # Calendar plan: the full price due when the first (stub) period ends, and that date (ISO).
-    next_charge_amount: t.NotRequired[str]
-    next_charge_date: t.NotRequired[str]
 
 
 class SubscriptionPriceMigrationNoticeContext(BaseNotificationContext):

@@ -9,11 +9,9 @@ webhook handlers in :mod:`events.service.stripe_webhooks`.
 
 import typing as t
 import uuid
-from datetime import timedelta
 
 import stripe
 import structlog
-from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -48,11 +46,9 @@ from events.service.subscription.stripe.plan_change import (
     release_online_schedule,
     resolve_refused_cancel,
 )
-from events.utils.subscription_periods import first_period_end, is_free_stub
+from events.utils.subscription_periods import checkout_expires_at, first_period_end, is_free_stub
 
 logger = structlog.get_logger(__name__)
-
-_MIN_SESSION_MINUTES = 31
 
 configure_stripe()
 
@@ -183,17 +179,15 @@ def _create_subscription_checkout_session(
     if effective_percent is not None:
         subscription_data["application_fee_percent"] = float(effective_percent)
     now = timezone.now()
-    expires_at = now + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
+    expires_at = checkout_expires_at(plan, now)
     anchor = first_period_end(plan, now)
     if anchor is not None:
         # Calendar plan: Stripe bills the stub up to the next boundary and renews on it. The anchor is
-        # fixed when the session is created, so the session must not outlive it. Stripe's minimum
-        # session lifetime is 30 minutes from creation; the extra minute absorbs request latency.
-        # A stub below Stripe's minimum charge, or under an hour long, is free: billing just starts
-        # at the anchor (``proration_behavior="none"``), so a session completing late costs nothing.
+        # fixed when the session is created (``checkout_expires_at`` keeps the session from outliving it).
+        # A stub that would be below Stripe's minimum charge, or under an hour long, when the session
+        # completes at its latest is free: billing just starts at the anchor (``proration_behavior="none"``).
         subscription_data["billing_cycle_anchor"] = int(anchor.timestamp())
         subscription_data["proration_behavior"] = "none" if is_free_stub(plan, now) else "create_prorations"
-        expires_at = max(min(expires_at, anchor - timedelta(minutes=1)), now + timedelta(minutes=_MIN_SESSION_MINUTES))
     return stripe.checkout.Session.create(
         mode="subscription",
         customer=customer.stripe_customer_id,

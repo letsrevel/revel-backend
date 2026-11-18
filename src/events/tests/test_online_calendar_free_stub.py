@@ -79,8 +79,9 @@ class TestFreeStubRule:
         assert is_free_stub(_monthly(tier, price), moment) is free
 
     def test_exactly_the_minimum_charge_is_billed(self, tier: MembershipTier) -> None:
-        plan = _monthly(tier, "30.00")  # 30 x 12h/720h = 0.50 EUR
-        assert first_period_price(plan, datetime.datetime(2026, 11, 30, 12, tzinfo=UTC)) == Decimal("0.50")
+        # Decided at the session's latest completion (12:45): 32 x 11.25h/720h = 0.50 EUR; quoted at 12:00.
+        plan = _monthly(tier, "32.00")
+        assert first_period_price(plan, datetime.datetime(2026, 11, 30, 12, tzinfo=UTC)) == Decimal("0.53")
         assert not is_free_stub(plan, datetime.datetime(2026, 11, 30, 12, tzinfo=UTC))
 
     def test_currency_minimum_applies(self, tier: MembershipTier) -> None:
@@ -126,7 +127,7 @@ class TestFreeStubCheckout:
 
         assert create.call_args.kwargs["subscription_data"]["proration_behavior"] == "none"
 
-    @freeze_time("2026-11-30 22:58:00")
+    @freeze_time("2026-11-30 12:00:00")
     def test_stub_over_an_hour_and_chargeable_still_prorates(self, tier: MembershipTier, subscriber: RevelUser) -> None:
         with mock.patch(CREATE_SESSION, return_value=_session()) as create:
             subscription_stripe_checkout.start_online_subscription(_monthly(tier, "100000.00"), subscriber)
@@ -207,6 +208,7 @@ def _free_stub_invoice(*, with_line: bool = True, invoice_id: str = "in_free") -
     if with_line:
         invoice["lines"]["data"][0]["amount"] = 1
     else:
+        invoice.update(total=0, subtotal=0)
         invoice["lines"]["data"] = []
     return invoice
 
@@ -368,18 +370,6 @@ class TestStampFromTheInvoice:
         assert payment.full_period_amount == Decimal("120.00")
         assert stripe_price_retrieve.call_args.args[0] == "price_cal"
 
-    def test_line_unit_amount_is_used_when_the_payload_carries_it(
-        self, pending_calendar_sub: MembershipSubscription, stripe_price_retrieve: mock.MagicMock
-    ) -> None:
-        invoice = _first_invoice()
-        invoice["lines"]["data"][0]["pricing"]["unit_amount_decimal"] = "9900"
-
-        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(invoice, succeeded=True)
-
-        assert payment is not None
-        assert payment.full_period_amount == Decimal("99")
-        stripe_price_retrieve.assert_not_called()
-
     def test_redelivery_never_overwrites_the_stamp(
         self,
         pending_calendar_sub: MembershipSubscription,
@@ -395,21 +385,6 @@ class TestStampFromTheInvoice:
 
         assert MembershipPayment.objects.get(subscription=pending_calendar_sub).full_period_amount == Decimal("120.00")
         stripe_price_retrieve.assert_not_called()
-
-    def test_unreadable_price_leaves_the_stamp_for_a_redelivery(
-        self, pending_calendar_sub: MembershipSubscription, stripe_price_retrieve: mock.MagicMock
-    ) -> None:
-        pending_calendar_sub.plan.stripe_price_id = "price_new"
-        pending_calendar_sub.plan.save(update_fields=["stripe_price_id"])
-        stripe_price_retrieve.side_effect = stripe.error.APIConnectionError("boom")
-        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(_first_invoice(), succeeded=True)
-        assert payment is not None
-        assert payment.full_period_amount is None
-
-        stripe_price_retrieve.side_effect = None
-        payment = subscription_stripe_sync.record_stripe_payment_from_invoice(_first_invoice(), succeeded=True)
-        assert payment is not None
-        assert payment.full_period_amount == Decimal("120.00")
 
     def test_subscription_update_proration_is_not_a_first_stub(
         self, pending_calendar_sub: MembershipSubscription

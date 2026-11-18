@@ -8,8 +8,11 @@ Two entry points reach :func:`link_record`: a staff-sent invitation link (:func:
 and the verified-email match (:func:`auto_link_records_for_user`).
 """
 
+import contextlib
+import contextvars
 import enum
 import secrets
+import typing as t
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -55,24 +58,58 @@ class LinkResult:
     member: OrganizationMember | None = None
 
 
-def notify_membership_granted(member: OrganizationMember) -> None:
+class NextCharge(t.NamedTuple):
+    """The next full charge an ONLINE calendar member is told about in MEMBERSHIP_GRANTED (display strings)."""
+
+    amount: str
+    date: str
+
+
+_next_charge_var: contextvars.ContextVar[NextCharge | None] = contextvars.ContextVar(
+    "membership_next_charge", default=None
+)
+
+
+@contextlib.contextmanager
+def announce_next_charge(next_charge: NextCharge | None) -> t.Iterator[None]:
+    """Have the MEMBERSHIP_GRANTED sent for an access row created inside the block state its next charge.
+
+    The row's ``post_save`` receiver is the one place that announces a new member, so a first stub payment
+    (whose confirmation is that announcement) hands it the next-charge line through this context.
+    """
+    token = _next_charge_var.set(next_charge)
+    try:
+        yield
+    finally:
+        _next_charge_var.reset(token)
+
+
+def pending_next_charge() -> NextCharge | None:
+    """The next charge declared by the enclosing :func:`announce_next_charge`, if any."""
+    return _next_charge_var.get()
+
+
+def notify_membership_granted(member: OrganizationMember, next_charge: NextCharge | None = None) -> None:
     """Tell the member they were granted membership (MEMBERSHIP_GRANTED).
 
     Shared by the ``post_save`` receiver (new access rows) and by linking, which reactivates a CANCELLED
     row (the signal only fires on create). Call it from ``transaction.on_commit``.
     """
     organization = member.organization
+    context: dict[str, t.Any] = {
+        "organization_id": str(member.organization_id),
+        "organization_name": organization.name,
+        "role": "member",
+        "action": "granted",
+        "frontend_url": f"{frontend_base_url_for(organization)}/org/{organization.slug}",
+    }
+    if next_charge is not None:
+        context.update(next_charge_amount=next_charge.amount, next_charge_date=next_charge.date)
     notification_requested.send(
         sender=OrganizationMember,
         user=member.user,
         notification_type=NotificationType.MEMBERSHIP_GRANTED,
-        context={
-            "organization_id": str(member.organization_id),
-            "organization_name": organization.name,
-            "role": "member",
-            "action": "granted",
-            "frontend_url": f"{frontend_base_url_for(organization)}/org/{organization.slug}",
-        },
+        context=context,
     )
     logger.info(
         "membership_granted_notification_sent", organization_id=str(member.organization_id), user_id=str(member.user_id)
