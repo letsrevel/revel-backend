@@ -276,7 +276,7 @@ The stack is Django 5.2 LTS, Django Ninja, PostgreSQL with PostGIS, Celery and R
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md). Revel is built with AI assistance under a human-review workflow; if you contribute with AI, follow [AI_USAGE.md](AI_USAGE.md).
+Read [CONTRIBUTING.md](CONTRIBUTING.md). Revel is built with AI assistance under a human-review workflow; if you contribute with AI, follow [AI_USAGE.md](AI_USAGE.md). Maintainers drive changes through [Gauntlet](https://github.com/letsrevel/gauntlet), an open-source Claude Code plugin for the implement, review, security and tech-debt loop, configured for this repo in [`.claude/review/`](.claude/review).
 
 ## Security
 

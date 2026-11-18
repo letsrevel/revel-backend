@@ -222,3 +222,8 @@ docs/superpowers/
 
 # Playwright MCP session artefacts
 .playwright-mcp/
+
+# Local review artefacts (gauntlet reports, vulnerability confirmation tests)
+*-VULNERABILITY_REPORT.md
+*-TECH-DEBT_REPORT.md
+test_vuln_*.py

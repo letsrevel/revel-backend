@@ -67,21 +67,27 @@ The usual path from idea to merged PR:
 3. **Validate against the codebase**: match the idea to the current architecture and confirm
    it is actually feasible to build the way it's imagined.
 4. **Human thinks extra hard.** This step is not skippable and never delegated.
-5. **AI-powered brainstorming**: using Claude's `superpowers` brainstorming skill to explore
-   intent, requirements, and design before any code exists.
+5. **AI-assisted design**: talk the intent, requirements and design through with Claude before
+   any code exists.
 6. **Scope the GitHub issue(s)**: write down what's actually being built.
 7. **Fresh session, pick up the issue, re-validate it.** A clean context forces the idea to
    stand on its own rather than on conversation momentum.
-8. **Write the spec**: use the superpower to draft it, review, iterate until happy.
-9. **Write the plan**: same loop: draft, review, iterate until happy.
-10. **Unleash the subagents** to implement against the approved plan.
-11. **Open the PR.**
+8. **Run [`/gauntlet:implement`](https://github.com/letsrevel/gauntlet)** on the issue. It sizes
+   the work: small changes go straight to code; larger ones get a spec interview and a written
+   plan you review and approve before anything is built, with a fresh-session handoff for big
+   features.
+9. **Implement**: linear for most work, delegated to subagents only for independent tasks;
+   bug fixes start from a failing regression test; docs are updated in the same branch.
+10. **Gate and self-review**: `make check` and targeted tests, then fresh-context review lanes
+    (generalist, sibling entry points, docs truth, test strength, security and tech debt when
+    the diff warrants them), each finding independently verified before it is fixed.
+11. **Open the PR** and let CodeRabbit take its pass.
 
 Human judgment sits in front of the first line of code.
 The AI acts only after a human has decided the thing is worth
 building and how it should fit.
 
-The `brainstorm → spec → plan → implement` loop exists precisely
+The `design → spec → plan → implement → review` loop exists precisely
 so that no one is "just vibing" code into the repo.
 
 ---
@@ -105,7 +111,7 @@ edge cases, but **you** own the assertions.
 No single reviewer (human or machine) is trusted alone. Every PR gets reviewed three ways:
 
 1. **CodeRabbit** runs automatically on GitHub (and shout-out to [CodeRabbit](https://www.coderabbit.ai/) for supporting FOSS).
-2. **Claude review** — the `/code-review` superpower and/or the `pr-reviewer` agent.
+2. **Claude review** — `/code-review` plus the [Gauntlet](https://github.com/letsrevel/gauntlet) review lanes (sibling paths, docs truth, test strength, and security/debt hunters when the diff warrants them), each finding independently verified.
 3. **Your own independent review** — read the diff yourself, in full, with your own eyes.
 
 Then **merge the findings, re-validate them, and address them.** Postpone as few fixes as
@@ -122,21 +128,23 @@ fighting it.
 
 ### Agents
 
-- **`pr-reviewer`**: holistic PR review against Django/Python best practices, project
-  patterns, migration safety, and test coverage.
 - **`test-engineer`**: writes comprehensive tests with meaningful business assertions,
   covering success and error paths.
-- **`vuln-analyst`** / **`vuln-verifier`**: region-scoped security hunter plus an independent
-  adjudicator that confirms each finding is real and present-day. Gets unleashed regularly.
-- **`tech-debt-assessor`** / **`tech-debt-verifier`**: region-scoped tech-debt hunter plus an
-  adjudicator that scores findings by confidence. Gets unleashed regularly.
+
+### Gauntlet plugin
+
+The implement, review, security and tech-debt loop lives in the open-source
+[Gauntlet](https://github.com/letsrevel/gauntlet) plugin, configured for this repo in
+[`.claude/review/`](.claude/review) (profile, feature-slice regions, by-design list):
+
+- **`/gauntlet:implement`** — issue to self-reviewed PR: plan when needed, implement, update
+  docs, gate, fresh-context review lanes with per-finding verification, PR, CodeRabbit.
+- **`/gauntlet:vuln-scan`** — multi-agent security sweep with an independent verifier per finding.
+- **`/gauntlet:tech-debt`** — multi-agent tech-debt sweep with deterministic metrics and
+  verified findings.
 
 ### Slash commands
 
-- **`/vuln-scan`** — multi-agent security sweep: fans out region-scoped hunters, verifies
-  findings, and reports.
-- **`/tech-debt`** — multi-agent technical-debt assessment: fans out hunters + specialists,
-  verifies, scores repo health, and writes a report.
 - **`/logs`** — read production logs from Loki (via Grafana) by service, level, request/trace
   id, or time window (only available to maintainers with access to the prod server; PII is obfuscated).
 - **`/update-changelog`** — update `CHANGELOG.md` from git tags, merged PRs, and actual diffs.

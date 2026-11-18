@@ -376,6 +376,13 @@ For issues and non-trivial features — the full form of Operating Principle #1:
 4. **Principles** — no surprises, be thorough about migrations/data safety, document decisions,
    prefer questions over assumptions.
 
+End to end, this loop is `/gauntlet:implement` from the [Gauntlet](https://github.com/letsrevel/gauntlet)
+plugin (triage → plan → implement → docs → gate → fresh-context review lanes → PR → CodeRabbit).
+Its repo config lives in [`.claude/review/`](.claude/review): `profile.md` (gate, docs, security
+triggers, merge policy), `regions.md` (feature slices for `/gauntlet:vuln-scan` and
+`/gauntlet:tech-debt` sweeps) and `by-design.md` (intended behaviour reviewers must not report).
+Keep `by-design.md` updated when a "this is intentional" decision is made.
+
 ---
 
 ## Hard Rules
