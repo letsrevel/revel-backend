@@ -190,6 +190,8 @@ jobs:
     env:
       DB_HOST: postgres
       REDIS_HOST: redis
+      EUINVOICE_CACHE_DIR: .euinvoice-artifacts
+      EUINVOICE_SOURCES: cen-cii xrechnung-validator-configuration
     services:
       # Mirrors docker-compose-base.yml (values match .env.example). GitHub
       # services can't take `command:`, so max_connections stays at the default
@@ -224,18 +226,75 @@ jobs:
         id: euinvoice
         run: |
           version=$(awk '/^name = "euinvoice"$/ { getline; sub(/^version = "/, ""); sub(/"$/, ""); print; exit }' uv.lock)
+          [ -n "$version" ] || { echo "::error::could not read the euinvoice version from uv.lock"; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sources=$(printf '%s' "$EUINVOICE_SOURCES" | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
 
-      # The official CEN/XRechnung/Peppol artifacts are pinned per euinvoice release, so the
-      # version is the whole cache key.
+      # The official validation artifacts are pinned per euinvoice release, so the cache key is the
+      # version plus a hash of the source list (a changed list must not hit an archive saved for
+      # the old one: a cache entry is immutable). The directory is workspace-relative on purpose:
+      # `~` differs between a bare runner and a container job, and an archive saved under one home
+      # restores to a path the other never reads (the pre-container cache was hit on every run and
+      # never used).
+      - name: Point euinvoice at a workspace-relative artifact directory
+        run: echo "EUINVOICE_ARTIFACTS_DIR=$GITHUB_WORKSPACE/$EUINVOICE_CACHE_DIR" >> "$GITHUB_ENV"
+
       - name: Restore euinvoice validation artifacts
-        uses: actions/cache@v5
+        id: euinvoice-cache
+        uses: actions/cache/restore@v5
         with:
-          path: ~/.cache/euinvoice
-          key: euinvoice-artifacts-${{ steps.euinvoice.outputs.version }}
+          path: ${{ env.EUINVOICE_CACHE_DIR }}
+          key: euinvoice-artifacts-facturx-${{ steps.euinvoice.outputs.version }}-${{ steps.euinvoice.outputs.sources }}
 
+      # A cache hit should mean the artifacts are usable as restored. If they are not (a path or
+      # layout mismatch), the fetch below still repairs this run, but every run would download
+      # again without anyone noticing: say so. Fix by changing the cache key.
+      - name: Check the restored artifacts are complete
+        if: steps.euinvoice-cache.outputs.cache-hit == 'true'
+        run: |
+          uv run python - <<'PY' || echo "::warning::euinvoice cache hit, but the restored artifacts are incomplete; this run downloads them again"
+          import os
+
+          from euinvoice.validation import artifacts
+
+          for name in os.environ["EUINVOICE_SOURCES"].split():
+              print(name, artifacts.source_dir(name))
+          PY
+
+      # Only the sources profiles.FACTURX_EN16931 reads (CEN CII rules + the D16B XSD), both GitHub
+      # release assets; the full set adds ~300 MB and three more hosts the test never opens. Revisit
+      # the list on the euinvoice 0.3 bump, which adds the Factur-X Schematron (the validation step
+      # fails loudly when a source it needs is missing).
+      # Complete entries are skipped without network access, so on a cache hit this is offline.
+      # Exit 2 covers a failed download (and usage/OS errors, which the retries only delay);
+      # 124 is the per-attempt timeout. Anything else (1 = integrity) is final at once.
       - name: Fetch euinvoice validation artifacts
-        run: uv run python -m euinvoice artifacts fetch
+        run: |
+          only=()
+          for name in $EUINVOICE_SOURCES; do only+=(--only "$name"); done
+          status=0
+          for attempt in 1 2 3; do
+            # A killed attempt cannot clean its staging directory (<source>/.<version>-*).
+            if [ -d "$EUINVOICE_ARTIFACTS_DIR" ]; then
+              find "$EUINVOICE_ARTIFACTS_DIR" -mindepth 2 -maxdepth 2 -type d -name '.*-*' -exec rm -rf {} +
+            fi
+            status=0
+            timeout 120 uv run python -m euinvoice artifacts fetch "${only[@]}" || status=$?
+            if [ "$status" -eq 0 ]; then exit 0; fi
+            if [ "$status" -ne 2 ] && [ "$status" -ne 124 ]; then exit "$status"; fi
+            echo "::warning::euinvoice artifacts fetch failed with exit $status (attempt $attempt of 3)"
+            if [ "$attempt" -lt 3 ]; then sleep $((attempt * 10)); fi
+          done
+          exit "$status"
+
+      # Saved right after a successful fetch (not in a post-step), so a later failure in this job
+      # cannot leave the cache cold.
+      - name: Save euinvoice validation artifacts
+        if: steps.euinvoice-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ env.EUINVOICE_CACHE_DIR }}
+          key: ${{ steps.euinvoice-cache.outputs.cache-primary-key }}
 
       - name: Validate generated Factur-X documents against the CEN rules
         env:
