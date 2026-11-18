@@ -187,12 +187,16 @@ def approve(application: ReferralApplication, *, actor: RevelUser) -> ReferralAp
     A guest account (unverified, no password, possibly created by somebody else's checkout) or an
     account whose email is not verified does not count as "exists": the invite email goes out and
     enrollment happens when that account becomes verified (see :func:`try_enroll_invitee`).
+
+    The user row is locked (``email_verified`` is deliberately kept out of the filter) so a verification
+    committing at the same moment is waited for: either it is seen as verified here, or it runs
+    :func:`try_enroll_invitee` after this approval is committed.
     """
     application = _require_pending(application)
     _mark_decided(application, ReferralApplication.Status.APPROVED, actor, None)
 
-    user = RevelUser.objects.filter(email__iexact=application.email, guest=False, email_verified=True).first()
-    if user is not None:
+    user = RevelUser.objects.select_for_update().filter(email__iexact=application.email, guest=False).first()
+    if user is not None and user.email_verified:
         _enroll(application, user)
         return application
 

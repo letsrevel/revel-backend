@@ -204,6 +204,20 @@ class TestInviteeEnrolmentRequiresVerifiedEmail:
         assert not ReferralCode.objects.filter(user=user).exists()
         assert mock_delay.call_args.args[0] == AccountEmail.REFERRAL_INVITE
 
+    def test_approve_locks_the_matching_user_row(self, django_user_model: type[RevelUser]) -> None:
+        """The lookup is FOR UPDATE and does not filter on email_verified, so it waits for a verifying transaction."""
+        django_user_model.objects.create_user(
+            username="invitee@example.com", email="invitee@example.com", password="x", email_verified=True
+        )
+        application = ReferralApplication.objects.create(email="invitee@example.com", code="invited", note="hi")
+        staff = django_user_model.objects.create_user(username="s@example.com", email="s@example.com", password="x")
+        original = type(RevelUser.objects).select_for_update  # unbound, captured before the patch
+
+        with patch.object(type(RevelUser.objects), "select_for_update", autospec=True, side_effect=original) as spy:
+            referral_application_service.approve(application, actor=staff)
+
+        assert spy.called
+
     @pytest.mark.parametrize(
         ("invited", "variant"),
         [

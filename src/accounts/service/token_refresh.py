@@ -162,9 +162,9 @@ def rotate(raw_refresh: str) -> TokenRefreshOutputSchema:
         user = _lock_user(token[_USER_ID])
         # Checked after the lock wait, right before issuing, so a domain removed while this request queued
         # behind another refresh is seen (the lock wait is the only non-trivial gap).
-        # An account whose email is unverified holds no session (login refuses it too); a missing user keeps
-        # the existing path, which rejects the token.
-        session_allowed = user is None or auth_service.is_session_allowed(user)
+        # A missing user, a dead tenant host and an unverified account (which holds no session; login refuses
+        # it too) are all refused and the token is burned.
+        session_allowed = user is not None and auth_service.is_session_allowed(user)
         if session_allowed and tenant_session.is_tenant_session_valid(token.payload, check_reactivation=True):
             return _rotate_locked(token, user)
         # Refused session (dead tenant host or unverified account): blacklist without raising inside the block,

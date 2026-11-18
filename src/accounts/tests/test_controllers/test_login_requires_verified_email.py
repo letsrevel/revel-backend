@@ -42,7 +42,7 @@ def test_unverified_account_with_wrong_password_gets_the_normal_refusal(client: 
     wrong = _post(client, "token_obtain_pair", {"username": unverified.username, "password": "wrong-password-1!"})
     unknown = _post(client, "token_obtain_pair", {"username": "nobody@example.com", "password": "wrong-password-1!"})
 
-    assert wrong.status_code == unknown.status_code != 403
+    assert wrong.status_code == unknown.status_code == 401
     assert wrong.json() == unknown.json()
 
 
@@ -95,6 +95,13 @@ def test_refresh_of_an_unverified_users_token_is_refused_and_burned(client: Clie
 
     assert first.status_code == 401
     assert second.status_code == 401  # the refused token was blacklisted
+
+
+def test_refresh_of_a_deleted_users_token_is_refused(client: Client, unverified: RevelUser) -> None:
+    refresh = str(RefreshToken.for_user(unverified))
+    RevelUser.objects.filter(pk=unverified.pk).delete()
+
+    assert _post(client, "token_refresh", {"refresh": refresh}).status_code == 401
 
 
 def test_refresh_of_a_verified_users_token_rotates(client: Client, unverified: RevelUser) -> None:
