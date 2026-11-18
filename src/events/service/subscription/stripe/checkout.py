@@ -718,6 +718,11 @@ def update_subscription_price(subscription: MembershipSubscription) -> bool:
     :func:`resync_subscription_application_fees` for the carve-out.
 
     Returns True when modify was called; False when already current or skipped.
+
+    Raises:
+        ValueError: If the subscriber's Stripe Price recurs on another interval
+            than the plan's cadence; ``migrate_plan_subscribers`` reports it as
+            a per-subscription failure.
     """
     if not subscription.stripe_subscription_id:
         return False
@@ -736,8 +741,20 @@ def update_subscription_price(subscription: MembershipSubscription) -> bool:
     if not items:
         return False
     item = items[0]
-    if (item.get("price") or {}).get("id") == current_price_id:
+    item_price = item.get("price") or {}
+    if item_price.get("id") == current_price_id:
         return False
+    # With proration_behavior="none", Stripe stretches the paid period to a new
+    # interval without invoicing (#1423). Refuse cross-cadence swaps, whatever
+    # route (old PATCH, admin edit, race) moved the plan's cadence.
+    recurring = item_price.get("recurring") or {}
+    plan = subscription.plan
+    if recurring.get("interval") != plan.period_unit or recurring.get("interval_count") != plan.period_count:
+        raise ValueError(
+            f"Subscription is billed every {recurring.get('interval_count')} {recurring.get('interval')}, "
+            f"plan is now every {plan.period_count} {plan.period_unit}: not migrated. "
+            "Move the subscriber to a plan with a matching billing period."
+        )
     try:
         stripe.Subscription.modify(
             subscription.stripe_subscription_id,

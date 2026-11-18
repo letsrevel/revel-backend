@@ -162,10 +162,55 @@ class TestPlanCadenceChange:
         ):
             subscription_plans.update_plan(offline_plan, **change)
         assert exc_info.value.status_code == 400
+        assert "billing period" in str(exc_info.value)
         mock_ensure.assert_not_called()
         offline_plan.refresh_from_db()
         assert offline_plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.MONTH
         assert offline_plan.period_count == 1
+
+    def test_cadence_change_refused_when_a_downgrade_is_scheduled_into_the_plan(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        """A pending downgrade's schedule already holds this plan's Price."""
+        other_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Yearly",
+            price=Decimal("100"),
+            currency="EUR",
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.YEAR,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.OFFLINE,
+        )
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=other_plan,
+            pending_plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        with pytest.raises(HttpError, match="billing period"):
+            subscription_plans.update_plan(offline_plan, period_unit=MembershipSubscriptionPlan.PeriodUnit.YEAR)
+
+    def test_currency_message_wins_when_currency_and_cadence_change_together(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        with pytest.raises(HttpError) as exc_info:
+            subscription_plans.update_plan(
+                offline_plan, currency="USD", period_unit=MembershipSubscriptionPlan.PeriodUnit.YEAR
+            )
+        assert "currency" in str(exc_info.value)
 
     @pytest.mark.parametrize(
         "change",
@@ -275,7 +320,14 @@ class TestUpdateSubscriptionPrice:
         ):
             mock_retrieve.return_value = {
                 "id": "sub_test_xyz",
-                "items": {"data": [{"id": "si_test", "price": {"id": "price_old"}}]},
+                "items": {
+                    "data": [
+                        {
+                            "id": "si_test",
+                            "price": {"id": "price_old", "recurring": {"interval": "month", "interval_count": 1}},
+                        }
+                    ]
+                },
             }
             mock_modify.return_value = {"id": "sub_test_xyz", "status": "active"}
             result = subscription_stripe_checkout.update_subscription_price(sub)
@@ -314,6 +366,40 @@ class TestUpdateSubscriptionPrice:
             result = subscription_stripe_checkout.update_subscription_price(sub)
 
         assert result is False
+        mock_modify.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "recurring", [{"interval": "year", "interval_count": 1}, {"interval": "month", "interval_count": 3}]
+    )
+    def test_refuses_swap_across_billing_intervals(
+        self,
+        online_plan_g2: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        recurring: dict[str, t.Any],
+    ) -> None:
+        """#1423: a cross-interval swap under proration 'none' stretches the paid period for free."""
+        organization.stripe_account_id = "acct_test_xyz"
+        organization.save(update_fields=["stripe_account_id"])
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan_g2,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_test_xyz",
+        )
+
+        with (
+            mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.retrieve") as mock_retrieve,
+            mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify,
+            pytest.raises(ValueError, match="not migrated"),
+        ):
+            mock_retrieve.return_value = {
+                "id": "sub_test_xyz",
+                "items": {"data": [{"id": "si_test", "price": {"id": "price_old", "recurring": recurring}}]},
+            }
+            subscription_stripe_checkout.update_subscription_price(sub)
+
         mock_modify.assert_not_called()
 
     def test_skipped_when_no_stripe_subscription_id(
@@ -598,7 +684,14 @@ class TestMigratePlanSubscribers:
                 raise Exception("simulated Stripe failure")
             return {
                 "id": stripe_id,
-                "items": {"data": [{"id": "si_test", "price": {"id": "price_old"}}]},
+                "items": {
+                    "data": [
+                        {
+                            "id": "si_test",
+                            "price": {"id": "price_old", "recurring": {"interval": "month", "interval_count": 1}},
+                        }
+                    ]
+                },
             }
 
         with (
@@ -614,6 +707,53 @@ class TestMigratePlanSubscribers:
         assert result["failed"] == 1
         assert result["migrated"] == 1
         assert len(result["errors"]) == 1
+
+    def test_cross_interval_subscriber_reported_as_failed_not_swapped(
+        self,
+        online_plan_g2: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """#1423: a plan whose cadence moved (pre-fix PATCH, admin edit) must not stretch old subscribers."""
+        organization.stripe_account_id = "acct_test_xyz"
+        organization.save(update_fields=["stripe_account_id"])
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan_g2,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_test_xyz",
+        )
+        MembershipSubscriptionPlan.objects.filter(pk=online_plan_g2.pk).update(
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.YEAR
+        )
+        online_plan_g2.refresh_from_db()
+
+        with (
+            patch(
+                "events.service.subscription.stripe.checkout.stripe.Subscription.retrieve",
+                return_value={
+                    "id": "sub_test_xyz",
+                    "items": {
+                        "data": [
+                            {
+                                "id": "si_test",
+                                "price": {"id": "price_old", "recurring": {"interval": "month", "interval_count": 1}},
+                            }
+                        ]
+                    },
+                },
+            ),
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify,
+        ):
+            result = subscription_plans.migrate_plan_subscribers(online_plan_g2, initiated_by=organization_owner_user)
+
+        mock_modify.assert_not_called()
+        assert result["failed"] == 1
+        assert result["migrated"] == 0
+        assert result["errors"] == [{"sub_id": str(sub.id), "reason": mock.ANY}]
+        assert "not migrated" in result["errors"][0]["reason"]
 
     def test_old_price_resolved_from_last_succeeded_payment(
         self,

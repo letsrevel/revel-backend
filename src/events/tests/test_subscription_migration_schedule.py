@@ -115,7 +115,14 @@ class TestMigrateSkipsScheduleManaged:
                 "events.service.subscription.stripe.checkout.stripe.Subscription.retrieve",
                 return_value={
                     "id": "sub_plain_user",
-                    "items": {"data": [{"id": "si_plain", "price": {"id": "price_old"}}]},
+                    "items": {
+                        "data": [
+                            {
+                                "id": "si_plain",
+                                "price": {"id": "price_old", "recurring": {"interval": "month", "interval_count": 1}},
+                            }
+                        ]
+                    },
                 },
             ) as mock_retrieve,
             patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify,

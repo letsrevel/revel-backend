@@ -12,7 +12,7 @@ from decimal import Decimal
 
 import structlog
 from django.db import transaction
-from django.db.models import ProtectedError
+from django.db.models import ProtectedError, Q
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -113,7 +113,8 @@ def update_plan(
     and create a new plan instead.
 
     Refuses cadence (``period_unit`` / ``period_count``) changes under the same
-    condition: swapping an ONLINE subscriber onto a Price with a different
+    condition (both guards also count subscriptions with a downgrade scheduled
+    into this plan via ``pending_plan``): swapping an ONLINE subscriber onto a Price with a different
     interval (``proration_behavior="none"``) makes Stripe stretch the paid
     period to the new interval without invoicing (#1423).
 
@@ -140,19 +141,23 @@ def update_plan(
         or fields.get("period_count", plan.period_count) != plan.period_count
     )
     if currency_changes or cadence_changes:
+        # A scheduled downgrade (``pending_plan``) already pins this plan's
+        # current Stripe Price into the subscriber's schedule.
         has_active_subs = (
-            MembershipSubscription.objects.filter(plan=plan)
+            MembershipSubscription.objects.filter(Q(plan=plan) | Q(pending_plan=plan))
             .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
             .exists()
         )
-        if has_active_subs and currency_changes:
-            msg = _("Cannot change currency when active subscriptions exist. Archive and create a new plan instead.")
-            raise HttpError(400, str(msg))
         if has_active_subs:
-            msg = _(
-                "Cannot change the billing period when active subscriptions exist. "
-                "Archive and create a new plan instead."
-            )
+            if currency_changes:
+                msg = _(
+                    "Cannot change currency when active subscriptions exist. Archive and create a new plan instead."
+                )
+            else:
+                msg = _(
+                    "Cannot change the billing period when active subscriptions exist. "
+                    "Archive and create a new plan instead."
+                )
             raise HttpError(400, str(msg))
 
     for field, value in fields.items():
