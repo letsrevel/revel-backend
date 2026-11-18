@@ -8,7 +8,7 @@ import typing as t
 from datetime import datetime, timedelta
 
 from django.db import transaction
-from django.db.models import Exists, F, OuterRef, Q, QuerySet
+from django.db.models import F, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -57,15 +57,13 @@ def _dispatch_invitation_received(token: OrganizationToken, invitee: RevelUser, 
 
 
 def _needs_new_notification(previous: OrganizationToken, now: datetime) -> bool:
-    """Whether re-inviting over ``previous`` should notify the invitee again."""
-    if previous.expires_at is not None and previous.expires_at <= now:
-        return True
-    if previous.uses >= previous.max_uses:
-        return True
-    return (
-        previous.invitation_notified_at is None
-        or now - previous.invitation_notified_at > MEMBER_INVITATION_RESEND_COOLDOWN
-    )
+    """Whether re-inviting over ``previous`` should notify the invitee again (at most once per cooldown).
+
+    Only the last notification time counts, not whether the previous invitation expired, was used or was
+    withdrawn: a natural 14-day expiry is always past the cooldown, and a withdrawal must not reset it.
+    """
+    notified_at = previous.invitation_notified_at
+    return notified_at is None or now - notified_at > MEMBER_INVITATION_RESEND_COOLDOWN
 
 
 @transaction.atomic
@@ -74,9 +72,8 @@ def invite_member(
 ) -> OrganizationToken:
     """Create, or refresh, the single personal membership invitation for ``invitee``.
 
-    Re-inviting resets the same row (new tier, expiry and use count). The invitee is notified for a new row,
-    when the previous invitation had expired or been used, or when the last notification is older than
-    ``MEMBER_INVITATION_RESEND_COOLDOWN``.
+    Re-inviting resets the same row (new tier, expiry and use count). The invitee is notified for a new row or
+    when the last notification is older than ``MEMBER_INVITATION_RESEND_COOLDOWN``.
 
     Raises:
         AlreadyMemberError: An access row exists for the account in any status (including banned).
@@ -113,23 +110,26 @@ def invite_member(
 
 
 def list_pending_invitations(organization: Organization) -> QuerySet[OrganizationToken]:
-    """Personal invitations of ``organization`` that can still be accepted (invitee is not yet a member)."""
-    already_member = OrganizationMember.objects.filter(organization=organization, user=OuterRef("invitee"))
-    return (
-        OrganizationToken.objects.filter(
-            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
-            organization=organization,
-            invitee__isnull=False,
-            uses__lt=F("max_uses"),
-        )
-        .exclude(Exists(already_member))
-        .select_related("invitee", "membership_tier")
-    )
+    """Personal invitations of ``organization`` that can still be accepted.
+
+    An invitation ends when the invitee becomes a member by any route (``events.signals`` expires it).
+    """
+    return OrganizationToken.objects.filter(
+        Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
+        organization=organization,
+        invitee__isnull=False,
+        uses__lt=F("max_uses"),
+    ).select_related("invitee", "membership_tier")
 
 
 def revoke_invitation(organization: Organization, invitation_id: str) -> None:
-    """Delete one of the organization's pending personal invitations (404 when it is not one)."""
-    get_object_or_404(list_pending_invitations(organization), pk=invitation_id).delete()
+    """Withdraw one of the organization's pending personal invitations (404 when it is not one).
+
+    The row is expired rather than deleted so its last notification time keeps the resend cooldown.
+    """
+    invitation = get_object_or_404(list_pending_invitations(organization), pk=invitation_id)
+    invitation.expires_at = timezone.now()
+    invitation.save(update_fields=["expires_at", "updated_at"])
 
 
 def has_relationship(organization: Organization, user: RevelUser) -> bool:

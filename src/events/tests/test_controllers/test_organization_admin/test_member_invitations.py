@@ -186,7 +186,11 @@ class TestInvite:
     ) -> None:
         first_id = _invite(organization_owner_client, organization, nonmember_user, tier).json()["id"]
         other_tier = MembershipTier.objects.create(organization=organization, name="Silver")
-        OrganizationToken.objects.filter(pk=first_id).update(expires_at=timezone.now() - dt.timedelta(days=1), uses=1)
+        OrganizationToken.objects.filter(pk=first_id).update(
+            expires_at=timezone.now() - dt.timedelta(days=1),
+            uses=1,
+            invitation_notified_at=timezone.now() - dt.timedelta(days=15),
+        )
 
         with (
             patch("notifications.signals.notification_requested.send") as send,
@@ -349,8 +353,38 @@ class TestListAndRevoke:
 
         assert organization_owner_client.delete(url).status_code == 204
 
-        assert not OrganizationToken.objects.filter(pk=token_id).exists()
+        assert organization_owner_client.get(_list_url(organization)).json()["count"] == 0
+        assert organization_owner_client.delete(url).status_code == 404
         assert _claim(nonmember_user, token_id).status_code == 400
+        assert not OrganizationMember.objects.filter(organization=organization, user=nonmember_user).exists()
+
+    @pytest.mark.parametrize("withdrawn", [True, False], ids=["withdrawn", "used"])
+    def test_withdrawn_or_used_invitation_keeps_resend_cooldown(
+        self,
+        withdrawn: bool,
+        organization_owner_client: Client,
+        organization: Organization,
+        nonmember_user: RevelUser,
+        tier: MembershipTier,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        token_id = _invite(organization_owner_client, organization, nonmember_user, tier).json()["id"]
+        if withdrawn:
+            url = reverse("api:revoke_member_invitation", kwargs={"slug": organization.slug, "invitation_id": token_id})
+            assert organization_owner_client.delete(url).status_code == 204
+        else:
+            OrganizationToken.objects.filter(pk=token_id).update(uses=1)
+
+        with (
+            patch("notifications.signals.notification_requested.send") as send,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            response = _invite(organization_owner_client, organization, nonmember_user, tier)
+
+        assert response.status_code == 201
+        assert response.json()["id"] == token_id
+        assert organization_owner_client.get(_list_url(organization)).json()["count"] == 1
+        assert send.call_count == 0
 
     def test_invitee_who_became_member_another_way_is_not_pending(
         self,
@@ -368,6 +402,12 @@ class TestListAndRevoke:
         assert body["pending_invitation_id"] is None
         url = reverse("api:revoke_member_invitation", kwargs={"slug": organization.slug, "invitation_id": token_id})
         assert organization_owner_client.delete(url).status_code == 404
+
+        # Removing the membership later must not bring the old invitation back.
+        OrganizationMember.objects.filter(organization=organization, user=nonmember_user).delete()
+        assert organization_owner_client.get(_list_url(organization)).json()["count"] == 0
+        assert _claim(nonmember_user, token_id).status_code == 400
+        assert not OrganizationMember.objects.filter(organization=organization, user=nonmember_user).exists()
 
     @pytest.mark.parametrize("state", ["used", "expired"])
     def test_revoke_only_pending_invitations(

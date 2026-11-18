@@ -8,6 +8,7 @@ from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
 from django.http import HttpRequest
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
@@ -26,6 +27,7 @@ from events.models import (
     Organization,
     OrganizationMember,
     OrganizationStaff,
+    OrganizationToken,
     PendingEventInvitation,
     ReservedSlugToken,
     Ticket,
@@ -344,6 +346,22 @@ def handle_membership_granted(
         return
 
     transaction.on_commit(lambda: notify_membership_granted(instance))
+
+
+@receiver(post_save, sender=OrganizationMember)
+def end_personal_invitation_on_membership(
+    sender: type[OrganizationMember], instance: OrganizationMember, created: bool, **kwargs: t.Any
+) -> None:
+    """End the invitee's personal invitation once they hold a membership row, however it was created.
+
+    Otherwise a later removal would make the old invitation link claimable again.
+    """
+    if not created:
+        return
+    now = timezone.now()
+    OrganizationToken.objects.filter(
+        organization_id=instance.organization_id, invitee_id=instance.user_id, expires_at__gt=now
+    ).update(expires_at=now)
 
 
 @receiver(post_delete, sender=OrganizationMember)
