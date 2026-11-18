@@ -114,7 +114,8 @@ def update_plan(
 
     Refuses cadence (``period_unit`` / ``period_count``) changes under the same
     condition (both guards also count subscriptions with a downgrade scheduled
-    into this plan via ``pending_plan``): swapping an ONLINE subscriber onto a Price with a different
+    into this plan via ``pending_plan``; a ``period_count`` edit on a LIFETIME
+    plan is not a cadence change): swapping an ONLINE subscriber onto a Price with a different
     interval (``proration_behavior="none"``) makes Stripe stretch the paid
     period to the new interval without invoicing (#1423).
 

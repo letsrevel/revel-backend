@@ -335,6 +335,7 @@ class TestUpdateSubscriptionPrice:
         online_plan_g2: MembershipSubscriptionPlan,
         organization: Organization,
         subscriber: RevelUser,
+        target_price_retrieve: mock.MagicMock,
     ) -> None:
         organization.stripe_account_id = "acct_test_xyz"
         organization.save(update_fields=["stripe_account_id"])
@@ -370,6 +371,8 @@ class TestUpdateSubscriptionPrice:
         call_kwargs = mock_modify.call_args.kwargs
         assert call_kwargs["items"] == [{"id": "si_test", "price": "price_new"}]
         assert call_kwargs["proration_behavior"] == "none"
+        # The target Price lives on the connected account, not the platform.
+        target_price_retrieve.assert_called_once_with("price_new", stripe_account="acct_test_xyz")
 
     def test_noop_when_already_on_current_price(
         self,
@@ -407,6 +410,7 @@ class TestUpdateSubscriptionPrice:
             (MONTHLY, {"interval": "year", "interval_count": 1}),
             (MONTHLY, {"interval": "month", "interval_count": 3}),
             (None, MONTHLY),
+            (MONTHLY, None),
         ],
     )
     def test_refuses_swap_across_billing_intervals(
@@ -442,6 +446,34 @@ class TestUpdateSubscriptionPrice:
             subscription_stripe_checkout.update_subscription_price(sub)
 
         mock_modify.assert_not_called()
+
+    def test_missing_interval_count_means_one(
+        self,
+        online_plan_g2: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+    ) -> None:
+        organization.stripe_account_id = "acct_test_xyz"
+        organization.save(update_fields=["stripe_account_id"])
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan_g2,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_test_xyz",
+        )
+        with (
+            mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.retrieve") as mock_retrieve,
+            mock.patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify,
+        ):
+            mock_retrieve.return_value = {
+                "id": "sub_test_xyz",
+                "items": {
+                    "data": [{"id": "si_test", "price": {"id": "price_old", "recurring": {"interval": "month"}}}]
+                },
+            }
+            assert subscription_stripe_checkout.update_subscription_price(sub) is True
+        mock_modify.assert_called_once()
 
     def test_compares_prices_not_the_plan_row(
         self,

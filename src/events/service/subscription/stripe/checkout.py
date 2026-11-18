@@ -758,6 +758,12 @@ def update_subscription_price(subscription: MembershipSubscription) -> bool:
     try:
         target_price = stripe.Price.retrieve(current_price_id, **kwargs)
     except stripe.error.StripeError as exc:
+        logger.error(
+            "subscription_stripe_target_price_retrieve_failed",
+            subscription_id=str(subscription.pk),
+            target_price_id=current_price_id,
+            error=str(exc),
+        )
         raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
     current_cadence = _recurring_cadence(item_price)
     target_cadence = _recurring_cadence(target_price)

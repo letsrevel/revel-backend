@@ -369,7 +369,7 @@ Everything that operates on a plan rather than on one subscriber's lifecycle.
 
 | Function | Responsibility |
 |---|---|
-| `create_plan` / `update_plan` / `archive_plan` / `delete_plan` | Plan CRUD. ONLINE plans trigger `ensure_stripe_price`. Currency and cadence (`period_unit` / `period_count`) edits are refused when active subs exist, counting subs with a downgrade scheduled into the plan (`pending_plan`): moving an ONLINE subscriber to a Price with another interval under `proration_behavior='none'` stretches the paid period without an invoice (#1423). `delete_plan` catches `ProtectedError` from the FK |
+| `create_plan` / `update_plan` / `archive_plan` / `delete_plan` | Plan CRUD. ONLINE plans trigger `ensure_stripe_price`. Currency and cadence (`period_unit` / `period_count`) edits are refused when active subs exist, counting subs with a downgrade scheduled into the plan (`pending_plan`; a `period_count` edit on a `LIFETIME` plan is allowed, since `LIFETIME` ignores it): moving an ONLINE subscriber to a Price with another interval under `proration_behavior='none'` stretches the paid period without an invoice (#1423). `delete_plan` catches `ProtectedError` from the FK |
 | `migrate_plan_subscribers` | Force-migrates non-terminal subs on a plan to its current Stripe price (`proration_behavior='none'`). Per-sub errors are reported individually; no rollback. A subscriber whose Stripe Price recurs on another interval than the plan's current Price (compared Price to Price, not against the plan row) is reported as failed and never swapped (#1423). Batches the "previous price" lookup with `DISTINCT ON` to avoid N+1 |
 
 ### `events/service/subscription/stripe/base.py`, `checkout.py`, `sync.py`
