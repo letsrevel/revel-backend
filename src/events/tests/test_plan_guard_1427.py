@@ -773,6 +773,104 @@ class TestMigrateOnlinePriceRecheck:
         assert (result["migrated"], result["skipped"], result["failed"]) == (0, 1, 0)
 
 
+class _LockHook:
+    """Wrap ``Sub.objects.select_for_update`` so ``before``/``after`` run around the locked ``.first()`` (once)."""
+
+    def __init__(self, qs: t.Any, before: t.Callable[[], t.Any], after: t.Callable[[], t.Any], state: dict[str, bool]):
+        self._qs, self._before, self._after, self._state = qs, before, after, state
+
+    def __getattr__(self, name: str) -> t.Any:
+        attr = getattr(self._qs, name)
+        if name == "first":
+
+            def first() -> t.Any:
+                fire = not self._state["done"]
+                self._state["done"] = True
+                if fire:
+                    self._before()
+                row = attr()
+                if fire:
+                    self._after()
+                return row
+
+            return first
+        return lambda *a, **k: _LockHook(attr(*a, **k), self._before, self._after, self._state)
+
+
+@pytest.mark.django_db
+class TestMigrateOnlineLockedState:
+    """The swap and its notice use the state read under the lock, not the batch snapshot."""
+
+    @pytest.fixture
+    def sub(self, online_plan: Plan, organization: Organization, subscriber: RevelUser) -> Sub:
+        sub = _make_sub(
+            subscriber,
+            online_plan,
+            organization,
+            stripe_subscription_id="sub_a",
+            current_period_end=timezone.now() + timedelta(days=3),
+        )
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=online_plan.price,
+            currency=online_plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now() - timedelta(days=27),
+            period_end=timezone.now() + timedelta(days=3),
+        )
+        online_plan.price = online_plan.price + Decimal("5")
+        online_plan.save(update_fields=["price"])
+        return sub
+
+    def _run(
+        self,
+        online_plan: Plan,
+        owner: RevelUser,
+        before: t.Callable[[], t.Any] = lambda: None,
+        after: t.Callable[[], t.Any] = lambda: None,
+    ) -> tuple[t.Any, t.Any]:
+        state = {"done": False}
+        real = Sub.objects.select_for_update
+        item = {"id": "si_1", "price": {"id": "price_old", "recurring": {"interval": "month", "interval_count": 1}}}
+        price = {"recurring": {"interval": "month", "interval_count": 1}}
+        with (
+            patch.object(
+                Sub.objects,
+                "select_for_update",
+                side_effect=lambda *a, **k: _LockHook(real(*a, **k), before, after, state),
+            ),
+            patch("stripe.Subscription.retrieve", return_value={"items": {"data": [item]}}),
+            patch("stripe.Price.retrieve", return_value=price),
+            patch("stripe.Subscription.modify") as mock_modify,
+            patch.object(subscription_plans, "_dispatch_price_migration") as mock_dispatch,
+        ):
+            subscription_plans.migrate_plan_subscribers(online_plan, initiated_by=owner)
+        return mock_modify, mock_dispatch
+
+    def test_notice_uses_period_end_read_under_lock(
+        self, online_plan: Plan, sub: Sub, organization_owner_user: RevelUser
+    ) -> None:
+        renewed = timezone.now() + timedelta(days=33)
+        _, mock_dispatch = self._run(
+            online_plan,
+            organization_owner_user,
+            before=lambda: Sub.objects.filter(pk=sub.pk).update(current_period_end=renewed),
+        )
+        assert mock_dispatch.call_count == 1
+        assert mock_dispatch.call_args.args[0].current_period_end == renewed
+
+    def test_stripe_target_is_plan_reread_under_lock(
+        self, online_plan: Plan, sub: Sub, organization_owner_user: RevelUser
+    ) -> None:
+        """The joined plan predates a concurrent edit; the Price sent to Stripe must be the committed one."""
+        mock_modify, _ = self._run(
+            online_plan,
+            organization_owner_user,
+            after=lambda: Plan.objects.filter(pk=online_plan.pk).update(stripe_price_id="price_newer"),
+        )
+        assert [c.kwargs["items"][0]["price"] for c in mock_modify.call_args_list] == ["price_newer"]
+
+
 @pytest.mark.django_db
 class TestPlanSaveUpdateFields:
     def test_iterator_update_fields_is_materialized(self, plan: Plan) -> None:
@@ -791,6 +889,35 @@ class TestPlanSaveUpdateFields:
         assert Plan.objects.values_list("period_unit", flat=True).get(pk=plan.pk) == Plan.PeriodUnit.MONTH
         with pytest.raises(ValidationError):
             plan.save(update_fields=["currency", "period_unit"])
+
+
+@pytest.mark.django_db
+class TestForceUpdateOfExistingPlan:
+    """``_state.adding`` is not proof of a new row: a forced update of an existing pk must hit the guard."""
+
+    def test_force_update_billing_change_refused(
+        self, plan: Plan, organization: Organization, subscriber: RevelUser
+    ) -> None:
+        _make_sub(subscriber, plan, organization)
+        shell = Plan(
+            id=plan.pk,
+            tier=plan.tier,
+            name=plan.name,
+            price=plan.price,
+            currency=plan.currency,
+            period_unit=Plan.PeriodUnit.YEAR,
+            payment_method=plan.payment_method,
+        )
+        assert shell._state.adding
+        with pytest.raises(ValidationError) as exc_info:
+            shell.save(force_update=True, update_fields=["period_unit"])
+        assert "period_unit" in exc_info.value.message_dict  # not merely the pk uniqueness error
+        assert Plan.objects.values_list("period_unit", flat=True).get(pk=plan.pk) == Plan.PeriodUnit.MONTH
+
+    def test_new_plan_still_saves(self, tier: MembershipTier) -> None:
+        new = Plan(tier=tier, name="Fresh", price=Decimal("1"), currency="EUR", period_unit=Plan.PeriodUnit.YEAR)
+        new.save()
+        assert Plan.objects.filter(pk=new.pk).exists()
 
 
 @pytest.mark.django_db

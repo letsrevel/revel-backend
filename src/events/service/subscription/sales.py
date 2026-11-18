@@ -46,7 +46,7 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
     plan (``pending_plan`` reserves the slot, since the Stripe schedule
     rollover re-points ``plan`` with no capacity re-check) — so a cancelled
     or expired subscription frees its slot automatically; there is no counter
-    to drift. With a cap, the plan row is locked ``FOR UPDATE`` so concurrent
+    to drift. With a cap, the plan row is locked ``FOR NO KEY UPDATE`` so concurrent
     creations serialize (mirrors the capacity-reclaim invariants of ticket
     tiers). Without one, it takes ``FOR KEY SHARE``: creations don't block
     each other (no serialization across the Checkout-session Stripe call),

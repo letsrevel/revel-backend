@@ -241,8 +241,6 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         autocommit shell save releases the lock before the UPDATE, so wrap shell
         edits in ``transaction.atomic()``.
         """
-        if self._state.adding:
-            return
         with transaction.atomic():
             persisted = (
                 type(self)

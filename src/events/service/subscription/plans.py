@@ -302,8 +302,10 @@ def migrate_plan_subscribers(
     for sub in qs:
         try:
             if sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
-                if not _swap_online_price_locked(plan, sub, result):
+                locked_sub = _swap_online_price_locked(plan, sub, result)
+                if locked_sub is None:
                     continue
+                sub = locked_sub  # the notice must describe the row actually swapped
             # OFFLINE: no Stripe call. We still dispatch the notification so
             # the subscriber knows next renewal will be at the new amount.
 
@@ -354,8 +356,8 @@ def migrate_plan_subscribers(
 
 def _swap_online_price_locked(
     plan: MembershipSubscriptionPlan, sub: MembershipSubscription, result: MigrationResult
-) -> bool:
-    """Swap one ONLINE subscriber onto the plan's current Price; ``False`` when skipped (counted in ``result``).
+) -> MembershipSubscription | None:
+    """Swap one ONLINE subscriber onto the plan's current Price; ``None`` when skipped (counted in ``result``).
 
     Re-reads the subscription under a row lock: ``change_online_plan`` holds the
     same lock across its Stripe calls and an upgrade re-points ``plan`` before
@@ -377,14 +379,17 @@ def _swap_online_price_locked(
             or locked.status in MembershipSubscription.TERMINAL_STATUSES
         ):
             result["skipped"] += 1
-            return False
+            return None
+        # The select_related plan came from the lock's own statement, so it can predate a
+        # concurrent plan edit; re-read it now that the lock is held and target Stripe with it.
+        locked.plan = MembershipSubscriptionPlan.objects.get(pk=plan.pk)
         if not _plan_price_unchanged(locked.plan, plan):
             # The plan's price changed again mid-run; this run's notice quotes
             # ``plan.price``, so leave the subscriber to the migration run that
             # change calls for (logged so a non-zero ``skipped`` is not read as done).
             _log_left_for_rerun(plan, locked)
             result["skipped"] += 1
-            return False
+            return None
         if locked.stripe_schedule_id:
             # Stripe rejects a plain ``Subscription.modify`` while a schedule
             # is attached, and releasing the schedule would silently drop the
@@ -399,11 +404,11 @@ def _swap_online_price_locked(
                 subscription_id=str(locked.pk),
                 schedule_id=locked.stripe_schedule_id,
             )
-            return False
+            return None
         if not stripe_checkout.update_subscription_price(locked):
             result["skipped"] += 1
-            return False
-    return True
+            return None
+    return locked
 
 
 def _still_on_plan_and_live(sub: MembershipSubscription, plan: MembershipSubscriptionPlan) -> bool:
