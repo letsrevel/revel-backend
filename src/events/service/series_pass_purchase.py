@@ -95,6 +95,14 @@ class SeriesPassPurchaseService:
             if link.event_id in full_event_ids:
                 raise HttpError(429, str(_("Event {name} is sold out.")).format(name=link.event.name))
 
+    def _assert_late_links_eligible(
+        self, pre_links: list[SeriesPassTierLink], future_links: list[SeriesPassTierLink]
+    ) -> None:
+        """Gate any event linked between the lock-free gate pass and the locked re-query."""
+        gated_event_ids = {link.event_id for link in pre_links}
+        if late_links := [link for link in future_links if link.event_id not in gated_event_ids]:
+            self._assert_covered_events_eligible(late_links)
+
     def _assert_covered_events_eligible(self, future_links: list[SeriesPassTierLink]) -> None:
         """Apply the per-event gates of a normal ticket purchase to every covered future event.
 
@@ -193,10 +201,7 @@ class SeriesPassPurchaseService:
         future_links: list[SeriesPassTierLink] = list(
             self.series_pass.tier_links.filter(event__start__gte=now).select_related("event").order_by("tier_id")
         )
-        # An event linked between the lock-free gate pass and this locked re-query has not been gated yet.
-        gated_event_ids = {link.event_id for link in pre_links}
-        if late_links := [link for link in future_links if link.event_id not in gated_event_ids]:
-            self._assert_covered_events_eligible(late_links)
+        self._assert_late_links_eligible(pre_links, future_links)
         if not future_links:
             # Defense-in-depth (#632): get_quote's remaining<2 gate above already
             # blocks this in the normal case, but it and this future_links query each
