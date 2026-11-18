@@ -60,7 +60,7 @@ code — never a flimsier algorithm. When you deliberately cap a solution, leave
 
 State a brief plan for multi-step work (`step → verify: check`). Strong success criteria let
 you loop independently; weak ones ("make it work") force constant clarification.
-**Project caveat: you write the tests — the user runs them** (see [Hard Rules](#hard-rules)).
+**Project caveat: run the tests that cover your change, never the full suite** (see [Hard Rules](#hard-rules)).
 
 **These principles are working if:** fewer unnecessary changes in diffs, fewer rewrites from
 overcomplication, and clarifying questions arrive *before* implementation, not after mistakes.
@@ -381,7 +381,8 @@ For issues and non-trivial features — the full form of Operating Principle #1:
 ## Hard Rules
 
 Non-negotiable, project-specific:
-- **Do not run the full test suit. Run the tests that cover the code you modified..**
+- **Do not run the full test suite. Run the tests that cover the code you modified.**
+- **A bug fix includes a regression test that fails before the fix.**
 - **Never commit to `main`.** Feature branches: `feature/issue-number-description` /
   `fix/issue-number-description`. Conventional commits (`feat:`, `fix:`, `refactor:`, `test:`, `chore:`).
 - **On any branch other than `main`, commit and push freely** — no approval needed (decided 2026-10-01). Never commit or push to `main`.
