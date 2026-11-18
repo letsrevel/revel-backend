@@ -8,7 +8,7 @@ account-security token must never be placed on a tenant-domain link, even when t
 import inspect
 import re
 import typing as t
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import orjson
 import pytest
@@ -57,6 +57,8 @@ def _action_link(mock_send: MagicMock) -> str:
     body = mock_send.call_args_list[0].kwargs["body"]
     base = re.escape(SiteSettings.get_solo().frontend_base_url)
     links = re.findall(rf"{base}/\S+", body)
+    if any("/login/confirm-email" in link for link in links):  # the verification email also carries a deletion link
+        links = [link for link in links if "/account/confirm-deletion" not in link]
     assert len(links) == 1, body
     return str(links[0])
 
@@ -273,5 +275,10 @@ def test_verification_dispatch_merges_return_url_and_hint_in_context(user: Revel
         AccountEmail.VERIFICATION,
         user.email,
         token=token,
-        context={"language": user.language, "return_url": "/oauth/authorize?client_id=x", "return_host": HOST},
+        context={
+            "language": user.language,
+            "return_url": "/oauth/authorize?client_id=x",
+            "return_host": HOST,
+            "deletion_token": ANY,
+        },
     )

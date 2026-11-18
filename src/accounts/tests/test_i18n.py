@@ -27,6 +27,8 @@ def test_user_language_field_choices(user: RevelUser) -> None:
 @patch("accounts.tasks.send_account_email.delay")
 def test_error_message_translation_german(mock_send_email: object, user: RevelUser) -> None:
     """Test that error messages are translated to German."""
+    user.email_verified = True
+    user.save(update_fields=["email_verified"])
     with translation.override("de"):
         with pytest.raises(HttpError, match="existiert bereits"):
             register_user(
@@ -44,6 +46,8 @@ def test_error_message_translation_german(mock_send_email: object, user: RevelUs
 @patch("accounts.tasks.send_account_email.delay")
 def test_error_message_translation_italian(mock_send_email: object, user: RevelUser) -> None:
     """Test that error messages are translated to Italian."""
+    user.email_verified = True
+    user.save(update_fields=["email_verified"])
     with translation.override("it"):
         with pytest.raises(HttpError, match="Esiste già"):
             register_user(
@@ -61,6 +65,8 @@ def test_error_message_translation_italian(mock_send_email: object, user: RevelU
 @patch("accounts.tasks.send_account_email.delay")
 def test_error_message_translation_french(mock_send_email: object, user: RevelUser) -> None:
     """Test that error messages are translated to French."""
+    user.email_verified = True
+    user.save(update_fields=["email_verified"])
     with translation.override("fr"):
         with pytest.raises(HttpError, match="déjà"):
             register_user(
@@ -78,6 +84,8 @@ def test_error_message_translation_french(mock_send_email: object, user: RevelUs
 @patch("accounts.tasks.send_account_email.delay")
 def test_error_message_default_english(mock_send_email: object, user: RevelUser) -> None:
     """Test that error messages default to English when no translation is active."""
+    user.email_verified = True
+    user.save(update_fields=["email_verified"])
     with translation.override("en"):
         with pytest.raises(HttpError, match="already exists"):
             register_user(

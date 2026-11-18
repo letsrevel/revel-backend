@@ -2,13 +2,12 @@
 
 import re
 import typing as t
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from django.test.client import Client
 from django.urls import reverse
-from ninja.errors import HttpError
 
 from accounts import schema
 from accounts.models import RevelUser
@@ -39,8 +38,20 @@ def _sent_link(mock_send: MagicMock) -> str:
     body = mock_send.call_args.kwargs["body"]
     base = re.escape(SiteSettings.get_solo().frontend_base_url)
     links = re.findall(rf"{base}\S+", body)
+    links = [link for link in links if "/account/confirm-deletion" not in link]
     assert len(links) == 1
     assert links[0] in mock_send.call_args.kwargs["html_body"].replace("&amp;", "&")
+    return str(links[0])
+
+
+def _sent_link_with_deletion(mock_send: MagicMock) -> str:
+    """The verification link (first one) of the single sent email, which also carries a deletion link."""
+    mock_send.assert_called_once()
+    body = mock_send.call_args.kwargs["body"]
+    base = re.escape(SiteSettings.get_solo().frontend_base_url)
+    links = re.findall(rf"{base}\S+", body)
+    assert len(links) == 2
+    assert "/account/confirm-deletion?token=" in links[1]
     return str(links[0])
 
 
@@ -95,7 +106,7 @@ def test_verification_link_carries_encoded_return_url(
         AccountEmail.VERIFICATION,
         user.email,
         token=token,
-        context={"language": user.language, "return_url": _OAUTH_RETURN_URL},
+        context={"language": user.language, "return_url": _OAUTH_RETURN_URL, "deletion_token": ANY},
     )
 
     link = _sent_link(mock_send)
@@ -121,20 +132,23 @@ def test_verification_link_unchanged_without_return_url(
     assert link == f"{SiteSettings.get_solo().frontend_base_url}/login/confirm-email?token={token}"
     # The dispatched message keeps its exact pre-return_url shape.
     mock_delay.assert_called_once_with(
-        AccountEmail.VERIFICATION, user.email, token=token, context={"language": user.language}
+        AccountEmail.VERIFICATION, user.email, token=token, context={"language": user.language, "deletion_token": ANY}
     )
 
 
 @patch("accounts.tasks.email.send_email")
-def test_duplicate_registration_ignores_return_url(mock_send: MagicMock, unverified_user: RevelUser) -> None:
-    """The anti-enumeration resend for an existing unverified user never carries returnUrl."""
+def test_repeat_registration_carries_return_url(
+    mock_send: MagicMock, unverified_user: RevelUser, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """A repeat signup on an unverified address sends a fresh link like a new signup, with its returnUrl."""
     payload = schema.RegisterUserSchema(**_payload(email=unverified_user.email, return_url=_OAUTH_RETURN_URL))
 
-    with pytest.raises(HttpError):
-        account_service.register_user(payload)
+    with patch("accounts.tasks.send_account_email.delay", side_effect=send_account_email):
+        with django_capture_on_commit_callbacks(execute=True):
+            account_service.register_user(payload)
 
-    link = _sent_link(mock_send)
-    assert "returnUrl" not in link
+    link = _sent_link_with_deletion(mock_send)
+    assert "returnUrl=" in link
     assert "/login/confirm-email?token=" in link
 
 

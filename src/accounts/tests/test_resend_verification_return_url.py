@@ -2,7 +2,7 @@
 
 import re
 import typing as t
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 from urllib.parse import parse_qs, urlsplit
 
 import orjson
@@ -27,6 +27,7 @@ def _sent_link(mock_send: MagicMock) -> str:
     body = mock_send.call_args.kwargs["body"]
     base = re.escape(SiteSettings.get_solo().frontend_base_url)
     links = re.findall(rf"{base}\S+", body)
+    links = [link for link in links if "/account/confirm-deletion" not in link]
     assert len(links) == 1
     return str(links[0])
 
@@ -86,7 +87,11 @@ def test_resend_link_carries_encoded_return_url(
         account_service.resend_verification_email(unverified_user.email, return_url=_OAUTH_RETURN_URL)
 
     mock_delay.assert_called_once()
-    assert mock_delay.call_args.kwargs["context"] == {"language": "en", "return_url": _OAUTH_RETURN_URL}
+    assert mock_delay.call_args.kwargs["context"] == {
+        "language": "en",
+        "return_url": _OAUTH_RETURN_URL,
+        "deletion_token": ANY,
+    }
 
     link = _sent_link(mock_send)
     query = parse_qs(urlsplit(link).query, strict_parsing=True)
@@ -108,7 +113,10 @@ def test_resend_link_unchanged_without_return_url(
     # The dispatched message keeps its exact pre-return_url shape (no ``context`` kwarg).
     token = mock_delay.call_args.kwargs["token"]
     mock_delay.assert_called_once_with(
-        AccountEmail.VERIFICATION, unverified_user.email, token=token, context={"language": unverified_user.language}
+        AccountEmail.VERIFICATION,
+        unverified_user.email,
+        token=token,
+        context={"language": unverified_user.language, "deletion_token": ANY},
     )
     assert "returnUrl" not in _sent_link(mock_send)
 
@@ -126,4 +134,8 @@ def test_endpoint_threads_return_url_to_task(mock_delay: MagicMock, client: Clie
 
     assert response.status_code == 200
     mock_delay.assert_called_once()
-    assert mock_delay.call_args.kwargs["context"] == {"language": "en", "return_url": _OAUTH_RETURN_URL}
+    assert mock_delay.call_args.kwargs["context"] == {
+        "language": "en",
+        "return_url": _OAUTH_RETURN_URL,
+        "deletion_token": ANY,
+    }

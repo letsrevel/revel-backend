@@ -80,15 +80,17 @@ def enroll_referral_invitee_on_creation(
 ) -> None:
     """Turn an approved referral invite into a ReferralCode when the invitee signs up.
 
-    Only real signups count: guest accounts (created by guest checkout, possibly by somebody
-    else typing the invitee's email, and never verified) are skipped — the same line the admin
-    signup notification draws. A guest is enrolled later, when they become a full user through
-    ``account.convert_guest`` (password reset, OIDC login or the admin "Convert guest" action).
+    Only verified signups count: guest accounts (created by guest checkout, possibly by somebody
+    else typing the invitee's email) and accounts whose email nobody has verified yet are skipped,
+    since anyone can type an invitee's address into the signup form. A guest is enrolled later,
+    when they become a full user through ``account.convert_guest`` (password reset, OIDC login or
+    the admin "Convert guest" action); an unverified signup when it verifies its email
+    (``account.verify_email`` or a password reset).
 
     Delegates to :func:`try_enroll_invitee`, which never raises: a referral perk must not block
     account creation.
     """
-    if not created or instance.guest:
+    if not created or instance.guest or not instance.email_verified:
         return
     referral_application_service.try_enroll_invitee(instance)
 

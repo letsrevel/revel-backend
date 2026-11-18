@@ -3,6 +3,7 @@
 import typing as t
 
 import jwt
+import pyotp
 import structlog
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -40,7 +41,11 @@ logger = structlog.get_logger(__name__)
 
 
 def _email_context_kwargs(
-    return_host: str | None, *, return_url: str | None = None, language: str | None = None
+    return_host: str | None,
+    *,
+    return_url: str | None = None,
+    language: str | None = None,
+    deletion_token: str | None = None,
 ) -> dict[str, t.Any]:
     """Task kwargs carrying the optional link hints inside the ``context`` dict.
 
@@ -48,7 +53,9 @@ def _email_context_kwargs(
     a task kwarg of its own. A worker that predates #1156 accepts the message, ignores the unknown
     key and sends the email without the hint. Empty without any hint, so those messages keep their
     exact pre-existing shape. ``language`` (the recipient's) rides along the same way so the worker
-    renders the email in it.
+    renders the email in it. ``deletion_token`` (verification email only) lets the worker add the
+    "this wasn't me" account-deletion link; an old worker ignores it, and a message without it
+    renders the email without that line.
     """
     context: dict[str, str] = {}
     if language:
@@ -57,6 +64,8 @@ def _email_context_kwargs(
         context["return_url"] = return_url
     if return_host:
         context["return_host"] = return_host
+    if deletion_token:
+        context["deletion_token"] = deletion_token
     return {"context": context} if context else {}
 
 
@@ -80,6 +89,76 @@ def _send_activation_email_for_guest(user: RevelUser, *, return_host: str | None
         **_email_context_kwargs(return_host, language=user.language),
     )
     logger.info("account_activation_email_sent", user_id=str(user.id), email=user.email)
+
+
+def reset_unverified_credentials(user: RevelUser, *, password: str | None) -> None:
+    """Drop every credential set before now on an account whose email nobody has verified yet.
+
+    Nothing proved the address belonged to whoever set those credentials, so the account starts
+    over: the given password (or an unusable one), no 2FA enrollment, no live sessions, no linked
+    Telegram account. ``credentials_changed_at`` voids earlier access tokens, pending email-change
+    links and earlier verification links. Does not touch ``email_verified``: callers decide.
+
+    Args:
+        user: The unverified account.
+        password: The new password, already validated; ``None`` leaves the account without a usable one.
+    """
+    if password is None:
+        user.set_unusable_password()
+    else:
+        user.set_password(password)
+    user.totp_active = False
+    user.totp_secret = pyotp.random_base32()
+    user.credentials_changed_at = timezone.now()
+    user.save(update_fields=["password", "totp_active", "totp_secret", "credentials_changed_at"])
+    blacklist_user_tokens(user)
+    user.telegram_users.update(user=None)
+
+
+def _mark_email_verified(user: RevelUser) -> None:
+    """Activate the account, mark its email verified, stop the reminders and enroll an approved invitee."""
+    from accounts.models import EmailVerificationReminderTracking
+
+    user.is_active = user.email_verified = True
+    user.save(update_fields=["is_active", "email_verified"])
+    # Delete reminder tracking record to stop all reminder emails
+    EmailVerificationReminderTracking.objects.filter(user=user).delete()
+    referral_application_service.try_enroll_invitee(user)
+
+
+def _apply_referral_code(user: RevelUser, referral_code_obj: ReferralCode | None) -> None:
+    """Record that ``user`` signed up with ``referral_code_obj`` (no-op without a code)."""
+    if referral_code_obj is None:
+        return
+    Referral.objects.create(referral_code=referral_code_obj, referred_user=user)
+    logger.info(
+        "referral_created",
+        user_id=str(user.id),
+        referrer_id=str(referral_code_obj.user_id),
+        code=referral_code_obj.code,
+    )
+
+
+def _restart_unverified_signup(
+    user: RevelUser,
+    payload: schema.RegisterUserSchema,
+    *,
+    referral_code_obj: ReferralCode | None,
+    return_host: str | None,
+) -> tuple[RevelUser, str]:
+    """Repeat signup on an unverified address: the account starts over with the new details.
+
+    The earlier signup never proved it owned the address, so its password, names, referral,
+    2FA, sessions and Telegram link are replaced, and any verification link sent before is void.
+    """
+    logger.info("user_registration_restarted_unverified", user_id=str(user.id), email=payload.email)
+    user.first_name = payload.first_name
+    user.last_name = payload.last_name
+    user.save(update_fields=["first_name", "last_name"])
+    Referral.objects.filter(referred_user=user).delete()
+    _apply_referral_code(user, referral_code_obj)
+    reset_unverified_credentials(user, password=payload.password1)
+    return send_verification_email_for_user(user, return_url=payload.return_url, return_host=return_host)
 
 
 @transaction.atomic
@@ -107,21 +186,24 @@ def register_user(payload: schema.RegisterUserSchema, *, return_host: str | None
     logger.info("user_registration_started", email=payload.email)
     if is_email_globally_banned(payload.email):
         raise HttpError(403, str(BAN_ERROR_MESSAGE))
-    if existing_user := RevelUser.objects.select_for_update().filter(username=payload.email).first():
+    existing_user = RevelUser.objects.select_for_update().filter(username=payload.email).first()
+    if existing_user and (existing_user.guest or existing_user.email_verified):
         if existing_user.guest:
             _send_activation_email_for_guest(existing_user, return_host=return_host)
-        elif not existing_user.email_verified:
-            logger.info("user_registration_duplicate_unverified", email=payload.email)
-            send_verification_email_for_user(existing_user, defer=False, return_host=return_host)
         logger.warning("user_registration_duplicate", email=payload.email)
         raise HttpError(400, str(_("A user with this email already exists.")))
 
-    # Validate referral code after existing-user check but before creating the user
+    # Validate referral code after existing-user check but before creating or changing the user
     referral_code_obj: ReferralCode | None = None
     if payload.referral_code is not None:
         referral_code_obj = ReferralCode.objects.filter(code__iexact=payload.referral_code, is_active=True).first()
         if not referral_code_obj:
             raise HttpError(422, str(_("Invalid or inactive referral code.")))
+
+    if existing_user:
+        return _restart_unverified_signup(
+            existing_user, payload, referral_code_obj=referral_code_obj, return_host=return_host
+        )
 
     new_user = RevelUser.objects.create_user(
         username=payload.email,
@@ -132,17 +214,7 @@ def register_user(payload: schema.RegisterUserSchema, *, return_host: str | None
         is_active=True,  # we use email verification
     )
 
-    if referral_code_obj:
-        Referral.objects.create(
-            referral_code=referral_code_obj,
-            referred_user=new_user,
-        )
-        logger.info(
-            "referral_created",
-            user_id=str(new_user.id),
-            referrer_id=str(referral_code_obj.user_id),
-            code=referral_code_obj.code,
-        )
+    _apply_referral_code(new_user, referral_code_obj)
 
     logger.info("user_registration_completed", user_id=str(new_user.id), email=new_user.email)
     return send_verification_email_for_user(new_user, return_url=payload.return_url, return_host=return_host)
@@ -161,6 +233,7 @@ def create_verification_token(user: RevelUser) -> str:
         user_id=user.id,
         email=user.email,
         exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
+        iat=timezone.now(),
     )
     token = create_token(verification_payload.model_dump(mode="json"), signing_key(), settings.JWT_ALGORITHM)
     store_test_token(TOKEN_TYPE_VERIFICATION, token)
@@ -225,6 +298,7 @@ def send_verification_email_for_user(
     """
     logger.info("verification_email_requested", user_id=str(user.id), email=user.email)
     token = create_verification_token(user)
+    deletion_token = create_deletion_token(user)
 
     def dispatch() -> None:
         # return_url and return_host both ride in the task's existing ``context`` kwarg, never as
@@ -234,7 +308,9 @@ def send_verification_email_for_user(
             tasks.AccountEmail.VERIFICATION,
             user.email,
             token=token,
-            **_email_context_kwargs(return_host, return_url=return_url, language=user.language),
+            **_email_context_kwargs(
+                return_host, return_url=return_url, language=user.language, deletion_token=deletion_token
+            ),
         )
 
     if defer:
@@ -248,8 +324,9 @@ def send_verification_email_for_user(
 def verify_email(token: str) -> RevelUser:
     """Verify a user's email.
 
-    Automatically reactivates deactivated accounts upon verification and clears
-    any reminder tracking to prevent further emails.
+    Automatically reactivates deactivated accounts upon verification, clears
+    any reminder tracking to prevent further emails and enrolls an approved referral invitee.
+    A link minted before the account's last credential reset is refused.
 
     Args:
         token (str): The verification token.
@@ -257,7 +334,6 @@ def verify_email(token: str) -> RevelUser:
     Returns:
         RevelUser: The verified user.
     """
-    from accounts.models import EmailVerificationReminderTracking
     from accounts.service.global_ban_service import BAN_ERROR_MESSAGE, is_email_globally_banned
 
     payload = token_to_payload(token, schema.VerifyEmailJWTPayloadSchema)
@@ -270,13 +346,17 @@ def verify_email(token: str) -> RevelUser:
         if is_email_globally_banned(user.email):
             blacklist_token(token)
             raise HttpError(403, str(BAN_ERROR_MESSAGE))
+        # A link sent before the last credential reset (e.g. before a repeat signup) is void. Whole-second
+        # comparison like ``common.auth_base``: ``iat`` is floored, so a link minted just after the reset passes.
+        changed_at = user.credentials_changed_at
+        if changed_at is not None and (
+            payload.iat is None or int(payload.iat.timestamp()) < int(changed_at.timestamp())
+        ):
+            logger.warning("email_verification_blocked_superseded_token", user_id=str(user.id))
+            raise HttpError(400, str(_("Invalid verification token.")))
         blacklist_token(token)
         was_inactive = not user.is_active
-        user.is_active = user.email_verified = True
-        user.save(update_fields=["is_active", "email_verified"])
-
-        # Delete reminder tracking record to stop all reminder emails
-        EmailVerificationReminderTracking.objects.filter(user=user).delete()
+        _mark_email_verified(user)
 
         logger.info("email_verified", user_id=str(user.id), email=user.email, was_reactivated=was_inactive)
         return user
@@ -467,6 +547,14 @@ def _apply_password_reset(user: RevelUser, token: str, new_password: str) -> Rev
     # Setting a password converts a guest to a full user
     if user.guest:
         convert_guest(user)
+
+    if not user.guest and not user.email_verified:
+        # The reset link proves ownership of the address: whatever was set on the account before is dropped.
+        user.totp_active = False
+        user.totp_secret = pyotp.random_base32()
+        user.save(update_fields=["totp_active", "totp_secret"])
+        user.telegram_users.update(user=None)
+        _mark_email_verified(user)
 
     blacklist_token(token)
     # Reset is the account-recovery path — sign out everywhere, apps included (#1020).

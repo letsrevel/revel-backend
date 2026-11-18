@@ -184,14 +184,14 @@ def _enroll(application: ReferralApplication, user: RevelUser) -> ReferralCode:
 def approve(application: ReferralApplication, *, actor: RevelUser) -> ReferralApplication:
     """Approve a PENDING application: enroll now if a full account exists, else email an invite.
 
-    A guest account (unverified, no password, possibly created by somebody else's checkout)
-    does not count as "exists": the invite email goes out and enrollment happens when the
-    guest becomes a full user (see :func:`try_enroll_invitee`).
+    A guest account (unverified, no password, possibly created by somebody else's checkout) or an
+    account whose email is not verified does not count as "exists": the invite email goes out and
+    enrollment happens when that account becomes verified (see :func:`try_enroll_invitee`).
     """
     application = _require_pending(application)
     _mark_decided(application, ReferralApplication.Status.APPROVED, actor, None)
 
-    user = RevelUser.objects.filter(email__iexact=application.email, guest=False).first()
+    user = RevelUser.objects.filter(email__iexact=application.email, guest=False, email_verified=True).first()
     if user is not None:
         _enroll(application, user)
         return application
@@ -285,14 +285,15 @@ def create_invite(
 def enroll_on_signup(user: RevelUser) -> ReferralCode | None:
     """Enroll a user who holds an APPROVED, not-yet-enrolled application.
 
-    Called from the ``post_save`` receiver for non-guest account creation and for every
+    Called from the ``post_save`` receiver for verified, non-guest account creation, for every
     guest-to-full-user conversion through ``convert_guest`` (password reset, OIDC login and the
-    Django admin). Needs an open transaction.
+    Django admin) and when an unverified account verifies its email. Matches the exact address
+    (case-insensitive), never a normalized variant of it. Needs an open transaction.
     """
     application = (
         ReferralApplication.objects.select_for_update()
         .filter(
-            normalized_email=normalize_email_for_matching(user.email),
+            email__iexact=user.email,
             status=ReferralApplication.Status.APPROVED,
             user__isnull=True,
         )

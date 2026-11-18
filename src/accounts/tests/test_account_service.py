@@ -1,7 +1,7 @@
 # src/accounts/tests/test_account_service.py
 
 import typing as t
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from django.conf import settings
@@ -83,7 +83,7 @@ def test_register_user_success(mock_send_email: MagicMock, valid_register_payloa
     assert not user.email_verified
     assert user.is_active  # Active by default to allow email verification
     mock_send_email.assert_called_once_with(
-        AccountEmail.VERIFICATION, user.email, token=token, context={"language": user.language}
+        AccountEmail.VERIFICATION, user.email, token=token, context={"language": user.language, "deletion_token": ANY}
     )
 
 
@@ -261,16 +261,20 @@ def test_resend_verification_email_blocks_guest_user(mock_send: MagicMock, guest
 
 @patch("accounts.tasks.send_account_email.delay")
 def test_register_user_existing_unverified_non_guest(
-    mock_send_email: MagicMock, user: RevelUser, valid_register_payload: schema.RegisterUserSchema
+    mock_send_email: MagicMock,
+    user: RevelUser,
+    valid_register_payload: schema.RegisterUserSchema,
+    django_capture_on_commit_callbacks: t.Any,
 ) -> None:
-    """Test that re-registering with an existing unverified non-guest email resends verification and raises."""
+    """Re-registering an unverified non-guest email starts the account over and sends a new link."""
     valid_register_payload.email = user.email
     user.email_verified = False
     user.save(update_fields=["email_verified"])
 
-    with pytest.raises(HttpError, match="A user with this email already exists."):
-        account_service.register_user(valid_register_payload)
+    with django_capture_on_commit_callbacks(execute=True):
+        returned, _ = account_service.register_user(valid_register_payload)
 
+    assert returned.pk == user.pk
     assert RevelUser.objects.count() == 1
     mock_send_email.assert_called_once()
 
