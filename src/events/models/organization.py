@@ -685,8 +685,23 @@ class OrganizationToken(TokenMixin):
         blank=True,
         help_text="Membership tier to assign when claiming this token",
     )
+    invitee = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="organization_invitations",
+        null=True,
+        blank=True,
+        help_text="Set on a personal membership invitation: only this account can claim the token.",
+    )
 
     class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "invitee"],
+                condition=models.Q(invitee__isnull=False),
+                name="orgtoken_one_invitation_per_invitee",
+            ),
+        ]
         indexes = [
             # For listing active tokens by organization
             models.Index(fields=["organization", "expires_at"], name="orgtoken_org_expires"),

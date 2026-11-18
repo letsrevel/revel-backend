@@ -533,6 +533,16 @@ class MembershipPaymentRequestedContext(BaseNotificationContext):
     ]  # APPLICATION_PAYMENT_WINDOW_DAYS; absent on older stored rows (templates default to 30)
 
 
+class MembershipInvitationReceivedContext(BaseNotificationContext):
+    """Context for MEMBERSHIP_INVITATION_RECEIVED notification (to the invited account)."""
+
+    organization_id: str
+    organization_name: str
+    tier_name: str
+    expires_at: str  # ISO 8601
+    accept_url: str
+
+
 # ===== Account Contexts =====
 
 
@@ -939,6 +949,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.MEMBERSHIP_REQUEST_APPROVED: MembershipRequestApprovedContext,
     NotificationType.MEMBERSHIP_REQUEST_REJECTED: MembershipRequestRejectedContext,
     NotificationType.MEMBERSHIP_PAYMENT_REQUESTED: MembershipPaymentRequestedContext,
+    NotificationType.MEMBERSHIP_INVITATION_RECEIVED: MembershipInvitationReceivedContext,
     NotificationType.MEMBERSHIP_OFFLINE_JOINED: MembershipOfflineJoinedContext,
     NotificationType.STAFF_MEMBER_RECORD_AUTO_LINKED: StaffMemberRecordAutoLinkedContext,
     NotificationType.ACCOUNT_BANNED: AccountBannedContext,

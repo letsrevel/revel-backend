@@ -84,6 +84,8 @@ class NotificationType(TextChoices):
     MEMBERSHIP_REQUEST_APPROVED = "membership_request_approved", _("Membership request approved")
     MEMBERSHIP_REQUEST_REJECTED = "membership_request_rejected", _("Membership request rejected")
     MEMBERSHIP_PAYMENT_REQUESTED = "membership_payment_requested", _("Membership payment requested")
+    # Staff invited an existing account to join; it becomes a member only by accepting the link
+    MEMBERSHIP_INVITATION_RECEIVED = "membership_invitation_received", _("Membership invitation")
     # Staff heads-up: someone joined an offline plan directly (no application) and now owes a payment
     MEMBERSHIP_OFFLINE_JOINED = "membership_offline_joined", _("Offline membership joined")
     # Staff heads-up: a register entry was linked to an account by verified-email match (#1319)
