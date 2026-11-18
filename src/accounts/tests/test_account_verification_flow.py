@@ -157,12 +157,12 @@ class TestRepeatSignupOnUnverifiedAccount:
         body = response.json()
         assert (body["preferred_name"], body["pronouns"], body["bio"]) == ("", "", "")
         assert body["is_active"] is True
-        unverified.refresh_from_db()
-        assert (unverified.preferred_name, unverified.pronouns, unverified.bio) == ("", "", "")
-        assert unverified.phone_number is None
-        assert RevelUser.objects.get(pk=unverified.pk).language == "de"
-        assert unverified.is_active is True
-        assert timezone.now() - unverified.date_joined < datetime.timedelta(minutes=1)
+        fresh = RevelUser.objects.get(pk=unverified.pk)
+        assert (fresh.preferred_name, fresh.pronouns, fresh.bio) == ("", "", "")
+        assert fresh.phone_number is None
+        assert fresh.language == "de"
+        assert fresh.is_active is True
+        assert timezone.now() - fresh.date_joined < datetime.timedelta(minutes=1)
         assert not EmailVerificationReminderTracking.objects.filter(user=unverified).exists()
 
     def test_profile_picture_is_removed(self, unverified: RevelUser, mock_delay: MagicMock) -> None:
