@@ -673,7 +673,7 @@ sequenceDiagram
     API-->>A: "Application received" email
     API-->>Adm: Pushover ping
 
-    alt Approve, account exists
+    alt Approve, verified account exists
         Adm->>API: Approve
         API->>API: Create ReferralCode, link application
         API-->>A: "You're enrolled" email
@@ -681,7 +681,7 @@ sequenceDiagram
         Adm->>API: Approve (or Invite by email)
         API-->>A: Invite email → /register?referral_invite=<id>
         A->>API: Register / SSO login with that email
-        API->>API: post_save: enroll by email match
+        API->>API: Enroll once the email is verified (exact address match)
         API-->>A: "You're enrolled" email
     else Reject / Reject permanently
         Adm->>API: Reject (+ optional note)
@@ -696,8 +696,12 @@ sequenceDiagram
 | Reject permanently | Row closed, future applications from that email silently dropped | Same rejection email |
 | Invite by email | Pre-approved application created by the admin | Invite or enrolled email |
 
-Guest accounts created by guest checkout are not signups: they are enrolled when the
-guest becomes a full user (password set or OIDC login). Enrollment never blocks account
+Enrollment needs a verified email that matches the invited address exactly (case-insensitive;
+plus-tags and dots are not folded). A password signup is enrolled when its email is verified
+(or confirmed by a password reset); an SSO account is verified at creation and enrolled then.
+Approving an application whose email belongs to an unverified account sends the invite
+instead of enrolling. Guest accounts created by guest checkout are not signups: they are
+enrolled when the guest becomes a full user (password set or OIDC login). Enrollment never blocks account
 creation — a code taken in the meantime is logged and left for the admin.
 
 ### Payout Documents

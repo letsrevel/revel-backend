@@ -42,12 +42,13 @@ Some events end all of a user's sessions, not one lineage. They call `accounts.j
 | Email change confirmed | `accounts/service/account.py` |
 | Global ban | `accounts/service/global_ban_service.py` |
 | OIDC adoption of an unverified account | `accounts/service/oidc.py` |
+| Repeat signup on an unverified account | `accounts/service/account.py` |
 
 A **tenant-domain** session is handled differently: it carries `tenant_host` claims and is refused whenever its host stops serving, on every request and at refresh time. See [White-Label](white-label.md).
 
 ### `credentials_changed_at`
 
-Blacklisting refresh tokens leaves already-issued access tokens alive for up to an hour. `RevelUser.credentials_changed_at` closes that gap: when a password reset or an OIDC adoption stamps it, any access token whose `iat` is earlier is refused with `401` (`common/auth_base.py`). `iat` has whole-second precision, so a token minted in the same second as the change still passes. The same timestamp voids pending email-change links issued before it.
+Blacklisting refresh tokens leaves already-issued access tokens alive for up to an hour. `RevelUser.credentials_changed_at` closes that gap: when a password reset, an OIDC adoption or a repeat signup on an unverified account stamps it, any access token whose `iat` is earlier is refused with `401` (`common/auth_base.py`). `iat` has whole-second precision, so a token minted in the same second as the change still passes. The same timestamp voids pending email-change links and email-verification links issued before it. Verification links minted before they carried an `iat` are refused once the account has been stamped, and still work on an account that never was.
 
 ## Refresh reuse grace
 
@@ -79,6 +80,20 @@ Revel is an OIDC relying party ([ADR-0016](../adr/0016-oidc-relying-party.md)). 
 - `credentials_changed_at` stamped.
 
 A verified existing account is linked without any of this.
+
+## Unverified accounts start over
+
+Until its email is verified, nothing proves an account belongs to the person who set its password, 2FA or profile. The first proof of ownership therefore drops what came before. The shared step is `reset_unverified_credentials` in `accounts/service/account.py`: new password (or an unusable one), 2FA off with a new secret, every session and app token revoked, Telegram accounts detached, `credentials_changed_at` stamped.
+
+| Trigger | What happens |
+|---|---|
+| OIDC login asserting the address | Adopted as above: unusable password, marked verified. |
+| `POST /account/register` again with the same unverified address | Answered `201` like a fresh signup. The account takes the new password and names, loses its earlier profile (preferred name, pronouns, bio, phone, picture; `language` is kept), drops its earlier referral and takes the new signup's code, is reactivated, gets `date_joined` reset so the verification reminders start again, and receives a new verification link; earlier links stop working. A **verified** address still gets `400`, and a guest address gets the activation email and `400`. |
+| Password reset on an unverified, non-guest account | The reset link proves ownership: the account is marked verified, 2FA is turned off and Telegram detached (sessions are revoked by every reset). A verified account keeps its 2FA. |
+
+Data the account created before a restart (tickets, memberships, questionnaire answers) stays attached to it. Creating an organization requires a verified email.
+
+Every verification email also carries a "didn't sign up? delete your account" link to `/account/confirm-deletion`, the same link the verification reminders carry.
 
 ## Bot protection (Cloudflare Turnstile)
 
