@@ -114,6 +114,21 @@ class TestUploadFile:
         qf = QuestionnaireFile.objects.get(uploader=user)
         assert qf.original_filename == "upload_test.png"
 
+    def test_stored_extension_follows_detected_type(
+        self, user_client: Client, user: RevelUser, png_bytes: bytes
+    ) -> None:
+        """A PNG uploaded as ``x.html`` is stored with ``.png``, not the client suffix."""
+        url = reverse("api:upload_questionnaire_file")
+        uploaded_file = SimpleUploadedFile(name="x.html", content=png_bytes, content_type="text/html")
+
+        response = user_client.post(url, {"file": uploaded_file}, format="multipart")
+
+        assert response.status_code == 200
+        qf = QuestionnaireFile.objects.get(uploader=user)
+        stored_name = str(qf.file.name)
+        assert stored_name.endswith(".png")
+        assert "x.html" not in stored_name
+
     def test_upload_file_deduplication_returns_existing(self, user_client: Client, user: RevelUser) -> None:
         """Test that uploading the same content returns the existing file (deduplication)."""
         # Arrange
