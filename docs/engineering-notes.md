@@ -295,15 +295,14 @@ subscriptions. It cannot rely on the foreign key from a concurrent `MembershipSu
 insert to block it: Django creates FK constraints `DEFERRABLE INITIALLY DEFERRED` on PostgreSQL,
 so the `FOR KEY SHARE` that conflicts with `FOR UPDATE` is only taken at commit, after
 `update_plan` has already read "no subscribers" and changed the cadence. Subscription creation
-must therefore lock the plan row itself in `ensure_plan_sales_capacity`: `FOR UPDATE` when the
-plan is capped (it counts slots), `FOR KEY SHARE` when it is not. `KEY SHARE` locks don't conflict
+must therefore lock the plan row itself in `ensure_plan_sales_capacity`: `FOR NO KEY UPDATE` when the
+plan is capped (it counts slots; it serializes capped creators and conflicts with `update_plan`'s `FOR UPDATE`, but not with the uncapped `FOR KEY SHARE`, so a plan that gains a cap mid-checkout cannot deadlock), `FOR KEY SHARE` when it is not. `KEY SHARE` locks don't conflict
 with each other, so uncapped checkouts don't queue behind one another across the Checkout-session
 Stripe call (held under `ATOMIC_REQUESTS`), but they conflict with `update_plan`'s `FOR UPDATE`. After taking the lock the helper refreshes the
 caller's plan instance in place, so the rest of the creation uses the committed currency, cadence,
-price, Stripe price and cap (the sales pause and archived state are not re-checked: a checkout already past the sales
-checks when a pause or archive commits still completes). The model-level guard in `clean()` also reads the
+price, Stripe price and cap (the local sales-pause and active checks are not repeated after the lock: a checkout that passed them before a pause or archive committed carries on, and an archived plan's Stripe Price may then reject the session). The model-level guard in `clean()` also reads the
 persisted row `FOR UPDATE`; that serializes with in-flight creations only when the save runs inside
-a transaction (Django admin, `update_plan`), so wrap shell edits in `transaction.atomic()`.
+a transaction (Django admin, `update_plan`), so shell edits need an enclosing `transaction.atomic()` to hold the lock through the write.
 The threaded regression test is `events/tests/test_plan_guard_1427.py`
 (`transaction=True`, two real connections).
 

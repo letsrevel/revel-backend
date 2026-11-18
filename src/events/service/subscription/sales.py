@@ -57,8 +57,9 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
     Once the lock is held the caller's ``plan`` instance is refreshed in place,
     so the rest of the creation uses the committed currency, cadence, price,
     Stripe price and cap even if it waited out a concurrent ``update_plan``.
-    The sales-pause and active state are not re-checked here: a checkout that
-    already passed the sales checks when a pause commits still completes. An
+    The local sales-pause and active checks are not repeated after the lock: a
+    checkout that passed them before a pause or archive committed carries on (an
+    archived plan's Stripe Price may then reject the session). An
     uncapped plan that gained a cap while waiting falls through to the capped
     path.
     Applies to staff creation too: capacity is a hard limit, unlike the
@@ -74,12 +75,11 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
         if plan.max_subscriptions is None:
             return
         # A cap was set while we waited: count against the locked row below.
-        # ponytail: two creations that both hold KEY SHARE and both upgrade here
-        # deadlock; Postgres aborts one (that request errors, the cap holds). Only
-        # possible right after an uncapped plan gains a cap mid-checkout; upgrade
-        # path if it ever matters: catch the deadlock and retry the lock once.
+    # FOR NO KEY UPDATE: serializes capped creators and conflicts with update_plan's FOR UPDATE,
+    # but not with the uncapped path's FOR KEY SHARE, so a plan that just gained a cap cannot deadlock.
     plan.refresh_from_db(
-        fields=_LOCK_REFRESH_FIELDS, from_queryset=MembershipSubscriptionPlan.objects.select_for_update()
+        fields=_LOCK_REFRESH_FIELDS,
+        from_queryset=MembershipSubscriptionPlan.objects.select_for_update(no_key=True),
     )
     # refresh_from_db may have changed it after mypy narrowed the attribute above.
     cap = t.cast("int | None", plan.max_subscriptions)

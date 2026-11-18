@@ -356,9 +356,20 @@ def _swap_online_price_locked(
         locked = (
             MembershipSubscription.objects.select_for_update(of=("self",))
             .select_related("plan", "organization", "user")
-            .get(pk=sub.pk)
+            .filter(pk=sub.pk)
+            .first()
         )
-        if locked.plan_id != plan.pk or locked.status in MembershipSubscription.TERMINAL_STATUSES:
+        if (
+            locked is None  # deleted since the batch was listed
+            or locked.plan_id != plan.pk
+            or locked.status in MembershipSubscription.TERMINAL_STATUSES
+        ):
+            result["skipped"] += 1
+            return False
+        if locked.plan.stripe_price_id != plan.stripe_price_id:
+            # The plan's Price changed again mid-run; this run's notice quotes
+            # ``plan.price``, so leave the subscriber to the migration run that
+            # change calls for.
             result["skipped"] += 1
             return False
         if locked.stripe_schedule_id:

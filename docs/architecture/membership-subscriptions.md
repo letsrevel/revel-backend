@@ -122,7 +122,7 @@ against the persisted row for every other `save()` path (Django admin, history
 revert, shell), as a field `ValidationError` (#1427). That check reads the persisted
 row `FOR UPDATE`, which serializes the save with in-flight creations when it runs inside a
 transaction (Django admin, `update_plan`); a bare autocommit shell save releases the lock before
-the UPDATE, so wrap shell edits in `transaction.atomic()`. It is skipped for `save(update_fields=...)` that names none of the three fields.
+the UPDATE, so shell edits need an enclosing `transaction.atomic()` to hold the lock through the write. It is skipped for `save(update_fields=...)` that names none of the three fields, and otherwise compares only the billing fields the save writes.
 
 #### Sale controls
 
@@ -130,13 +130,13 @@ the UPDATE, so wrap shell edits in `transaction.atomic()`. It is skipped for `sa
 `enforce_sales_status=False`) and `ensure_plan_sales_capacity` (cap check,
 everyone) live in `subscription.sales` and are enforced on **create**,
 **revive** and **plan switches**. The capacity check `select_for_update`s the
-plan row so concurrent creations serialize when a cap is set, mirroring the
+plan row (`FOR NO KEY UPDATE`) so concurrent creations serialize when a cap is set, mirroring the
 capacity-reclaim invariants of ticket tiers. On an uncapped plan it takes `FOR KEY SHARE`
 instead: creations don't block each other, but `update_plan`'s `FOR UPDATE` conflicts with it,
 so the currency/cadence guard cannot miss a subscription in flight (#1427). Once locked, the
 caller's plan instance is refreshed in place, so the rest of the creation uses the committed
-currency, cadence, price, Stripe price and cap; the sales pause and archived state are not re-checked, so a checkout
-already past the sales checks when a pause or archive commits still completes. An uncapped plan that gained
+currency, cadence, price, Stripe price and cap; the local sales-pause and active checks are not repeated after the lock, so a checkout
+that passed them before a pause or archive committed carries on (an archived plan's Stripe Price may then reject the session). An uncapped plan that gained
 a cap while the caller waited falls through to the capped path. The public plan schema exposes `sales_status` and a
 computed `sold_out` flag so the frontend can render "sold out" vs "sales
 paused" vs a normal subscribe CTA.

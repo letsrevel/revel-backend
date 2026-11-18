@@ -269,11 +269,13 @@ def test_subscription_insert_blocks_concurrent_cadence_change(
         assert inserted.wait(timeout=10), "subscription insert did not start"
         thread_b.start()
         thread_b.join(timeout=1.5)
-        assert thread_b.is_alive(), "update_plan did not wait for the in-flight subscription insert"
+        waited = thread_b.is_alive()
     finally:
         release.set()
-    thread_a.join(timeout=10)
-    thread_b.join(timeout=10)
+        for worker in (thread_a, thread_b):
+            if worker.ident is not None:
+                worker.join(timeout=10)
+    assert waited, "update_plan did not wait for the in-flight subscription insert"
     assert not thread_a.is_alive()
     assert not thread_b.is_alive()
     assert outcome["result"] == 400
@@ -294,15 +296,17 @@ def test_concurrent_creations_on_uncapped_plan_do_not_serialize(plan: Plan) -> N
     holding = threading.Event()
     release = threading.Event()
     second_done = threading.Event()
+    errors: dict[str, BaseException] = {}
 
     def first() -> None:
         try:
             with transaction.atomic():
                 ensure_plan_sales_capacity(plan)
-                holding.set()
+                holding.set()  # only after the lock is really held
                 release.wait(timeout=20)
+        except BaseException as exc:  # noqa: BLE001 - surfaced by the assertion below
+            errors["first"] = exc
         finally:
-            holding.set()
             close_old_connections()
 
     def second() -> None:
@@ -310,6 +314,8 @@ def test_concurrent_creations_on_uncapped_plan_do_not_serialize(plan: Plan) -> N
             with transaction.atomic():
                 ensure_plan_sales_capacity(plan)
                 second_done.set()
+        except BaseException as exc:  # noqa: BLE001 - surfaced by the assertion below
+            errors["second"] = exc
         finally:
             close_old_connections()
 
@@ -317,13 +323,18 @@ def test_concurrent_creations_on_uncapped_plan_do_not_serialize(plan: Plan) -> N
     thread_b = threading.Thread(target=second, daemon=True)
     try:
         thread_a.start()
-        assert holding.wait(timeout=10)
-        thread_b.start()
-        assert second_done.wait(timeout=5), "a second creation waited for the first: uncapped plans must not serialize"
+        held = holding.wait(timeout=10)
+        if held:
+            thread_b.start()
+        overlapped = held and second_done.wait(timeout=5)
     finally:
         release.set()
-    thread_a.join(timeout=10)
-    thread_b.join(timeout=10)
+        for worker in (thread_a, thread_b):
+            if worker.ident is not None:
+                worker.join(timeout=10)
+    assert not errors
+    assert held, "the first creation never took its lock"
+    assert overlapped, "a second creation waited for the first: uncapped plans must not serialize"
 
 
 @pytest.fixture
@@ -518,11 +529,13 @@ def _run_stale_capacity_check(plan: Plan, change: t.Callable[[], t.Any]) -> tupl
         assert locked.wait(timeout=10), "editor did not take the lock"
         thread_b.start()
         thread_b.join(timeout=1.5)
-        assert thread_b.is_alive(), "capacity check did not wait for the concurrent plan edit"
+        waited = thread_b.is_alive()
     finally:
         release.set()
-    thread_a.join(timeout=10)
-    thread_b.join(timeout=10)
+        for worker in (thread_a, thread_b):
+            if worker.ident is not None:
+                worker.join(timeout=10)
+    assert waited, "capacity check did not wait for the concurrent plan edit"
     assert not thread_a.is_alive()
     assert not thread_b.is_alive()
     return stale, outcome
@@ -655,3 +668,110 @@ class TestMigrateOfflineRecheck:
         result, mock_dispatch = self._run(plan, organization_owner_user, lambda: None)
         mock_dispatch.assert_called_once()
         assert result["migrated"] == 1
+
+
+@pytest.mark.django_db
+class TestMigrateOnlinePriceRecheck:
+    """The online swap skips subscribers it should not touch, and only ever applies the batch's Price."""
+
+    @pytest.fixture
+    def two_subs(
+        self, online_plan: Plan, organization: Organization, django_user_model: t.Type[RevelUser], subscriber: RevelUser
+    ) -> list[Sub]:
+        other_user = django_user_model.objects.create_user(
+            username="g_user2", email="g_user2@example.com", password="p"
+        )
+        return [
+            _make_sub(subscriber, online_plan, organization, stripe_subscription_id="sub_a"),
+            _make_sub(other_user, online_plan, organization, stripe_subscription_id="sub_b"),
+        ]
+
+    @staticmethod
+    def _stripe_sub(price_id: str = "price_old") -> t.Any:
+        item = {"id": "si_1", "price": {"id": price_id, "recurring": {"interval": "month", "interval_count": 1}}}
+        return {"items": {"data": [item]}}
+
+    def _run(
+        self, online_plan: Plan, owner: RevelUser, mutate: t.Callable[[], t.Any]
+    ) -> tuple[subscription_plans.MigrationResult, t.Any]:
+        """Run the batch; ``mutate`` fires on the first Stripe ``Subscription.retrieve`` (whichever sub that is)."""
+        fired = {"done": False}
+
+        def retrieve(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            if not fired["done"]:
+                fired["done"] = True
+                mutate()
+            return self._stripe_sub()
+
+        price = {"recurring": {"interval": "month", "interval_count": 1}}
+        with (
+            patch("stripe.Subscription.retrieve", side_effect=retrieve),
+            patch("stripe.Price.retrieve", return_value=price),
+            patch("stripe.Subscription.modify") as mock_modify,
+        ):
+            result = subscription_plans.migrate_plan_subscribers(online_plan, initiated_by=owner)
+        return result, mock_modify
+
+    def test_skips_sub_when_plan_price_changed_mid_run(
+        self, online_plan: Plan, two_subs: list[Sub], organization_owner_user: RevelUser
+    ) -> None:
+        result, mock_modify = self._run(
+            online_plan,
+            organization_owner_user,
+            lambda: Plan.objects.filter(pk=online_plan.pk).update(stripe_price_id="price_newer"),
+        )
+        assert mock_modify.call_count == 1
+        for call in mock_modify.call_args_list:
+            assert call.kwargs["items"][0]["price"] == "price_new"
+        assert (result["migrated"], result["skipped"], result["failed"]) == (1, 1, 0)
+
+    def test_row_deleted_mid_run_is_skipped_not_failed(
+        self, online_plan: Plan, organization: Organization, subscriber: RevelUser, organization_owner_user: RevelUser
+    ) -> None:
+        sub = _make_sub(subscriber, online_plan, organization, stripe_subscription_id="sub_a")
+        real_atomic = transaction.atomic
+        fired = {"done": False}
+
+        def atomic_then_delete(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            if not fired["done"]:
+                fired["done"] = True
+                Sub.objects.filter(pk=sub.pk).delete()
+            return real_atomic(*args, **kwargs)
+
+        with (
+            patch("events.service.subscription.plans.transaction.atomic", side_effect=atomic_then_delete),
+            patch("events.service.subscription.stripe.checkout.update_subscription_price") as mock_update,
+        ):
+            result = subscription_plans.migrate_plan_subscribers(online_plan, initiated_by=organization_owner_user)
+        mock_update.assert_not_called()
+        assert (result["migrated"], result["skipped"], result["failed"]) == (0, 1, 0)
+
+
+@pytest.mark.django_db
+class TestPlanSaveUpdateFields:
+    def test_iterator_update_fields_is_materialized(self, plan: Plan) -> None:
+        """A one-shot iterator would be exhausted by the guard before Django's own save read it."""
+        plan.is_active = False
+        plan.save(update_fields=iter(["is_active"]))
+        assert Plan.objects.values_list("is_active", flat=True).get(pk=plan.pk) is False
+
+    def test_guard_compares_only_written_billing_fields(
+        self, plan: Plan, organization: Organization, subscriber: RevelUser
+    ) -> None:
+        _make_sub(subscriber, plan, organization)
+        plan.period_unit = Plan.PeriodUnit.YEAR  # in memory only: not among the written fields
+        plan.currency = "eur"  # case-only: no real change
+        plan.save(update_fields=["currency"])
+        assert Plan.objects.values_list("period_unit", flat=True).get(pk=plan.pk) == Plan.PeriodUnit.MONTH
+        with pytest.raises(ValidationError):
+            plan.save(update_fields=["currency", "period_unit"])
+
+
+@pytest.mark.django_db
+def test_capped_plan_capacity_check_takes_no_key_update_lock(plan: Plan) -> None:
+    """FOR NO KEY UPDATE serializes capped creators and conflicts with update_plan, not with FOR KEY SHARE."""
+    Plan.objects.filter(pk=plan.pk).update(max_subscriptions=5)
+    plan.refresh_from_db()
+    with CaptureQueriesContext(connection) as ctx, transaction.atomic():
+        ensure_plan_sales_capacity(plan)
+    assert any("FOR NO KEY UPDATE" in q["sql"] for q in ctx.captured_queries)

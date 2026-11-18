@@ -190,20 +190,19 @@ class MembershipSubscriptionPlan(TimeStampedModel):
     def __str__(self) -> str:
         return f"{self.tier} - {self.name}"
 
-    _skip_billing_guard: bool = False
+    _BILLING_FIELDS: t.ClassVar[tuple[str, ...]] = ("currency", "period_unit", "period_count")
+    _save_fields: frozenset[str] | None = None
 
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
-        """Skip the billing-change guard for ``update_fields`` saves that touch no billing field."""
+        """Remember which fields an ``update_fields`` save writes, so the billing guard checks only those."""
         update_fields = kwargs.get("update_fields")
-        self._skip_billing_guard = update_fields is not None and not {
-            "currency",
-            "period_unit",
-            "period_count",
-        } & set(update_fields)
+        if update_fields is not None:
+            kwargs["update_fields"] = update_fields = list(update_fields)  # may be a one-shot iterator
+        self._save_fields = None if update_fields is None else frozenset(update_fields)
         try:
             super().save(*args, **kwargs)
         finally:
-            self._skip_billing_guard = False
+            self._save_fields = None
 
     def clean(self) -> None:
         """Enforce the (payment method, price, cadence) shape rules.
@@ -228,7 +227,7 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         )
         if message:
             raise DjangoValidationError({"payment_method": message})
-        if not self._skip_billing_guard:
+        if self._save_fields is None or not set(self._BILLING_FIELDS).isdisjoint(self._save_fields):
             self._validate_no_billing_change_with_live_subscriptions()
 
     def _validate_no_billing_change_with_live_subscriptions(self) -> None:
@@ -257,10 +256,17 @@ class MembershipSubscriptionPlan(TimeStampedModel):
     def _refuse_billing_change(self, persisted: t.Mapping[str, t.Any] | None) -> None:
         if persisted is None:
             return
-        unit_changed = self.period_unit != persisted["period_unit"]
+        # An ``update_fields`` save writes only its named fields; the rest keep their persisted value.
+        written = self._save_fields
+
+        def pending(name: str) -> t.Any:
+            return getattr(self, name) if written is None or name in written else persisted[name]
+
+        period_unit = pending("period_unit")
+        unit_changed = period_unit != persisted["period_unit"]
         # LIFETIME ignores period_count, so editing it there changes nothing.
-        count_changed = self.period_unit != self.PeriodUnit.LIFETIME and self.period_count != persisted["period_count"]
-        currency_changed = (self.currency or "").upper() != persisted["currency"].upper()
+        count_changed = period_unit != self.PeriodUnit.LIFETIME and pending("period_count") != persisted["period_count"]
+        currency_changed = (pending("currency") or "").upper() != persisted["currency"].upper()
         if not (currency_changed or unit_changed or count_changed) or not self.has_live_subscriptions():
             return
         if currency_changed:
