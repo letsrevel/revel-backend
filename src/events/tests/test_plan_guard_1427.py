@@ -7,20 +7,24 @@ racing a member's own plan change.
 
 import threading
 import typing as t
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
 from django.contrib.admin.sites import site as admin_site
 from django.core.exceptions import ValidationError
-from django.db import close_old_connections, transaction
+from django.db import close_old_connections, connection, transaction
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 from ninja.errors import HttpError
 from pytest_django.fixtures import Settings
 
 from accounts.models import RevelUser
 from events.models import (
+    MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
@@ -151,6 +155,32 @@ class TestPlanModelGuard:
         with pytest.raises(ValidationError) as exc_info:
             reverted.save()
         assert "period_unit" in exc_info.value.message_dict
+
+    def test_update_fields_save_without_billing_fields_skips_guard(
+        self, plan: Plan, organization: Organization, subscriber: RevelUser
+    ) -> None:
+        """A stale instance can still toggle ``is_active``; a full save of it is refused."""
+        stale = Plan.objects.get(pk=plan.pk)
+        Plan.objects.filter(pk=plan.pk).update(period_unit=Plan.PeriodUnit.YEAR)
+        _make_sub(subscriber, plan, organization)
+        stale.is_active = False
+        stale.save(update_fields=["is_active"])
+        assert Plan.objects.values_list("is_active", flat=True).get(pk=plan.pk) is False
+        with pytest.raises(ValidationError):
+            stale.save()
+        with pytest.raises(ValidationError):
+            stale.save(update_fields=["is_active", "period_unit"])
+
+    def test_guard_reads_persisted_row_for_update(
+        self, plan: Plan, organization: Organization, subscriber: RevelUser
+    ) -> None:
+        _make_sub(subscriber, plan, organization)
+        plan.currency = "USD"
+        with CaptureQueriesContext(connection) as ctx, pytest.raises(ValidationError):
+            plan.save()
+        assert any(
+            "FOR UPDATE" in q["sql"] and "events_membershipsubscriptionplan" in q["sql"] for q in ctx.captured_queries
+        )
 
 
 @pytest.fixture
@@ -379,6 +409,24 @@ class TestMigrateRecheckUnderLock:
         assert result["skipped_schedule_managed"] == 1
         assert result["migrated"] == 0
 
+    def test_skips_sub_that_went_terminal(
+        self,
+        online_plan: Plan,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        sub = self._setup_sub(online_plan, organization, subscriber)
+        result, mock_update = self._run(
+            online_plan,
+            organization_owner_user,
+            sub,
+            lambda: Sub.objects.filter(pk=sub.pk).update(status=Sub.SubscriptionStatus.CANCELLED),
+        )
+        mock_update.assert_not_called()
+        assert result["skipped"] == 1
+        assert result["migrated"] == 0
+
     def test_swaps_unchanged_sub_under_row_lock(
         self,
         online_plan: Plan,
@@ -387,6 +435,188 @@ class TestMigrateRecheckUnderLock:
         organization_owner_user: RevelUser,
     ) -> None:
         sub = self._setup_sub(online_plan, organization, subscriber)
-        result, mock_update = self._run(online_plan, organization_owner_user, sub, lambda: None)
+        with CaptureQueriesContext(connection) as ctx:
+            result, mock_update = self._run(online_plan, organization_owner_user, sub, lambda: None)
         mock_update.assert_called_once()
         assert result["skipped"] == 0
+        assert any('FOR UPDATE OF "events_membershipsubscription"' in q["sql"] for q in ctx.captured_queries)
+
+
+@pytest.mark.django_db
+def test_subscription_admin_cannot_change_plan_of_existing_subscription(
+    no_manifest_storage: None,
+    client: Client,
+    superuser: RevelUser,
+    plan: Plan,
+    tier: MembershipTier,
+    organization: Organization,
+    subscriber: RevelUser,
+) -> None:
+    other = Plan.objects.create(
+        tier=tier,
+        name="Other",
+        price=Decimal("20"),
+        currency="EUR",
+        period_unit=Plan.PeriodUnit.MONTH,
+        payment_method=Plan.PaymentMethod.OFFLINE,
+    )
+    sub = _make_sub(subscriber, plan, organization)
+    client.force_login(superuser)
+    url = reverse("admin:events_membershipsubscription_change", args=[sub.pk])
+    response = client.get(url)
+    assert response.status_code == 200
+    assert "plan" not in response.context["adminform"].form.fields
+    form = response.context["adminform"].form
+    data = {k: ("" if v is None else v) for k, v in form.initial.items()}
+    data["plan"] = str(other.pk)
+    data["_save"] = "Save"
+    client.post(url, data)
+    sub.refresh_from_db()
+    assert sub.plan_id == plan.pk
+
+
+def _run_stale_capacity_check(plan: Plan, change: t.Callable[[], t.Any]) -> tuple[Plan, dict[str, t.Any]]:
+    """Thread A holds the plan row ``FOR UPDATE`` and applies ``change``; thread B checks capacity on a stale copy.
+
+    Asserts B blocks until A commits, and returns B's instance and outcome.
+    """
+    locked = threading.Event()
+    release = threading.Event()
+    outcome: dict[str, t.Any] = {}
+    stale = Plan.objects.get(pk=plan.pk)
+
+    def editor() -> None:
+        try:
+            with transaction.atomic():
+                Plan.objects.select_for_update().get(pk=plan.pk)
+                change()
+                locked.set()
+                release.wait(timeout=20)
+        finally:
+            locked.set()
+            close_old_connections()
+
+    def creator() -> None:
+        try:
+            with transaction.atomic():
+                ensure_plan_sales_capacity(stale)
+            outcome["result"] = "ok"
+        except HttpError as exc:
+            outcome["result"] = exc.status_code
+        except Exception as exc:  # noqa: BLE001 - surfaced by the assertion in the test
+            outcome["result"] = repr(exc)
+        finally:
+            close_old_connections()
+
+    thread_a = threading.Thread(target=editor, daemon=True)
+    thread_b = threading.Thread(target=creator, daemon=True)
+    try:
+        thread_a.start()
+        assert locked.wait(timeout=10), "editor did not take the lock"
+        thread_b.start()
+        thread_b.join(timeout=1.5)
+        assert thread_b.is_alive(), "capacity check did not wait for the concurrent plan edit"
+    finally:
+        release.set()
+    thread_a.join(timeout=10)
+    thread_b.join(timeout=10)
+    assert not thread_a.is_alive()
+    assert not thread_b.is_alive()
+    return stale, outcome
+
+
+@pytest.mark.django_db(transaction=True)
+def test_capacity_check_refreshes_stale_plan_after_waiting_out_an_edit(plan: Plan) -> None:
+    """The caller's plan instance shows the values committed by the edit it waited for.
+
+    ``transaction=True``: two threads on their own connections must see each
+    other's real commits and lock waits, which the rollback-wrapped default
+    ``django_db`` transaction cannot provide.
+    """
+    stale, outcome = _run_stale_capacity_check(plan, lambda: Plan.objects.filter(pk=plan.pk).update(currency="USD"))
+    assert outcome["result"] == "ok"
+    assert stale.currency == "USD"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_capacity_check_honours_cap_set_while_waiting(
+    plan: Plan, organization: Organization, subscriber: RevelUser
+) -> None:
+    """An uncapped plan that gained a cap during the wait is counted against that cap.
+
+    ``transaction=True`` for the same reason as the refresh test: real
+    concurrent connections.
+    """
+    _make_sub(subscriber, plan, organization)
+    stale, outcome = _run_stale_capacity_check(
+        plan, lambda: Plan.objects.filter(pk=plan.pk).update(max_subscriptions=1)
+    )
+    assert outcome["result"] == 400
+    assert stale.max_subscriptions == 1
+
+
+@pytest.mark.django_db
+class TestMigrateOfflineRecheck:
+    """An OFFLINE subscriber who left the plan after the batch query gets no price notice."""
+
+    def _setup(self, plan: Plan, organization: Organization, subscriber: RevelUser) -> Sub:
+        sub = _make_sub(subscriber, plan, organization)
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=plan.price,
+            currency=plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now() - timedelta(days=30),
+            period_end=timezone.now() + timedelta(days=1),
+        )
+        plan.price = plan.price + Decimal("5")
+        plan.save(update_fields=["price"])
+        return sub
+
+    def _run(
+        self, plan: Plan, owner: RevelUser, mutate: t.Callable[[], t.Any]
+    ) -> tuple[subscription_plans.MigrationResult, t.Any]:
+        real = subscription_plans._still_on_plan_and_live
+
+        def mutate_then_check(sub: Sub, p: Plan) -> bool:
+            mutate()
+            return real(sub, p)
+
+        with (
+            patch.object(subscription_plans, "_still_on_plan_and_live", side_effect=mutate_then_check),
+            patch.object(subscription_plans, "_dispatch_price_migration") as mock_dispatch,
+        ):
+            result = subscription_plans.migrate_plan_subscribers(plan, initiated_by=owner)
+        return result, mock_dispatch
+
+    def test_skips_sub_moved_to_another_plan(
+        self,
+        plan: Plan,
+        tier: MembershipTier,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        other = Plan.objects.create(
+            tier=tier,
+            name="Other",
+            price=Decimal("20"),
+            currency="EUR",
+            period_unit=Plan.PeriodUnit.MONTH,
+            payment_method=Plan.PaymentMethod.OFFLINE,
+        )
+        sub = self._setup(plan, organization, subscriber)
+        result, mock_dispatch = self._run(
+            plan, organization_owner_user, lambda: Sub.objects.filter(pk=sub.pk).update(plan=other)
+        )
+        mock_dispatch.assert_not_called()
+        assert result["skipped"] == 1
+        assert result["migrated"] == 0
+
+    def test_notifies_sub_still_on_plan(
+        self, plan: Plan, organization: Organization, subscriber: RevelUser, organization_owner_user: RevelUser
+    ) -> None:
+        self._setup(plan, organization, subscriber)
+        result, mock_dispatch = self._run(plan, organization_owner_user, lambda: None)
+        mock_dispatch.assert_called_once()
+        assert result["migrated"] == 1

@@ -119,7 +119,9 @@ Changing `currency`, `period_unit` or `period_count` (the last is exempt on a
 `plan` or `pending_plan` (`MembershipSubscriptionPlan.has_live_subscriptions`).
 `update_plan` enforces it under the plan row lock (400); `clean()` enforces it
 against the persisted row for every other `save()` path (Django admin, history
-revert, shell), as a field `ValidationError` (#1427).
+revert, shell), as a field `ValidationError` (#1427). That check reads the persisted
+row `FOR UPDATE` in its own `transaction.atomic()` so those saves serialize with in-flight
+creations, and it is skipped for `save(update_fields=...)` that names none of the three fields.
 
 #### Sale controls
 
@@ -130,7 +132,9 @@ everyone) live in `subscription.sales` and are enforced on **create**,
 plan row so concurrent creations serialize when a cap is set, mirroring the
 capacity-reclaim invariants of ticket tiers. On an uncapped plan it takes `FOR KEY SHARE`
 instead: creations don't block each other, but `update_plan`'s `FOR UPDATE` conflicts with it,
-so the currency/cadence guard cannot miss a subscription in flight (#1427). The public plan schema exposes `sales_status` and a
+so the currency/cadence guard cannot miss a subscription in flight (#1427). Once locked, the
+caller's plan instance is refreshed in place, and an uncapped plan that gained a cap while the
+caller waited falls through to the capped path. The public plan schema exposes `sales_status` and a
 computed `sold_out` flag so the frontend can render "sold out" vs "sales
 paused" vs a normal subscribe CTA.
 
@@ -381,7 +385,7 @@ Everything that operates on a plan rather than on one subscriber's lifecycle.
 | Function | Responsibility |
 |---|---|
 | `create_plan` / `update_plan` / `archive_plan` / `delete_plan` | Plan CRUD. ONLINE plans trigger `ensure_stripe_price`. `update_plan` re-reads the plan under `select_for_update` and refuses currency and cadence (`period_unit` / `period_count`) edits while the plan has non-terminal subscriptions, including subscriptions with a downgrade scheduled into it (`pending_plan`); a `period_count` edit on a `LIFETIME` plan is allowed, since `LIFETIME` ignores it. Why (#1423): moving an ONLINE subscriber to a Price with another interval under `proration_behavior='none'` depends on the subscription's Stripe billing mode. Flexible mode stretches the paid period without an invoice (observed in test mode); classic mode resets the billing date and charges the new Price at once. `delete_plan` catches `ProtectedError` from the FK |
-| `migrate_plan_subscribers` | Force-migrates non-terminal subs on a plan to its current Stripe price (`proration_behavior='none'`). Per-sub errors are reported individually; no rollback. Each ONLINE sub is re-read under a row lock (`change_online_plan` holds the same lock) and skipped if its plan changed, it went terminal or it gained a schedule since the batch query, so a member's own plan change is never overwritten (#1427). Before each swap the subscriber's current Price and the plan's current Price are compared directly (not against the plan row): both must recur, with the same `interval` and `interval_count`, or the subscriber is reported as failed and never swapped (#1423). Batches the "previous price" lookup with `DISTINCT ON` to avoid N+1 |
+| `migrate_plan_subscribers` | Force-migrates non-terminal subs on a plan to its current Stripe price (`proration_behavior='none'`). Per-sub errors are reported individually; no rollback. Each ONLINE sub is re-read under a row lock (`change_online_plan` holds the same lock) and skipped if its plan changed, it went terminal or it gained a schedule since the batch query, so a member's own plan change is never overwritten (#1427); OFFLINE subs get the same plan/terminal re-check just before their notice. Before each swap the subscriber's current Price and the plan's current Price are compared directly (not against the plan row): both must recur, with the same `interval` and `interval_count`, or the subscriber is reported as failed and never swapped (#1423). Batches the "previous price" lookup with `DISTINCT ON` to avoid N+1 |
 
 ### `events/service/subscription/stripe/base.py`, `checkout.py`, `sync.py`
 

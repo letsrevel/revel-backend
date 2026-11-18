@@ -309,7 +309,7 @@ def migrate_plan_subscribers(
                 result["migrated"] += 1
                 continue
             if sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE and (
-                _price_migration_already_notified(sub, new_price)
+                not _still_on_plan_and_live(sub, plan) or _price_migration_already_notified(sub, new_price)
             ):
                 # OFFLINE re-run safety: nothing on the row records the
                 # migration (the last-paid-price anchor stays stale until the
@@ -377,6 +377,15 @@ def _swap_online_price_locked(
             result["skipped"] += 1
             return False
     return True
+
+
+def _still_on_plan_and_live(sub: MembershipSubscription, plan: MembershipSubscriptionPlan) -> bool:
+    """True when ``sub`` is still on ``plan`` and non-terminal (re-checked right before an OFFLINE notice)."""
+    return (
+        MembershipSubscription.objects.filter(pk=sub.pk, plan=plan)
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .exists()
+    )
 
 
 def _price_migration_already_notified(subscription: MembershipSubscription, new_price: t.Any) -> bool:

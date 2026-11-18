@@ -1,6 +1,9 @@
 """Admin classes for membership subscription models."""
 
+import typing as t
+
 from django.contrib import admin
+from django.http import HttpRequest
 from unfold.admin import ModelAdmin
 
 from common.admin import GuardedHistoryAdmin
@@ -73,6 +76,11 @@ class MembershipSubscriptionAdmin(GuardedHistoryAdmin, ModelAdmin, UserLinkMixin
         "updated_at",
     ]
     date_hierarchy = "current_period_end"
+
+    def get_readonly_fields(self, request: HttpRequest, obj: models.MembershipSubscription | None = None) -> t.Any:
+        """Make ``plan`` and ``organization`` readonly on existing rows (plan switches go through the service layer)."""
+        fields = list(super().get_readonly_fields(request, obj))
+        return [*fields, "plan", "organization"] if obj is not None else fields
 
 
 @admin.register(models.MembershipPayment)

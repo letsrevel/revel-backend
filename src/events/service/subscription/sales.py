@@ -45,6 +45,10 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
     they wait for it, so its currency/cadence guard cannot miss one (#1427).
     Django's FKs are ``DEFERRABLE INITIALLY DEFERRED``, so the insert itself
     locks nothing until commit. Callers must already be inside a transaction.
+    Once the lock is held the caller's ``plan`` instance is refreshed in place,
+    so a caller that waited out a concurrent ``update_plan`` continues with the
+    committed currency, cadence, Stripe price, active flag and cap. An uncapped
+    plan that gained a cap while waiting falls through to the capped path.
     Applies to staff creation too: capacity is a hard limit, unlike the
     sales-status pause.
     """
@@ -54,8 +58,12 @@ def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:
         sql = f"SELECT 1 FROM {quote(meta.db_table)} WHERE {quote(meta.pk.attname)} = %s FOR KEY SHARE"  # noqa: S608  # nosec B608 - identifiers from model meta
         with connection.cursor() as cursor:
             cursor.execute(sql, [plan.pk])
-        return
+        plan.refresh_from_db()  # we may have waited out an update_plan: continue on committed values
+        if plan.max_subscriptions is None:
+            return
+        # A cap was set while we waited: count against the locked row below.
     locked_plan = MembershipSubscriptionPlan.objects.select_for_update().get(pk=plan.pk)
+    plan.refresh_from_db()
     if locked_plan.max_subscriptions is None:  # changed since the unlocked read
         return
     if locked_plan.occupied_slot_count() >= locked_plan.max_subscriptions:

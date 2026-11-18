@@ -14,7 +14,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 
@@ -190,6 +190,21 @@ class MembershipSubscriptionPlan(TimeStampedModel):
     def __str__(self) -> str:
         return f"{self.tier} - {self.name}"
 
+    _skip_billing_guard: bool = False
+
+    def save(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Skip the billing-change guard for ``update_fields`` saves that touch no billing field."""
+        update_fields = kwargs.get("update_fields")
+        self._skip_billing_guard = update_fields is not None and not {
+            "currency",
+            "period_unit",
+            "period_count",
+        } & set(update_fields)
+        try:
+            super().save(*args, **kwargs)
+        finally:
+            self._skip_billing_guard = False
+
     def clean(self) -> None:
         """Enforce the (payment method, price, cadence) shape rules.
 
@@ -213,17 +228,31 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         )
         if message:
             raise DjangoValidationError({"payment_method": message})
-        self._validate_no_billing_change_with_live_subscriptions()
+        if not self._skip_billing_guard:
+            self._validate_no_billing_change_with_live_subscriptions()
 
     def _validate_no_billing_change_with_live_subscriptions(self) -> None:
         """Refuse currency / cadence changes against the persisted row while subscribers exist.
 
         Same rule as ``update_plan`` (#1423), enforced here for the paths that
         skip it: the Django admin form, a simple_history revert, shell writes.
+        The persisted row is read ``FOR UPDATE`` (in its own transaction when
+        called outside one) so those saves serialize with in-flight
+        subscription creations, as ``update_plan`` does.
         """
         if self._state.adding:
             return
-        persisted = type(self).objects.filter(pk=self.pk).values("currency", "period_unit", "period_count").first()
+        with transaction.atomic():
+            persisted = (
+                type(self)
+                .objects.select_for_update(of=("self",))
+                .filter(pk=self.pk)
+                .values("currency", "period_unit", "period_count")
+                .first()
+            )
+            self._refuse_billing_change(persisted)
+
+    def _refuse_billing_change(self, persisted: t.Mapping[str, t.Any] | None) -> None:
         if persisted is None:
             return
         unit_changed = self.period_unit != persisted["period_unit"]

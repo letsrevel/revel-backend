@@ -298,7 +298,10 @@ so the `FOR KEY SHARE` that conflicts with `FOR UPDATE` is only taken at commit,
 must therefore lock the plan row itself in `ensure_plan_sales_capacity`: `FOR UPDATE` when the
 plan is capped (it counts slots), `FOR KEY SHARE` when it is not. `KEY SHARE` locks don't conflict
 with each other, so uncapped checkouts don't queue behind one another across the Checkout-session
-Stripe call (held under `ATOMIC_REQUESTS`), but they conflict with `update_plan`'s `FOR UPDATE`. The threaded regression test is `events/tests/test_plan_guard_1427.py`
+Stripe call (held under `ATOMIC_REQUESTS`), but they conflict with `update_plan`'s `FOR UPDATE`. After taking the lock the helper refreshes the
+caller's plan instance in place, so a creation that waited out `update_plan` never acts on stale
+currency, cadence or cap. The model-level guard in `clean()` also reads the persisted row `FOR UPDATE`.
+The threaded regression test is `events/tests/test_plan_guard_1427.py`
 (`transaction=True`, two real connections).
 
 ## Migration Squashing (one per app per PR, never hand-edit schema migrations)
