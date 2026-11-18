@@ -1,4 +1,4 @@
-"""Repeat signup on an unverified address, superseded verification links and invitee enrolment."""
+"""Superseded verification links, password reset on unverified accounts and invitee enrolment."""
 
 import datetime
 import re
@@ -7,18 +7,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.conf import settings
-from django.core.files.base import ContentFile
 from django.test.client import Client
 from django.urls import reverse
-from django.utils import timezone
 from freezegun import freeze_time
 from ninja.errors import HttpError
-from ninja_jwt.tokens import RefreshToken
 
 from accounts import schema
 from accounts.models import (
     EmailVerificationReminderTracking,
-    Referral,
     ReferralApplication,
     ReferralCode,
     RevelUser,
@@ -26,8 +22,8 @@ from accounts.models import (
 from accounts.service import account as account_service
 from accounts.service import referral_application_service
 from accounts.tasks import AccountEmail, send_account_email
+from accounts.utils.email_normalization import normalize_email_for_matching
 from common.models import SiteSettings
-from conftest import RevelUserFactory
 from telegram.models import TelegramUser
 
 pytestmark = pytest.mark.django_db
@@ -86,166 +82,6 @@ def _login_status(password: str) -> int:
         content_type="application/json",
     )
     return response.status_code
-
-
-class TestRepeatSignupOnUnverifiedAccount:
-    def test_start_over_resets_credentials_and_sessions(
-        self,
-        unverified: RevelUser,
-        mock_delay: MagicMock,
-        django_capture_on_commit_callbacks: t.Any,
-    ) -> None:
-        TelegramUser.objects.create(telegram_id=1234, user=unverified)
-        old_secret = unverified.totp_secret
-        with freeze_time("2026-01-01 12:00:00"):
-            old_refresh = RefreshToken.for_user(unverified)
-            old_access = str(old_refresh.access_token)  # type: ignore[attr-defined]
-            with django_capture_on_commit_callbacks(execute=True):
-                account_service.register_user(_payload(first_name="Newcomer"))
-            old_link = _verification_token(mock_delay)
-        mock_delay.reset_mock()
-
-        with freeze_time("2026-01-01 12:00:30"):
-            with django_capture_on_commit_callbacks(execute=True):
-                user, _ = account_service.register_user(_payload())
-            new_link = _verification_token(mock_delay)
-
-            unverified.refresh_from_db()
-            assert user.pk == unverified.pk
-            assert (unverified.first_name, unverified.last_name) == ("Second", "Signup")
-            assert unverified.totp_active is False
-            assert unverified.totp_secret != old_secret
-            assert unverified.email_verified is False
-            assert not TelegramUser.objects.get(telegram_id=1234).user
-            assert not unverified.check_password(OLD_PASSWORD)
-            assert unverified.check_password(NEW_PASSWORD)
-
-            # Sessions from before the second signup are refused.
-            assert _me(old_access) == 401
-            refresh_response = Client().post(
-                reverse("api:token_refresh"), data={"refresh": str(old_refresh)}, content_type="application/json"
-            )
-            assert refresh_response.status_code != 200
-            assert _login_status(OLD_PASSWORD) != 200
-
-            # The link from the first signup is superseded, the newest one verifies.
-            with pytest.raises(HttpError) as exc:
-                account_service.verify_email(old_link)
-            assert exc.value.status_code == 400
-            assert account_service.verify_email(new_link).email_verified is True
-            assert _login_status(NEW_PASSWORD) == 200
-
-    def test_profile_is_reset_and_schedule_restarts(
-        self, unverified: RevelUser, mock_delay: MagicMock, django_capture_on_commit_callbacks: t.Any
-    ) -> None:
-        unverified.preferred_name = "Old Name"
-        unverified.pronouns = "they/them"
-        unverified.bio = "old bio"
-        unverified.phone_number = "+4366012345678"
-        unverified.language = "de"
-        unverified.is_active = False
-        unverified.date_joined = timezone.now() - datetime.timedelta(days=29)
-        unverified.save()
-        EmailVerificationReminderTracking.objects.create(user=unverified)
-
-        with django_capture_on_commit_callbacks(execute=True):
-            response = Client().post(
-                reverse("api:register-account"), data=_payload().model_dump_json(), content_type="application/json"
-            )
-
-        assert response.status_code == 201
-        body = response.json()
-        assert (body["preferred_name"], body["pronouns"], body["bio"]) == ("", "", "")
-        assert body["is_active"] is True
-        fresh = RevelUser.objects.get(pk=unverified.pk)
-        assert (fresh.preferred_name, fresh.pronouns, fresh.bio) == ("", "", "")
-        assert fresh.phone_number is None
-        assert fresh.language == "de"
-        assert fresh.is_active is True
-        assert timezone.now() - fresh.date_joined < datetime.timedelta(minutes=1)
-        assert not EmailVerificationReminderTracking.objects.filter(user=unverified).exists()
-
-    def test_profile_picture_is_removed(self, unverified: RevelUser, mock_delay: MagicMock) -> None:
-        unverified.profile_picture.save("a.png", ContentFile(b"x"), save=True)
-        assert unverified.profile_picture
-        account_service.register_user(_payload())
-        unverified.refresh_from_db()
-        assert not unverified.profile_picture
-
-    def test_replaces_old_referral_and_applies_new_code(
-        self, unverified: RevelUser, mock_delay: MagicMock, revel_user_factory: RevelUserFactory
-    ) -> None:
-        old_owner = revel_user_factory(email="old-owner@example.com")
-        new_owner = revel_user_factory(email="new-owner@example.com")
-        old_code = ReferralCode.objects.create(user=old_owner, code="OLDCODE")
-        new_code = ReferralCode.objects.create(user=new_owner, code="NEWCODE")
-        Referral.objects.create(referral_code=old_code, referred_user=unverified)
-
-        account_service.register_user(_payload(referral_code="newcode"))
-
-        assert Referral.objects.get(referred_user=unverified).referral_code == new_code
-
-    def test_without_code_drops_old_referral(
-        self, unverified: RevelUser, mock_delay: MagicMock, revel_user_factory: RevelUserFactory
-    ) -> None:
-        code = ReferralCode.objects.create(user=revel_user_factory(email="o@example.com"), code="OLDCODE")
-        Referral.objects.create(referral_code=code, referred_user=unverified)
-
-        account_service.register_user(_payload())
-
-        assert not Referral.objects.filter(referred_user=unverified).exists()
-
-    def test_invalid_code_changes_nothing(
-        self, unverified: RevelUser, mock_delay: MagicMock, revel_user_factory: RevelUserFactory
-    ) -> None:
-        code = ReferralCode.objects.create(user=revel_user_factory(email="o@example.com"), code="OLDCODE")
-        Referral.objects.create(referral_code=code, referred_user=unverified)
-        TelegramUser.objects.create(telegram_id=99, user=unverified)
-        password_hash = unverified.password
-
-        with pytest.raises(HttpError) as exc:
-            account_service.register_user(_payload(referral_code="nope"))
-
-        assert exc.value.status_code == 422
-        unverified.refresh_from_db()
-        assert unverified.password == password_hash
-        assert unverified.first_name == "First"
-        assert unverified.totp_active is True
-        assert unverified.credentials_changed_at is None
-        assert TelegramUser.objects.get(telegram_id=99).user == unverified
-        assert Referral.objects.get(referred_user=unverified).referral_code == code
-        mock_delay.assert_not_called()
-
-    def test_verified_duplicate_is_still_refused(self, unverified: RevelUser, mock_delay: MagicMock) -> None:
-        unverified.email_verified = True
-        unverified.save(update_fields=["email_verified"])
-        with pytest.raises(HttpError) as exc:
-            account_service.register_user(_payload())
-        assert exc.value.status_code == 400
-        unverified.refresh_from_db()
-        assert unverified.check_password(OLD_PASSWORD)
-        assert unverified.totp_active is True
-        mock_delay.assert_not_called()
-
-    def test_guest_duplicate_still_sends_activation_and_400(self, guest_user: RevelUser, mock_delay: MagicMock) -> None:
-        password_hash = guest_user.password
-        with pytest.raises(HttpError) as exc:
-            account_service.register_user(_payload(email=guest_user.email))
-        assert exc.value.status_code == 400
-        guest_user.refresh_from_db()
-        assert guest_user.guest is True
-        assert guest_user.password == password_hash
-        assert mock_delay.call_args.args[0] == AccountEmail.ACTIVATION
-
-    def test_endpoint_returns_201(self, unverified: RevelUser, mock_delay: MagicMock) -> None:
-        response = Client().post(
-            reverse("api:register-account"),
-            data=_payload().model_dump_json(),
-            content_type="application/json",
-        )
-        assert response.status_code == 201
-        unverified.refresh_from_db()
-        assert unverified.check_password(NEW_PASSWORD)
 
 
 class TestVerificationTokenIssueTime:
@@ -368,14 +204,25 @@ class TestInviteeEnrolmentRequiresVerifiedEmail:
         assert not ReferralCode.objects.filter(user=user).exists()
         assert mock_delay.call_args.args[0] == AccountEmail.REFERRAL_INVITE
 
-    @pytest.mark.parametrize("variant", ["invitee+tag@example.com", "inv.itee@example.com"])
+    @pytest.mark.parametrize(
+        ("invited", "variant"),
+        [
+            ("invitee@example.com", "invitee+tag@example.com"),
+            ("invitee@gmail.com", "inv.itee@gmail.com"),
+        ],
+    )
     def test_variant_address_is_not_enrolled(
-        self, approved_application: ReferralApplication, django_user_model: type[RevelUser], variant: str
+        self, django_user_model: type[RevelUser], invited: str, variant: str
     ) -> None:
+        application = ReferralApplication.objects.create(
+            email=invited, code="invited", note="hi", status=ReferralApplication.Status.APPROVED
+        )
+        # The two addresses normalise to the same value, so the old normalised match would have enrolled.
+        assert application.normalized_email == normalize_email_for_matching(variant)
         user = django_user_model.objects.create_user(username=variant, email=variant, password="x", email_verified=True)
         referral_application_service.try_enroll_invitee(user)
-        approved_application.refresh_from_db()
-        assert approved_application.user is None
+        application.refresh_from_db()
+        assert application.user is None
         assert not ReferralCode.objects.filter(user=user).exists()
 
     def test_exact_address_other_case_is_enrolled(

@@ -339,11 +339,10 @@ def _adopt_unverified_account(user: RevelUser) -> None:
     Nothing proved the address belonged to whoever set those credentials, so the IdP's
     assertion is the first proof of ownership. The account starts over like an OIDC-created one:
     no usable password, no 2FA enrollment, no live sessions or linked Telegram account, and
-    ``credentials_changed_at`` voids any pending email-change link and earlier access tokens.
+    ``credentials_changed_at`` voids any pending email-change link and earlier access tokens. An
+    account somebody signed up for again meanwhile also loses its profile and referral.
     """
-    account_service.reset_unverified_credentials(user, password=None)
-    user.email_verified = True
-    user.save(update_fields=["email_verified"])
+    account_service.adopt_unverified_account(user, password=None)
     logger.info("oidc_unverified_account_adopted", user_id=str(user.id))
 
 

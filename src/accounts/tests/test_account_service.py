@@ -266,17 +266,24 @@ def test_register_user_existing_unverified_non_guest(
     valid_register_payload: schema.RegisterUserSchema,
     django_capture_on_commit_callbacks: t.Any,
 ) -> None:
-    """Re-registering an unverified non-guest email starts the account over and sends a new link."""
+    """Re-registering an unverified non-guest email contests it, sends a new link and changes nothing stored."""
     valid_register_payload.email = user.email
     user.email_verified = False
     user.save(update_fields=["email_verified"])
+    stored_hash = RevelUser.objects.get(pk=user.pk).password
 
     with django_capture_on_commit_callbacks(execute=True):
-        returned, _ = account_service.register_user(valid_register_payload)
+        returned, token = account_service.register_user(valid_register_payload)
 
-    assert returned.pk == user.pk
+    assert returned.pk != user.pk  # built from the payload, not the stored row
+    assert returned.first_name == valid_register_payload.first_name
     assert RevelUser.objects.count() == 1
+    user.refresh_from_db()
+    assert user.signup_contested_at is not None
+    assert user.password == stored_hash
+    assert user.first_name != valid_register_payload.first_name
     mock_send_email.assert_called_once()
+    assert mock_send_email.call_args.kwargs["token"] == token
 
 
 # transaction=True: request_password_reset dispatches send_account_email via transaction.on_commit.

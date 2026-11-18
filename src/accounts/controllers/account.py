@@ -142,10 +142,11 @@ class AccountController(UserAwareController):
         """Create a new user account with email and password.
 
         Creates a new account and sends a verification email. The account is created but not
-        fully active until email is verified via POST /account/verify. If an unverified account
-        with the same email exists, it is reset to the submitted details (password, name, referral
-        code; earlier sessions, 2FA and verification links are discarded) and a new verification
-        email is sent. Returns 400 only if a verified account already exists. When bot protection is
+        fully active until email is verified via POST /account/verify. Returns 400 if a verified
+        account with the same email already exists, or if the email belongs to a guest account
+        (which also receives an activation email). If an unverified account with the same email
+        exists, nothing stored on it changes: it is only marked as contested, a new verification
+        link is sent, and the response echoes the submitted details. When bot protection is
         configured, a valid `turnstile_token` is required (400 otherwise).
         """
         request = t.cast(HttpRequest, self.context.request)  # type: ignore[union-attr]
