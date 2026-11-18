@@ -1,13 +1,15 @@
 """Service layer for discount code validation and application."""
 
 import typing as t
+from collections import Counter
 from decimal import Decimal
 from uuid import UUID
 
 import structlog
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import F
+from django.db.models import F, Value
+from django.db.models.functions import Greatest
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -174,9 +176,11 @@ def delete_discount_code(dc: DiscountCode) -> t.Literal["deleted", "deactivated"
     """Delete a discount code, hard-deleting it only when it was never used.
 
     A code is considered unused when its ``times_used`` counter is zero *and* no
-    ticket references it at all (any status). ``times_used`` never decrements, so
-    the two checks are belt-and-suspenders: either one being non-empty means the
-    code has redemption history worth keeping. Unused codes are hard-deleted,
+    ticket references it at all (any status). ``times_used`` only decrements when an
+    unfinished checkout (a still-PENDING ticket) is removed or cancelled, see
+    :func:`release_discount_uses`; a confirmed ticket keeps its use. The two checks
+    are belt-and-suspenders: either one being non-empty means the code has
+    redemption history worth keeping. Unused codes are hard-deleted,
     which also frees the ``(organization, code)`` slot for reuse. Used codes are
     deactivated (``is_active = False``) to preserve the redemption history on
     their tickets.
@@ -633,3 +637,35 @@ def apply_discount(discount_code: DiscountCode, user: RevelUser, batch_size: int
         code=discount_code.code,
         batch_size=batch_size,
     )
+
+
+def release_discount_uses(discount_code_ids: t.Iterable[UUID | None]) -> None:
+    """Give back the uses taken by PENDING tickets that are being removed or cancelled.
+
+    Counterpart of :func:`apply_discount` for **unfinished checkouts only**: pass one
+    ``discount_code_id`` per ticket that was *still PENDING* when the calling route removed
+    or cancelled it (``None`` entries, tickets without a code, are ignored). A confirmed
+    (ACTIVE / CHECKED_IN) ticket that is cancelled or refunded later keeps its use, so
+    callers must not pass those.
+
+    Callers derive the ids from the row-locked snapshot they already hold, filtered to
+    tickets that are still PENDING, so a ticket released by one route (for example a user
+    cancelling a pending ticket) is never released again by another (the payment sweep).
+    The decrement is floored at zero.
+
+    Lock order: the ``DiscountCode`` rows are locked LAST, after the tier / ticket / payment
+    locks every caller already holds (``apply_discount`` also runs after the tier lock and
+    ticket creation in checkout), and in pk order so concurrent releases cannot deadlock.
+    Never call this before locking tiers.
+
+    Args:
+        discount_code_ids: One entry per released PENDING ticket.
+    """
+    per_code: Counter[UUID] = Counter(cid for cid in discount_code_ids if cid is not None)
+    if not per_code:
+        return
+    # Materialise to take the row locks in pk order.
+    list(DiscountCode.objects.select_for_update().filter(pk__in=per_code).order_by("pk").values_list("pk", flat=True))
+    for code_id, count in sorted(per_code.items()):
+        DiscountCode.objects.filter(pk=code_id).update(times_used=Greatest(F("times_used") - count, Value(0)))
+    logger.info("discount_uses_released", released=sum(per_code.values()), codes=len(per_code))

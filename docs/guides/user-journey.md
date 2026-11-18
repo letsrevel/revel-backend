@@ -478,6 +478,7 @@ Organizers can create discount codes to offer reduced pricing on ticket purchase
 2. Set limits: max uses, per-user limit, minimum purchase amount, validity window
 3. Buyer enters code during checkout (`POST /events/{event_id}/checkout`) → validated and applied to price
 4. Usage tracked per code and per user
+5. A use taken by a checkout that is cancelled or expires before payment completes is given back; a confirmed ticket that is cancelled or refunded later keeps its use
 
 !!! note "Duplicate codes & delete-vs-deactivate"
     Creating a code whose string already exists returns a clear **409 Conflict** (it used to surface as an opaque 500). Deleting a code that has **never been used** hard-deletes it; deleting a code that **has been used** deactivates it instead, preserving usage history.

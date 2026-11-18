@@ -13,6 +13,7 @@ from django.db.models.functions import Greatest
 from django.utils import timezone
 
 from events.models import HeldSeriesPass, Payment, Ticket, TicketTier
+from events.service import discount_code_service
 
 logger = structlog.get_logger(__name__)
 
@@ -145,6 +146,13 @@ def cleanup_expired_payments() -> int:
             TicketTier.objects.select_for_update().filter(pk=tier_id).update(
                 quantity_sold=Greatest(F("quantity_sold") - count_to_release, Value(0))
             )
+
+        # Give back discount code uses of the same still-PENDING tickets (locked after the tiers).
+        discount_code_service.release_discount_uses(
+            payment.ticket.discount_code_id
+            for payment in locked_payments
+            if payment.ticket.status == Ticket.TicketStatus.PENDING
+        )
 
         # Delete payments first due to PROTECT constraint on Ticket
         Payment.objects.filter(pk__in=payment_ids_to_delete).delete()
