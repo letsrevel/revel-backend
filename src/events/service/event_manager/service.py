@@ -175,6 +175,24 @@ class EligibilityService:
             result.active_offer_expires_at = self.active_waitlist_offer.expires_at.astimezone(target_tz)
         return result
 
+    def check_gates(self, gate_types: tuple[type[BaseEligibilityGate], ...]) -> EventUserEligibility | None:
+        """Run only the given gate classes, in the canonical gate order.
+
+        For flows that apply a subset of the per-event rules (e.g. series pass purchase).
+        Unlike ``check_eligibility`` there is no privileged-access short-circuit: the
+        caller decides who is exempt.
+
+        Args:
+            gate_types: The gate classes to run.
+
+        Returns:
+            The first blocking verdict, or None when every requested gate passes.
+        """
+        for gate in self._gates:
+            if isinstance(gate, gate_types) and (result := gate.check()):
+                return result
+        return None
+
     @functools.cached_property
     def event_submission_map(self) -> dict[uuid.UUID, list[QuestionnaireSubmission]]:
         """Build event-scoped submission map for per_event questionnaires.

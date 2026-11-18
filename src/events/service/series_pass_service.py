@@ -38,7 +38,8 @@ from events.models import (
 )
 from events.models.ticket import CancellationSource
 from events.schema.series_pass import SeriesPassCreateSchema
-from events.service import day_membership_service, refund_service, ticket_number_service
+from events.service import day_membership_service, refund_service, series_pass_event_checks, ticket_number_service
+from events.service.event_manager import Reasons
 from events.service.vat_service import distribute_amount_across_items
 from events.tasks import build_attendee_visibility_flags, materialize_series_pass_holders
 from events.utils.membership_access import visible_memberships
@@ -62,11 +63,17 @@ class SeriesPassQuote:
     online_payment: PaymentChannelCapability
 
 
-def get_quote(series_pass: SeriesPass, now: datetime | None = None) -> SeriesPassQuote:
+def get_quote(
+    series_pass: SeriesPass, now: datetime | None = None, *, check_event_status: bool = True
+) -> SeriesPassQuote:
     """Current pro-rata price, purchasability and online-payment capability for a pass.
 
     Select ``event_series__organization__city`` on the pass to keep the compliance decision
     query-free (the covered events' venue countries come with the tier links).
+
+    A pass is not purchasable while any upcoming covered event is not OPEN (``EventStatusGate``'s
+    condition). The purchase passes ``check_event_status=False`` because it runs the real gate
+    per event itself (richer payload, owners/staff exempt). Per-user gates are never part of the quote.
     """
     now = now or timezone.now()
     links = series_pass.tier_links.select_related("event__venue__city", "event__city", "event__organization")
@@ -86,6 +93,8 @@ def get_quote(series_pass: SeriesPass, now: datetime | None = None) -> SeriesPas
         reason = str(_("Not enough remaining events; buy a regular ticket instead."))
     elif series_pass.total_quantity is not None and series_pass.quantity_sold >= series_pass.total_quantity:
         reason = str(_("This pass is sold out."))
+    elif check_event_status and any(event.status != Event.EventStatus.OPEN for event in upcoming):
+        reason = str(_(Reasons.EVENT_IS_NOT_OPEN))
 
     return SeriesPassQuote(
         price=price,
@@ -375,8 +384,10 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
     Dispatches the attendee visibility rebuild (after commit) for the events it grants,
     since ``bulk_create`` skips ``post_save``.
 
-    Must run inside a transaction (locks tier rows). Capacity-checked per tier:
-    full tiers are skipped and logged, mirroring the extension task.
+    Must run inside a transaction (locks tier, then event rows). Capacity-checked per tier
+    and per event: full tiers and full events are skipped and logged, and a holder who is now
+    blacklisted for the organization (owners and staff excepted) gets nothing (logged), mirroring
+    the extension task.
 
     Args:
         held_pass: The just-activated pass. Must have ``user`` available.
@@ -396,6 +407,12 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
         .select_related("event")
     )
     if not missing_links:
+        return []
+    # The holder's current blacklist status, re-evaluated at grant time. Org-wide and lock-free, so
+    # it runs before the contended tier locks. ponytail: one EligibilityService per call; no
+    # cheaper blacklist-only entry point exists yet.
+    if series_pass_event_checks.is_blocked_by_blacklist(held_pass.user, missing_links[0].event):
+        logger.info("series_pass_backfill_skipped_blacklisted_holder", held_pass_id=str(held_pass.id))
         return []
     # Lock the mapped tiers in pk order (deadlock discipline, mirrors
     # SeriesPassPurchaseService.purchase and the extension task).
@@ -417,6 +434,18 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
             )
             continue
         grantable.append(link)
+    # Event-level capacity (events locked after the tiers, pk-ordered), the same rule the purchase applies.
+    full_event_ids = series_pass_event_checks.lock_events_and_find_full(
+        [link.event for link in grantable], held_pass.user
+    )
+    for link in grantable:
+        if link.event_id in full_event_ids:
+            logger.info(
+                "series_pass_backfill_skipped_full_event",
+                held_pass_id=str(held_pass.id),
+                event_id=str(link.event_id),
+            )
+    grantable = [link for link in grantable if link.event_id not in full_event_ids]
     # ponytail: a holder never answered a questionnaire attached to an event linked after purchase; tickets are
     # issued anyway. Upgrade path: gate extension tickets on the questionnaire, or notify holders to answer it.
     created = materialize_tickets(held_pass, grantable, Ticket.TicketStatus.ACTIVE, price_paid=_ZERO)

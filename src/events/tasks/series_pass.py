@@ -21,7 +21,8 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
     Free of charge (no Payment rows) — holders paid for the season. Idempotent:
     events already ticketed for a holder are skipped (``materialize_tickets``'s
     existing-events skip plus the DB constraint). Capacity-checked per
-    holder/event; skipped pairs are counted and reported.
+    holder/event (tier and event level); holders now blacklisted for the org are skipped
+    entirely; skipped pairs are counted and reported.
 
     Args:
         series_pass_id: The SeriesPass whose holders should be extended.
@@ -69,7 +70,7 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
 
 def _extend_holder(holder_id: UUID, links: list[SeriesPassTierLink], skipped: list[tuple[UUID, UUID]]) -> list[Ticket]:
     """Materialize one ACTIVE holder's tickets in its own transaction; returns the created tickets."""
-    from events.service import series_pass_service
+    from events.service import series_pass_event_checks, series_pass_service
     from notifications.signals.series_pass import send_series_pass_extended
 
     with transaction.atomic():
@@ -83,14 +84,30 @@ def _extend_holder(holder_id: UUID, links: list[SeriesPassTierLink], skipped: li
             # Re-check per holder: a concurrent cancellation may have
             # landed between the holder snapshot and this holder's turn.
             return []
+        # Events the holder already has a (non-cancelled) ticket for are not extension work: drop them
+        # before any capacity check so a full event they already hold is not reported as skipped.
+        ticketed_event_ids = set(
+            Ticket.objects.filter(held_pass=held_pass)
+            .exclude(status=Ticket.TicketStatus.CANCELLED)
+            .values_list("event_id", flat=True)
+        )
+        pending_links = [link for link in links if link.event_id not in ticketed_event_ids]
+        if not pending_links:
+            return []
+        # The holder's current blacklist status (the purchase's rule, owners/staff exempt). Org-wide and
+        # lock-free, so it runs before the contended tier locks. ponytail: one EligibilityService per holder.
+        if series_pass_event_checks.is_blocked_by_blacklist(held_pass.user, pending_links[0].event):
+            logger.info("series_pass_extension_skipped_blacklisted_holder", held_pass_id=str(held_pass.id))
+            skipped.extend((held_pass.id, link.event_id) for link in pending_links)
+            return []
         locked = {
             tier.pk: tier
             for tier in TicketTier.objects.select_for_update()
-            .filter(pk__in=[link.tier_id for link in links])
+            .filter(pk__in=[link.tier_id for link in pending_links])
             .order_by("pk")
         }
         grantable: list[SeriesPassTierLink] = []
-        for link in links:
+        for link in pending_links:
             tier = locked[link.tier_id]
             if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
                 skipped.append((held_pass.id, link.event_id))
@@ -100,6 +117,14 @@ def _extend_holder(holder_id: UUID, links: list[SeriesPassTierLink], skipped: li
         # inherit the mapped tier's price (keeps revenue/VAT reports honest, #644).
         # ponytail: holders never answered a questionnaire attached to the newly linked event; tickets are issued
         # anyway. Upgrade path: gate extension tickets on the questionnaire, or notify holders to answer it.
+        # Event-level capacity (events locked after the tiers, pk-ordered), skipped and reported like full tiers.
+        full_event_ids = series_pass_event_checks.lock_events_and_find_full(
+            [link.event for link in grantable], held_pass.user
+        )
+        for link in grantable:
+            if link.event_id in full_event_ids:
+                skipped.append((held_pass.id, link.event_id))
+        grantable = [link for link in grantable if link.event_id not in full_event_ids]
         created = series_pass_service.materialize_tickets(
             held_pass, grantable, Ticket.TicketStatus.ACTIVE, price_paid=Decimal("0.00")
         )
