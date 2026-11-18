@@ -859,6 +859,45 @@ class TestMigrateOnlineLockedState:
         assert mock_dispatch.call_count == 1
         assert mock_dispatch.call_args.args[0].current_period_end == renewed
 
+    def test_notice_quotes_payment_settled_before_the_lock(
+        self, online_plan: Plan, sub: Sub, organization_owner_user: RevelUser
+    ) -> None:
+        """A renewal that settles between the batch query and the lock is the price the notice moves from."""
+
+        def renew() -> None:
+            MembershipPayment.objects.create(
+                subscription=sub,
+                amount=Decimal("12.00"),
+                currency=online_plan.currency,
+                status=MembershipPayment.PaymentStatus.SUCCEEDED,
+                period_start=timezone.now() + timedelta(days=3),
+                period_end=timezone.now() + timedelta(days=33),
+            )
+
+        _, mock_dispatch = self._run(online_plan, organization_owner_user, before=renew)
+        assert mock_dispatch.call_count == 1
+        assert mock_dispatch.call_args.kwargs["old_price"] == Decimal("12.00")
+
+    def test_schedule_managed_is_counted_as_such_even_if_price_changed(
+        self, online_plan: Plan, sub: Sub, organization_owner_user: RevelUser
+    ) -> None:
+        """A rerun can't migrate it until the schedule releases, so it must not be reported as a plain skip."""
+        Sub.objects.filter(pk=sub.pk).update(stripe_schedule_id="sub_sched_1")
+        state = {"done": False}
+        real = Sub.objects.select_for_update
+        bump = lambda: Plan.objects.filter(pk=online_plan.pk).update(price=online_plan.price + 1)  # noqa: E731
+        with (
+            patch.object(
+                Sub.objects,
+                "select_for_update",
+                side_effect=lambda *a, **k: _LockHook(real(*a, **k), bump, lambda: None, state),
+            ),
+            patch("stripe.Subscription.modify") as mock_modify,
+        ):
+            result = subscription_plans.migrate_plan_subscribers(online_plan, initiated_by=organization_owner_user)
+        mock_modify.assert_not_called()
+        assert (result["skipped_schedule_managed"], result["skipped"]) == (1, 0)
+
     def test_stripe_target_is_plan_reread_under_lock(
         self, online_plan: Plan, sub: Sub, organization_owner_user: RevelUser
     ) -> None:
