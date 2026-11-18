@@ -504,14 +504,31 @@ class TestCascadeDeletes:
     ) -> None:
         code = _code(organization, "CXLTHENDEL")
         (ticket,) = _reserve(offline_tier, user_a, code, with_payment=False)
-        _reserve(offline_tier, user_b, code, with_payment=False)  # sibling use so the floor cannot mask it
+        (sibling,) = _reserve(offline_tier, user_b, code, with_payment=False)
+        Ticket.objects.filter(pk=sibling.pk).update(status=Ticket.TicketStatus.ACTIVE)  # confirmed: keeps its use
         assert _used(code) == 2
 
         _user_cancel(ticket, user_a)
         assert _used(code) == 1
         event_service.delete_event(offline_tier.event)
 
-        assert _used(code) == 0  # only the sibling's still-pending use is released, once
+        # The cancelled ticket was already released; a second release would drop this to 0.
+        assert _used(code) == 1
+
+    def test_unconfirmed_offline_ticket_is_released_once_by_event_delete(
+        self, offline_tier: TicketTier, organization: Organization, user_a: RevelUser, user_b: RevelUser
+    ) -> None:
+        code = _code(organization, "UNCONFDEL")
+        (ticket,) = _reserve(offline_tier, user_a, code, with_payment=False)
+        (confirmed,) = _reserve(offline_tier, user_b, code, with_payment=False)
+        Ticket.objects.filter(pk__in=[ticket.pk, confirmed.pk]).update(status=Ticket.TicketStatus.ACTIVE)
+        assert _used(code) == 2
+
+        ticket.refresh_from_db()
+        ticket_service.unconfirm_ticket_payment(ticket)
+        event_service.delete_event(offline_tier.event)
+
+        assert _used(code) == 1  # the unconfirmed ticket is released, the confirmed one keeps its use
 
     def test_cascade_release_lock_order_payment_tier_ticket_then_code(
         self, online_tier: TicketTier, organization: Organization, user_a: RevelUser

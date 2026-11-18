@@ -680,15 +680,17 @@ def release_uses_of_pending_tickets(*, event: Event | None = None, user: RevelUs
 
     Locks follow the canonical order: the candidate tickets' Payment rows (offline tickets have
     none), then their TicketTier rows, then the Ticket rows themselves (serializing with user and
-    organizer cancels, which lock the ticket row), each in pk order. Only then are the tickets that
-    are still PENDING with a discount code re-queried and passed to :func:`release_discount_uses`,
-    which locks the DiscountCode rows last.
+    organizer cancels, which lock the ticket row), each in pk order. Candidates are every coded ticket in
+    scope regardless of status; only then are those that are still PENDING re-queried and passed to
+    :func:`release_discount_uses`, which locks the DiscountCode rows last.
 
     Exactly one of ``event`` / ``user`` must be given.
     """
     if (event is None) == (user is None):
         raise ValueError("Pass exactly one of event or user.")
-    candidates = Ticket.objects.filter(status=Ticket.TicketStatus.PENDING, discount_code_id__isnull=False)
+    # Status is deliberately not filtered here: a coded ticket may be moved back to PENDING (organizer
+    # unconfirm) before we hold its lock, so the PENDING check happens only under the locks below.
+    candidates = Ticket.objects.filter(discount_code_id__isnull=False)
     candidates = candidates.filter(event=event) if event is not None else candidates.filter(user=user)
     ticket_ids = list(candidates.values_list("pk", flat=True))
     if not ticket_ids:

@@ -967,27 +967,34 @@ def test_edit_slug_by_unauthorized_users(
 def test_delete_event_releases_pending_discount_uses(
     organization_owner_client: Client, event: Event, organization_owner_user: RevelUser
 ) -> None:
-    """Deleting an event cascades its PENDING tickets, so their discount code uses are given back."""
-    from decimal import Decimal
-
+    """Deleting an event releases its PENDING tickets' uses (not ACTIVE ones, nor another event's)."""
     from events.models.discount_code import DiscountCode
 
-    tier = TicketTier.objects.create(event=event, name="Offline", price=Decimal("10.00"), total_quantity=10)
+    tier = TicketTier.objects.create(event=event, name="Offline", price="10.00", total_quantity=10)
     code = DiscountCode.objects.create(
         code="DELCODE",
         organization=event.organization,
         discount_type=DiscountCode.DiscountType.PERCENTAGE,
-        discount_value=Decimal("5.00"),
+        discount_value="5.00",
         max_uses=5,
         is_active=True,
-        times_used=1,
+        times_used=3,
     )
-    Ticket.objects.create(
-        event=event, tier=tier, user=organization_owner_user, status=Ticket.TicketStatus.PENDING, discount_code=code
+    other_event = Event.objects.create(
+        organization=event.organization, name="Other", slug="other-del", start=event.start
     )
+    other_tier = TicketTier.objects.create(event=other_event, name="Offline", price="10.00", total_quantity=10)
+    confirmed_user = RevelUser.objects.create_user(username="del_confirmed", email="del_confirmed@example.com")
+    pending, active = Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE
+    for ev, tr, usr, st in [
+        (event, tier, organization_owner_user, pending),
+        (event, tier, confirmed_user, active),
+        (other_event, other_tier, confirmed_user, pending),
+    ]:
+        Ticket.objects.create(event=ev, tier=tr, user=usr, status=st, discount_code=code)
 
     response = organization_owner_client.delete(reverse("api:delete_event", kwargs={"event_id": event.pk}))
 
     assert response.status_code == 204
     code.refresh_from_db()
-    assert code.times_used == 0
+    assert code.times_used == 2  # only the target event's PENDING ticket is released
