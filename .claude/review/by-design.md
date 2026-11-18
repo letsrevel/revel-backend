@@ -32,6 +32,11 @@ Policy-level intended behaviour that reviewers must not report as a finding. Eac
 - boundary: any code that unlocks attendee-only data from `status != CANCELLED`, from PENDING, or from ACTIVE alone (which drops checked-in attendees) is a bug; the definition lives in `Ticket.ATTENDING_STATUSES` and `Ticket.objects.attending()`. Conversely, narrowing a notification audience to attending tickets only is a regression.
 - reference: `src/events/tests/test_attending_followups_1278.py`; maintainer decision (#1308).
 
+## Venues are public
+- behaviour: a venue (name, address, map URL and embed, city, capacity, description) is public information. It is nested in full in every event, event list, calendar, ticket and ticket-tier response, whatever the event's `address_visibility`. That setting governs only the event's own `address` and map fields (`EventDetailSchema.resolve_address` and siblings). An organizer who needs a hidden location uses a custom address instead of a venue; the frontend form says so (letsrevel/revel-frontend#1254).
+- boundary: the event's own `address`, `location_maps_url` and `location_maps_embed` must still be gated by `Event.can_user_see_address` wherever they are returned. Admin-only venue data (sectors, seats, layout metadata beyond the public chart) stays behind organization permissions.
+- reference: maintainer decision 2026-11-18 (re-confirmed after a scan flagged it).
+
 ## Platform fee is not refunded
 - behaviour: when a ticket is refunded, Revel keeps its platform fee (the application fee), mirroring how Stripe keeps its processing fee on a refunded charge. This is a business decision, not an oversight.
 - boundary: while the fee exists it must be apportioned correctly: mixed-price carts split it pro rata by ticket price with largest-remainder rounding, never evenly. Refund amounts must still never exceed what was paid for the ticket, and the organization's share must be refunded correctly.
