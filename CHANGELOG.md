@@ -8,7 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **Billing period of a plan with members can no longer change**: changing a subscription plan's period (for example monthly to yearly) is now refused with a 400 while the plan has pending, active, paused or past-due subscriptions, or members with a downgrade scheduled into it, as currency changes already were. Archive the plan and create a new one instead. A period-count edit on a lifetime plan is still allowed, since it changes nothing. Before, migrating online subscribers to the new period either stretched their current period to the new length without charging for it (a year of membership for one month's price) or charged the new price at once, depending on the subscription's Stripe billing mode. "Migrate subscribers" now also refuses to move an online subscriber to a price with a different billing period and reports them as failed. This also covers plans whose period changed before this fix or through Django admin. Members whose period was already stretched by an earlier migration are not corrected automatically.
+- **Billing period of a plan with members can no longer change**: changing a subscription plan's period (for example monthly to yearly) is now refused with a 400 while the plan has pending, active, paused or past-due subscriptions, or members with a downgrade scheduled into it.
+  - Archive the plan and create a new one instead, as for currency changes.
+  - A period-count edit on a lifetime plan is still allowed, since it changes nothing.
+  - Before, migrating online subscribers to the new period either stretched their paid period without charging for it or charged the new price at once, depending on the subscription's Stripe billing mode.
+  - "Migrate subscribers" now refuses to move an online subscriber to a price with a different billing period and reports them as failed, which also covers plans whose period changed before this fix or through Django admin.
+  - A subscription or downgrade that starts at the same moment as the edit can still slip past the check on plans without a subscriber cap (#1427), but migration will not stretch its period.
+  - Members whose period was already stretched by an earlier migration are not corrected automatically.
 
 ## [2.38.2] - 2026-11-17
 
