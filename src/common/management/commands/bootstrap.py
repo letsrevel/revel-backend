@@ -23,7 +23,8 @@ class Command(BaseCommand):
         if User.objects.filter(username=username).exists():
             self.stdout.write(self.style.WARNING(f"Superuser '{username}' already exists."))
         else:
-            User.objects.create_superuser(username=username, password=password, email=email)
+            # Password login and refresh rotation refuse unverified accounts.
+            User.objects.create_superuser(username=username, password=password, email=email, email_verified=True)
             self.stdout.write(self.style.SUCCESS(f"Superuser '{username}' created successfully."))
 
             if password == default_password:
