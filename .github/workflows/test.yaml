@@ -227,15 +227,41 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       # The official CEN/XRechnung/Peppol artifacts are pinned per euinvoice release, so the
-      # version is the whole cache key.
-      - name: Restore euinvoice validation artifacts
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/euinvoice
-          key: euinvoice-artifacts-${{ steps.euinvoice.outputs.version }}
+      # version is the whole cache key. The directory is workspace-relative on purpose: `~` differs
+      # between a bare runner and a container job, and an archive saved under one home restores to
+      # a path the other never reads (the pre-container cache was hit on every run and never used).
+      - name: Point euinvoice at a workspace-relative artifact directory
+        run: echo "EUINVOICE_ARTIFACTS_DIR=$GITHUB_WORKSPACE/.euinvoice-artifacts" >> "$GITHUB_ENV"
 
+      - name: Restore euinvoice validation artifacts
+        id: euinvoice-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .euinvoice-artifacts
+          key: euinvoice-artifacts-ws-${{ steps.euinvoice.outputs.version }}
+
+      # Idempotent: complete cache entries are skipped without network access, so on a cache hit
+      # this is offline. On a miss it downloads from third-party hosts (Codeberg among them);
+      # retry so a short outage does not fail the job.
       - name: Fetch euinvoice validation artifacts
-        run: uv run python -m euinvoice artifacts fetch
+        run: |
+          for attempt in 1 2 3; do
+            if uv run python -m euinvoice artifacts fetch; then
+              exit 0
+            fi
+            echo "::warning::euinvoice artifacts fetch failed (attempt $attempt of 3)"
+            if [ "$attempt" -lt 3 ]; then sleep $((attempt * 20)); fi
+          done
+          exit 1
+
+      # Saved right after a successful fetch (not in a post-step), so a later failure in this job
+      # cannot leave the cache cold.
+      - name: Save euinvoice validation artifacts
+        if: steps.euinvoice-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .euinvoice-artifacts
+          key: euinvoice-artifacts-ws-${{ steps.euinvoice.outputs.version }}
 
       - name: Validate generated Factur-X documents against the CEN rules
         env:
