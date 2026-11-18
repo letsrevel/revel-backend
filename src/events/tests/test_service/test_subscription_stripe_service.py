@@ -226,11 +226,15 @@ class TestEnsureStripePrice:
         mock_create: mock.Mock,
         online_plan: MembershipSubscriptionPlan,
     ) -> None:
-        mock_retrieve.return_value = mock.MagicMock(
-            active=True,
-            unit_amount=1000,
-            currency="eur",
-            recurring=mock.MagicMock(interval="month", interval_count=1),
+        # A real StripeObject (dict-backed): the cadence check reads the Price via ``.get``.
+        mock_retrieve.return_value = stripe.Price.construct_from(
+            {
+                "active": True,
+                "unit_amount": 1000,
+                "currency": "eur",
+                "recurring": {"interval": "month", "interval_count": 1},
+            },
+            "price_test",
         )
         result = subscription_stripe_checkout.ensure_stripe_price(online_plan)
         assert result.stripe_price_id == "price_test"

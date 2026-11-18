@@ -35,6 +35,7 @@ from events.service.subscription.stripe.base import (
     ensure_stripe_price as ensure_stripe_price,
 )
 from events.service.subscription.stripe.base import (
+    recurring_cadence,
     require_stripe_connected,
 )
 from events.service.subscription.stripe.fees import effective_application_fee_percent
@@ -708,15 +709,32 @@ def cancel_online_subscription(
 # See subscription.lifecycle.change_plan for the dispatch entry-point.
 
 
-def _recurring_cadence(price: t.Mapping[str, t.Any]) -> tuple[str, int] | None:
-    """``(interval, interval_count)`` of a Stripe Price, or None if it does not recur."""
-    recurring = price.get("recurring") or {}
-    if not recurring.get("interval"):
-        return None
-    return recurring["interval"], recurring.get("interval_count") or 1
+CadenceLookup = t.Callable[[str], tuple[str, int] | None]
 
 
-def update_subscription_price(subscription: MembershipSubscription) -> bool:
+def fetch_price_cadence(price_id: str, organization: Organization) -> tuple[str, int] | None:
+    """``(interval, interval_count)`` of a Stripe Price on ``organization``'s account, or None if it does not recur.
+
+    Raises:
+        HttpError: 502 when Stripe cannot return the Price.
+    """
+    try:
+        price = stripe.Price.retrieve(price_id, **stripe_account_kwargs(organization))
+    except stripe.error.StripeError as exc:
+        logger.error(
+            "subscription_stripe_target_price_retrieve_failed",
+            organization_id=str(organization.pk),
+            target_price_id=price_id,
+            error=str(exc),
+        )
+        raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
+    return recurring_cadence(price)
+
+
+def update_subscription_price(
+    subscription: MembershipSubscription,
+    cadence_of: CadenceLookup | None = None,
+) -> bool:
     """Swap the Stripe Price to the plan's current price (proration_behavior='none').
 
     Callers must filter out schedule-managed rows (``stripe_schedule_id`` set)
@@ -725,17 +743,24 @@ def update_subscription_price(subscription: MembershipSubscription) -> bool:
     ``subscription.plans.migrate_plan_subscribers`` and
     :func:`resync_subscription_application_fees` for the carve-out.
 
+    ``cadence_of`` lets a caller that migrates many subscribers share Price
+    lookups: it is called with the id of the Price being installed and must
+    return that Price's cadence, read on the plan's organization account (the
+    same as the subscription's: ``MembershipSubscription.clean`` enforces it).
+    When None, the Price is retrieved here via :func:`fetch_price_cadence`.
+
     Returns True when modify was called; False when already current or skipped.
 
     Raises:
         ValueError: If the subscriber's Stripe Price and the plan's current
             Price recur on different intervals (or either does not recur);
             ``migrate_plan_subscribers`` reports it as a per-subscription failure.
+        HttpError: 502 when Stripe cannot return a Price or the swap fails.
     """
     if not subscription.stripe_subscription_id:
         return False
-    current_price_id = subscription.plan.stripe_price_id
-    if not current_price_id:
+    target_price_id = subscription.plan.stripe_price_id
+    if not target_price_id:
         return False
 
     org = subscription.organization
@@ -750,32 +775,25 @@ def update_subscription_price(subscription: MembershipSubscription) -> bool:
         return False
     item = items[0]
     item_price = item.get("price") or {}
-    if item_price.get("id") == current_price_id:
+    if item_price.get("id") == target_price_id:
         return False
     # With proration_behavior="none", Stripe stretches the paid period to a new
     # interval without invoicing (#1423). Compare the two Prices themselves, not
     # the plan row, which an admin edit can leave out of sync with its Price.
-    try:
-        target_price = stripe.Price.retrieve(current_price_id, **kwargs)
-    except stripe.error.StripeError as exc:
-        logger.error(
-            "subscription_stripe_target_price_retrieve_failed",
-            subscription_id=str(subscription.pk),
-            target_price_id=current_price_id,
-            error=str(exc),
-        )
-        raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
-    current_cadence = _recurring_cadence(item_price)
-    target_cadence = _recurring_cadence(target_price)
-    if current_cadence is None or current_cadence != target_cadence:
+    current_cadence = recurring_cadence(item_price)
+    if cadence_of is None:
+        plan_cadence = fetch_price_cadence(target_price_id, org)
+    else:
+        plan_cadence = cadence_of(target_price_id)
+    if current_cadence is None or current_cadence != plan_cadence:
         raise ValueError(
-            f"Billing period differs (current Price {current_cadence}, plan Price {target_cadence}): not migrated. "
+            f"Billing period differs (current Price {current_cadence}, plan Price {plan_cadence}): not migrated. "
             "Move the subscriber to a plan with a matching billing period."
         )
     try:
         stripe.Subscription.modify(
             subscription.stripe_subscription_id,
-            items=[{"id": item["id"], "price": current_price_id}],
+            items=[{"id": item["id"], "price": target_price_id}],
             proration_behavior="none",
             **kwargs,
         )
@@ -783,7 +801,7 @@ def update_subscription_price(subscription: MembershipSubscription) -> bool:
         logger.error(
             "subscription_stripe_price_swap_failed",
             subscription_id=str(subscription.pk),
-            target_price_id=current_price_id,
+            target_price_id=target_price_id,
             error=str(exc),
         )
         raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc

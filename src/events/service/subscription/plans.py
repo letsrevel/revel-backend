@@ -7,6 +7,7 @@ per-subscription state machine) so each module stays well inside the
 never on a single subscriber's lifecycle.
 """
 
+import functools
 import typing as t
 from decimal import Decimal
 
@@ -286,10 +287,19 @@ def migrate_plan_subscribers(
     # One query up front (no N+1); ONLINE subs re-read theirs under the lock below.
     old_price_by_sub = _last_paid_amounts(qs)
 
+    organization = plan.tier.organization
+
+    @functools.cache
+    def cadence_of(price_id: str) -> tuple[str, int] | None:
+        # Keyed by the Price actually being installed, so a Price re-provisioned mid-run is
+        # fetched afresh. functools.cache does not store exceptions: a transient Stripe error
+        # fails only that subscriber and the next one retries the fetch.
+        return stripe_checkout.fetch_price_cadence(price_id, organization)
+
     for sub in qs:
         try:
             if sub.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
-                locked_sub = _swap_online_price_locked(plan, sub, result)
+                locked_sub = _swap_online_price_locked(plan, sub, result, cadence_of)
                 if locked_sub is None:
                     continue
                 sub = locked_sub  # the notice must describe the row actually swapped
@@ -345,7 +355,10 @@ def migrate_plan_subscribers(
 
 
 def _swap_online_price_locked(
-    plan: MembershipSubscriptionPlan, sub: MembershipSubscription, result: MigrationResult
+    plan: MembershipSubscriptionPlan,
+    sub: MembershipSubscription,
+    result: MigrationResult,
+    cadence_of: stripe_checkout.CadenceLookup,
 ) -> MembershipSubscription | None:
     """Swap one ONLINE subscriber onto the plan's current Price; ``None`` when skipped (counted in ``result``).
 
@@ -395,7 +408,7 @@ def _swap_online_price_locked(
             _log_left_for_rerun(plan, locked)
             result["skipped"] += 1
             return None
-        if not stripe_checkout.update_subscription_price(locked):
+        if not stripe_checkout.update_subscription_price(locked, cadence_of=cadence_of):
             result["skipped"] += 1
             return None
     return locked
