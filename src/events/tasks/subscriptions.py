@@ -552,7 +552,18 @@ def reconcile_stripe_subscriptions() -> SubscriptionReconcileCounters:
             and latest_invoice.get("status") == "paid"
             and not MembershipPayment.objects.filter(stripe_invoice_id=latest_invoice["id"]).exists()
         ):
-            subscription_stripe_sync.record_stripe_payment_from_invoice(dict(latest_invoice), succeeded=True)
+            try:
+                subscription_stripe_sync.record_stripe_payment_from_invoice(dict(latest_invoice), succeeded=True)
+            except stripe_sdk.error.StripeError, ValueError:
+                # One subscription's unresolvable invoice (e.g. its stub Price can't be read)
+                # must not abort the sweep for every subscription after it.
+                counters["errors"] += 1
+                logger.exception(
+                    "subscription_reconcile_ledger_backfill_failed",
+                    subscription_id=str(sub_id),
+                    stripe_invoice_id=latest_invoice["id"],
+                )
+                continue
             counters["ledger_backfilled"] += 1
             logger.info(
                 "subscription_reconcile_ledger_backfilled",
