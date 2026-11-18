@@ -133,11 +133,31 @@ class TestRenewalReminderTask:
         reminded_before = make_sub(
             period_end_offset_days=REMINDER_DAYS - 1, status=MembershipSubscription.SubscriptionStatus.ACTIVE
         )
+        # Started long ago, so it existed on its reminder day.
+        reminded_before.current_period_start = timezone.now() - timedelta(days=28)
+        reminded_before.save(update_fields=["current_period_start"])
         backfill(django_apps, None)
         reminded_before.refresh_from_db()
         assert reminded_before.renewal_reminded_for == reminded_before.current_period_end
         # The deploy-day run must not re-remind it under the widened window.
         assert send_subscription_renewal_reminders()["sent"] == 0
+
+    def test_backfill_migration_leaves_a_newly_started_short_period_unreminded(
+        self, make_sub: t.Callable[..., MembershipSubscription]
+    ) -> None:
+        """0148: a period that started after its would-be reminder day was never reminded, so it keeps its one."""
+        import importlib
+
+        from django.apps import apps as django_apps
+
+        backfill = importlib.import_module("events.migrations.0148_backfill_renewal_reminded_for").backfill
+        fresh = make_sub(
+            period_end_offset_days=REMINDER_DAYS - 1, status=MembershipSubscription.SubscriptionStatus.ACTIVE
+        )  # started now, ends in 2 days
+        backfill(django_apps, None)
+        fresh.refresh_from_db()
+        assert fresh.renewal_reminded_for is None
+        assert send_subscription_renewal_reminders()["sent"] == 1
 
     def test_backfill_migration_leaves_the_exact_target_day_for_the_beat(
         self, make_sub: t.Callable[..., MembershipSubscription]

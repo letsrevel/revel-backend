@@ -597,6 +597,26 @@ def revive_subscription(
     return subscription, checkout_url
 
 
+def _ensure_same_currency_and_grid(subscription: MembershipSubscription, new_plan: MembershipSubscriptionPlan) -> None:
+    """Refuse a target in another currency or, for ONLINE, on another billing calendar."""
+    if new_plan.currency.upper() != subscription.plan.currency.upper():
+        raise HttpError(400, str(_("New plan must use the same currency as the current plan.")))
+    # Both ONLINE plan-change paths keep Stripe's billing anchor (upgrade = price swap, downgrade =
+    # schedule phase 2 at the old period end), so a plan on another grid would bill off its calendar.
+    if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE and not same_period_grid(
+        subscription.plan, new_plan
+    ):
+        raise HttpError(
+            400,
+            str(
+                _(
+                    "Online subscriptions can only switch to a plan with the same billing calendar. "
+                    "Cancel and subscribe to the other plan instead."
+                )
+            ),
+        )
+
+
 def _validate_change_plan_target(
     subscription: MembershipSubscription,
     new_plan: MembershipSubscriptionPlan,
@@ -619,27 +639,14 @@ def _validate_change_plan_target(
             400,
             str(_("Cannot switch between plans with different payment methods. Cancel and subscribe again instead.")),
         )
-    if new_plan.currency.upper() != subscription.plan.currency.upper():
-        raise HttpError(400, str(_("New plan must use the same currency as the current plan.")))
-    # Both ONLINE plan-change paths keep Stripe's billing anchor (upgrade = price swap, downgrade =
-    # schedule phase 2 at the old period end), so a plan on another grid would bill off its calendar.
-    if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE and not same_period_grid(
-        subscription.plan, new_plan
-    ):
-        raise HttpError(
-            400,
-            str(
-                _(
-                    "Online subscriptions can only switch to a plan with the same billing calendar. "
-                    "Cancel and subscribe to the other plan instead."
-                )
-            ),
-        )
+    _ensure_same_currency_and_grid(subscription, new_plan)
     # Sales checks last: a structurally impossible switch must answer 400 without taking the plan lock.
     if subscription.plan_id != new_plan.pk:
         if enforce_sales_status:
             ensure_plan_on_sale(new_plan)
         ensure_plan_sales_capacity(new_plan)
+        # The lock refreshed new_plan: a concurrent update_plan may have changed its currency or grid.
+        _ensure_same_currency_and_grid(subscription, new_plan)
 
 
 @transaction.atomic

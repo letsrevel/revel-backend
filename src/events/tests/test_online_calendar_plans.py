@@ -451,6 +451,51 @@ class TestPlanChange:
         capacity.assert_not_called()
         on_sale.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("change", "message"),
+        [
+            ({"calendar_start_month": 9}, "same billing calendar"),
+            ({"currency": "USD"}, "same currency"),
+        ],
+        ids=["grid", "currency"],
+    )
+    def test_target_changed_while_waiting_for_the_plan_lock_is_refused(
+        self,
+        tier: MembershipTier,
+        calendar_year_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        stripe_org: Organization,
+        change: dict[str, t.Any],
+        message: str,
+    ) -> None:
+        """ensure_plan_sales_capacity refreshes the target after waiting out a concurrent update_plan."""
+        sub = _active(calendar_year_plan, subscriber, stripe_org)
+        other = _online_plan(
+            tier,
+            name="Other",
+            price=Decimal("200"),
+            stripe_price_id="price_other",
+            period_alignment=Plan.PeriodAlignment.CALENDAR,
+        )
+
+        def concurrent_update_then_refresh(plan: MembershipSubscriptionPlan) -> None:
+            Plan.objects.filter(pk=plan.pk).update(**change)
+            plan.refresh_from_db()
+
+        with (
+            mock.patch("events.service.subscription.lifecycle.stripe_plan_change.change_online_plan") as change_online,
+            mock.patch(
+                "events.service.subscription.lifecycle.ensure_plan_sales_capacity",
+                side_effect=concurrent_update_then_refresh,
+            ),
+        ):
+            with pytest.raises(HttpError) as exc:
+                subscription_lifecycle.change_plan(sub, other, enforce_eligibility=False)
+
+        assert exc.value.status_code == 400
+        assert message in exc.value.message
+        change_online.assert_not_called()
+
     def test_rolling_subscription_cannot_move_onto_a_calendar_plan(
         self,
         rolling_plan: MembershipSubscriptionPlan,

@@ -90,6 +90,17 @@ class TestFreeStubRule:
         assert is_free_stub(_monthly(tier, "10.00", currency="CZK", name="Czk"), at)
         assert not is_free_stub(_monthly(tier, "10.00", currency="EUR", name="Eur", stripe_price_id="price_eur"), at)
 
+    def test_every_accepted_currency_has_a_minimum_charge(self) -> None:
+        from events.schema.ticket_tier import Currencies
+        from events.utils.subscription_periods import _MIN_CHARGE
+
+        assert set(t.get_args(Currencies)) <= set(_MIN_CHARGE)
+
+    def test_krw_stub_below_the_minimum_is_free(self, tier: MembershipTier) -> None:
+        """2400 KRW/month at 12:45 (the session's latest completion) prorates to 38 KRW, under the 700 minimum."""
+        plan = _monthly(tier, "2400", currency="KRW")
+        assert is_free_stub(plan, datetime.datetime(2026, 11, 30, 12, tzinfo=UTC))
+
     def test_quote_is_zero_for_a_free_stub_and_prorated_otherwise(self, tier: MembershipTier) -> None:
         plan = _monthly(tier)
         assert first_period_price(plan, datetime.datetime(2026, 11, 30, 23, 30, tzinfo=UTC)) == Decimal("0.00")
@@ -294,6 +305,26 @@ class TestEventsBeforeCheckoutCompletion:
             BOUNDARY,
         )
         assert not MembershipPayment.objects.filter(subscription=unlinked_calendar_sub).exists()
+
+    def test_completion_with_a_lineless_invoice_still_mirrors_the_subscription_period(
+        self, unlinked_calendar_sub: MembershipSubscription
+    ) -> None:
+        """A free stub's invoice may carry no lines (so no period) after the subscription events were dropped."""
+        handler = _completion_handler(unlinked_calendar_sub, invoice="in_free")
+        with (
+            mock.patch(
+                RETRIEVE_INVOICE,
+                return_value={**_free_stub_invoice(with_line=False, invoice_id="in_free"), "status": "paid"},
+            ),
+            mock.patch(RETRIEVE_SUBSCRIPTION, return_value=_subscription_payload(start=JOIN, end=BOUNDARY)),
+        ):
+            handler.handle_subscription_checkout_completed(handler.event)
+
+        unlinked_calendar_sub.refresh_from_db()
+        assert (unlinked_calendar_sub.current_period_start, unlinked_calendar_sub.current_period_end) == (
+            JOIN,
+            BOUNDARY,
+        )
 
 
 class TestFreeStubInvoice:

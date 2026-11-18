@@ -25,7 +25,11 @@ MIN_SESSION_MINUTES = 31
 
 # Stripe's minimum charge per currency, in major units (https://docs.stripe.com/currencies#minimum-and-maximum-charge-amounts).
 # A prorated first period below it cannot be billed, so the join gets a free stub instead.
-# ponytail: unknown currencies fall back to a deliberately high floor (a few cents of free stub beats a
+# Stripe publishes no native minimum for CNY, IDR, ILS, ISK, KRW, PHP, TRY and ZAR (they settle into the
+# account currency, where about 0.50 USD/EUR applies), so those entries are conservative approximations of
+# 0.50 USD rounded UP: erring high makes a near-minimum stub free rather than charged or carried.
+# A test asserts every accepted ``Currencies`` value has an entry.
+# ponytail: currencies outside that set fall back to a deliberately high floor (a few cents of free stub beats a
 # Stripe-side failure); add the currency here if it needs an exact figure.
 _MIN_CHARGE: dict[str, Decimal] = {
     code: Decimal(amount)
@@ -36,24 +40,32 @@ _MIN_CHARGE: dict[str, Decimal] = {
         "BRL": "0.50",
         "CAD": "0.50",
         "CHF": "0.50",
+        "CNY": "4.00",  # not published by Stripe: approximately 0.50 USD, rounded up (see the note above the table)
         "CZK": "15.00",
         "DKK": "2.50",
         "EUR": "0.50",
         "GBP": "0.30",
         "HKD": "4.00",
         "HUF": "175.00",
+        "IDR": "10000",  # approximate, see note
+        "ILS": "2.00",  # approximate, see note
         "INR": "0.50",
+        "ISK": "70",  # approximate, see note
         "JPY": "50",
+        "KRW": "700",  # approximate, see note
         "MXN": "10.00",
         "MYR": "2.00",
         "NOK": "3.00",
         "NZD": "0.50",
+        "PHP": "30.00",  # approximate, see note
         "PLN": "2.00",
         "RON": "2.00",
         "SEK": "3.00",
         "SGD": "0.50",
         "THB": "10.00",
+        "TRY": "20.00",  # approximate, see note
         "USD": "0.50",
+        "ZAR": "10.00",  # approximate, see note
     }.items()
 }
 _DEFAULT_MIN_CHARGE = Decimal("1.00")

@@ -3,6 +3,8 @@
 Before 0147 the beat reminded each subscription exactly ``REMINDER_DAYS`` days before its period end,
 without recording it. The new window also picks up periods ending sooner, so every active subscription
 whose period ends between now and the target date was already reminded under the old rule: mark it.
+Only a period that already existed on its reminder day (it started at least ``REMINDER_DAYS`` days before it
+ends) could have been reminded; a newer, shorter one never was and keeps its one reminder.
 """
 
 import datetime
@@ -28,6 +30,7 @@ def backfill(apps: "Apps", schema_editor: "BaseDatabaseSchemaEditor") -> None:
         renewal_reminded_for__isnull=True,
         current_period_end__gt=timezone.now(),
         current_period_end__date__lt=target_date,
+        current_period_start__lte=F("current_period_end") - datetime.timedelta(days=REMINDER_DAYS),
     ).update(renewal_reminded_for=F("current_period_end"))
 
 

@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The first, partial period is either prorated by the time remaining (rounded to the currency's smallest unit, so whole units for yen) or charged in full; plan responses show the first period's end and price as if a member joined now.
   - Online (Stripe) calendar plans anchor Checkout and revival on the next boundary, so a member joining mid-period pays a prorated first charge and the full price on each boundary.
     - Online plans can only prorate the first period (no trials, no one-off line items), and renewal reminders and price-migration notices quote the full price rather than the prorated first charge.
-    - A first period that Stripe could not charge, or that would be under an hour long when checkout completes, is free: billing starts at the boundary and the quoted first-period price is zero.
+    - A first period that Stripe could not charge, or that would be under an hour long at the session's latest possible completion time (its expiry), is free: billing starts at the boundary and the quoted first-period price is zero.
     - The next full charge is stated before payment, on the Stripe Checkout page and in the revival notice.
     - Renewal reminders now also reach periods that end sooner than three days out, such as a short first period, once per period.
   - An online subscription can only change plan within its own calendar: rolling to rolling, or calendar to calendar with the same period and start month. Any other switch is refused with a message to cancel and subscribe to the other plan.
