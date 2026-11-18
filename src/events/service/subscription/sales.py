@@ -31,18 +31,11 @@ def ensure_plan_on_sale(plan: MembershipSubscriptionPlan) -> None:
         raise HttpError(400, str(_("Sales for this plan are currently paused.")))
 
 
+# Every plain column, derived so fields added to the plan later are refreshed too;
+# relations are left out so cached FKs (tier, tier.organization) stay loaded.
 _LOCK_REFRESH_FIELDS = [
-    "currency",
-    "price",
-    "period_unit",
-    "period_count",
-    "stripe_price_id",
-    "stripe_product_id",
-    "is_active",
-    "sales_status",
-    "max_subscriptions",
-    "payment_method",
-]  # scalar columns only: cached FK relations (tier, organization) stay loaded
+    f.attname for f in MembershipSubscriptionPlan._meta.concrete_fields if not f.is_relation and not f.primary_key
+]
 
 
 def ensure_plan_sales_capacity(plan: MembershipSubscriptionPlan) -> None:

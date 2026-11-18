@@ -486,7 +486,7 @@ def _run_stale_capacity_check(plan: Plan, change: t.Callable[[], t.Any]) -> tupl
     locked = threading.Event()
     release = threading.Event()
     outcome: dict[str, t.Any] = {}
-    stale = Plan.objects.get(pk=plan.pk)
+    stale = Plan.objects.select_related("tier__organization").get(pk=plan.pk)
 
     def editor() -> None:
         try:
@@ -536,9 +536,16 @@ def test_capacity_check_refreshes_stale_plan_after_waiting_out_an_edit(plan: Pla
     other's real commits and lock waits, which the rollback-wrapped default
     ``django_db`` transaction cannot provide.
     """
-    stale, outcome = _run_stale_capacity_check(plan, lambda: Plan.objects.filter(pk=plan.pk).update(currency="USD"))
+    stale, outcome = _run_stale_capacity_check(
+        plan,
+        lambda: Plan.objects.filter(pk=plan.pk).update(
+            currency="USD", price=Decimal("99"), stripe_price_id="price_after"
+        ),
+    )
     assert outcome["result"] == "ok"
-    assert stale.currency == "USD"
+    assert (stale.currency, stale.price, stale.stripe_price_id) == ("USD", Decimal("99"), "price_after")
+    # Only columns are refreshed: the cached tier relation survives (no extra queries on the checkout path).
+    assert Plan.tier.is_cached(stale)
 
 
 @pytest.mark.django_db(transaction=True)

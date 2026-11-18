@@ -135,8 +135,8 @@ capacity-reclaim invariants of ticket tiers. On an uncapped plan it takes `FOR K
 instead: creations don't block each other, but `update_plan`'s `FOR UPDATE` conflicts with it,
 so the currency/cadence guard cannot miss a subscription in flight (#1427). Once locked, the
 caller's plan instance is refreshed in place, so the rest of the creation uses the committed
-currency, cadence, price, Stripe price and cap; the sales pause is not re-checked, so a checkout
-already past the sales checks when a pause commits still completes. An uncapped plan that gained
+currency, cadence, price, Stripe price and cap; the sales pause and archived state are not re-checked, so a checkout
+already past the sales checks when a pause or archive commits still completes. An uncapped plan that gained
 a cap while the caller waited falls through to the capped path. The public plan schema exposes `sales_status` and a
 computed `sold_out` flag so the frontend can render "sold out" vs "sales
 paused" vs a normal subscribe CTA.
