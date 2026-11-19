@@ -41,7 +41,7 @@ def self_linked_record_q() -> Q:
     )
 
 
-def known_holder_q(organization_id: UUID, user_ref: OuterRef) -> Q:
+def known_holder_q(organization_id: UUID | OuterRef, user_ref: OuterRef) -> Q:
     """Condition: the account at ``user_ref`` acted toward the organization (or is its owner/staff/member).
 
     Counts: owner, staff, member (any status), membership request (any status), a linked register record

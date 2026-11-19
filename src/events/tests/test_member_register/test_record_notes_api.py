@@ -360,3 +360,93 @@ class TestMergeNoteTransfer:
         merge_records(survivor, absorbed)
 
         assert OrganizationUserNote.objects.get().user_id == claimant.pk
+
+
+class TestNoteVisibilityFollowsKnownHolder:
+    """One rule for the flag and the read: a known holder's user note wins, else the record's own note; an unknown
+    holder's stale user note counts for neither."""
+
+    @pytest.fixture
+    def box_office_record(
+        self,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        claimant: RevelUser,
+        make_record: RecordFactory,
+    ) -> MembershipRecord:
+        ticket = Ticket.objects.create(
+            event=event,
+            user=claimant,
+            tier=event_ticket_tier,
+            guest_name="G",
+            sale_source=TicketSaleSource.BOX_OFFICE_COMP,
+        )
+        return make_record(
+            user=claimant, kind=MembershipRecord.Kind.TEMPORARY, source=MembershipRecord.Source.TICKET, ticket=ticket
+        )
+
+    @staticmethod
+    def _flag(record: MembershipRecord) -> bool:
+        return MembershipRecord.objects.filter(pk=record.pk).with_note_flag().get().note_exists  # type: ignore[attr-defined,no-any-return]
+
+    @staticmethod
+    def _become_known(event: Event, user: RevelUser) -> None:
+        from events.models import EventRSVP
+
+        EventRSVP.objects.create(event=event, user=user, status=EventRSVP.RsvpStatus.YES, source=EventRSVP.Source.SELF)
+
+    def test_stale_user_note_of_an_unknown_holder_is_not_a_note(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        claimant: RevelUser,
+        box_office_record: MembershipRecord,
+    ) -> None:
+        OrganizationUserNote.objects.create(organization=organization, user=claimant, body="stale")
+
+        assert self._flag(box_office_record) is False
+        assert owner_client.get(_url(organization, box_office_record)).status_code == 404
+
+    def test_record_note_stays_readable_when_the_holder_becomes_known(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        event: Event,
+        claimant: RevelUser,
+        box_office_record: MembershipRecord,
+    ) -> None:
+        OrganizationUserNote.objects.create(organization=organization, record=box_office_record, body="Staff only")
+        self._become_known(event, claimant)
+
+        response = owner_client.get(_url(organization, box_office_record))
+        assert response.status_code == 200, response.content
+        assert response.json()["body"] == "Staff only"
+        assert self._flag(box_office_record) is True
+
+    def test_user_note_wins_over_the_record_note_for_a_known_holder(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        event: Event,
+        claimant: RevelUser,
+        box_office_record: MembershipRecord,
+    ) -> None:
+        OrganizationUserNote.objects.create(organization=organization, record=box_office_record, body="record")
+        OrganizationUserNote.objects.create(organization=organization, user=claimant, body="user")
+        self._become_known(event, claimant)
+
+        assert owner_client.get(_url(organization, box_office_record)).json()["body"] == "user"
+        assert self._flag(box_office_record) is True
+
+    def test_known_holder_without_any_note_is_404(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        event: Event,
+        claimant: RevelUser,
+        box_office_record: MembershipRecord,
+    ) -> None:
+        self._become_known(event, claimant)
+
+        assert owner_client.get(_url(organization, box_office_record)).status_code == 404
+        assert self._flag(box_office_record) is False
