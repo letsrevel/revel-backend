@@ -288,7 +288,8 @@ class TestAddToBlacklistQuickMode:
         blacklist_admin: RevelUser,
         target_user: RevelUser,
     ) -> None:
-        """Should populate all fields from user object."""
+        """Should populate all fields from a user who acted toward the organization."""
+        OrganizationMember.objects.create(organization=blacklist_org, user=target_user)
         entry = blacklist_service.add_to_blacklist(
             organization=blacklist_org,
             created_by=blacklist_admin,
@@ -310,6 +311,7 @@ class TestAddToBlacklistQuickMode:
         target_user: RevelUser,
     ) -> None:
         """Should include telegram username when user has connected telegram."""
+        OrganizationMember.objects.create(organization=blacklist_org, user=target_user)
         TelegramUser.objects.create(
             user=target_user,
             telegram_id=12345,
@@ -842,6 +844,7 @@ class TestUpdateAndRemove:
             owner=blacklist_admin,
             visibility=Organization.Visibility.PUBLIC,
         )
+        OrganizationMember.objects.create(organization=public_org, user=target_user)
         entry = Blacklist.objects.create(
             organization=public_org,
             user=target_user,
@@ -855,6 +858,26 @@ class TestUpdateAndRemove:
 
         membership.refresh_from_db()
         assert membership.status == OrganizationMember.MembershipStatus.CANCELLED
+        assert public_org in Organization.objects.for_user(target_user)
+
+    def test_remove_from_blacklist_deletes_ban_created_membership(
+        self,
+        blacklist_admin: RevelUser,
+        target_user: RevelUser,
+    ) -> None:
+        """A row the ban itself created is deleted on unban and visibility returns."""
+        public_org = Organization.objects.create(
+            name="Public Unban Org 2",
+            slug="public-unban-org-2",
+            owner=blacklist_admin,
+            visibility=Organization.Visibility.PUBLIC,
+        )
+        entry = Blacklist.objects.create(organization=public_org, user=target_user, created_by=blacklist_admin)
+        assert public_org not in Organization.objects.for_user(target_user)
+
+        blacklist_service.remove_from_blacklist(entry)
+
+        assert not OrganizationMember.objects.filter(organization=public_org, user=target_user).exists()
         assert public_org in Organization.objects.for_user(target_user)
 
     def test_remove_from_blacklist_keeps_banned_if_other_entries_exist(

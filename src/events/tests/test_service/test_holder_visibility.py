@@ -89,7 +89,7 @@ KNOWN: dict[str, Act] = {
     ),
     "register record": lambda e, u: _record(e, u, MembershipRecord.Source.IMPORT),
     "checkout ticket": lambda e, u: _ticket(e, u, TicketSaleSource.CHECKOUT),
-    "cancelled checkout ticket": lambda e, u: _ticket(e, u, TicketSaleSource.CHECKOUT, Ticket.TicketStatus.CANCELLED),
+    "checked-in checkout ticket": lambda e, u: _ticket(e, u, TicketSaleSource.CHECKOUT, Ticket.TicketStatus.CHECKED_IN),
     "series-pass ticket": lambda e, u: _ticket(e, u, TicketSaleSource.SERIES_PASS),
     "legacy ticket (no source)": lambda e, u: _ticket(e, u, None),
     "day membership from checkout": lambda e, u: _record(
@@ -104,6 +104,11 @@ KNOWN: dict[str, Act] = {
 
 NOT_KNOWN: dict[str, Act] = {
     "nothing": lambda e, u: None,
+    "pending checkout ticket": lambda e, u: _ticket(e, u, TicketSaleSource.CHECKOUT, Ticket.TicketStatus.PENDING),
+    "cancelled checkout ticket": lambda e, u: _ticket(e, u, TicketSaleSource.CHECKOUT, Ticket.TicketStatus.CANCELLED),
+    "ban-created access row": lambda e, u: OrganizationMember.objects.create(
+        organization=e.organization, user=u, status=OrganizationMember.MembershipStatus.BANNED, created_by_ban=True
+    ),
     "box-office sale": lambda e, u: _ticket(e, u, TicketSaleSource.BOX_OFFICE_SALE),
     "box-office comp": lambda e, u: _ticket(e, u, TicketSaleSource.BOX_OFFICE_COMP),
     "cancelled box-office comp": lambda e, u: _ticket(

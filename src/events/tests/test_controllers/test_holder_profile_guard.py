@@ -1,27 +1,33 @@
 """CI guard: account profile data is only projected for the account holder or a person who acted.
 
-Profile data (phone, legal names, pronouns, bio, picture) may only leave through an operation whose
-subject is the caller's own account, or a person who acted toward the organization (member, staff,
+Scope: every operation whose response embeds ``MemberUserSchema`` / ``MinimalRevelUserSchema`` (or a
+component that transitively embeds one), plus ``BlacklistEntrySchema`` (it resolves a linked account's
+name). Profile data (phone, legal names, pronouns, bio, picture) may only leave through an operation
+whose subject is the caller's own account, or a person who acted toward the organization (member, staff,
 applicant, waitlist, invitation request, questionnaire submitter, series-pass holder, ...).
 Staff-originated rows (box-office tickets, staff RSVPs, staff-made invitations) must use a masked
-schema instead. Carriers are ``MemberUserSchema`` / ``MinimalRevelUserSchema`` plus every component
-that transitively embeds one; every operation exposing a carrier must be classified below.
+schema instead. Every operation exposing a carrier must be classified below.
 """
 
 import typing as t
 
 from api.api import api
 
-SEED_CARRIERS = {"MemberUserSchema", "MinimalRevelUserSchema", "AttendeeSchema"}
+SEED_CARRIERS = {"MemberUserSchema", "MinimalRevelUserSchema", "AttendeeSchema", "BlacklistEntrySchema"}
 
 SELF = "the caller's own account"
 MEMBER = "subject is a member/staff of the organization"
 APPLICANT = "subject applied (membership request / invitation request / questionnaire)"
 WAITLIST = "subject joined the waitlist"
 PASS_HOLDER = "subject holds (bought) a series pass"
+BLACKLIST_ENTRY = "linked account's name shown only for a known holder; else what staff typed (BlacklistEntrySchema)"
 ATTENDEE_OPT_IN = "attendees shown by their own opt-in; privileged view limited to known holders"
 
 HOLDER_PROFILE_OPERATIONS: dict[tuple[str, str], str] = {
+    ("get", "/api/organization-admin/{slug}/blacklist"): BLACKLIST_ENTRY,
+    ("post", "/api/organization-admin/{slug}/blacklist"): BLACKLIST_ENTRY,
+    ("get", "/api/organization-admin/{slug}/blacklist/{entry_id}"): BLACKLIST_ENTRY,
+    ("patch", "/api/organization-admin/{slug}/blacklist/{entry_id}"): BLACKLIST_ENTRY,
     ("get", "/api/dashboard/invitation-requests"): SELF,
     ("get", "/api/events/{event_id}/attendee-list"): ATTENDEE_OPT_IN,
     ("post", "/api/events/{event_id}/invitation-requests"): SELF,

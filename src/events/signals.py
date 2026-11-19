@@ -367,8 +367,8 @@ def end_personal_invitation_on_membership(
 @receiver(post_delete, sender=OrganizationMember)
 def handle_membership_removed(sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any) -> None:
     """Send notification when user is removed from an organization."""
-    if instance.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT:
-        # Never granted anything; cancelling their subscription already told them.
+    if instance.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT or instance.created_by_ban:
+        # Never granted anything (cancelling their subscription already told them / a ban-created row).
         return
 
     def send_removal_notification() -> None:

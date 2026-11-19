@@ -202,6 +202,12 @@ class OrganizationMember(TimeStampedModel):
         null=True,
         blank=True,
     )
+    created_by_ban = models.BooleanField(
+        default=False,
+        db_default=False,
+        editable=False,
+        help_text="Row was created by a blacklist entry for an account with no standing; it confers none.",
+    )
 
     objects = OrganizationMemberManager()
 

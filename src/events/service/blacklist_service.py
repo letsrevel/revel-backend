@@ -18,6 +18,7 @@ from accounts.models import RevelUser
 from accounts.validators import normalize_phone_number
 from common.utils import update_or_create_with_race_protection
 from events.models import Blacklist, Organization, OrganizationMember, OrganizationStaff
+from events.service.holder_visibility import is_known_holder
 
 logger = structlog.get_logger(__name__)
 
@@ -83,6 +84,8 @@ def apply_blacklist_consequences(user: RevelUser, organization: Organization) ->
     )
 
     if membership_created:
+        # Provenance: a row born from a ban confers no standing (ADR-0020); a member banned later keeps theirs.
+        OrganizationMember.objects.filter(pk=membership.pk).update(created_by_ban=True)
         logger.info(
             "blacklisted_user_membership_created_as_banned",
             organization_id=str(organization.id),
@@ -185,16 +188,18 @@ def add_to_blacklist(
         HttpError: If no identifiers provided or user already blacklisted
     """
     if user:
-        # Quick mode - populate from user
+        # Quick mode - populate from user. The profile is copied only for an account that acted toward the
+        # organization; a stranger's entry keeps the email alone (ADR-0020).
         email = user.email
-        phone_number = user.phone_number
-        first_name = user.first_name
-        last_name = user.last_name
-        preferred_name = user.preferred_name
+        if is_known_holder(organization, user):
+            phone_number = user.phone_number
+            first_name = user.first_name
+            last_name = user.last_name
+            preferred_name = user.preferred_name
 
-        # Get telegram username if connected
-        if tg_user := user.telegram_users.first():
-            telegram_username = tg_user.telegram_username
+            # Get telegram username if connected
+            if tg_user := user.telegram_users.first():
+                telegram_username = tg_user.telegram_username
     else:
         # Manual mode - validate we have at least one identifier or name
         has_hard_id = any([email, telegram_username, phone_number])
@@ -285,7 +290,8 @@ def remove_from_blacklist(entry: Blacklist) -> None:
     from :func:`apply_blacklist_consequences` is transitioned to ``CANCELLED``
     so the user regains visibility of the organization. ``CANCELLED`` is used
     instead of restoring ``ACTIVE`` to avoid implicitly re-granting membership
-    privileges that may have pre-existed the ban.
+    privileges that may have pre-existed the ban. A row the ban itself created
+    (``created_by_ban``) is deleted instead: it never stood for anything.
 
     Args:
         entry: The Blacklist entry to remove
@@ -315,6 +321,9 @@ def remove_from_blacklist(entry: Blacklist) -> None:
         )
     )
     for banned_member in banned:
+        if banned_member.created_by_ban:
+            banned_member.delete()
+            continue
         banned_member.status = OrganizationMember.MembershipStatus.CANCELLED
         banned_member.save(update_fields=["status", "updated_at"])
 

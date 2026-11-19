@@ -6,6 +6,7 @@ from ninja import ModelSchema, Schema
 from pydantic import Field
 
 from events import models
+from events.service.holder_visibility import is_known_holder
 
 
 def _get_matched_entries_count(obj: models.WhitelistRequest) -> int:
@@ -52,10 +53,19 @@ class BlacklistEntrySchema(ModelSchema):
 
     @staticmethod
     def resolve_user_display_name(obj: models.Blacklist) -> str | None:
-        """Return the display name of the linked user."""
-        if obj.user:
+        """Return the linked account's display name only for a known holder.
+
+        An account that never acted toward the organization is shown as staff identified it: the names
+        staff typed on the entry, else the email (ADR-0020).
+        """
+        if not obj.user:
+            return None
+        known = getattr(obj, "holder_known", None)
+        if known is None:
+            known = is_known_holder(obj.organization, obj.user)
+        if known:
             return obj.user.get_display_name()
-        return None
+        return " ".join(n for n in (obj.first_name, obj.last_name) if n) or obj.preferred_name or obj.email or None
 
     @staticmethod
     def resolve_created_by_name(obj: models.Blacklist) -> str | None:

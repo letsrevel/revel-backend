@@ -48,10 +48,11 @@ def self_linked_record_q() -> Q:
 def known_holder_q(organization_id: UUID, user_ref: OuterRef) -> Q:
     """Condition: the account at ``user_ref`` acted toward the organization (or is its owner/staff/member).
 
-    Counts: owner, staff, member (any status), membership request (any status), a linked register record
-    (see ``self_linked_record_q``: not a box-office day membership, not merge-linked), a ticket not issued by the
-    box office (``NULL`` sale source = self, legacy), the holder's own RSVP, a series pass, a waitlist
-    entry, an event invitation request, a questionnaire submission. Not counted: box-office tickets,
+    Counts: owner, staff, member (any status, except a row created by a ban), membership request (any
+    status), a linked register record (see ``self_linked_record_q``: not a box-office day membership, not
+    merge-linked), an attending ticket (active or checked in) not issued by the box office (``NULL`` sale
+    source = self, legacy), the holder's own RSVP, a series pass, a waitlist entry, an event invitation
+    request, a questionnaire submission. Not counted: box-office tickets, pending or cancelled tickets,
     staff RSVPs, event invitations, waitlist offers.
 
     Args:
@@ -63,14 +64,14 @@ def known_holder_q(organization_id: UUID, user_ref: OuterRef) -> Q:
     return (
         Q(Exists(Organization.objects.filter(pk=org, owner_id=user)))
         | Q(Exists(OrganizationStaff.objects.filter(organization_id=org, user_id=user)))
-        | Q(Exists(OrganizationMember.objects.filter(organization_id=org, user_id=user)))
+        | Q(Exists(OrganizationMember.objects.filter(organization_id=org, user_id=user, created_by_ban=False)))
         | Q(Exists(OrganizationMembershipRequest.objects.filter(organization_id=org, user_id=user)))
         | Q(Exists(record))
         | Q(
             Exists(
-                Ticket.objects.filter(event__organization_id=org, user_id=user).exclude(
-                    sale_source__in=STAFF_SALE_SOURCES
-                )
+                Ticket.objects.filter(
+                    event__organization_id=org, user_id=user, status__in=Ticket.ATTENDING_STATUSES
+                ).exclude(sale_source__in=STAFF_SALE_SOURCES)
             )
         )
         | Q(Exists(EventRSVP.objects.filter(event__organization_id=org, user_id=user, source=EventRSVP.Source.SELF)))
@@ -87,9 +88,14 @@ def known_holder_q(organization_id: UUID, user_ref: OuterRef) -> Q:
     )
 
 
+def is_known_holder_id(organization_id: UUID, user_id: UUID) -> bool:
+    """Whether the account ``user_id`` is known to the organization through its own acts (one query)."""
+    return RevelUser.objects.filter(pk=user_id).filter(known_holder_q(organization_id, OuterRef("pk"))).exists()
+
+
 def is_known_holder(organization: Organization, user: RevelUser) -> bool:
     """Whether ``user`` is known to ``organization`` through their own acts (one query)."""
-    return RevelUser.objects.filter(pk=user.pk).filter(known_holder_q(organization.pk, OuterRef("pk"))).exists()
+    return is_known_holder_id(organization.pk, user.pk)
 
 
 def annotate_holder_known(qs: QuerySet[_M], organization_id: UUID, user_field: str = "user_id") -> QuerySet[_M]:
