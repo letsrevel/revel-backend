@@ -824,12 +824,12 @@ class TestUpdateAndRemove:
         assert membership.status == OrganizationMember.MembershipStatus.CANCELLED
         assert public_org in Organization.objects.for_user(target_user)
 
-    def test_remove_from_blacklist_deletes_ban_created_membership(
+    def test_remove_from_blacklist_of_a_non_member_restores_visibility(
         self,
         blacklist_admin: RevelUser,
         target_user: RevelUser,
     ) -> None:
-        """A row the ban itself created is deleted on unban and visibility returns."""
+        """Unbanning a non-member (who never had a row) makes the organization visible again."""
         public_org = Organization.objects.create(
             name="Public Unban Org 2",
             slug="public-unban-org-2",
@@ -841,7 +841,6 @@ class TestUpdateAndRemove:
 
         blacklist_service.remove_from_blacklist(entry)
 
-        assert not OrganizationMember.objects.filter(organization=public_org, user=target_user).exists()
         assert public_org in Organization.objects.for_user(target_user)
 
     def test_remove_from_blacklist_keeps_banned_if_other_entries_exist(

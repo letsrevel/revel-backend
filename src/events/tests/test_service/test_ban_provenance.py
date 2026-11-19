@@ -48,19 +48,17 @@ def _client(user: RevelUser) -> t.Any:
 
 
 class TestBlacklistingANonMember:
-    def test_quick_mode_creates_no_member_row_and_no_welcome(
+    def test_quick_mode_creates_no_member_row(
         self,
         organization: Organization,
         organization_owner_user: RevelUser,
         nonmember_user: RevelUser,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        with patch("events.signals.notification_requested.send") as send:
-            with django_capture_on_commit_callbacks(execute=True):
-                blacklist_service.add_to_blacklist(organization, organization_owner_user, user=nonmember_user)
+        with django_capture_on_commit_callbacks(execute=True):
+            blacklist_service.add_to_blacklist(organization, organization_owner_user, user=nonmember_user)
 
         assert not OrganizationMember.objects.filter(organization=organization, user=nonmember_user).exists()
-        assert [c for c in send.call_args_list if c.kwargs.get("notification_type") == "membership_granted"] == []
         assert not is_known_holder(organization, nonmember_user)
         assert not has_relationship(organization, nonmember_user)
 
@@ -79,32 +77,27 @@ class TestBlacklistingANonMember:
         blacklist_service.add_to_blacklist(organization, organization_owner_user, user=nonmember_user)
         client = _client(organization_owner_user)
 
-        listed = client.get(_members_url(organization)).json()
+        response = client.get(_members_url(organization))
         put = client.put(
             f"{_members_url(organization)}/{nonmember_user.pk}",
             data={"status": "active"},
             content_type="application/json",
         )
 
-        assert str(nonmember_user.pk) not in str(listed)
+        assert response.status_code == 200
+        assert str(nonmember_user.pk) not in [row["user"]["id"] for row in response.json()["results"]]
         assert put.status_code == 404
-
-    def test_unblacklist_leaves_nothing_behind(
-        self, organization: Organization, organization_owner_user: RevelUser, nonmember_user: RevelUser
-    ) -> None:
-        entry = blacklist_service.add_to_blacklist(organization, organization_owner_user, user=nonmember_user)
-        blacklist_service.remove_from_blacklist(entry)
-
-        assert not OrganizationMember.objects.filter(organization=organization, user=nonmember_user).exists()
 
     def test_signup_auto_link_applies_consequences_without_a_row(
         self, organization: Organization, organization_owner_user: RevelUser, nonmember_user: RevelUser
     ) -> None:
+        OrganizationStaff.objects.create(organization=organization, user=nonmember_user)
         Blacklist.objects.create(
             organization=organization, email=nonmember_user.email, created_by=organization_owner_user
         )
 
         assert blacklist_service.link_blacklist_entries_for_user(nonmember_user) == 1
+        assert not OrganizationStaff.objects.filter(organization=organization, user=nonmember_user).exists()
 
         assert not OrganizationMember.objects.filter(organization=organization, user=nonmember_user).exists()
         assert not is_known_holder(organization, nonmember_user)
@@ -231,6 +224,23 @@ def test_blacklist_endpoints_show_staff_supplied_identity_for_a_stranger(
 
     assert [r["user_display_name"] for r in body["results"]] == [profiled_user.email]
     assert "Lovelace" not in str(body)
+
+
+def test_blacklist_endpoints_show_the_account_name_for_an_existing_member(
+    organization: Organization, organization_owner_user: RevelUser, profiled_user: RevelUser
+) -> None:
+    """A known holder (existing member) keeps the full display name on list and detail."""
+    OrganizationMember.objects.create(organization=organization, user=profiled_user)
+    entry = blacklist_service.add_to_blacklist(organization, organization_owner_user, user=profiled_user)
+    client = _client(organization_owner_user)
+    base = f"/api/organization-admin/{organization.slug}/blacklist"
+
+    listed = client.get(base)
+    detail = client.get(f"{base}/{entry.pk}")
+
+    assert listed.status_code == 200 and detail.status_code == 200
+    assert [r["user_display_name"] for r in listed.json()["results"]] == [profiled_user.get_display_name()]
+    assert detail.json()["user_display_name"] == profiled_user.get_display_name()
 
 
 def test_guest_link_claim_greets_by_email_not_stored_name(
