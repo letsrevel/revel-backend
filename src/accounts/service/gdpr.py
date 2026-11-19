@@ -507,6 +507,8 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "resolved_fiscal_documents": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "eventtoken_tokens": ExportRule(include=False, reason="operational invite tokens (secret ids)"),
     "organizationtoken_tokens": ExportRule(include=False, reason="operational invite tokens (secret ids)"),
+    # Personal membership invitations: the id is the claim secret; an accepted one is exported as the membership.
+    "organization_invitations": ExportRule(include=False, reason="operational invite tokens (secret ids)"),
     "created_announcements": ExportRule(include=False, reason="organization content authored in staff capacity"),
     "blacklist_entries": ExportRule(include=False, reason=_EXCLUDED_MODERATION),
     "organizer_notes": ExportRule(include=False, reason=_EXCLUDED_ORGANIZER_NOTE),

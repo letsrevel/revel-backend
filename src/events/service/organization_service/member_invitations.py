@@ -139,12 +139,11 @@ def has_relationship(organization: Organization, user: RevelUser) -> bool:
     """
     if organization.owner_id == user.pk:
         return True
-    lookup: dict[str, t.Any] = {"organization": organization, "user": user}
     return (
-        OrganizationMember.objects.filter(**lookup).exists()
-        or OrganizationStaff.objects.filter(**lookup).exists()
-        or OrganizationMembershipRequest.objects.filter(**lookup).exists()
-        or MembershipRecord.objects.filter(**lookup).exists()
+        OrganizationMember.objects.filter(organization=organization, user=user).exists()
+        or OrganizationStaff.objects.filter(organization=organization, user=user).exists()
+        or OrganizationMembershipRequest.objects.filter(organization=organization, user=user).exists()
+        or MembershipRecord.objects.filter(organization=organization, user=user).exists()
     )
 
 

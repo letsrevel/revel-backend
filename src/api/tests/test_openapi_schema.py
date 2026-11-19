@@ -137,6 +137,7 @@ KNOWN_400_COMPONENTS = {
     "AlreadyMemberErrorSchema",
     "AuthorizationErrorResponse",
     "EmailChangeErrorSchema",
+    "InvitationRequiredErrorSchema",
     "ErrorDetail",
     "EventUserEligibility",
     "GuestActionErrorSchema",
