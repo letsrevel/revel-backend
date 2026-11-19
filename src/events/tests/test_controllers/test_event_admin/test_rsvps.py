@@ -135,6 +135,25 @@ def test_admin_create_rsvp_allows_attendee_of_another_org_event(
     assert EventRSVP.objects.filter(event=event, user=nonmember_user).exists()
 
 
+def test_admin_create_rsvp_staff_rsvp_elsewhere_is_no_standing(
+    organization_owner_client: Client,
+    event: Event,
+    nonmember_user: RevelUser,
+) -> None:
+    """An RSVP staff recorded on another event does not let staff add more on the account's behalf."""
+    other_event = Event.objects.create(organization=event.organization, name="Earlier", start=event.start)
+    EventRSVP.objects.create(
+        event=other_event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES, source=EventRSVP.Source.STAFF
+    )
+
+    url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
+    payload = {"user_id": str(nonmember_user.id), "status": EventRSVP.RsvpStatus.YES}
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "invitation_required"
+
+
 @pytest.mark.usefixtures("organization_membership")
 def test_admin_create_rsvp_marks_new_row_as_staff_made(
     organization_owner_client: Client, event: Event, member_user: RevelUser

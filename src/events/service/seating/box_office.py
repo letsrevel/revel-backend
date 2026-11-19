@@ -23,7 +23,7 @@ from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.batch_ticket_service.eligibility import assert_event_sells_tickets
 from events.service.guest import get_or_create_guest_user
-from events.service.organization_service import require_relationship
+from events.service.holder_visibility import require_known_holder
 from events.service.seating import holds as holds_service
 from events.service.seating.pricing import TicketPrice, build_batch_pricing, should_stamp_price_paid
 
@@ -37,9 +37,10 @@ def resolve_recipient(
 ) -> RevelUser:
     """Resolve the ticket recipient for a box-office sale.
 
-    ``user_id`` wins when given, and only for an account that already has standing with the
-    organization (member, staff, applicant, or a ticket, RSVP or pass holder). An email matching
-    a registered account with a *verified* address reuses it — a staff-driven door sale attaching
+    ``user_id`` wins when given, and only for an account the organization knows through that
+    account's own acts (see ``holder_visibility``; box-office tickets and staff RSVPs do not
+    count). An email matching a registered account with a *verified* address reuses it — a
+    staff-driven door sale attaching
     a ticket to that person's account is exactly right. Everything else goes through the guest
     helper: an existing guest is reused, an unknown email gets a new guest, and an unverified
     registered address is refused (it may not belong to whoever registered it).
@@ -60,7 +61,7 @@ def resolve_recipient(
     """
     if user_id is not None:
         user = get_object_or_404(RevelUser, pk=user_id)
-        require_relationship(organization, user, include_attendees=True)
+        require_known_holder(organization, user)
         return user
     assert email is not None  # schema enforces exactly one of email/user_id
     verified = RevelUser.objects.filter(email__iexact=email, guest=False, email_verified=True, is_active=True).first()

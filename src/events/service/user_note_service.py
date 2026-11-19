@@ -15,14 +15,12 @@ from accounts.models import RevelUser
 from common.sanitizers import sanitize_markdown
 from common.utils import get_or_create_with_race_protection
 from events.models import (
-    HeldSeriesPass,
     MembershipRecord,
     Organization,
-    OrganizationMember,
     OrganizationUserNote,
-    Ticket,
 )
 from events.models.user_note import USER_NOTE_MAX_LENGTH
+from events.service.holder_visibility import is_known_holder
 
 
 def get_note(organization: Organization, user_id: UUID) -> OrganizationUserNote:
@@ -38,15 +36,6 @@ def get_note_body(organization_id: UUID, user_id: UUID) -> str | None:
         OrganizationUserNote.objects.filter(organization_id=organization_id, user_id=user_id)
         .values_list("body", flat=True)
         .first()
-    )
-
-
-def _has_relationship(organization: Organization, user_id: UUID) -> bool:
-    """Whether the user is a member, ticket holder or pass holder of the organization."""
-    return (
-        OrganizationMember.objects.filter(organization=organization, user_id=user_id).exists()
-        or Ticket.objects.filter(event__organization=organization, user_id=user_id).exists()
-        or HeldSeriesPass.objects.filter(series_pass__event_series__organization=organization, user_id=user_id).exists()
     )
 
 
@@ -75,7 +64,7 @@ def upsert_note(organization: Organization, user_id: UUID, body: str, updated_by
     body = body.strip()
     _check_length(body)
     user = get_object_or_404(RevelUser, pk=user_id)
-    if not _has_relationship(organization, user_id):
+    if not is_known_holder(organization, user):
         raise Http404
     _check_not_empty(body)
     note, created = get_or_create_with_race_protection(
