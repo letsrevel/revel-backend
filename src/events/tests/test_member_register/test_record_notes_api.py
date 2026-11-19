@@ -101,7 +101,7 @@ class TestLinkedRecord:
         claimant: RevelUser,
         make_record: RecordFactory,
     ) -> None:
-        """A day membership from a box-office ticket is staff-made: same 404 as the user-note route."""
+        """A day membership from a box-office ticket is staff-made: the note stays on the record, never the user."""
         ticket = Ticket.objects.create(
             event=event,
             user=claimant,
@@ -112,8 +112,10 @@ class TestLinkedRecord:
         record = make_record(
             user=claimant, kind=MembershipRecord.Kind.TEMPORARY, source=MembershipRecord.Source.TICKET, ticket=ticket
         )
-        assert _put(owner_client, organization, record, "About them").status_code == 404
-        assert not OrganizationUserNote.objects.exists()
+        assert _put(owner_client, organization, record, "About them").status_code == 200
+        note = OrganizationUserNote.objects.get()
+        assert (note.user_id, note.record_id) == (None, record.pk)
+        assert owner_client.get(_user_note_url(organization, claimant)).status_code == 404
 
 
 class TestGuards:
@@ -308,6 +310,39 @@ class TestMergeNoteTransfer:
         assert owner_client.get(_url(organization, absorbed)).json()["body"] == "Staff only"
         assert MembershipRecord.objects.filter(pk=absorbed.pk).with_note_flag().get().note_exists is True  # type: ignore[attr-defined]
         assert owner_client.get(_user_note_url(organization, claimant)).status_code == 404
+
+    def test_stranded_note_can_be_edited_and_deleted_on_the_record(
+        self,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        claimant: RevelUser,
+        make_record: RecordFactory,
+        organization_owner_user: RevelUser,
+        owner_client: Client,
+    ) -> None:
+        ticket = Ticket.objects.create(
+            event=event,
+            user=claimant,
+            tier=event_ticket_tier,
+            guest_name="G",
+            sale_source=TicketSaleSource.BOX_OFFICE_COMP,
+        )
+        survivor = make_record(
+            user=claimant, kind=MembershipRecord.Kind.TEMPORARY, source=MembershipRecord.Source.TICKET, ticket=ticket
+        )
+        absorbed = self._noted_temporary(make_record, organization_owner_user)
+        merge_records(survivor, absorbed)
+
+        assert _put(owner_client, organization, absorbed, "Edited").status_code == 200
+
+        note = OrganizationUserNote.objects.get()
+        assert (note.user_id, note.record_id, note.body) == (None, absorbed.pk, "Edited")
+        assert owner_client.get(_user_note_url(organization, claimant)).status_code == 404
+        assert (
+            owner_client.delete(_url(organization, absorbed, "delete_member_register_record_note")).status_code == 204
+        )
+        assert not OrganizationUserNote.objects.exists()
 
     def test_known_survivor_receives_the_note(
         self,

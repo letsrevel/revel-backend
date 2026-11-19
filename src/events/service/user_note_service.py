@@ -129,10 +129,10 @@ def upsert_record_note(
 
     A linked entry proxies to its user's note, under the same rule as ``upsert_note``: the user must be
     known to the organization through their own acts (a box-office day membership is not). An unlinked
-    entry keeps its own note, which moves onto the user's note when the entry gets linked.
+    entry, or one linked to a user who is not a known holder, keeps its own note.
 
     Raises:
-        Http404: The entry does not exist in the organization, or its linked user is not a known holder.
+        Http404: The entry does not exist in the organization.
         HttpError: 400 when the body is empty or too long, or the entry was merged into another one.
     """
     body = body.strip()
@@ -147,9 +147,9 @@ def upsert_record_note(
                     _("A merged register entry has no note of its own; edit the note on the entry it was merged into.")
                 ),
             )
-        if record.user_id is not None:
-            if not is_known_holder(organization, record.user):  # type: ignore[arg-type]  # user_id checked
-                raise Http404
+        # A record linked to a non-holder keeps writing to its own note (mirrors ``get_record_note``): the note
+        # never lands on an account that has no standing with the organization.
+        if record.user_id is not None and is_known_holder(organization, record.user):  # type: ignore[arg-type]  # user_id checked
             return _upsert(
                 organization,
                 Q(organization=organization, user_id=record.user_id),
