@@ -108,6 +108,8 @@ def sell(
     payment_method: TicketTier.PaymentMethod,
     recipient: RevelUser,
     guest_name: str | None = None,
+    first_name: str = "",
+    last_name: str = "",
 ) -> Ticket:
     """Issue an ACTIVE ticket directly on a seat (door sale or comp).
 
@@ -136,7 +138,10 @@ def sell(
         seat_id: The seat to sell.
         payment_method: AT_THE_DOOR or FREE (schema-enforced).
         recipient: The user the ticket belongs to.
-        guest_name: Ticket-holder name; defaults to the recipient's display name.
+        guest_name: Ticket-holder name; defaults to the staff-typed first/last name, else the recipient's
+            email (the address staff supplied). Never the account's own profile name.
+        first_name: Staff-typed first name, used only for the ``guest_name`` default.
+        last_name: Staff-typed last name, used only for the ``guest_name`` default.
 
     Returns:
         The created ACTIVE ticket.
@@ -154,7 +159,7 @@ def sell(
 
     seat = _lock_seat_for_sale(event, seat_id, recipient)
 
-    item = TicketPurchaseItem(guest_name=guest_name or recipient.get_display_name())
+    item = TicketPurchaseItem(guest_name=guest_name or f"{first_name} {last_name}".strip() or recipient.email)
     is_comp = payment_method == TicketTier.PaymentMethod.FREE
     if is_comp:
         # A comp must not report tier-price revenue.

@@ -10,6 +10,7 @@ from openpyxl import Workbook
 from common.models import FileExport
 from common.service.export_service import complete_export, fail_export, start_export
 from events.models import Event, EventRSVP, Ticket, TicketAttribution
+from events.service.holder_visibility import annotate_holder_known
 
 from .formatting import (
     auto_fit_columns,
@@ -42,10 +43,20 @@ def _build_attendee_workbook(export: FileExport) -> bytes:
     event = Event.objects.select_related("venue", "organization").get(pk=event_id)
 
     tickets = list(
-        Ticket.objects.attending().filter(event=event).select_related("user", "tier", "seat", "seat__sector", "payment")
+        annotate_holder_known(
+            Ticket.objects.attending()
+            .filter(event=event)
+            .select_related("user", "tier", "seat", "seat__sector", "payment"),
+            event.organization_id,
+        )
     )
 
-    rsvps = list(EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).select_related("user"))
+    rsvps = list(
+        annotate_holder_known(
+            EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).select_related("user"),
+            event.organization_id,
+        )
+    )
 
     ticket_checked_in = sum(1 for tk in tickets if tk.status == Ticket.TicketStatus.CHECKED_IN)
 
@@ -77,10 +88,10 @@ def _write_summary_sheet(
     # Pronoun distribution (deduplicated by user)
     def _user_pairs() -> t.Iterator[tuple[UUID, t.Any]]:
         for ticket in tickets:
-            if ticket.user:
+            if ticket.user and ticket.holder_known:  # type: ignore[attr-defined]
                 yield ticket.user_id, ticket.user
         for rsvp in rsvps:
-            if rsvp.user:
+            if rsvp.user and rsvp.holder_known:  # type: ignore[attr-defined]
                 yield rsvp.user_id, rsvp.user
 
     pronoun_stats = compute_pronoun_distribution(_user_pairs())
@@ -154,11 +165,18 @@ def _write_attendees_sheet(wb: Workbook, tickets: list[Ticket], rsvps: list[Even
         seat_label = sanitize_cell(ticket.seat.label) if ticket.seat else ""
         is_checked_in = ticket.status == Ticket.TicketStatus.CHECKED_IN
         attribution: TicketAttribution = ticket.attribution or TicketAttribution()
+        # A holder known only through staff-made rows shows what staff supplied: the typed name and the
+        # email, never the account's profile.
+        known = bool(ticket.user) and ticket.holder_known  # type: ignore[attr-defined]
         ws.append(
             [
-                sanitize_cell(ticket.user.get_full_name()) if ticket.user else "",
+                sanitize_cell(ticket.user.get_full_name())
+                if known
+                else sanitize_cell(ticket.guest_name or "")
+                if ticket.user
+                else "",
                 sanitize_cell(ticket.user.email) if ticket.user else "",
-                sanitize_cell(ticket.user.pronouns) if ticket.user else "",
+                sanitize_cell(ticket.user.pronouns) if known else "",
                 "Ticket",
                 "",
                 sanitize_cell(ticket.tier.name) if ticket.tier else "",
@@ -173,11 +191,12 @@ def _write_attendees_sheet(wb: Workbook, tickets: list[Ticket], rsvps: list[Even
         )
 
     for rsvp in rsvps:
+        rsvp_known = bool(rsvp.user) and rsvp.holder_known  # type: ignore[attr-defined]
         ws.append(
             [
-                sanitize_cell(rsvp.user.get_full_name()) if rsvp.user else "",
+                sanitize_cell(rsvp.user.get_full_name()) if rsvp_known else "",
                 sanitize_cell(rsvp.user.email) if rsvp.user else "",
-                sanitize_cell(rsvp.user.pronouns) if rsvp.user else "",
+                sanitize_cell(rsvp.user.pronouns) if rsvp_known else "",
                 "RSVP",
                 _RSVP_STATUS_DISPLAY.get(rsvp.status, rsvp.status) if rsvp.status else "",
                 "",

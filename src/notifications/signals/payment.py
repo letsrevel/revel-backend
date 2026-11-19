@@ -26,6 +26,7 @@ from notifications.service.notification_helpers import (
     notify_org_staff,
 )
 from notifications.signals import notification_requested
+from notifications.signals.ticket import staff_holder_name
 
 logger = structlog.get_logger(__name__)
 
@@ -157,7 +158,7 @@ def _send_refund_notifications(payment: Payment) -> None:
     # Notify staff/owners with additional context
     staff_context = {
         **context,
-        "ticket_holder_name": payment.user.get_display_name(),
+        "ticket_holder_name": staff_holder_name(ticket),
         "ticket_holder_email": payment.user.email,
     }
 

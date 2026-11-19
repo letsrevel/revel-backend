@@ -23,6 +23,7 @@ from events.models import (
     EventRSVP,
     Organization,
     Ticket,
+    TicketSaleSource,
     TicketTier,
     Venue,
     VenueSeat,
@@ -546,3 +547,59 @@ class TestAttendeeExportCellSanitisation:
         seat_cell = row[10]  # "Seat" column, right after "Guest Name"
         assert seat_cell.value == "'=CMD()"
         assert seat_cell.data_type != "f"
+
+
+class TestAttendeeExportHolderMasking:
+    """Holders known only through staff-originated rows show staff only what staff supplied."""
+
+    def _rows(self, export_user: RevelUser, att_event: Event) -> dict[str, tuple[t.Any, ...]]:
+        export = _create_attendee_export(export_user, att_event)
+        generate_attendee_export(export.id)
+        ws = _load_workbook_from_export(export)["Attendees"]
+        return {row[1]: row for row in ws.iter_rows(min_row=2, values_only=True)}
+
+    @pytest.mark.parametrize("source", [TicketSaleSource.BOX_OFFICE_COMP, TicketSaleSource.BOX_OFFICE_SALE])
+    def test_box_office_holder_is_masked(
+        self,
+        export_user: RevelUser,
+        att_event: Event,
+        active_ticket: Ticket,
+        ticket_user: RevelUser,
+        source: TicketSaleSource,
+    ) -> None:
+        Ticket.objects.filter(pk=active_ticket.pk).update(sale_source=source, guest_name="Typed Name")
+        row = self._rows(export_user, att_event)["ticket@example.com"]
+        assert row[0] == "Typed Name"  # Name column: staff-typed name
+        assert not row[2]  # Pronouns blanked
+        assert row[9] == "Typed Name"  # Guest Name
+
+    def test_summary_pronouns_exclude_masked_holder(
+        self, export_user: RevelUser, att_event: Event, active_ticket: Ticket
+    ) -> None:
+        Ticket.objects.filter(pk=active_ticket.pk).update(sale_source=TicketSaleSource.BOX_OFFICE_COMP)
+        export = _create_attendee_export(export_user, att_event)
+        generate_attendee_export(export.id)
+        summary = {
+            r[0]: r[1] for r in _load_workbook_from_export(export)["Summary"].iter_rows(values_only=True) if r[0]
+        }
+        assert summary["Total with pronouns"] == 0
+
+    def test_checkout_buyer_is_not_masked(
+        self, export_user: RevelUser, att_event: Event, active_ticket: Ticket
+    ) -> None:
+        row = self._rows(export_user, att_event)["ticket@example.com"]
+        assert row[0] == "Alice Ticker"
+        assert row[2] == "she/her"
+
+    def test_member_with_box_office_ticket_is_not_masked(
+        self, export_user: RevelUser, att_event: Event, active_ticket: Ticket, ticket_user: RevelUser, org: Organization
+    ) -> None:
+        from events.models import OrganizationMember
+
+        OrganizationMember.objects.create(organization=org, user=ticket_user)
+        Ticket.objects.filter(pk=active_ticket.pk).update(
+            sale_source=TicketSaleSource.BOX_OFFICE_COMP, guest_name="Typed Name"
+        )
+        row = self._rows(export_user, att_event)["ticket@example.com"]
+        assert row[0] == "Alice Ticker"
+        assert row[2] == "she/her"

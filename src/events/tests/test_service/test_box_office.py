@@ -166,14 +166,37 @@ def test_sell_comp_records_zero_price_paid(
     assert ticket.sale_source == TicketSaleSource.BOX_OFFICE_COMP  # #1013: a comp is not a door sale
 
 
-def test_sell_guest_name_defaults_to_recipient_display_name(
-    seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, recipient: RevelUser
+def test_sell_guest_name_defaults_to_email_never_account_name(
+    seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, revel_user_factory: RevelUserFactory
 ) -> None:
     event, seats = seated_event
-    ticket = box_office.sell(
-        event, tier, seat_id=seats[0].id, payment_method=TicketTier.PaymentMethod.FREE, recipient=recipient
+    account = revel_user_factory(
+        username="legal@example.com", email="legal@example.com", first_name="Legal", last_name="Surname"
     )
-    assert ticket.guest_name == recipient.get_display_name()
+    ticket = box_office.sell(
+        event, tier, seat_id=seats[0].id, payment_method=TicketTier.PaymentMethod.FREE, recipient=account
+    )
+    assert ticket.guest_name == "legal@example.com"
+    assert "Legal" not in ticket.guest_name
+
+
+def test_sell_guest_name_uses_typed_first_last_name(
+    seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, revel_user_factory: RevelUserFactory
+) -> None:
+    event, seats = seated_event
+    account = revel_user_factory(
+        username="legal2@example.com", email="legal2@example.com", first_name="Legal", last_name="Surname"
+    )
+    ticket = box_office.sell(
+        event,
+        tier,
+        seat_id=seats[0].id,
+        payment_method=TicketTier.PaymentMethod.FREE,
+        recipient=account,
+        first_name="Typed",
+        last_name="Name",
+    )
+    assert ticket.guest_name == "Typed Name"
 
 
 def test_sell_on_held_seat_releases_override(
