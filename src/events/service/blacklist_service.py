@@ -292,23 +292,41 @@ def add_user_to_blacklist(
 def remove_from_blacklist(entry: Blacklist) -> None:
     """Remove an entry from the blacklist.
 
-    If the entry was linked to a user and no other blacklist entries cover
-    that user in the organization, any stale ``BANNED`` membership left over
-    from :func:`apply_blacklist_consequences` is transitioned to ``CANCELLED``
-    so the user regains visibility of the organization. ``CANCELLED`` is used
-    instead of restoring ``ACTIVE`` to avoid implicitly re-granting membership
+    For each account the entry covered (its linked user, or for an unlinked entry the holders it matched that
+    carry a BANNED row) that no other blacklist entry still covers in the organization, the stale ``BANNED``
+    membership left over from :func:`apply_blacklist_consequences` is transitioned to ``CANCELLED`` so the
+    user regains visibility of the organization. ``CANCELLED`` is used instead of restoring ``ACTIVE`` to avoid implicitly re-granting membership
     privileges that may have pre-existed the ban.
 
     Args:
         entry: The Blacklist entry to remove
     """
-    user = entry.user
     organization = entry.organization
+    if entry.user is not None:
+        holders = [entry.user]
+    else:
+        # An unlinked entry banned the holders it matched; collect them before the entry is gone.
+        holders = list(
+            users_matching_entries(Blacklist.objects.filter(pk=entry.pk))
+            .filter(
+                Exists(
+                    OrganizationMember.objects.filter(
+                        organization=organization,
+                        user=OuterRef("pk"),
+                        status=OrganizationMember.MembershipStatus.BANNED,
+                    )
+                )
+            )
+            .exclude(pk=organization.owner_id)
+        )
     entry.delete()
 
-    if user is None:
-        return
+    for holder in holders:
+        _lift_ban_if_clear(holder, organization)
 
+
+def _lift_ban_if_clear(user: RevelUser, organization: Organization) -> None:
+    """Move the user's BANNED rows to CANCELLED unless another entry still covers them."""
     if check_user_hard_blacklisted(user, organization):
         logger.info(
             "unban_skipped_user_still_hard_blacklisted",
@@ -336,7 +354,6 @@ def remove_from_blacklist(entry: Blacklist) -> None:
             organization_id=str(organization.id),
             user_id=str(user.id),
         )
-
 
 def update_blacklist_entry(
     entry: Blacklist,

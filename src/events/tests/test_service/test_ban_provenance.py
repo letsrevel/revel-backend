@@ -417,6 +417,68 @@ class TestManualEntryReachesExistingHolders:
         assert _row(organization, holder).status == Status.BANNED
 
 
+class TestRemovingAnUnlinkedEntry:
+    """Lifting an unlinked entry restores access to the holders it banned, unless another entry still covers them."""
+
+    @pytest.fixture
+    def holder(self, django_user_model: type[RevelUser]) -> RevelUser:
+        return django_user_model.objects.create_user(
+            username="holder",
+            email="holder@example.com",
+            password="pass",
+            phone_number="+4915198765432",
+            email_verified=False,
+        )
+
+    @pytest.fixture
+    def banned_by_phone(
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        holder: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> Blacklist:
+        OrganizationMember.objects.create(organization=organization, user=holder)
+        with django_capture_on_commit_callbacks(execute=True):
+            entry = blacklist_service.add_to_blacklist(
+                organization, organization_owner_user, phone_number=holder.phone_number
+            )
+        assert entry.user is None
+        assert _row(organization, holder).status == Status.BANNED
+        return entry
+
+    def test_unban_lifts_the_ban_of_a_matched_holder(
+        self, organization: Organization, holder: RevelUser, banned_by_phone: Blacklist
+    ) -> None:
+        blacklist_service.remove_from_blacklist(banned_by_phone)
+
+        assert _row(organization, holder).status == Status.CANCELLED
+
+    def test_a_second_unlinked_entry_keeps_the_ban_until_it_is_removed_too(
+        self, organization: Organization, organization_owner_user: RevelUser, holder: RevelUser, banned_by_phone: Blacklist
+    ) -> None:
+        second = blacklist_service.add_to_blacklist(organization, organization_owner_user, email=holder.email)
+
+        blacklist_service.remove_from_blacklist(banned_by_phone)
+        assert _row(organization, holder).status == Status.BANNED
+
+        blacklist_service.remove_from_blacklist(second)
+        assert _row(organization, holder).status == Status.CANCELLED
+
+    def test_a_linked_entry_keeps_the_ban(
+        self, organization: Organization, organization_owner_user: RevelUser, holder: RevelUser, banned_by_phone: Blacklist
+    ) -> None:
+        RevelUser.objects.filter(pk=holder.pk).update(email_verified=True)
+        linked = blacklist_service.add_to_blacklist(organization, organization_owner_user, email=holder.email)
+        assert linked.user_id == holder.pk
+
+        blacklist_service.remove_from_blacklist(banned_by_phone)
+        assert _row(organization, holder).status == Status.BANNED
+
+        blacklist_service.remove_from_blacklist(linked)
+        assert _row(organization, holder).status == Status.CANCELLED
+
+
 class TestMembershipSavedAroundABlacklistCommit:
     def test_membership_saved_before_the_entry_committed_is_banned_on_commit(
         self,
