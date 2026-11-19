@@ -26,26 +26,30 @@ standing come only from acts of the account holder.
   membership applications, linked register entries, tickets not issued by the box office (a
   legacy ticket with no recorded source counts), the holder's own RSVPs (`EventRSVP.source`),
   series passes, waitlist entries, event invitation requests and questionnaire submissions. A day
-  membership inherits its ticket's origin, and a register entry linked by a staff merge does not count.
+  membership inherits its ticket's origin and counts only while its ticket is attending (a cancelled
+  ticket's record confers nothing), and a register entry linked by a staff merge does not count.
   Box-office tickets, staff RSVPs, event invitations and waitlist offers do not count. Only
   attending tickets (active or checked in) count, so a pending checkout confers nothing. A
   blacklist entry never creates an access row for a non-member: it flips an existing member's row to
   banned and leaves everyone else without one. The race with a membership granted concurrently is closed
   from both sides after commit: applying an entry bans the account's rows once more on commit, and every
   membership save that is not already banned rechecks the blacklist on commit and applies the ban consequences to the account if
-  the account is blacklisted (the owner is exempt). A manual entry that links no account (phone,
+  the account is blacklisted (the owner is exempt). The same two-sided recheck covers day-membership
+  grants: the ban also revokes upcoming day memberships on commit, and every grant or reopen rechecks
+  the ban on commit and revokes what it just wrote if a ban has committed meanwhile. A manual entry that links no account (phone,
   telegram or an unverified email) still applies the ban consequences to existing staff and members of
   the organization that it matches. Enforcement reads the blacklist itself (`get_hard_blacklisted_user_ids` for bulk
   checks, `check_user_hard_blacklisted` per user), including the day-membership grants, which also
   revoke upcoming day memberships directly, and the follower new-event notifications. Manual entries
   link an account only by an exact verified-email match; phone and telegram do not link, because
   typing an identifier is not proof of who holds it. Unbanning a banned member sets the row to
-  cancelled, as before. Residual: banned rows created by earlier bans are indistinguishable from
+  cancelled, as before; lifting an unlinked entry does the same for the holders it matched that carry a
+  banned row, unless another entry still covers them. Residual: banned rows created by earlier bans are indistinguishable from
   former members and still count as known. A waitlist entry consumed by a staff sale (claim
   or the ticket signal) stops conferring standing; this is accepted and fails closed. The default
   `has_relationship` gate (staff add, subscription create) applies the same register-entry rule.
 - Admin surfaces whose subject may be unknown return `StaffViewUserSchema`: `known` plus the
-  account's profile when known; when not, only the email (the address staff typed) and the name
+  account's profile when known; when not, only the email (the account's email: the address staff typed, or one the holder later set) and the name
   staff typed, every other field `null`. Members are always known, so never masked. A blacklist entry
   copies the account's profile (quick mode) or shows its name only for a known holder; otherwise it
   keeps the email and what staff typed. The staff view of

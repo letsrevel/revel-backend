@@ -19,6 +19,7 @@ SELF = "the caller's own account"
 MEMBER = "subject is a member/staff of the organization"
 APPLICANT = "subject applied (membership request / invitation request / questionnaire)"
 WAITLIST = "subject joined the waitlist"
+WAITLIST_OFFER = "subject joined the waitlist; offers are only created from waitlist entries"
 PASS_HOLDER = "subject holds (bought) a series pass"
 BLACKLIST_ENTRY = "linked account's name shown only for a known holder; else what staff typed (BlacklistEntrySchema)"
 ATTENDEE_OPT_IN = "attendees shown by their own opt-in; privileged view limited to known holders"
@@ -44,10 +45,10 @@ HOLDER_PROFILE_OPERATIONS: dict[tuple[str, str], str] = {
     ("post", "/api/organization-admin/{slug}/staff/{user_id}"): MEMBER,
     ("put", "/api/organization-admin/{slug}/staff/{user_id}/permissions"): MEMBER,
     ("get", "/api/event-admin/{event_id}/waitlist"): WAITLIST,
-    ("get", "/api/event-admin/{event_id}/waitlist-offers"): WAITLIST,
-    ("post", "/api/event-admin/{event_id}/waitlist-offers"): WAITLIST,
-    ("post", "/api/event-admin/{event_id}/waitlist-offers/{offer_id}/reactivate"): WAITLIST,
-    ("post", "/api/event-admin/{event_id}/waitlist-offers/{offer_id}/revoke"): WAITLIST,
+    ("get", "/api/event-admin/{event_id}/waitlist-offers"): WAITLIST_OFFER,
+    ("post", "/api/event-admin/{event_id}/waitlist-offers"): WAITLIST_OFFER,
+    ("post", "/api/event-admin/{event_id}/waitlist-offers/{offer_id}/reactivate"): WAITLIST_OFFER,
+    ("post", "/api/event-admin/{event_id}/waitlist-offers/{offer_id}/revoke"): WAITLIST_OFFER,
     ("get", "/api/event-series-admin/{series_id}/passes/{pass_id}/holders"): PASS_HOLDER,
     ("post", "/api/event-series-admin/{series_id}/passes/held/{held_pass_id}/cancel"): PASS_HOLDER,
     ("post", "/api/event-series-admin/{series_id}/passes/held/{held_pass_id}/confirm-payment"): PASS_HOLDER,
