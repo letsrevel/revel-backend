@@ -215,6 +215,30 @@ def test_check_in_known_holder_has_no_phone(
     _assert_unmasked(resp.json()["user"], profiled, phone=False)
 
 
+@pytest.mark.parametrize(
+    ("source", "unmasked"), [(TicketSaleSource.CHECKOUT, True), (TicketSaleSource.BOX_OFFICE_SALE, False)]
+)
+def test_check_in_of_a_pending_offline_ticket_unmasks_only_a_self_made_ticket(
+    organization_owner_client: Client, event: Event, profiled: RevelUser, source: str, unmasked: bool
+) -> None:
+    """The check-in turns a pending ticket attending, which confers standing, so the response matches the next read."""
+    offline_tier = TicketTier.objects.create(
+        event=event, name="Door", price=Decimal("10.00"), payment_method=TicketTier.PaymentMethod.OFFLINE
+    )
+    ticket = _ticket(event, offline_tier, profiled, source)
+    Ticket.objects.filter(pk=ticket.pk).update(status=Ticket.TicketStatus.PENDING)
+    resp = organization_owner_client.post(
+        reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": str(ticket.pk)}),
+        data=orjson.dumps({}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200, resp.content
+    if unmasked:
+        _assert_unmasked(resp.json()["user"], profiled, phone=False)
+    else:
+        _assert_masked(resp.json()["user"], profiled, "Typed Name")
+
+
 # ---- sell / reseat ----
 
 
