@@ -383,7 +383,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         organization = self.get_one(slug)
         if organization.owner != self.user():
             raise HttpError(403, str(_("Only the organization owner can create staff members.")))
-        users_to_add = get_object_or_404(RevelUser, id=user_id)
+        users_to_add = get_object_or_404(RevelUser, id=user_id, is_active=True)
         organization_service.require_relationship(organization, users_to_add)
         return 201, organization_service.add_staff(organization, users_to_add, permissions=payload)
 

@@ -350,7 +350,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
                 400,
                 str(_("initial_payment_occurred_at requires initial_payment_amount.")),
             )
-        user = get_object_or_404(RevelUser, pk=payload.user_id)
+        user = get_object_or_404(RevelUser, pk=payload.user_id, is_active=True)
         organization_service.require_relationship(organization, user)
 
         initial: InitialPayment | None = None
