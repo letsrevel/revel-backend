@@ -284,6 +284,7 @@ class TestMergeNoteTransfer:
         claimant: RevelUser,
         make_record: RecordFactory,
         organization_owner_user: RevelUser,
+        owner_client: Client,
     ) -> None:
         ticket = Ticket.objects.create(
             event=event,
@@ -301,6 +302,12 @@ class TestMergeNoteTransfer:
 
         note = OrganizationUserNote.objects.get()
         assert (note.user_id, note.record_id) == (None, absorbed.pk)
+        # The note stays readable on the (now linked) record, and is not on the account's own note.
+        absorbed.refresh_from_db()
+        assert absorbed.user_id == claimant.pk
+        assert owner_client.get(_url(organization, absorbed)).json()["body"] == "Staff only"
+        assert MembershipRecord.objects.filter(pk=absorbed.pk).with_note_flag().get().note_exists is True  # type: ignore[attr-defined]
+        assert owner_client.get(_user_note_url(organization, claimant)).status_code == 404
 
     def test_known_survivor_receives_the_note(
         self,

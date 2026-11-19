@@ -82,7 +82,7 @@ class MembershipRecordQuerySet(models.QuerySet["MembershipRecord"]):
         return self.unmerged().filter(over if ended else ~over)
 
     def with_note_flag(self) -> t.Self:
-        """Annotate ``note_exists``: a linked entry shows its user's note, an unlinked one its own."""
+        """Annotate ``note_exists``: a linked entry shows its user's note, else (or if only it has one) its own."""
         from events.models.user_note import OrganizationUserNote  # lazy: user_note references this model by label
 
         user_note = OrganizationUserNote.objects.filter(
@@ -90,8 +90,9 @@ class MembershipRecordQuerySet(models.QuerySet["MembershipRecord"]):
         )
         record_note = OrganizationUserNote.objects.filter(record_id=models.OuterRef("pk"))
         return self.annotate(
+            # A record linked to a non-holder keeps its note on the record, so both sources count.
             note_exists=models.Case(
-                models.When(user__isnull=False, then=models.Exists(user_note)),
+                models.When(user__isnull=False, then=models.Exists(user_note) | models.Exists(record_note)),
                 default=models.Exists(record_note),
                 output_field=models.BooleanField(),
             )

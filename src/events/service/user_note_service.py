@@ -85,9 +85,13 @@ def delete_note(organization: Organization, user_id: UUID) -> None:
 
 
 def get_record_note(organization: Organization, record_id: UUID) -> OrganizationUserNote:
-    """Return the note of a register entry (404 if none): the user's note once linked, else its own."""
+    """Return the note of a register entry (404 if none): the user's note once linked to a known holder, else its own.
+
+    A record linked to an account that is not a known holder keeps its note on the record (a merge does not
+    move a note onto such an account), so staff still see it.
+    """
     record = get_object_or_404(MembershipRecord, pk=record_id, organization=organization)
-    if record.user_id is not None:
+    if record.user_id is not None and is_known_holder(organization, record.user):  # type: ignore[arg-type]  # user_id checked
         return get_note(organization, record.user_id)
     return get_object_or_404(
         OrganizationUserNote.objects.select_related("updated_by"), organization=organization, record=record
