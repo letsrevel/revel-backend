@@ -10,10 +10,13 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
+from events.exceptions import GuestAccountExistsError, InvitationRequiredError
 from events.models import (
     Event,
+    EventRSVP,
     EventSeatOverride,
     EventWaitList,
+    Organization,
     PriceCategory,
     SeatHold,
     Ticket,
@@ -57,19 +60,41 @@ def _live_hold(event: Event, seat: VenueSeat, *, user: RevelUser | None = None, 
 # ---- resolve_recipient ----
 
 
-def test_resolve_recipient_creates_guest_for_new_email() -> None:
-    user = box_office.resolve_recipient("new-guest@example.com", None, first_name="Jane", last_name="Doe")
+def test_resolve_recipient_creates_guest_for_new_email(organization: Organization) -> None:
+    user = box_office.resolve_recipient(organization, "new-guest@example.com", None, first_name="Jane", last_name="Doe")
     assert user.guest is True
     assert user.email == "new-guest@example.com"
 
 
-def test_resolve_recipient_reuses_existing_non_guest_account(recipient: RevelUser) -> None:
-    user = box_office.resolve_recipient(recipient.email, None)
-    assert user == recipient
+def test_resolve_recipient_reuses_verified_account(organization: Organization, recipient: RevelUser) -> None:
+    recipient.email_verified = True
+    recipient.save(update_fields=["email_verified"])
+    assert box_office.resolve_recipient(organization, recipient.email.upper(), None) == recipient
 
 
-def test_resolve_recipient_by_user_id(recipient: RevelUser) -> None:
-    assert box_office.resolve_recipient(None, recipient.id) == recipient
+def test_resolve_recipient_refuses_unverified_account(organization: Organization, recipient: RevelUser) -> None:
+    """An unverified address may belong to someone else: never attach a ticket to that account."""
+    recipient.email_verified = False
+    recipient.save(update_fields=["email_verified"])
+    with pytest.raises(GuestAccountExistsError):
+        box_office.resolve_recipient(organization, recipient.email, None)
+
+
+def test_resolve_recipient_reuses_existing_guest(organization: Organization) -> None:
+    guest = box_office.resolve_recipient(organization, "repeat@example.com", None)
+    assert box_office.resolve_recipient(organization, "repeat@example.com", None) == guest
+
+
+def test_resolve_recipient_by_user_id_refuses_stranger(organization: Organization, recipient: RevelUser) -> None:
+    with pytest.raises(InvitationRequiredError):
+        box_office.resolve_recipient(organization, None, recipient.id)
+
+
+def test_resolve_recipient_by_user_id_with_attendance(
+    organization: Organization, event: Event, recipient: RevelUser
+) -> None:
+    EventRSVP.objects.create(event=event, user=recipient, status=EventRSVP.RsvpStatus.MAYBE)
+    assert box_office.resolve_recipient(organization, None, recipient.id) == recipient
 
 
 # ---- sell ----

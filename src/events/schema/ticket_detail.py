@@ -189,6 +189,23 @@ class AdminTicketDetailSchema(AdminTicketSchema):
     private_note: str | None = None
 
 
+class BoxOfficeRecipientSchema(Schema):
+    """The account a box-office sale went to. Deliberately no email, phone or legal names."""
+
+    id: UUID
+    display_name: str
+
+
+class BoxOfficeSellTicketSchema(AdminTicketSchema):
+    """Box-office sale response: the admin ticket with only a minimal recipient.
+
+    A sale by email can land on an account staff had no prior connection to, so the response
+    must not hand back that account's contact data. Lists and reseat keep ``AdminTicketSchema``.
+    """
+
+    user: BoxOfficeRecipientSchema  # type: ignore[assignment]
+
+
 class TicketAttributionBucketSchema(Schema):
     """One row of the organizer's attribution breakdown (#922).
 

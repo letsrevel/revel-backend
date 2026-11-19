@@ -159,6 +159,7 @@ def test_get_rsvp_not_found(organization_owner_client: Client, event: Event) -> 
 # ===== Create RSVP Tests =====
 
 
+@pytest.mark.usefixtures("organization_membership")
 def test_create_rsvp_by_owner(organization_owner_client: Client, event: Event, member_user: RevelUser) -> None:
     """Test that an event owner can create an RSVP on behalf of a user."""
     url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
@@ -177,6 +178,7 @@ def test_create_rsvp_by_owner(organization_owner_client: Client, event: Event, m
     assert rsvp.status == EventRSVP.RsvpStatus.YES
 
 
+@pytest.mark.usefixtures("organization_membership")
 def test_create_rsvp_by_staff_with_permission(
     organization_staff_client: Client, event: Event, member_user: RevelUser
 ) -> None:

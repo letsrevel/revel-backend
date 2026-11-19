@@ -13,7 +13,7 @@ from common.authentication import ScopedJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
-from events.service import update_db_instance
+from events.service import organization_service, update_db_instance
 from events.service.waitlist_service import enqueue_waitlist_processing
 from oauth.permissions import RequireScope
 
@@ -72,18 +72,20 @@ class EventAdminRSVPsController(EventAdminBaseController):
     @route.post(
         "/rsvps",
         url_name="create_rsvp",
-        response=schema.RSVPDetailSchema,
+        response={200: schema.RSVPDetailSchema, 400: schema.InvitationRequiredErrorSchema},
     )
     def create_rsvp(self, event_id: UUID, payload: schema.RSVPCreateSchema) -> models.EventRSVP:
         """Create an RSVP on behalf of a user.
 
         Use this when a user contacts the organization to RSVP outside the platform
-        (e.g., via text, email, or in person).
+        (e.g., via text, email, or in person). The account must already have standing
+        with the organization (member, staff, applicant, or a ticket, RSVP or pass
+        holder); otherwise 400 ``invitation_required``.
         """
         event = self.get_one(event_id)
 
-        # Verify user exists
         user = get_object_or_404(RevelUser, pk=payload.user_id)
+        organization_service.require_relationship(event.organization, user, include_attendees=True)
 
         # Capture prior status (if any) before the upsert so we can detect a
         # YES -> non-YES transition that frees a seat.

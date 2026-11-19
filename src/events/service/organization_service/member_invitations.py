@@ -18,6 +18,8 @@ from accounts.models import RevelUser
 from common.utils import update_or_create_with_race_protection
 from events.exceptions import AlreadyMemberError, InvitationRequiredError
 from events.models import (
+    EventRSVP,
+    HeldSeriesPass,
     MembershipRecord,
     MembershipTier,
     Organization,
@@ -25,6 +27,7 @@ from events.models import (
     OrganizationMembershipRequest,
     OrganizationStaff,
     OrganizationToken,
+    Ticket,
 )
 from events.service import blacklist_service
 from events.utils import format_organization_datetime
@@ -132,22 +135,30 @@ def revoke_invitation(organization: Organization, invitation_id: str) -> None:
     invitation.save(update_fields=["expires_at", "updated_at"])
 
 
-def has_relationship(organization: Organization, user: RevelUser) -> bool:
+def has_relationship(organization: Organization, user: RevelUser, *, include_attendees: bool = False) -> bool:
     """Whether ``user`` already has any standing with ``organization``.
 
     Owner, member (any status), staff, membership applicant (any status) or register record holder.
+    With ``include_attendees`` (staff actions on an event), also a ticket or RSVP on any of the
+    organization's events, or a series pass of the organization, in any status.
     """
     if organization.owner_id == user.pk:
         return True
-    return (
+    if (
         OrganizationMember.objects.filter(organization=organization, user=user).exists()
         or OrganizationStaff.objects.filter(organization=organization, user=user).exists()
         or OrganizationMembershipRequest.objects.filter(organization=organization, user=user).exists()
         or MembershipRecord.objects.filter(organization=organization, user=user).exists()
+    ):
+        return True
+    return include_attendees and (
+        Ticket.objects.filter(event__organization=organization, user=user).exists()
+        or EventRSVP.objects.filter(event__organization=organization, user=user).exists()
+        or HeldSeriesPass.objects.filter(series_pass__event_series__organization=organization, user=user).exists()
     )
 
 
-def require_relationship(organization: Organization, user: RevelUser) -> None:
+def require_relationship(organization: Organization, user: RevelUser, *, include_attendees: bool = False) -> None:
     """Raise ``InvitationRequiredError`` unless ``user`` already has standing with ``organization``."""
-    if not has_relationship(organization, user):
+    if not has_relationship(organization, user, include_attendees=include_attendees):
         raise InvitationRequiredError

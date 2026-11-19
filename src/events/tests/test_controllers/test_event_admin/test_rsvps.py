@@ -85,21 +85,54 @@ def test_list_rsvps_membership_present_for_member(
 # --- Tests for admin RSVP note CRUD ---
 
 
+@pytest.mark.usefixtures("organization_membership")
 def test_admin_create_rsvp_with_note_ignores_flag(
     organization_owner_client: Client,
     event: Event,
-    nonmember_user: RevelUser,
+    member_user: RevelUser,
 ) -> None:
     """Admin can record a note even when accept_rsvp_notes is False."""
     assert event.accept_rsvp_notes is False
 
     url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
-    payload = {"user_id": str(nonmember_user.id), "status": EventRSVP.RsvpStatus.YES, "note": "phoned in"}
+    payload = {"user_id": str(member_user.id), "status": EventRSVP.RsvpStatus.YES, "note": "phoned in"}
     response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 200
-    rsvp = EventRSVP.objects.get(event=event, user=nonmember_user)
+    rsvp = EventRSVP.objects.get(event=event, user=member_user)
     assert rsvp.note == "phoned in"
+
+
+def test_admin_create_rsvp_refuses_account_without_relationship(
+    organization_owner_client: Client,
+    event: Event,
+    nonmember_user: RevelUser,
+) -> None:
+    """Staff cannot put an account with no connection to the organization on the attendee list."""
+    url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
+    payload = {"user_id": str(nonmember_user.id), "status": EventRSVP.RsvpStatus.YES}
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "invitation_required"
+    assert not EventRSVP.objects.filter(event=event, user=nonmember_user).exists()
+
+
+def test_admin_create_rsvp_allows_attendee_of_another_org_event(
+    organization_owner_client: Client,
+    event: Event,
+    nonmember_user: RevelUser,
+) -> None:
+    """A past RSVP to any of the organization's events is standing enough."""
+    other_event = Event.objects.create(organization=event.organization, name="Earlier", start=event.start)
+    EventRSVP.objects.create(event=other_event, user=nonmember_user, status=EventRSVP.RsvpStatus.NO)
+
+    url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
+    payload = {"user_id": str(nonmember_user.id), "status": EventRSVP.RsvpStatus.YES}
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    assert EventRSVP.objects.filter(event=event, user=nonmember_user).exists()
 
 
 def test_admin_update_rsvp_note(

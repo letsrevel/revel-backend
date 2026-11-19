@@ -18,26 +18,34 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Event, EventSeatOverride, Ticket, TicketSaleSource, TicketTier, VenueSeat
+from events.models import Event, EventSeatOverride, Organization, Ticket, TicketSaleSource, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.batch_ticket_service.eligibility import assert_event_sells_tickets
 from events.service.guest import get_or_create_guest_user
+from events.service.organization_service import require_relationship
 from events.service.seating import holds as holds_service
 from events.service.seating.pricing import TicketPrice, build_batch_pricing, should_stamp_price_paid
 
 
 def resolve_recipient(
-    email: str | None, user_id: uuid.UUID | None, first_name: str = "", last_name: str = ""
+    organization: Organization,
+    email: str | None,
+    user_id: uuid.UUID | None,
+    first_name: str = "",
+    last_name: str = "",
 ) -> RevelUser:
     """Resolve the ticket recipient for a box-office sale.
 
-    ``user_id`` wins when given. An email matching ANY existing account (guest or
-    not) reuses that account — unlike the self-service guest flow, a staff-driven
-    door sale attaching a ticket to a registered user's account is exactly right.
-    Unknown emails get a guest user via the existing helper.
+    ``user_id`` wins when given, and only for an account that already has standing with the
+    organization (member, staff, applicant, or a ticket, RSVP or pass holder). An email matching
+    a registered account with a *verified* address reuses it — a staff-driven door sale attaching
+    a ticket to that person's account is exactly right. Everything else goes through the guest
+    helper: an existing guest is reused, an unknown email gets a new guest, and an unverified
+    registered address is refused (it may not belong to whoever registered it).
 
     Args:
+        organization: The selling organization.
         email: Recipient email (guest checkout style).
         user_id: Existing RevelUser id.
         first_name: Used only when a new guest user is created.
@@ -45,13 +53,19 @@ def resolve_recipient(
 
     Returns:
         The RevelUser the ticket will belong to.
+
+    Raises:
+        InvitationRequiredError: ``user_id`` names an account with no standing (400 ``invitation_required``).
+        GuestAccountExistsError: the email belongs to an unverified registered account (400).
     """
     if user_id is not None:
-        return get_object_or_404(RevelUser, pk=user_id)
+        user = get_object_or_404(RevelUser, pk=user_id)
+        require_relationship(organization, user, include_attendees=True)
+        return user
     assert email is not None  # schema enforces exactly one of email/user_id
-    existing = RevelUser.objects.filter(email__iexact=email).first()
-    if existing is not None:
-        return existing
+    verified = RevelUser.objects.filter(email__iexact=email, guest=False, email_verified=True).first()
+    if verified is not None:
+        return verified
     return get_or_create_guest_user(email, first_name, last_name)
 
 

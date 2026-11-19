@@ -8,7 +8,7 @@ from django.test.client import Client
 from django.urls import reverse
 
 from accounts.models import RevelUser
-from events.models import Event, EventSeatOverride, OrganizationStaff, Ticket, TicketTier, VenueSeat
+from events.models import Event, EventRSVP, EventSeatOverride, OrganizationStaff, Ticket, TicketTier, VenueSeat
 
 pytestmark = pytest.mark.django_db
 
@@ -57,6 +57,7 @@ def test_owner_can_sell_to_existing_user(
     public_user: RevelUser,
 ) -> None:
     event, seats = seated_event
+    EventRSVP.objects.create(event=event, user=public_user, status=EventRSVP.RsvpStatus.MAYBE)
     payload = {
         "seat_id": str(seats[1].id),
         "tier_id": str(tier.id),
@@ -68,6 +69,69 @@ def test_owner_can_sell_to_existing_user(
     ticket = Ticket.objects.get(pk=resp.json()["id"])
     assert ticket.user == public_user
     assert ticket.price_paid == Decimal("0.00")
+
+
+def test_sell_by_user_id_refuses_account_without_relationship(
+    organization_owner_client: Client,
+    seated_event: tuple[Event, list[VenueSeat]],
+    tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    event, seats = seated_event
+    payload = {
+        "seat_id": str(seats[1].id),
+        "tier_id": str(tier.id),
+        "payment_method": "free",
+        "user_id": str(public_user.id),
+    }
+    resp = organization_owner_client.post(_sell_url(event), data=orjson.dumps(payload), content_type="application/json")
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["code"] == "invitation_required"
+    assert not Ticket.objects.filter(event=event, user=public_user).exists()
+
+
+def test_sell_response_carries_only_minimal_user(
+    organization_owner_client: Client,
+    seated_event: tuple[Event, list[VenueSeat]],
+    tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """A sale by email to a verified account returns its id and display name, no contact data."""
+    event, seats = seated_event
+    public_user.email_verified = True
+    public_user.phone_number = "+4366012345678"
+    public_user.save(update_fields=["email_verified", "phone_number"])
+    payload = {
+        "seat_id": str(seats[0].id),
+        "tier_id": str(tier.id),
+        "payment_method": "at_the_door",
+        "email": public_user.email,
+    }
+    resp = organization_owner_client.post(_sell_url(event), data=orjson.dumps(payload), content_type="application/json")
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["user"] == {"id": str(public_user.id), "display_name": public_user.get_display_name()}
+    assert Ticket.objects.get(pk=resp.json()["id"]).user == public_user
+
+
+def test_sell_by_email_of_unverified_account_is_refused(
+    organization_owner_client: Client,
+    seated_event: tuple[Event, list[VenueSeat]],
+    tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    event, seats = seated_event
+    public_user.email_verified = False
+    public_user.save(update_fields=["email_verified"])
+    payload = {
+        "seat_id": str(seats[0].id),
+        "tier_id": str(tier.id),
+        "payment_method": "at_the_door",
+        "email": public_user.email,
+    }
+    resp = organization_owner_client.post(_sell_url(event), data=orjson.dumps(payload), content_type="application/json")
+    assert resp.status_code == 400, resp.content
+    assert resp.json()["code"] == "guest_account_exists"
+    assert not Ticket.objects.filter(event=event).exists()
 
 
 def test_sell_requires_exactly_one_recipient(
