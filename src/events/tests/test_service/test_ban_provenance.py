@@ -364,3 +364,46 @@ class TestManualEntryReachesExistingHolders:
 
         assert not OrganizationStaff.objects.filter(organization=organization, user=other).exists()
         assert _row(organization, holder).status == Status.BANNED
+
+
+class TestMembershipSavedAroundABlacklistCommit:
+    def test_membership_saved_before_the_entry_committed_is_banned_on_commit(
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        nonmember_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """The row is saved, then an entry for the account lands before the row's commit: the row ends banned."""
+        with django_capture_on_commit_callbacks(execute=True):
+            OrganizationMember.objects.create(organization=organization, user=nonmember_user)
+            Blacklist.objects.create(
+                organization=organization, email=nonmember_user.email, created_by=organization_owner_user
+            )
+
+        assert _row(organization, nonmember_user).status == Status.BANNED
+
+    def test_non_blacklisted_save_stays_active(
+        self,
+        organization: Organization,
+        nonmember_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        with django_capture_on_commit_callbacks(execute=True):
+            OrganizationMember.objects.create(organization=organization, user=nonmember_user)
+
+        assert _row(organization, nonmember_user).status == Status.ACTIVE
+
+    def test_owner_is_never_banned_by_the_recheck(
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        with django_capture_on_commit_callbacks(execute=True):
+            OrganizationMember.objects.create(organization=organization, user=organization_owner_user)
+            Blacklist.objects.create(
+                organization=organization, email=organization_owner_user.email, created_by=organization_owner_user
+            )
+
+        assert _row(organization, organization_owner_user).status == Status.ACTIVE

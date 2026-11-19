@@ -30,8 +30,12 @@ standing come only from acts of the account holder.
   Box-office tickets, staff RSVPs, event invitations and waitlist offers do not count. Only
   attending tickets (active or checked in) count, so a pending checkout confers nothing. A
   blacklist entry never creates an access row for a non-member: it flips an existing member's row to
-  banned (again on commit, to catch a membership created concurrently) and leaves everyone else
-  without one. Enforcement reads the blacklist itself (`get_hard_blacklisted_user_ids` for bulk
+  banned and leaves everyone else without one. The race with a membership granted concurrently is closed
+  from both sides after commit: applying an entry bans the account's rows once more on commit, and every
+  membership save that is not already banned rechecks the blacklist on commit and bans its own row if
+  the account is blacklisted (the owner is exempt). A manual entry that links no account (phone,
+  telegram or an unverified email) still applies the ban consequences to existing staff and members of
+  the organization that it matches. Enforcement reads the blacklist itself (`get_hard_blacklisted_user_ids` for bulk
   checks, `check_user_hard_blacklisted` per user), including the day-membership grants, which also
   revoke upcoming day memberships directly, and the follower new-event notifications. Manual entries
   link an account only by an exact verified-email match; phone and telegram do not link, because
