@@ -274,6 +274,47 @@ def test_guest_link_claim_greets_by_email_not_stored_name(
     assert "g@example.com" in message
 
 
+class TestLoggedInClaimGreeting:
+    """The default greeting names the claimer only when the organization knows them through their own acts."""
+
+    @pytest.fixture
+    def claim_token(self, organization: Organization, organization_owner_user: RevelUser) -> t.Any:
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from events.models import Event, EventToken
+
+        event = Event.objects.create(
+            organization=organization, name="Open Night", slug="open-night", start=timezone.now() + timedelta(days=7)
+        )
+        return EventToken.objects.create(event=event, issuer=organization_owner_user, grants_invitation=True)
+
+    @staticmethod
+    def _message(user: RevelUser, token: t.Any) -> str:
+        from events.models import EventInvitation
+        from events.service.tokens import claim_invitation
+
+        claim_invitation(user, str(token.pk))
+        return EventInvitation.objects.get(event=token.event, user=user).custom_message or ""
+
+    def test_unrelated_account_is_greeted_by_email(self, claim_token: t.Any, profiled_user: RevelUser) -> None:
+        message = self._message(profiled_user, claim_token)
+        assert "Ada" not in message and "Lovelace" not in message and "Countess" not in message
+        assert profiled_user.email in message
+
+    def test_member_is_greeted_by_name(
+        self, organization: Organization, claim_token: t.Any, profiled_user: RevelUser
+    ) -> None:
+        OrganizationMember.objects.create(organization=organization, user=profiled_user)
+        assert profiled_user.get_display_name() in self._message(profiled_user, claim_token)
+
+    def test_payload_message_is_kept(self, claim_token: t.Any, profiled_user: RevelUser) -> None:
+        claim_token.invitation_payload = {"custom_message": "Welcome aboard"}
+        claim_token.save()
+        assert self._message(profiled_user, claim_token) == "Welcome aboard"
+
+
 class TestManualEntryReachesExistingHolders:
     """A manual entry links no account unless the email is verified, but it still bans matching staff/members."""
 
