@@ -43,7 +43,6 @@ from events.service import (
 )
 from events.service.blacklist_service import (
     apply_blacklist_consequences,
-    ban_existing_member,
     check_user_hard_blacklisted,
     link_blacklist_entries_for_user,
 )
@@ -357,11 +356,12 @@ def handle_membership_granted(
 def recheck_blacklist_after_membership_commit(
     sender: type[OrganizationMember], instance: OrganizationMember, **kwargs: t.Any
 ) -> None:
-    """Ban a membership row whose account was blacklisted while the row was being written.
+    """Apply the ban consequences when an account was blacklisted while its membership row was being written.
 
     Whoever grants a membership checks the blacklist first, but a concurrent entry may not have been
     visible to that check. Re-reading after this row's commit closes the window whatever the grant path
-    (token claim, subscription, approval, reactivation). A banned row is skipped, so this never recurses.
+    (token claim, subscription, approval, reactivation). A banned row is skipped, so this never recurses, and the
+    consequences are idempotent (terminal subscriptions are not cancelled twice).
     """
     if instance.status == OrganizationMember.MembershipStatus.BANNED:
         return
@@ -370,7 +370,7 @@ def recheck_blacklist_after_membership_commit(
     def _recheck() -> None:
         org = Organization.objects.get(pk=organization_id)
         if org.owner_id != user.pk and check_user_hard_blacklisted(user, org):
-            ban_existing_member(user, org)
+            apply_blacklist_consequences(user, org)
 
     transaction.on_commit(_recheck)
 

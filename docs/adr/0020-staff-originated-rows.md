@@ -32,7 +32,7 @@ standing come only from acts of the account holder.
   blacklist entry never creates an access row for a non-member: it flips an existing member's row to
   banned and leaves everyone else without one. The race with a membership granted concurrently is closed
   from both sides after commit: applying an entry bans the account's rows once more on commit, and every
-  membership save that is not already banned rechecks the blacklist on commit and bans its own row if
+  membership save that is not already banned rechecks the blacklist on commit and applies the ban consequences to the account if
   the account is blacklisted (the owner is exempt). A manual entry that links no account (phone,
   telegram or an unverified email) still applies the ban consequences to existing staff and members of
   the organization that it matches. Enforcement reads the blacklist itself (`get_hard_blacklisted_user_ids` for bulk

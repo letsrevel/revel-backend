@@ -393,6 +393,37 @@ class TestMembershipSavedAroundABlacklistCommit:
 
         assert _row(organization, nonmember_user).status == Status.BANNED
 
+    def test_subscription_created_in_the_race_is_cancelled_and_staff_removed(
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        nonmember_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        from decimal import Decimal
+
+        from events.models import MembershipSubscription, MembershipTier
+        from events.service.subscription import lifecycle as subscription_lifecycle
+        from events.service.subscription import plans as subscription_plans
+
+        tier = MembershipTier.objects.get(organization=organization, name="General membership")
+        plan = subscription_plans.create_plan(
+            tier, name="Monthly", price=Decimal("10.00"), currency="EUR", period_unit="month"
+        )
+        OrganizationStaff.objects.create(organization=organization, user=nonmember_user)
+
+        with django_capture_on_commit_callbacks(execute=True):
+            OrganizationMember.objects.create(organization=organization, user=nonmember_user)
+            sub = subscription_lifecycle.create_subscription(plan, nonmember_user)
+            Blacklist.objects.create(
+                organization=organization, email=nonmember_user.email, created_by=organization_owner_user
+            )
+
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+        assert _row(organization, nonmember_user).status == Status.BANNED
+        assert not OrganizationStaff.objects.filter(organization=organization, user=nonmember_user).exists()
+
     def test_non_blacklisted_save_stays_active(
         self,
         organization: Organization,
