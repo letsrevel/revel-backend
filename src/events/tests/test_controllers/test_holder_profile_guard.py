@@ -1,8 +1,8 @@
 """CI guard: account profile data is only projected for the account holder or a person who acted.
 
-Scope: every operation whose response embeds ``MemberUserSchema`` / ``MinimalRevelUserSchema`` (or a
-component that transitively embeds one), plus ``BlacklistEntrySchema`` (it resolves a linked account's
-name). Profile data (phone, legal names, pronouns, bio, picture) may only leave through an operation
+Scope: every operation whose response embeds ``MemberUserSchema`` / ``MinimalRevelUserSchema`` /
+``AttendeeSchema`` (or a component that transitively embeds one), plus ``BlacklistEntrySchema`` (it resolves a
+linked account's name). Profile data (phone, legal names, pronouns, bio, picture) may only leave through an operation
 whose subject is the caller's own account, or a person who acted toward the organization (member, staff,
 applicant, waitlist, invitation request, questionnaire submitter, series-pass holder, ...).
 Staff-originated rows (box-office tickets, staff RSVPs, staff-made invitations) must use a masked

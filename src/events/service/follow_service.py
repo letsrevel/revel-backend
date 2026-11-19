@@ -422,8 +422,9 @@ def get_followers_for_new_event_notification(
         notify_new_events=True,
     ).select_related("user")
     series_followers = (
-        EventSeriesFollow.objects.filter(event_series=event_series, is_archived=False, notify_new_events=True)
-        .select_related("user")
+        EventSeriesFollow.objects.filter(
+            event_series=event_series, is_archived=False, notify_new_events=True
+        ).select_related("user")
         if event_series
         else None
     )

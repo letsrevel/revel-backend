@@ -155,7 +155,8 @@ whose email isn't verified yet, the sale is refused (`guest_account_exists`): as
 person to verify their email, or use another address. Unless the critic has dealt
 with your organization themselves (bought a ticket, joined, applied...), the response
 and your ticket list show `user.known: false` with only the email and the name you
-typed (`guest_name`, defaulting to the email): their phone, names and picture stay `null`.
+typed (`guest_name`, defaulting to the account's own name if it is known to your
+organization, else the email): their phone, names and picture stay `null`.
 
 ### 5. Sell a held seat — release the hold as part of the sale
 
