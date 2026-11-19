@@ -135,6 +135,34 @@ def test_admin_create_rsvp_allows_attendee_of_another_org_event(
     assert EventRSVP.objects.filter(event=event, user=nonmember_user).exists()
 
 
+@pytest.mark.usefixtures("organization_membership")
+def test_admin_create_rsvp_marks_new_row_as_staff_made(
+    organization_owner_client: Client, event: Event, member_user: RevelUser
+) -> None:
+    url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
+    payload = {"user_id": str(member_user.id), "status": EventRSVP.RsvpStatus.YES}
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    assert EventRSVP.objects.get(event=event, user=member_user).source == EventRSVP.Source.STAFF
+
+
+@pytest.mark.usefixtures("organization_membership")
+def test_admin_create_rsvp_keeps_origin_of_existing_row(
+    organization_owner_client: Client, event: Event, member_user: RevelUser
+) -> None:
+    """Staff overwriting the holder's own answer does not turn it into a staff row."""
+    EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.MAYBE)
+
+    url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
+    payload = {"user_id": str(member_user.id), "status": EventRSVP.RsvpStatus.YES}
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    rsvp = EventRSVP.objects.get(event=event, user=member_user)
+    assert (rsvp.status, rsvp.source) == (EventRSVP.RsvpStatus.YES, EventRSVP.Source.SELF)
+
+
 def test_admin_update_rsvp_note(
     organization_owner_client: Client,
     event: Event,

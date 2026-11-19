@@ -95,3 +95,14 @@ def test_rsvp_without_note_clears_existing(public_user: RevelUser, rsvp_event: E
     rsvp = manager.rsvp(EventRSVP.RsvpStatus.MAYBE)
 
     assert rsvp.note == ""
+
+
+def test_own_answer_claims_a_staff_made_rsvp(public_user: RevelUser, rsvp_event: Event) -> None:
+    """The holder answering themselves turns a staff-made RSVP into their own (it then confers standing)."""
+    EventRSVP.objects.create(
+        event=rsvp_event, user=public_user, status=EventRSVP.RsvpStatus.MAYBE, source=EventRSVP.Source.STAFF
+    )
+
+    rsvp = EventManager(user=public_user, event=rsvp_event).rsvp(EventRSVP.RsvpStatus.YES)
+
+    assert rsvp.source == EventRSVP.Source.SELF

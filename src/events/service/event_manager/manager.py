@@ -105,7 +105,8 @@ class EventManager:
         rsvp, _created = update_or_create_with_race_protection(
             EventRSVP,
             {"user": self.user, "event": self.event},
-            {"status": answer, "note": note},
+            # The holder answering themselves makes the row theirs, even if staff created it.
+            {"status": answer, "note": note, "source": EventRSVP.Source.SELF},
         )
         if answer == EventRSVP.RsvpStatus.YES:
             self._claim_active_offer()

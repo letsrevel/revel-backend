@@ -92,8 +92,12 @@ class EventAdminRSVPsController(EventAdminBaseController):
         prior_status = models.EventRSVP.objects.filter(event=event, user=user).values_list("status", flat=True).first()
 
         # Create or update RSVP (due to unique constraint on event+user)
+        # A new row is staff-made; an existing row keeps its origin.
         rsvp, created = models.EventRSVP.objects.update_or_create(
-            event=event, user=user, defaults={"status": payload.status, "note": payload.note}
+            event=event,
+            user=user,
+            defaults={"status": payload.status, "note": payload.note},
+            create_defaults={"status": payload.status, "note": payload.note, "source": models.EventRSVP.Source.STAFF},
         )
 
         if prior_status == models.EventRSVP.RsvpStatus.YES and payload.status != models.EventRSVP.RsvpStatus.YES:
