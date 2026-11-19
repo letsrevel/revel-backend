@@ -63,7 +63,7 @@ def resolve_recipient(
         require_relationship(organization, user, include_attendees=True)
         return user
     assert email is not None  # schema enforces exactly one of email/user_id
-    verified = RevelUser.objects.filter(email__iexact=email, guest=False, email_verified=True).first()
+    verified = RevelUser.objects.filter(email__iexact=email, guest=False, email_verified=True, is_active=True).first()
     if verified is not None:
         return verified
     return get_or_create_guest_user(email, first_name, last_name)

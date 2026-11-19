@@ -80,6 +80,17 @@ def test_resolve_recipient_refuses_unverified_account(organization: Organization
         box_office.resolve_recipient(organization, recipient.email, None)
 
 
+def test_resolve_recipient_refuses_deactivated_verified_account(
+    organization: Organization, recipient: RevelUser
+) -> None:
+    """A deactivated (e.g. banned) account never receives a door-sale ticket."""
+    recipient.email_verified = True
+    recipient.is_active = False
+    recipient.save(update_fields=["email_verified", "is_active"])
+    with pytest.raises(GuestAccountExistsError):
+        box_office.resolve_recipient(organization, recipient.email, None)
+
+
 def test_resolve_recipient_reuses_existing_guest(organization: Organization) -> None:
     guest = box_office.resolve_recipient(organization, "repeat@example.com", None)
     assert box_office.resolve_recipient(organization, "repeat@example.com", None) == guest
