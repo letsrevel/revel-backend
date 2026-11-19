@@ -9,7 +9,7 @@ from uuid import UUID
 
 import structlog
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from rapidfuzz import fuzz
@@ -19,6 +19,7 @@ from accounts.validators import normalize_phone_number
 from events.models import Blacklist, Organization, OrganizationMember, OrganizationStaff
 from events.service import day_membership_service
 from events.service.holder_visibility import is_known_holder
+from events.utils.blacklist import users_matching_entries
 
 logger = structlog.get_logger(__name__)
 
@@ -37,7 +38,7 @@ def _normalize_email(email: str | None) -> str | None:
     return email.lower().strip() if email else None
 
 
-def _ban_existing_member(user: RevelUser, organization: Organization) -> None:
+def ban_existing_member(user: RevelUser, organization: Organization) -> None:
     """Flip the user's existing membership rows (if any) to BANNED. Never creates one.
 
     Per-row ``save`` (not a queryset update) so post_save receivers run: permission snapshot invalidation,
@@ -97,8 +98,8 @@ def apply_blacklist_consequences(user: RevelUser, organization: Organization) ->
     # A ban never creates a membership row for a non-member (ADR-0020): enforcement reads the blacklist
     # itself. An existing member is flipped to BANNED, and again on commit to catch a membership created
     # concurrently whose blacklist check ran before this entry committed.
-    _ban_existing_member(user, organization)
-    transaction.on_commit(lambda: _ban_existing_member(user, organization))
+    ban_existing_member(user, organization)
+    transaction.on_commit(lambda: ban_existing_member(user, organization))
 
     # No membership row means no post_save ban signal for a non-member, so revoke day memberships directly.
     day_membership_service.revoke_upcoming_for_ban(organization.id, user.id)
@@ -133,6 +134,26 @@ def find_user_by_verified_email(email: str | None) -> RevelUser | None:
     return RevelUser.objects.filter(email__iexact=email, email_verified=True, is_active=True, guest=False).first()
 
 
+def _apply_consequences_to_matched_holders(entry: Blacklist) -> None:
+    """Apply consequences to existing staff/members of the org that the (unlinked) ``entry`` hard-matches.
+
+    A manual entry links an account only by verified email, so a phone, telegram or unverified-email match
+    is not linked (no FK, no rows created). Existing staff and members it matches must still lose access.
+    Matching is the same as ``check_user_hard_blacklisted``; the owner is exempt.
+    """
+    organization = entry.organization
+    holders = (
+        users_matching_entries(Blacklist.objects.filter(pk=entry.pk))
+        .filter(
+            Exists(OrganizationStaff.objects.filter(organization=organization, user=OuterRef("pk")))
+            | Exists(OrganizationMember.objects.filter(organization=organization, user=OuterRef("pk")))
+        )
+        .exclude(pk=organization.owner_id)
+    )
+    for holder in holders:
+        apply_blacklist_consequences(holder, organization)
+
+
 @transaction.atomic
 def add_to_blacklist(
     organization: Organization,
@@ -150,8 +171,11 @@ def add_to_blacklist(
     """Add an entry to the organization blacklist.
 
     Supports two modes:
-    1. Quick mode: Provide a user object, all identifiers are populated from user
-    2. Manual mode: Provide individual identifiers, system tries to find matching user
+    1. Quick mode: Provide a user object. The email is always stored; the profile (phone, names, telegram)
+       is copied only when the account is a known holder for the organization (ADR-0020).
+    2. Manual mode: Provide individual identifiers. An account is linked only by an exact verified-email
+       match. An unlinked entry still applies the ban consequences to existing staff and members of the
+       organization that it matches by email, phone or telegram (the owner is exempt).
 
     Args:
         organization: The organization to add the blacklist entry to
@@ -216,7 +240,7 @@ def add_to_blacklist(
         ).exists():
             raise HttpError(400, str(_("An entry with this email already exists.")))
 
-    return Blacklist.objects.create(
+    entry = Blacklist.objects.create(
         organization=organization,
         user=user,
         email=email,
@@ -228,6 +252,9 @@ def add_to_blacklist(
         reason=reason,
         created_by=created_by,
     )
+    if entry.user is None:
+        _apply_consequences_to_matched_holders(entry)
+    return entry
 
 
 def add_user_to_blacklist(

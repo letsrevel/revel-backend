@@ -47,27 +47,18 @@ def get_hard_blacklisted_org_ids(user: "RevelUser") -> "QuerySet[Blacklist, UUID
     return Blacklist.objects.filter(q).values_list("organization_id", flat=True)
 
 
-def get_hard_blacklisted_user_ids(organization_id: "UUID") -> "QuerySet[RevelUser, UUID]":
-    """User IDs hard-blacklisted in an organization (bulk twin of ``check_user_hard_blacklisted``).
+def users_matching_entries(entries: "QuerySet[Blacklist]") -> "QuerySet[RevelUser]":
+    """Accounts that ``entries`` hard-match: the entry's user FK, or its email (case-insensitive), phone or telegram.
 
-    Matches the same way: the entry's user FK, or its email (case-insensitive), phone number or telegram
-    username against the account's. A blacklist never creates a membership row, so any code that must
-    exclude banned people looks here, not at ``OrganizationMember``.
-
-    Args:
-        organization_id: The organization whose blacklist to read
-
-    Returns:
-        ValuesQuerySet of account IDs (narrow it with ``.filter(pk__in=...)`` for a candidate set)
+    The single definition of the account-side match, shared by the bulk exclusion helper and the
+    consequences applied to existing staff/members when a manual entry is added.
     """
     from django.db.models import Exists, OuterRef
     from django.db.models.functions import Lower
 
     from accounts.models import RevelUser
-    from events.models import Blacklist
     from telegram.models import TelegramUser
 
-    entries = Blacklist.objects.filter(organization_id=organization_id)
     telegram = TelegramUser.objects.filter(user=OuterRef("pk"), telegram_username__isnull=False).annotate(
         handle=Lower("telegram_username")
     )
@@ -80,4 +71,28 @@ def get_hard_blacklisted_user_ids(organization_id: "UUID") -> "QuerySet[RevelUse
             & Exists(entries.filter(phone_number=OuterRef("phone_number")))
         )
         | Exists(telegram.filter(Exists(entries.filter(telegram_username=OuterRef("handle")))))
-    ).values_list("pk", flat=True)
+    )
+
+
+def get_hard_blacklisted_user_ids(
+    organization_id: "UUID", candidate_ids: "t.Iterable[UUID] | QuerySet[RevelUser, UUID] | None" = None
+) -> "QuerySet[RevelUser, UUID]":
+    """User IDs hard-blacklisted in an organization (bulk twin of ``check_user_hard_blacklisted``).
+
+    Matches the same way: the entry's user FK, or its email (case-insensitive), phone number or telegram
+    username against the account's. A blacklist never creates a membership row, so any code that must
+    exclude banned people looks here, not at ``OrganizationMember``.
+
+    Args:
+        organization_id: The organization whose blacklist to read
+        candidate_ids: Optional account ids (or a subquery) to narrow the scan to
+
+    Returns:
+        ValuesQuerySet of account IDs
+    """
+    from events.models import Blacklist
+
+    users = users_matching_entries(Blacklist.objects.filter(organization_id=organization_id))
+    if candidate_ids is not None:
+        users = users.filter(pk__in=candidate_ids)
+    return users.values_list("pk", flat=True)

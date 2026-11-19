@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from accounts.models import RevelUser
-from events.models import Blacklist, Organization, OrganizationMember
+from events.models import Blacklist, Organization, OrganizationMember, OrganizationStaff
 from events.schema import BlacklistEntrySchema
 from events.service import blacklist_service
 from events.service.holder_visibility import is_known_holder
@@ -262,3 +262,105 @@ def test_guest_link_claim_greets_by_email_not_stored_name(
     message = EventInvitation.objects.get(event=event, user=guest).custom_message or ""
     assert "Grace" not in message and "Hopper" not in message
     assert "g@example.com" in message
+
+
+class TestManualEntryReachesExistingHolders:
+    """A manual entry links no account unless the email is verified, but it still bans matching staff/members."""
+
+    @pytest.fixture
+    def holder(self, django_user_model: type[RevelUser]) -> RevelUser:
+        from telegram.models import TelegramUser
+
+        user = django_user_model.objects.create_user(
+            username="holder",
+            email="holder@example.com",
+            password="pass",
+            phone_number="+4915198765432",
+            email_verified=False,
+        )
+        TelegramUser.objects.create(telegram_id=77, telegram_username="Holder_TG", user=user)
+        return user
+
+    def test_phone_entry_removes_staff_and_stays_unlinked(
+        self, organization: Organization, organization_owner_user: RevelUser, holder: RevelUser
+    ) -> None:
+        OrganizationStaff.objects.create(organization=organization, user=holder)
+
+        entry = blacklist_service.add_to_blacklist(
+            organization, organization_owner_user, phone_number=holder.phone_number
+        )
+
+        assert entry.user is None
+        assert not OrganizationStaff.objects.filter(organization=organization, user=holder).exists()
+        assert holder not in organization.staff_members.all()
+
+    def test_telegram_entry_bans_active_member_and_cancels_subscriptions(
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        holder: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        OrganizationMember.objects.create(organization=organization, user=holder)
+
+        with patch("events.service.subscription.lifecycle.cancel_subscriptions_for_membership_loss") as cancel:
+            with django_capture_on_commit_callbacks(execute=True):
+                entry = blacklist_service.add_to_blacklist(
+                    organization, organization_owner_user, telegram_username="@holder_tg"
+                )
+
+        assert entry.user is None
+        assert _row(organization, holder).status == Status.BANNED
+        cancel.assert_called_once()
+        assert cancel.call_args.args[0] == holder
+
+    def test_unverified_email_entry_removes_staff(
+        self, organization: Organization, organization_owner_user: RevelUser, holder: RevelUser
+    ) -> None:
+        OrganizationStaff.objects.create(organization=organization, user=holder)
+
+        entry = blacklist_service.add_to_blacklist(organization, organization_owner_user, email=holder.email.upper())
+
+        assert entry.user is None
+        assert not OrganizationStaff.objects.filter(organization=organization, user=holder).exists()
+
+    def test_stranger_gets_nothing_created(
+        self, organization: Organization, organization_owner_user: RevelUser, holder: RevelUser
+    ) -> None:
+        blacklist_service.add_to_blacklist(organization, organization_owner_user, phone_number=holder.phone_number)
+
+        assert not OrganizationMember.objects.filter(organization=organization, user=holder).exists()
+        assert not OrganizationStaff.objects.filter(organization=organization, user=holder).exists()
+
+    def test_owner_is_exempt(
+        self, organization: Organization, organization_owner_user: RevelUser, django_user_model: type[RevelUser]
+    ) -> None:
+        RevelUser.objects.filter(pk=organization_owner_user.pk).update(phone_number="+4915100000001")
+        OrganizationMember.objects.create(organization=organization, user=organization_owner_user)
+        staffer = django_user_model.objects.create_user(username="s2", email="s2@example.com", password="pass")
+
+        blacklist_service.add_to_blacklist(organization, staffer, phone_number="+4915100000001")
+
+        assert _row(organization, organization_owner_user).status != Status.BANNED
+        assert organization in Organization.objects.for_user(organization_owner_user)
+
+    def test_multiple_accounts_matching_different_identifiers(
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        holder: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        other = django_user_model.objects.create_user(
+            username="other", email="other@example.com", password="pass", phone_number="+4915111111111"
+        )
+        OrganizationStaff.objects.create(organization=organization, user=other)
+        OrganizationMember.objects.create(organization=organization, user=holder)
+
+        # One entry carrying a phone (matches ``other``) and an email (matches ``holder``)
+        blacklist_service.add_to_blacklist(
+            organization, organization_owner_user, phone_number="+4915111111111", email=holder.email
+        )
+
+        assert not OrganizationStaff.objects.filter(organization=organization, user=other).exists()
+        assert _row(organization, holder).status == Status.BANNED
