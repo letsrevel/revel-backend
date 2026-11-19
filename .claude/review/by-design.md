@@ -7,6 +7,11 @@ Policy-level intended behaviour that reviewers must not report as a finding. Eac
 - boundary: a claim must still respect global and organization bans and blacklists, expiry, usage limits, the token's scope, and its role ceiling (a link can never grant more than it was issued for, and never owner rights). Claiming must not leak anything beyond what the claim grants. Tokens issued for single use or a single recipient must not be replayable.
 - reference: `docs/architecture/permissions.md`; maintainer decision.
 
+## Personal membership invitations
+- behaviour: a personal invitation (`OrganizationToken` with `invitee` set) is claimable only by its invitee, but its public preview (`GET /organizations/tokens/{id}`) and `X-Org-Token` view access behave like any membership link, so the invitee can see the organization before accepting. Staff with `manage_members` can see and withdraw pending invitations.
+- boundary: a claim by anyone other than the invitee, any route that edits or lists personal invitations as shareable links (`/tokens`), a preview or response that exposes the invitee, or creating a membership before the invitee accepts are still bugs.
+- reference: `docs/architecture/member-register.md` (member invitations); maintainer decision 2026-11-18.
+
 ## Staff permissions do what they say
 - behaviour: a staff member holding a permission (for example `manage_members` or `invite_to_event`) can perform exactly that action in their organization. The organization owner implicitly passes organization permission checks.
 - boundary: a staff member without the permission, or acting on another organization's objects, is a bug. Staff must not be able to escalate to owner, grant themselves or others more than they hold, or edit owner-only fields. An OAuth app token must never exceed its granted scopes: the scope gate runs before any owner or staff shortcut.

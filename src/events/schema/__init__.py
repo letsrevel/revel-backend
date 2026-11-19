@@ -191,9 +191,9 @@ from .mixins import (
 # Organization schemas
 from .organization import (
     AlreadyMemberErrorSchema,
+    InvitationRequiredErrorSchema,
     ApproveMembershipRequestSchema,
     ComplianceNoticeSchema,
-    MemberAddSchema,
     MembershipApplicationSubmissionInfo,
     MembershipApprovalRefusedSchema,
     MembershipTierAdminSchema,
@@ -446,6 +446,7 @@ from .ticket import (
 )
 
 # User note schemas
+from .member_invitation import MemberInvitationCreateSchema, MemberInvitationSchema
 from .org_user_lookup import OrgUserLookupNotFoundSchema, OrgUserLookupSchema
 from .user_note import UserNoteSchema, UserNoteUpsertSchema
 
@@ -505,6 +506,7 @@ __all__ = [
     "AggregatedDietaryPreferenceSchema",
     "AggregatedDietaryRestrictionSchema",
     "AlreadyMemberErrorSchema",
+    "InvitationRequiredErrorSchema",
     "AnnouncementCreateSchema",
     "AnnouncementListSchema",
     "AnnouncementPublicSchema",
@@ -632,7 +634,6 @@ __all__ = [
     "JoinEligibilityQuery",
     "McOptionStatSchema",
     "McQuestionStatSchema",
-    "MemberAddSchema",
     "MemberCancelSubscriptionSchema",
     "MemberPlanSchema",
     "MemberScanResponseSchema",
@@ -816,6 +817,8 @@ __all__ = [
     "TierUnsellableZoneSchema",
     "UnsellableZoneTierSchema",
     "UpdateAttendeeInvoiceSchema",
+    "MemberInvitationCreateSchema",
+    "MemberInvitationSchema",
     "OrgUserLookupNotFoundSchema",
     "OrgUserLookupSchema",
     "UserNoteSchema",

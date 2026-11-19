@@ -41,6 +41,7 @@ def get_guest_notification_type_settings() -> dict[NotificationType, Notificatio
         NotificationType.MEMBERSHIP_REQUEST_APPROVED,
         NotificationType.MEMBERSHIP_REQUEST_REJECTED,
         NotificationType.MEMBERSHIP_PAYMENT_REQUESTED,
+        NotificationType.MEMBERSHIP_INVITATION_RECEIVED,
         NotificationType.MEMBERSHIP_OFFLINE_JOINED,  # For organizers, not guests
         NotificationType.ORG_ANNOUNCEMENT,  # Not members
         NotificationType.ORG_CONTACT_MESSAGE_RECEIVED,  # For org admins, not guests

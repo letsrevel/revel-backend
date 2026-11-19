@@ -18,6 +18,7 @@ from events.models import (
     MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
+    OrganizationMembershipRequest,
 )
 from events.service import revenue_aggregation
 from events.service.subscription import lifecycle as subscription_lifecycle
@@ -88,6 +89,7 @@ class TestBackdatedInitialPayment:
     def _create(
         self, client: Client, org: Organization, plan: MembershipSubscriptionPlan, user: RevelUser, **extra: t.Any
     ) -> t.Any:
+        OrganizationMembershipRequest.objects.get_or_create(organization=org, user=user)
         payload = {"plan_id": str(plan.id), "user_id": str(user.id), **extra}
         url = reverse("api:create_subscription", kwargs={"slug": org.slug})
         return client.post(url, data=orjson.dumps(payload), content_type="application/json")

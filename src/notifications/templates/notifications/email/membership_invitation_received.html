@@ -1,0 +1,10 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+<p>{% blocktranslate with org=context.organization_name tier=context.tier_name %}<strong>{{ org }}</strong> invited you to become a member ({{ tier }}). You only become a member if you accept.{% endblocktranslate %}</p>
+<center>
+    <a href="{{ context.accept_url }}" class="button">{% trans "Accept invitation" %}</a>
+</center>
+<p>{% blocktranslate with expires=context.expires_at %}This invitation expires on {{ expires }}. If you don't want to join, you can ignore this email.{% endblocktranslate %}</p>
+{% endblock %}

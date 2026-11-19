@@ -196,18 +196,3 @@ class TestSingleMemberSubscription:
 
         assert response.status_code == 200, response.content
         assert response.json()["subscription"]["id"] == str(subscription.id)
-
-    def test_add_member_without_subscription_is_null(
-        self, organization_owner_client: Client, organization: Organization, nonmember_user: RevelUser
-    ) -> None:
-        """Adding a member with no subscription resolves to null, not an error."""
-        tier = MembershipTier.objects.create(organization=organization, name="Gold 805")
-        url = reverse(
-            "api:create_organization_member", kwargs={"slug": organization.slug, "user_id": nonmember_user.id}
-        )
-        response = organization_owner_client.post(
-            url, data=orjson.dumps({"tier_id": str(tier.id)}), content_type="application/json"
-        )
-
-        assert response.status_code == 201, response.content
-        assert response.json()["subscription"] is None

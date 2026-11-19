@@ -313,55 +313,6 @@ class TestClaimInvitation:
 
 @pytest.mark.django_db
 class TestMemberManagement:
-    def test_add_member_success(self, organization: Organization, nonmember_user: RevelUser) -> None:
-        """Test that a user can be successfully added as a member."""
-        tier = MembershipTier.objects.create(organization=organization, name="Gold")
-        assert not OrganizationMember.objects.filter(organization=organization, user=nonmember_user).exists()
-        member = organization_service.add_member(organization, nonmember_user, tier)
-        assert member is not None
-        assert member.tier == tier
-        assert OrganizationMember.objects.filter(organization=organization, user=nonmember_user).exists()
-
-    def test_add_member_already_exists_fails(self, organization_membership: OrganizationMember) -> None:
-        """Test that adding an existing member raises an error."""
-        tier = MembershipTier.objects.create(organization=organization_membership.organization, name="Silver")
-        with pytest.raises(AlreadyMemberError):
-            organization_service.add_member(organization_membership.organization, organization_membership.user, tier)
-
-    def test_add_member_lost_race_raises_domain_error(self, organization_membership: OrganizationMember) -> None:
-        """A concurrent membership create must surface AlreadyMemberError, not a 500.
-
-        ``(organization, user)`` is unique and ``TimeStampedModel.save`` runs
-        ``full_clean``, so the bare ``create()`` used to blow up with
-        ``ValidationError`` when the pre-check ran too early to see the winner.
-        """
-        organization = organization_membership.organization
-        tier = MembershipTier.objects.create(organization=organization, name="Bronze")
-
-        with _force_first_lookup_miss(OrganizationMember.objects):
-            with pytest.raises(AlreadyMemberError):
-                organization_service.add_member(organization, organization_membership.user, tier)
-
-        surviving = OrganizationMember.objects.filter(organization=organization, user=organization_membership.user)
-        assert [row.pk for row in surviving] == [organization_membership.pk]
-
-    def test_add_member_lost_db_level_race_raises_domain_error(
-        self, organization_membership: OrganizationMember
-    ) -> None:
-        """The IntegrityError arm: ``full_clean`` disabled, so the unique index rejects the INSERT."""
-        organization = organization_membership.organization
-        tier = MembershipTier.objects.create(organization=organization, name="Copper")
-
-        with (
-            _force_first_lookup_miss(OrganizationMember.objects),
-            patch.object(OrganizationMember, "full_clean", return_value=None),
-        ):
-            with pytest.raises(AlreadyMemberError):
-                organization_service.add_member(organization, organization_membership.user, tier)
-
-        surviving = OrganizationMember.objects.filter(organization=organization, user=organization_membership.user)
-        assert [row.pk for row in surviving] == [organization_membership.pk]
-
     def test_remove_member_success(self, organization_membership: OrganizationMember) -> None:
         """Test that a member can be successfully removed."""
         organization = organization_membership.organization

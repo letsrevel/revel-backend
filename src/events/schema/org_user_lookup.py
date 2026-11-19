@@ -17,6 +17,7 @@ class OrgUserLookupSchema(Schema):
     membership_status: OrganizationMember.MembershipStatus | None = None
     register_record_id: UUID | None = None
     pending_request_id: UUID | None = None
+    pending_invitation_id: str | None = None
 
 
 class OrgUserLookupNotFoundSchema(Schema):

@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - An online subscription can only change plan within its own calendar: rolling to rolling, or calendar to calendar with the same period and start month. Any other switch is refused with a message to cancel and subscribe to the other plan.
   - Plan responses gain `period_alignment`, `calendar_start_month` and `first_period_pricing`, plus the first period's end and price on the staff and public plan views; the plan shown on a member's own subscription omits the join-now values.
   - Membership request responses show the requested plan's alignment and start month.
+- Staff now invite an existing account to become a member instead of adding it directly. `POST /organization-admin/{slug}/member-invitations` (`user_id`, `tier_id`) sends the account a personal invitation link (new `membership_invitation_received` notification). The account becomes a member at that tier only by accepting it through the usual `/organizations/claim-invitation/{token}`. Only accounts with a verified email can be invited. The invitation is valid for 14 days, nobody else can accept it, and inviting the same account again renews it (the account is notified again at most once a day). Staff list pending invitations with `GET …/member-invitations` and withdraw a pending one with `DELETE …/member-invitations/{id}`; an invitation stops being pending once it is accepted, expires, or the account becomes a member another way. Pending invitations are not listed with the organization's shareable invitation links. The account lookup returns `pending_invitation_id`.
 
 ### Changed
 - Organization resource files are now limited to documents, images, audio, video and archives up to 25 MB and are scanned like other uploads. Uploaded files are stored under a random name with an extension taken from the detected file type; a resource uploaded without a name takes the original file name as its name.
@@ -28,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A password reset on an account whose email was never verified now also verifies it and clears any 2FA setup and Telegram link made before.
 - The verification email now includes a link to delete the account for people who did not sign up.
 - Referral invitations are enrolled once the invitee's email address is verified, and only for the exact invited address.
+- Adding a staff member (`POST /organization-admin/{slug}/staff/{user_id}`) and creating a subscription for someone (`POST /organization-admin/{slug}/subscriptions`) now require the account to already have a connection to the organization: a membership in any status, a membership application, a member-register entry, a staff role, or ownership. Otherwise the answer is a 400 with `code: "invitation_required"`.
 
 ### Fixed
 - Discount code uses taken by checkouts that are cancelled or expire are now given back, so abandoned checkouts no longer use up a limited code.
@@ -46,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Saving a plan through the admin, a history revert or the shell now locks the plan row, and a save that touches no currency or period field is no longer blocked by the guard; shell edits need an enclosing `transaction.atomic()` to hold the lock through the write.
   - "Migrate subscribers" also skips an offline subscriber who moved to another plan or ended after the batch started, instead of sending them a price notice.
   - Subscription admin no longer lets staff change the plan or organization of an existing subscription.
+
+### Removed
+- **Breaking:** `POST /organization-admin/{slug}/members/{user_id}` is removed; use the member invitation route. The frontend must regenerate its API client.
 
 ## [2.38.2] - 2026-11-17
 

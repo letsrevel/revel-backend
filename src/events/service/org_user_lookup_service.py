@@ -3,8 +3,14 @@
 import structlog
 
 from accounts.models import RevelUser
-from events.models import MembershipRecord, Organization, OrganizationMember, OrganizationMembershipRequest
+from events.models import (
+    MembershipRecord,
+    Organization,
+    OrganizationMember,
+    OrganizationMembershipRequest,
+)
 from events.schema import OrgUserLookupSchema
+from events.service.organization_service.member_invitations import list_pending_invitations
 from events.utils.membership_access import is_eligible_status
 
 logger = structlog.get_logger(__name__)
@@ -48,6 +54,7 @@ def lookup_user_by_email(organization: Organization, actor: RevelUser, email: st
         .values_list("pk", flat=True)
         .first()
     )
+    invitation_id = list_pending_invitations(organization).filter(invitee=user).values_list("pk", flat=True).first()
     return OrgUserLookupSchema(
         user_id=user.pk,
         # Never fall back to ``username``: it is the email address.
@@ -56,4 +63,5 @@ def lookup_user_by_email(organization: Organization, actor: RevelUser, email: st
         membership_status=OrganizationMember.MembershipStatus(member_status) if member_status else None,
         register_record_id=record_id,
         pending_request_id=request_id,
+        pending_invitation_id=invitation_id,
     )

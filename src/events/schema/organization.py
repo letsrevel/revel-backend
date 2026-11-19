@@ -555,6 +555,17 @@ class AlreadyMemberErrorSchema(Schema):
     code: t.Literal["already_member"]
 
 
+class InvitationRequiredErrorSchema(Schema):
+    """400 body when staff act on an account that has no connection to the organization yet.
+
+    ``detail`` is translated and must never be matched on; ``code`` is the stable
+    machine-readable discriminator.
+    """
+
+    detail: str
+    code: t.Literal["invitation_required"]
+
+
 class MembershipApprovalRefusedSchema(Schema):
     """400 body when approving an application is refused with a stable ``code``.
 
@@ -688,10 +699,6 @@ class OrganizationStaffSchema(Schema):
     user: MemberUserSchema
     staff_since: AwareDatetime = Field(alias="created_at")
     permissions: PermissionsSchema
-
-
-class MemberAddSchema(Schema):
-    tier_id: UUID
 
 
 class OrganizationTokenSchema(ModelSchema):

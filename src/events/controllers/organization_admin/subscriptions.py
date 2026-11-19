@@ -19,6 +19,7 @@ from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import OrganizationPermission
+from events.service import organization_service
 from events.service.subscription import lifecycle as subscription_lifecycle
 from events.service.subscription import payment_edits as subscription_payment_edits
 from events.service.subscription import plans as subscription_plans
@@ -294,7 +295,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         url_name="create_subscription",
         response={
             201: schema.SubscriptionSchema,
-            400: ValidationErrorResponse | ErrorDetail,
+            400: ValidationErrorResponse | schema.InvitationRequiredErrorSchema | ErrorDetail,
             404: ErrorDetail,
         },
     )
@@ -350,6 +351,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
                 str(_("initial_payment_occurred_at requires initial_payment_amount.")),
             )
         user = get_object_or_404(RevelUser, pk=payload.user_id)
+        organization_service.require_relationship(organization, user)
 
         initial: InitialPayment | None = None
         if payload.initial_payment_amount is not None:

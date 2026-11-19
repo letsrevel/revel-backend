@@ -62,6 +62,7 @@ class TestMatching:
             "membership_status": None,
             "register_record_id": None,
             "pending_request_id": None,
+            "pending_invitation_id": None,
         }
         assert EMAIL.lower() not in response.content.decode().lower()
 

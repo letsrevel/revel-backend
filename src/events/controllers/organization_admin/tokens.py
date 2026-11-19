@@ -318,6 +318,7 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
             models.OrganizationToken.objects.select_related("organization"),
             pk=token_id,
             organization=organization,
+            invitee__isnull=True,
         )
         return organization_service.update_organization_token(token, requested_by=self.user(), payload=payload)
 
@@ -411,6 +412,7 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
             models.OrganizationToken.objects.select_related("organization"),
             pk=token_id,
             organization=organization,
+            invitee__isnull=True,
         )
         organization_service.delete_organization_token(token, requested_by=self.user())
         return 204, None

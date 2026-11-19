@@ -36,6 +36,7 @@ from events.exceptions import (
     InvalidResourceStateError,
     InvalidStripeWebhookSignatureError,
     InvalidZoneSelectionError,
+    InvitationRequiredError,
     MembershipApprovalRefusedError,
     MembershipPaymentEditRefusedError,
     MembershipPolicyManageSubscriptionsOnlyError,
@@ -61,6 +62,7 @@ from events.exceptions import (
 from events.schema import (
     AlreadyMemberErrorSchema,
     GuestActionErrorSchema,
+    InvitationRequiredErrorSchema,
     MembershipApprovalRefusedSchema,
     MembershipPaymentEditRefusedSchema,
     SubscriptionActivationPendingSchema,
@@ -239,6 +241,25 @@ def handle_already_member_error(request: HttpRequest, exc: Exception | t.Type[Ex
     )
 
 
+def handle_invitation_required_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Render an invitation-required refusal with a machine-readable ``code``.
+
+    Args:
+        request: The current HTTP request (unused; required by the handler signature).
+        exc: The raised ``InvitationRequiredError``.
+
+    Returns:
+        Response: A 400 response shaped like ``InvitationRequiredErrorSchema``.
+    """
+    return Response(
+        status=400,
+        data=InvitationRequiredErrorSchema(
+            detail=str(_("This account has no connection to the organization yet. Invite them first.")),
+            code="invitation_required",
+        ).model_dump(mode="json"),
+    )
+
+
 # Single source of truth for the exception → status mapping.
 HANDLERS: dict[type[Exception], ExceptionHandler] = {
     # Guest refusals the FE renders as CTAs → 400 with a stable ``code`` (#905).
@@ -255,6 +276,7 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     TooManyItemsError: make_static_handler(400, _("You have created too many items.")),
     # Typed ``already_member`` code for the frontend (same ``detail`` as before).
     AlreadyMemberError: handle_already_member_error,
+    InvitationRequiredError: handle_invitation_required_error,
     PendingMembershipRequestExistsError: make_static_handler(
         400, _("You have a pending membership request for this organization.")
     ),

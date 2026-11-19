@@ -1,7 +1,6 @@
 """Tests for organization admin member and membership tier endpoints."""
 
 import typing as t
-import uuid
 from unittest.mock import patch
 
 import orjson
@@ -9,7 +8,6 @@ import pytest
 from django.db.models import Max
 from django.test.client import Client
 from django.urls import reverse
-from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.models import (
@@ -114,85 +112,33 @@ class TestManageMembersAndStaff:
         ]
         assert len(removed) == expected
 
-    def test_add_member(
+    def test_direct_add_member_route_is_gone(
         self, organization_owner_client: Client, organization: Organization, nonmember_user: RevelUser
     ) -> None:
-        """Test adding a new member to an organization."""
+        """Staff can no longer create a membership for an account; it has to accept an invitation."""
         tier = MembershipTier.objects.create(organization=organization, name="Gold")
-        url = reverse(
-            "api:create_organization_member", kwargs={"slug": organization.slug, "user_id": nonmember_user.id}
+        url = f"/api/organization-admin/{organization.slug}/members/{nonmember_user.id}"
+        response = organization_owner_client.post(
+            url, data=orjson.dumps({"tier_id": str(tier.id)}), content_type="application/json"
         )
-        payload = {"tier_id": str(tier.id)}
-        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
-        assert response.status_code == 201, response.content
-        member = OrganizationMember.objects.filter(organization=organization, user=nonmember_user).first()
-        assert member is not None
-        assert member.tier == tier
+        assert response.status_code in (404, 405)
+        assert not OrganizationMember.objects.filter(organization=organization, user=nonmember_user).exists()
 
-    def test_add_member_already_exists(
-        self, organization_owner_client: Client, organization: Organization, member_user: RevelUser
-    ) -> None:
-        """Test that adding an existing member returns an error."""
-        tier = MembershipTier.objects.create(organization=organization, name="Silver")
-        OrganizationMember.objects.create(organization=organization, user=member_user, tier=tier)
-        url = reverse("api:create_organization_member", kwargs={"slug": organization.slug, "user_id": member_user.id})
-        payload = {"tier_id": str(tier.id)}
-        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
-        assert response.status_code == 400
-        assert response.json() == {
-            "detail": "You are already a member of this organization.",
-            "code": "already_member",
-        }
-
-    def test_add_member_other_400_has_no_code(
+    def test_add_staff_requires_existing_relationship(
         self, organization_owner_client: Client, organization: Organization, nonmember_user: RevelUser
     ) -> None:
-        """Any 400 other than AlreadyMemberError on this route carries no ``code``."""
-        tier = MembershipTier.objects.create(organization=organization, name="Bronze")
-        url = reverse(
-            "api:create_organization_member", kwargs={"slug": organization.slug, "user_id": nonmember_user.id}
-        )
-        payload = {"tier_id": str(tier.id)}
-        with patch(
-            "events.controllers.organization_admin.members.organization_service.add_member",
-            side_effect=HttpError(400, "Some other refusal."),
-        ):
-            response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        """An account with no connection to the organization cannot be made staff."""
+        url = reverse("api:create_organization_staff", kwargs={"slug": organization.slug, "user_id": nonmember_user.id})
+        response = organization_owner_client.post(url, content_type="application/json")
         assert response.status_code == 400
-        assert response.json() == {"detail": "Some other refusal."}
-
-    def test_add_member_with_invalid_tier(
-        self, organization_owner_client: Client, organization: Organization, nonmember_user: RevelUser
-    ) -> None:
-        """Test that adding a member with an invalid tier returns 404."""
-        url = reverse(
-            "api:create_organization_member", kwargs={"slug": organization.slug, "user_id": nonmember_user.id}
-        )
-        payload = {"tier_id": str(uuid.uuid4())}
-        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
-        assert response.status_code == 404
-
-    def test_add_member_with_tier_from_other_org(
-        self,
-        organization_owner_client: Client,
-        organization: Organization,
-        organization_owner_user: RevelUser,
-        nonmember_user: RevelUser,
-    ) -> None:
-        """Test that adding a member with a tier from another organization returns 404."""
-        other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization_owner_user)
-        other_tier = MembershipTier.objects.create(organization=other_org, name="Other Tier")
-        url = reverse(
-            "api:create_organization_member", kwargs={"slug": organization.slug, "user_id": nonmember_user.id}
-        )
-        payload = {"tier_id": str(other_tier.id)}
-        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
-        assert response.status_code == 404
+        assert response.json()["code"] == "invitation_required"
+        assert not OrganizationStaff.objects.filter(organization=organization, user=nonmember_user).exists()
 
     def test_add_staff(
         self, organization_owner_client: Client, organization: Organization, nonmember_user: RevelUser
     ) -> None:
-        """Test adding a new staff member."""
+        """An existing member can be made staff."""
+        OrganizationMember.objects.create(organization=organization, user=nonmember_user)
         url = reverse("api:create_organization_staff", kwargs={"slug": organization.slug, "user_id": nonmember_user.id})
         response = organization_owner_client.post(url, content_type="application/json")
         assert response.status_code == 201, response.content

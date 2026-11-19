@@ -51,11 +51,6 @@ def _plan(tier: MembershipTier, method: SubscriptionPaymentMethod) -> Membership
     )
 
 
-def test_add_member_source_staff(organization: Organization, nonmember_user: RevelUser, tier: MembershipTier) -> None:
-    membership_service.add_member(organization, nonmember_user, tier)
-    assert _open_record(organization, nonmember_user).source == Source.STAFF
-
-
 def test_approve_application_source_application_with_evidence(
     organization: Organization,
     nonmember_user: RevelUser,

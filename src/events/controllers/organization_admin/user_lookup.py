@@ -24,7 +24,7 @@ from .base import OrganizationAdminBaseController
     permissions=[OrganizationPermission("manage_members")],
 )
 class OrganizationAdminUserLookupController(OrganizationAdminBaseController):
-    """Resolve an exact email to a ``user_id`` for the add-member and add-staff routes."""
+    """Resolve an exact email to a ``user_id`` for the member-invitation and add-staff routes."""
 
     @route.get(
         "/users/lookup",

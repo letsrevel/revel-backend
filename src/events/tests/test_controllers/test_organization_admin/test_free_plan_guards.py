@@ -21,6 +21,7 @@ from events.models import (
     MembershipTier,
     Organization,
     OrganizationMember,
+    OrganizationMembershipRequest,
     SubscriptionPaymentMethod,
 )
 
@@ -126,6 +127,7 @@ class TestStaffFreeSubscriptionGuards:
         subscriber: RevelUser,
     ) -> None:
         """The staff equivalent of the member's self-serve subscribe stays allowed."""
+        OrganizationMembershipRequest.objects.get_or_create(organization=organization, user=subscriber)
         url = reverse("api:create_subscription", kwargs={"slug": organization.slug})
         response = organization_owner_client.post(
             url,

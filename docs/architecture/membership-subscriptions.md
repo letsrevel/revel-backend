@@ -662,7 +662,7 @@ Guarded by `OrganizationPermission("manage_subscriptions")`.
 | POST | `/plans/{plan_id}/migrate-subscribers` | Force-migrate non-terminal subs to the plan's current price |
 | GET | `/subscriptions` | Paginated, searchable list of all subs in the org |
 | GET | `/subscriptions/{sub_id}` | Single sub |
-| POST | `/subscriptions` | Create an OFFLINE or FREE sub on behalf of a user (refuses ONLINE plans — the member must subscribe themselves). An OFFLINE plan without a payment opens the subscription awaiting payment; `initial_payment_occurred_at` backdates an included first payment |
+| POST | `/subscriptions` | Create an OFFLINE or FREE sub on behalf of a user (refuses ONLINE plans — the member must subscribe themselves). The user must already have a connection to the organization (membership row in any status, application, register entry, staff role or ownership); otherwise 400 `invitation_required`, and staff send a member invitation instead. An OFFLINE plan without a payment opens the subscription awaiting payment; `initial_payment_occurred_at` backdates an included first payment |
 | GET | `/subscriptions/{sub_id}/payments` | Payments of one subscription; `include_voided` shows voided rows |
 | POST | `/subscriptions/{sub_id}/payments` | Record OFFLINE payment (refuses ONLINE) |
 | POST | `/subscriptions/{sub_id}/cancel` / `uncancel` / `pause` / `resume` / `revive` | Lifecycle ops; route ONLINE through Stripe service. A never-paid OFFLINE row cannot be paused |

@@ -418,36 +418,6 @@ def reject_membership_request(request: models.OrganizationMembershipRequest, dec
     transaction.on_commit(send_rejection_notification)
 
 
-def add_member(organization: Organization, user: RevelUser, tier: MembershipTier) -> OrganizationMember:
-    """Add a member to an organization.
-
-    Args:
-        organization: The organization to add the member to.
-        user: The user to add as a member.
-        tier: The membership tier to assign to the member.
-
-    Returns:
-        The created OrganizationMember instance.
-
-    Raises:
-        AlreadyMemberError: If the user is already a member of the organization.
-    """
-    # (org, user) is unique, so a membership materialized concurrently (invitation
-    # claim, application approval, subscription payment) would make a bare create()
-    # 500 instead of returning the documented domain error. The helper re-fetches
-    # the winner whether the race surfaces as IntegrityError (INSERT) or
-    # ValidationError (full_clean's validate_constraints).
-    with member_register_service.record_source(models.MembershipRecord.Source.STAFF):
-        member, created = get_or_create_with_race_protection(
-            OrganizationMember,
-            Q(organization=organization, user=user),
-            {"organization": organization, "user": user, "tier": tier},
-        )
-    if not created:
-        raise AlreadyMemberError(str(_("User is already a member of this organization.")))
-    return member
-
-
 @transaction.atomic
 def remove_member(organization: Organization, user: RevelUser) -> None:
     """Remove a member from an organization.

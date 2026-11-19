@@ -366,6 +366,9 @@ def test_staff_create_without_payment_holds_awaiting_member(
     django_capture_on_commit_callbacks: t.Any,
 ) -> None:
     plan = _offline_plan(open_tier)
+    OrganizationMembershipRequest.objects.create(
+        organization=org, user=nonmember_user, status=OrganizationMembershipRequest.Status.REJECTED
+    )
 
     with django_capture_on_commit_callbacks(execute=True):
         response = _post(

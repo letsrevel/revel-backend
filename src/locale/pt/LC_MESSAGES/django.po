@@ -8560,3 +8560,43 @@ msgid ""
 msgstr ""
 "O preço completo por período do plano quando este pagamento cobriu um "
 "primeiro período de calendário proporcional. Nulo caso contrário."
+
+msgid "Membership invitation"
+msgstr "Convite de adesão"
+
+#, python-format
+msgid "%(org)s invited you to become a member"
+msgstr "%(org)s convidou-o a tornar-se membro"
+
+msgid "Accept invitation"
+msgstr "Aceitar o convite"
+
+msgid "This account cannot be invited to the organization."
+msgstr "Esta conta não pode ser convidada para a organização."
+
+msgid "This account has no connection to the organization yet. Invite them first."
+msgstr "Esta conta ainda não tem ligação à organização. Convide-a primeiro."
+
+#, python-format
+msgid "%(org)s invited you to become a member (%(tier)s). You only become a member if you accept."
+msgstr "%(org)s convidou-o a tornar-se membro (%(tier)s). Só se torna membro se aceitar."
+
+#, python-format
+msgid "This invitation expires on %(expires)s. If you don't want to join, you can ignore it."
+msgstr "Este convite expira a %(expires)s. Se não quiser aderir, pode ignorá-lo."
+
+#, python-format
+msgid "This invitation expires on %(expires)s. If you don't want to join, you can ignore this email."
+msgstr "Este convite expira a %(expires)s. Se não quiser aderir, pode ignorar este e-mail."
+
+#, python-format
+msgid "**%(org)s** invited you to become a member (%(tier)s). You only become a member if you accept."
+msgstr "**%(org)s** convidou-o a tornar-se membro (%(tier)s). Só se torna membro se aceitar."
+
+#, python-format
+msgid "<b>%(org)s</b> invited you to become a member (%(tier)s). You only become a member if you accept."
+msgstr "<b>%(org)s</b> convidou-o a tornar-se membro (%(tier)s). Só se torna membro se aceitar."
+
+#, python-format
+msgid "<strong>%(org)s</strong> invited you to become a member (%(tier)s). You only become a member if you accept."
+msgstr "<strong>%(org)s</strong> convidou-o a tornar-se membro (%(tier)s). Só se torna membro se aceitar."

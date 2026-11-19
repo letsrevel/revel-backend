@@ -20,6 +20,7 @@ from events.models import (
     OrganizationMember,
     OrganizationMembershipRequest,
     OrganizationQuestionnaire,
+    OrganizationToken,
     TicketTier,
 )
 from events.models.mixins import ResourceVisibility
@@ -130,18 +131,21 @@ class TestApplicationFlow:
 
 
 class TestAdminMemberFlows:
-    def test_add_member_with_temporary_tier_is_404(
+    def test_invite_member_with_temporary_tier_is_404(
         self,
         organization_owner_client: Client,
         organization: Organization,
         nonmember_user: RevelUser,
         temp_tier: MembershipTier,
     ) -> None:
-        url = reverse(
-            "api:create_organization_member", kwargs={"slug": organization.slug, "user_id": nonmember_user.id}
+        nonmember_user.email_verified = True
+        nonmember_user.save(update_fields=["email_verified"])
+        url = reverse("api:create_member_invitation", kwargs={"slug": organization.slug})
+        response = _json(
+            organization_owner_client, "post", url, {"user_id": str(nonmember_user.id), "tier_id": str(temp_tier.id)}
         )
-        response = _json(organization_owner_client, "post", url, {"tier_id": str(temp_tier.id)})
         assert response.status_code == 404
+        assert not OrganizationToken.objects.filter(organization=organization, invitee=nonmember_user).exists()
         assert not OrganizationMember.objects.filter(organization=organization, user=nonmember_user).exists()
 
     def test_update_member_to_temporary_tier_is_404(
