@@ -455,7 +455,11 @@ class TestRemovingAnUnlinkedEntry:
         assert _row(organization, holder).status == Status.CANCELLED
 
     def test_a_second_unlinked_entry_keeps_the_ban_until_it_is_removed_too(
-        self, organization: Organization, organization_owner_user: RevelUser, holder: RevelUser, banned_by_phone: Blacklist
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        holder: RevelUser,
+        banned_by_phone: Blacklist,
     ) -> None:
         second = blacklist_service.add_to_blacklist(organization, organization_owner_user, email=holder.email)
 
@@ -466,7 +470,11 @@ class TestRemovingAnUnlinkedEntry:
         assert _row(organization, holder).status == Status.CANCELLED
 
     def test_a_linked_entry_keeps_the_ban(
-        self, organization: Organization, organization_owner_user: RevelUser, holder: RevelUser, banned_by_phone: Blacklist
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        holder: RevelUser,
+        banned_by_phone: Blacklist,
     ) -> None:
         RevelUser.objects.filter(pk=holder.pk).update(email_verified=True)
         linked = blacklist_service.add_to_blacklist(organization, organization_owner_user, email=holder.email)

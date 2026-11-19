@@ -222,7 +222,9 @@ def claim_invitation(user: RevelUser, token: str, greeting: str | None = None) -
         **(event_token.invitation_payload or {}),
     }
     if not defaults.get("custom_message"):
-        defaults["custom_message"] = get_invitation_message(greeting or _default_greeting(user, event_token.event.organization_id), event_token.event)
+        defaults["custom_message"] = get_invitation_message(
+            greeting or _default_greeting(user, event_token.event.organization_id), event_token.event
+        )
     invitation, created = EventInvitation.objects.get_or_create(
         event=event_token.event,
         user=user,

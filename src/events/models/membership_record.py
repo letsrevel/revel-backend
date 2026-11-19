@@ -82,7 +82,7 @@ class MembershipRecordQuerySet(models.QuerySet["MembershipRecord"]):
         return self.unmerged().filter(over if ended else ~over)
 
     def with_note_flag(self) -> t.Self:
-        """Annotate ``note_exists``: the user's note for a linked known holder, else (or if only it has one) the entry's own."""
+        """Annotate ``note_exists``: a known holder's user note, else (or if only it has one) the entry's own."""
         from events.models.user_note import OrganizationUserNote  # lazy: user_note references this model by label
         from events.utils.holder_visibility import known_holder_q  # lazy: it imports the models
 

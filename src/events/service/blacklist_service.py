@@ -298,8 +298,8 @@ def remove_from_blacklist(entry: Blacklist) -> None:
     For each account the entry covered (its linked user, or for an unlinked entry the holders it matched that
     carry a BANNED row) that no other blacklist entry still covers in the organization, the stale ``BANNED``
     membership left over from :func:`apply_blacklist_consequences` is transitioned to ``CANCELLED`` so the
-    user regains visibility of the organization. ``CANCELLED`` is used instead of restoring ``ACTIVE`` to avoid implicitly re-granting membership
-    privileges that may have pre-existed the ban.
+    user regains visibility of the organization. ``CANCELLED`` is used instead of restoring ``ACTIVE`` to avoid
+    implicitly re-granting membership privileges that may have pre-existed the ban.
 
     Args:
         entry: The Blacklist entry to remove
@@ -357,6 +357,7 @@ def _lift_ban_if_clear(user: RevelUser, organization: Organization) -> None:
             organization_id=str(organization.id),
             user_id=str(user.id),
         )
+
 
 def update_blacklist_entry(
     entry: Blacklist,

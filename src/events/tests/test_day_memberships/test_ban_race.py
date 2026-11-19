@@ -6,14 +6,15 @@ from unittest.mock import patch
 import pytest
 
 from accounts.models import RevelUser
-from events.models import Blacklist, Organization, Ticket, TicketTier
+from events.models import Blacklist, MembershipRecord, Organization, Ticket, TicketTier
 from events.service import blacklist_service, day_membership_service
+from events.utils.blacklist import get_hard_blacklisted_user_ids
 
 from .conftest import records_for
 
 pytestmark = pytest.mark.django_db
 
-Reason = day_membership_service.MembershipRecord.EndedReason
+Reason = MembershipRecord.EndedReason
 
 
 def _blind_first_ban_check(real: t.Callable[..., bool]) -> t.Callable[..., bool]:
@@ -58,7 +59,7 @@ def test_bulk_grant_that_missed_a_committing_ban_is_revoked_after_commit(
     ticket = Ticket.objects.bulk_create(
         [Ticket(event=day_tier.event, user=holder, tier=day_tier, status=Ticket.TicketStatus.ACTIVE, guest_name="D")]
     )[0]
-    real = day_membership_service.get_hard_blacklisted_user_ids
+    real = get_hard_blacklisted_user_ids
     calls: list[int] = []
 
     def blind_once(*args: t.Any, **kwargs: t.Any) -> t.Any:
@@ -67,7 +68,7 @@ def test_bulk_grant_that_missed_a_committing_ban_is_revoked_after_commit(
             return RevelUser.objects.none()
         return real(*args, **kwargs)
 
-    with patch.object(day_membership_service, "get_hard_blacklisted_user_ids", blind_once):
+    with patch("events.service.day_membership_service.get_hard_blacklisted_user_ids", blind_once):
         with django_capture_on_commit_callbacks(execute=True) as callbacks:
             day_membership_service.on_tickets_issued([ticket])
             assert [r.ended_reason for r in records_for(ticket)] == [None]

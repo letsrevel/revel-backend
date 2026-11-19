@@ -86,4 +86,3 @@ def known_holder_q(organization_id: UUID | OuterRef, user_ref: OuterRef) -> Q:
             )
         )
     )
-

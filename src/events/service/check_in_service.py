@@ -111,6 +111,15 @@ def _pending_check_in_allowed(ticket: Ticket) -> bool:
     return ticket.tier.payment_method == TicketTier.PaymentMethod.OFFLINE
 
 
+def _unmask_if_now_attending(ticket: Ticket) -> None:
+    """A PENDING ticket (not attending when ``holder_known`` was read) is attending now.
+
+    A self-made one confers standing, so the response must not mask its holder; staff-made tickets stay masked.
+    """
+    if not ticket.holder_known and ticket.sale_source not in STAFF_SALE_SOURCES:  # type: ignore[attr-defined]
+        ticket.holder_known = True  # type: ignore[attr-defined]
+
+
 def annotate_private_note(ticket_qs: QuerySet[Ticket], organization_id: UUID) -> QuerySet[Ticket]:
     """Annotate tickets with the organization's private note about the holder (``private_note``).
 
@@ -222,10 +231,7 @@ def check_in_ticket(
     ticket.checked_in_at = timezone.now()
     ticket.checked_in_by = checked_in_by
     ticket.save(update_fields=update_fields)
-    # A PENDING ticket (not attending when ``holder_known`` was read) is attending now: a self-made one confers
-    # standing, so the response must not mask its holder. Staff-made tickets stay masked.
-    if not ticket.holder_known and ticket.sale_source not in STAFF_SALE_SOURCES:  # type: ignore[attr-defined]
-        ticket.holder_known = True  # type: ignore[attr-defined]
+    _unmask_if_now_attending(ticket)
 
     # After the transition, so a PENDING -> CHECKED_IN day-membership grant is already visible. Read by
     # ``CheckInResponseSchema.membership``.

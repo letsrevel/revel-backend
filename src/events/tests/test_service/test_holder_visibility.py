@@ -193,7 +193,7 @@ def test_default_relationship_ignores_merge_linked_record(event: Event, nonmembe
 def test_online_day_membership_stops_counting_when_its_ticket_is_cancelled(
     event: Event, nonmember_user: RevelUser
 ) -> None:
-    """The record counts for standing only while the ticket behind it is attending; a plain register entry always does."""
+    """A day-membership record counts only while its ticket is attending; a plain register entry always does."""
     ticket = _ticket(event, nonmember_user, TicketSaleSource.CHECKOUT)
     _record(event, nonmember_user, MembershipRecord.Source.TICKET, ticket)
     assert is_known_holder(event.organization, nonmember_user)
