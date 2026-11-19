@@ -19,7 +19,6 @@ MEMBER = "subject is a member/staff of the organization"
 APPLICANT = "subject applied (membership request / invitation request / questionnaire)"
 WAITLIST = "subject joined the waitlist"
 PASS_HOLDER = "subject holds (bought) a series pass"
-PENDING_MASK = "TEMPORARY: switches to StaffViewUserSchema"
 
 HOLDER_PROFILE_OPERATIONS: dict[tuple[str, str], str] = {
     ("get", "/api/dashboard/invitation-requests"): SELF,
@@ -44,16 +43,10 @@ HOLDER_PROFILE_OPERATIONS: dict[tuple[str, str], str] = {
     ("get", "/api/event-series-admin/{series_id}/passes/{pass_id}/holders"): PASS_HOLDER,
     ("post", "/api/event-series-admin/{series_id}/passes/held/{held_pass_id}/cancel"): PASS_HOLDER,
     ("post", "/api/event-series-admin/{series_id}/passes/held/{held_pass_id}/confirm-payment"): PASS_HOLDER,
-    # Staff-originated rows: must move to the masked schema, then these entries disappear.
-    ("get", "/api/event-admin/{event_id}/tickets"): PENDING_MASK,
-    ("get", "/api/event-admin/{event_id}/tickets/{ticket_id}"): PENDING_MASK,
-    ("post", "/api/event-admin/{event_id}/seating/reseat"): PENDING_MASK,
-    ("post", "/api/event-admin/{event_id}/tickets/{code}/check-in"): PENDING_MASK,
-    ("get", "/api/event-admin/{event_id}/rsvps"): PENDING_MASK,
-    ("get", "/api/event-admin/{event_id}/rsvps/{rsvp_id}"): PENDING_MASK,
-    ("post", "/api/event-admin/{event_id}/rsvps"): PENDING_MASK,
-    ("put", "/api/event-admin/{event_id}/rsvps/{rsvp_id}"): PENDING_MASK,
-    ("get", "/api/event-admin/{event_id}/invitations"): PENDING_MASK,
+    (
+        "post",
+        "/api/event-admin/{event_id}/tickets/{code}/check-in",
+    ): MEMBER,  # member-card scan outcome (MemberVerificationSchema); the ticket outcome is masked
 }
 
 

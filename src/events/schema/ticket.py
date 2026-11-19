@@ -45,8 +45,6 @@ from .ticket_cancellation import (
 from .ticket_detail import (
     AdminTicketDetailSchema,
     AdminTicketSchema,
-    BoxOfficeRecipientSchema,
-    BoxOfficeSellTicketSchema,
     CheckInMembershipSchema,
     CheckInResponseSchema,
     ConfirmPaymentSchema,
@@ -91,8 +89,6 @@ __all__ = [
     "AdminTicketDetailSchema",
     "AdminTicketSchema",
     "BatchCheckoutResponse",
-    "BoxOfficeRecipientSchema",
-    "BoxOfficeSellTicketSchema",
     "BuyerBillingInfoSchema",
     "CancellationBlockedErrorSchema",
     "CancellationPreviewSchema",

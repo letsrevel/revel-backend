@@ -12,6 +12,7 @@ from events import models
 
 from .event import EventInListSchema
 from .mixins import get_image_field_url
+from .staff_view_user import StaffViewUserSchema, resolve_staff_view_user
 from .ticket import TicketTierSchema
 
 
@@ -47,7 +48,7 @@ class EventInvitationListSchema(Schema):
     """Schema for listing EventInvitation objects."""
 
     id: UUID
-    user: MinimalRevelUserSchema
+    user: StaffViewUserSchema
     tiers: list[TicketTierSchema] = Field(default_factory=list)
     waives_questionnaire: bool
     waives_purchase: bool
@@ -57,6 +58,11 @@ class EventInvitationListSchema(Schema):
     waives_apply_deadline: bool
     custom_message: str | None = None
     created_at: AwareDatetime
+
+    @staticmethod
+    def resolve_user(obj: models.EventInvitation) -> StaffViewUserSchema:
+        """Mask the account unless it acted toward the organization (``holder_known`` annotation)."""
+        return resolve_staff_view_user(obj, lambda o: o.event.organization_id)
 
 
 class MyEventInvitationSchema(Schema):

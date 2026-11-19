@@ -14,6 +14,7 @@ from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import EventPermission
 from events.models.invitation import tiers_prefetch
+from events.service.holder_visibility import annotate_holder_known
 from events.service.invitation_service import create_direct_invitations, delete_invitation
 from oauth.permissions import RequireScope
 
@@ -47,11 +48,13 @@ class EventAdminInvitationsController(EventAdminBaseController):
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["user__email", "user__first_name", "user__last_name", "custom_message"])
+    @searching(Searching, search_fields=["user__email", "custom_message"])
     def list_invitations(self, event_id: UUID) -> QuerySet[models.EventInvitation]:
         """List all invitations for registered users."""
         event = self.get_one(event_id)
-        return models.EventInvitation.objects.with_related().filter(event=event).distinct()
+        return annotate_holder_known(
+            models.EventInvitation.objects.with_related().filter(event=event), event.organization_id
+        ).distinct()
 
     @route.get(
         "/pending-invitations",

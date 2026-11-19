@@ -41,8 +41,9 @@ standing come only from acts of the account holder.
 
 - The frontend handles nullable profile fields and `known` on ticket, check-in, RSVP and
   invitation responses.
-- Ticket search no longer matches the account's legal or preferred name (it would reveal names
-  the masked rows hide); it still matches the ticket name and email.
+- Ticket, RSVP and invitation searches no longer match the account's legal or preferred name
+  (a match would reveal names the masked rows hide); they still match the email, the ticket name
+  and the invitation message.
 - A person who later acts (buys a ticket, RSVPs, applies) becomes known, and their earlier
   staff-made rows are unmasked from then on.
 - Out of scope: a per-ticket contact snapshot, and an acknowledgement step that unmasks a holder.

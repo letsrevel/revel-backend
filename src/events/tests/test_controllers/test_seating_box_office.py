@@ -90,17 +90,19 @@ def test_sell_by_user_id_refuses_account_without_relationship(
     assert not Ticket.objects.filter(event=event, user=public_user).exists()
 
 
-def test_sell_response_carries_only_minimal_user(
+def test_sell_response_masks_account_staff_did_not_link(
     organization_owner_client: Client,
     seated_event: tuple[Event, list[VenueSeat]],
     tier: TicketTier,
     public_user: RevelUser,
 ) -> None:
-    """A sale by email to a verified account returns its id and display name, no contact data."""
+    """A sale by email to a verified account shows staff only the address they typed, no profile data."""
     event, seats = seated_event
     public_user.email_verified = True
     public_user.phone_number = "+4366012345678"
-    public_user.save(update_fields=["email_verified", "phone_number"])
+    public_user.first_name, public_user.last_name = "Legal", "Name"
+    public_user.pronouns, public_user.bio = "they/them", "about me"
+    public_user.save(update_fields=["email_verified", "phone_number", "first_name", "last_name", "pronouns", "bio"])
     payload = {
         "seat_id": str(seats[0].id),
         "tier_id": str(tier.id),
@@ -109,7 +111,13 @@ def test_sell_response_carries_only_minimal_user(
     }
     resp = organization_owner_client.post(_sell_url(event), data=orjson.dumps(payload), content_type="application/json")
     assert resp.status_code == 200, resp.content
-    assert resp.json()["user"] == {"id": str(public_user.id), "display_name": public_user.get_display_name()}
+    user = resp.json()["user"]
+    assert user["id"] == str(public_user.id)
+    assert user["known"] is False
+    assert user["email"] == public_user.email
+    for field in ("phone_number", "first_name", "last_name", "preferred_name", "pronouns", "bio"):
+        assert user[field] is None, field
+    assert "Legal" not in resp.content.decode()
     assert Ticket.objects.get(pk=resp.json()["id"]).user == public_user
 
 

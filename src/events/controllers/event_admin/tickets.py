@@ -27,6 +27,7 @@ from events.service import (
     waitlist_service,
 )
 from events.service.batch_ticket_service.eligibility import assert_event_sells_tickets
+from events.service.holder_visibility import annotate_holder_known
 from oauth.permissions import RequireScope
 
 from .base import EventAdminBaseController
@@ -210,10 +211,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         Searching,
         search_fields=[
             "user__email",
-            "user__first_name",
-            "user__last_name",
             "tier__name",
-            "user__preferred_name",
             "guest_name",
         ],
     )
@@ -243,12 +241,13 @@ class EventAdminTicketsController(EventAdminBaseController):
         event = self.get_one(event_id)
         # Use full() for AdminTicketSchema (includes user, tier, venue, sector, seat, payment)
         # with_org_membership() prefetches user's membership for "Make Member" feature
-        qs = (
+        qs = annotate_holder_known(
             models.Ticket.objects.full()
             .with_org_membership(event.organization_id)
             .with_membership_record()
             .filter(event=event)
-            .annotate(invoice_skipped=skipped_fiscal_document_service.invoice_skipped_annotation())
+            .annotate(invoice_skipped=skipped_fiscal_document_service.invoice_skipped_annotation()),
+            event.organization_id,
         )
         if source is not None:
             qs = qs.filter(held_pass__isnull=(source == "direct"))
@@ -290,7 +289,9 @@ class EventAdminTicketsController(EventAdminBaseController):
         scanner's confirm dialog); ``null`` for other staff and for OAuth app tokens.
         """
         event = self.get_one(event_id)
-        tickets: QuerySet[models.Ticket] = models.Ticket.objects.full().with_membership_record()
+        tickets: QuerySet[models.Ticket] = annotate_holder_known(
+            models.Ticket.objects.full().with_membership_record(), event.organization_id
+        )
         if not controller_uses_app_token(self) and event.organization.has_org_permission(
             self.user().id, "check_in_attendees"
         ):

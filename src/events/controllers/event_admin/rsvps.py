@@ -14,7 +14,7 @@ from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
 from events.service import update_db_instance
-from events.service.holder_visibility import require_known_holder
+from events.service.holder_visibility import annotate_holder_known, require_known_holder
 from events.service.waitlist_service import enqueue_waitlist_processing
 from oauth.permissions import RequireScope
 
@@ -31,6 +31,13 @@ from .base import EventAdminBaseController
 class EventAdminRSVPsController(EventAdminBaseController):
     """Event RSVP management endpoints."""
 
+    @staticmethod
+    def _rsvps(event: models.Event) -> QuerySet[models.EventRSVP]:
+        """The event's RSVPs with the user and the ``holder_known`` annotation the response masks on."""
+        return annotate_holder_known(
+            models.EventRSVP.objects.select_related("user").filter(event=event), event.organization_id
+        )
+
     @route.get(
         "/rsvps",
         url_name="list_rsvps",
@@ -38,7 +45,7 @@ class EventAdminRSVPsController(EventAdminBaseController):
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["user__email", "user__first_name", "user__last_name", "user__preferred_name"])
+    @searching(Searching, search_fields=["user__email"])
     def list_rsvps(
         self,
         event_id: UUID,
@@ -51,12 +58,10 @@ class EventAdminRSVPsController(EventAdminBaseController):
         Supports filtering by status and user_id.
         """
         event = self.get_one(event_id)
-        qs = (
-            models.EventRSVP.objects.with_user()
-            .with_org_membership(event.organization_id)
-            .filter(event=event)
-            .order_by("-created_at")
-        )
+        qs = annotate_holder_known(
+            models.EventRSVP.objects.with_user().with_org_membership(event.organization_id).filter(event=event),
+            event.organization_id,
+        ).order_by("-created_at")
         return params.filter(qs).distinct()
 
     @route.get(
@@ -68,7 +73,7 @@ class EventAdminRSVPsController(EventAdminBaseController):
     def get_rsvp(self, event_id: UUID, rsvp_id: UUID) -> models.EventRSVP:
         """Get details of a specific RSVP."""
         event = self.get_one(event_id)
-        return get_object_or_404(models.EventRSVP.objects.select_related("user"), pk=rsvp_id, event=event)
+        return get_object_or_404(self._rsvps(event), pk=rsvp_id)
 
     @route.post(
         "/rsvps",
@@ -105,7 +110,7 @@ class EventAdminRSVPsController(EventAdminBaseController):
         if prior_status == models.EventRSVP.RsvpStatus.YES and payload.status != models.EventRSVP.RsvpStatus.YES:
             enqueue_waitlist_processing(event.id)
 
-        return rsvp
+        return get_object_or_404(self._rsvps(event), pk=rsvp.pk)
 
     @route.put(
         "/rsvps/{rsvp_id}",
@@ -123,7 +128,7 @@ class EventAdminRSVPsController(EventAdminBaseController):
         updated = update_db_instance(rsvp, payload)
         if prior_status == models.EventRSVP.RsvpStatus.YES and updated.status != models.EventRSVP.RsvpStatus.YES:
             enqueue_waitlist_processing(event.id)
-        return updated
+        return get_object_or_404(self._rsvps(event), pk=updated.pk)
 
     @route.delete(
         "/rsvps/{rsvp_id}",

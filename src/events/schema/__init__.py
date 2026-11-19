@@ -378,6 +378,7 @@ from .subscription import (
     SubscriptionCreateSchema,
     SubscriptionSchema,
 )
+from .staff_view_user import StaffViewUserSchema, resolve_staff_view_user, staff_view_user
 from .subscription_metrics import SubscriptionMetricsSchema, SubscriptionStatusBreakdownSchema
 
 # Ticket and payment schemas
@@ -387,8 +388,6 @@ from .ticket import (
     AdminRefundTicketSchema,
     AdminTicketDetailSchema,
     AdminTicketSchema,
-    BoxOfficeRecipientSchema,
-    BoxOfficeSellTicketSchema,
     TicketMembershipRecordSchema,
     BatchCheckoutResponse,
     BuyerBillingInfoSchema,
@@ -504,8 +503,6 @@ __all__ = [
     "AdminRefundTicketSchema",
     "AdminTicketDetailSchema",
     "AdminTicketSchema",
-    "BoxOfficeRecipientSchema",
-    "BoxOfficeSellTicketSchema",
     "AffectedTierSchema",
     "AggregatedDietaryPreferenceSchema",
     "AggregatedDietaryRestrictionSchema",
@@ -792,9 +789,12 @@ __all__ = [
     "SubscribeResponseSchema",
     "SubscriptionActivationPendingSchema",
     "SubscriptionCreateSchema",
+    "StaffViewUserSchema",
     "SubscriptionMetricsSchema",
     "SubscriptionSchema",
     "SubscriptionStatusBreakdownSchema",
+    "resolve_staff_view_user",
+    "staff_view_user",
     "TagUpdateSchema",
     "TemplateEditSchema",
     "TenantOrganizationSchema",

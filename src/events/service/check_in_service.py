@@ -22,6 +22,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from events.models import Event, HeldSeriesPass, OrganizationUserNote, Ticket, TicketTier
 from events.service import day_membership_service
+from events.service.holder_visibility import annotate_holder_known
 from events.service.seating.pricing import price_paid_is_admin_entered
 
 
@@ -167,7 +168,8 @@ def check_in_ticket(
     ).prefetch_related("tier__restricted_to_membership_tiers", "tier__excluded_membership_tiers")
     if include_note:
         ticket_qs = annotate_private_note(ticket_qs, event.organization_id)
-    ticket = get_object_or_404(ticket_qs, pk=ticket_id, event=event)
+    # ``holder_known`` lets CheckInResponseSchema mask an account staff alone linked to the event.
+    ticket = get_object_or_404(annotate_holder_known(ticket_qs, event.organization_id), pk=ticket_id, event=event)
 
     # Check if ticket status is valid for check-in
     # ACTIVE tickets can be checked in directly.

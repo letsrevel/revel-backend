@@ -8,7 +8,6 @@ from django.utils.translation import gettext as _
 from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime, Field
 
-from accounts.schema import MemberUserSchema, MinimalRevelUserSchema
 from common.schema import StrippedString
 from common.signing import get_file_url
 from events import models
@@ -25,6 +24,7 @@ from events.models import (
 
 from .event import MinimalEventSchema
 from .organization import MemberVerificationSchema, MinimalOrganizationMemberSchema
+from .staff_view_user import StaffViewUserSchema, resolve_staff_view_user
 from .ticket_tier import Currencies, TicketTierSchema
 from .venue import MinimalSeatSchema
 
@@ -121,7 +121,7 @@ class AdminTicketSchema(ModelSchema):
     Only seat is included at ticket level for assigned seating.
     """
 
-    user: MemberUserSchema
+    user: StaffViewUserSchema
     tier: TicketTierSchema
     payment: PaymentSchema | None = None
     guest_name: str
@@ -166,6 +166,13 @@ class AdminTicketSchema(ModelSchema):
     resolve_series_pass: t.ClassVar = staticmethod(_resolve_ticket_series_pass)
 
     @staticmethod
+    def resolve_user(obj: Ticket) -> StaffViewUserSchema:
+        """Mask the holder unless they acted toward the organization (``holder_known`` annotation)."""
+        return resolve_staff_view_user(
+            obj, lambda o: o.event.organization_id, supplied_name=obj.guest_name, include_phone=True
+        )
+
+    @staticmethod
     def resolve_membership_record(obj: Ticket) -> dict[str, t.Any] | None:
         """From the ``with_membership_record()`` annotation."""
         return t.cast("dict[str, t.Any] | None", obj.membership_record_data)  # type: ignore[attr-defined]
@@ -187,23 +194,6 @@ class AdminTicketDetailSchema(AdminTicketSchema):
     """
 
     private_note: str | None = None
-
-
-class BoxOfficeRecipientSchema(Schema):
-    """The account a box-office sale went to. Deliberately no email, phone or legal names."""
-
-    id: UUID
-    display_name: str
-
-
-class BoxOfficeSellTicketSchema(AdminTicketSchema):
-    """Box-office sale response: the admin ticket with only a minimal recipient.
-
-    A sale by email can land on an account staff had no prior connection to, so the response
-    must not hand back that account's contact data. Lists and reseat keep ``AdminTicketSchema``.
-    """
-
-    user: BoxOfficeRecipientSchema  # type: ignore[assignment]
 
 
 class TicketAttributionBucketSchema(Schema):
@@ -301,7 +291,7 @@ class CheckInResponseSchema(ModelSchema):
     """Schema for ticket check-in response."""
 
     kind: t.Literal["checked_in"] = "checked_in"
-    user: MinimalRevelUserSchema
+    user: StaffViewUserSchema
     tier: TicketTierSchema | None = None
     price_paid: Decimal | None = None
     seat: MinimalSeatSchema | None = None
@@ -314,6 +304,11 @@ class CheckInResponseSchema(ModelSchema):
     class Meta:
         model = Ticket
         fields = ["id", "status", "checked_in_at", "tier", "price_paid", "seat"]
+
+    @staticmethod
+    def resolve_user(obj: Ticket) -> StaffViewUserSchema:
+        """Mask the holder unless they acted toward the organization (``holder_known`` annotation)."""
+        return resolve_staff_view_user(obj, lambda o: o.event.organization_id, supplied_name=obj.guest_name)
 
     @staticmethod
     def resolve_sector_name(obj: Ticket) -> str | None:

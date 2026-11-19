@@ -85,10 +85,13 @@ def is_known_holder(organization: Organization, user: RevelUser) -> bool:
 
 def annotate_holder_known(qs: QuerySet[_M], organization_id: UUID, user_field: str = "user_id") -> QuerySet[_M]:
     """Annotate ``holder_known`` (bool) on each row of ``qs``, judged on the account at ``user_field``."""
-    return qs.annotate(
-        holder_known=ExpressionWrapper(
-            known_holder_q(organization_id, OuterRef(user_field)), output_field=BooleanField()
-        )
+    return t.cast(
+        "QuerySet[_M]",
+        qs.annotate(
+            holder_known=ExpressionWrapper(
+                known_holder_q(organization_id, OuterRef(user_field)), output_field=BooleanField()
+            )
+        ),
     )
 
 
