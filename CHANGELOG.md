@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The verification email now includes a link to delete the account for people who did not sign up.
 - Referral invitations are enrolled once the invitee's email address is verified, and only for the exact invited address.
 - Adding a staff member (`POST /organization-admin/{slug}/staff/{user_id}`) and creating a subscription for someone (`POST /organization-admin/{slug}/subscriptions`) now require the account to already have a connection to the organization: a membership in any status, a membership application, a member-register entry, a staff role, or ownership. Otherwise the answer is a 400 with `code: "invitation_required"`.
+- Creating an RSVP on someone's behalf (`POST /event-admin/{event_id}/rsvps`) and a box-office sale to an account (`POST /event-admin/{event_id}/seating/sell` with `user_id`) now also require the account to have a connection to the organization: the connections above, or a ticket, RSVP or series pass for any of its events. Otherwise the answer is a 400 with `code: "invitation_required"`.
+- A box-office sale by `email` attaches the ticket to a registered account only when that account's email is verified. An address that belongs to a registered account whose email is not verified is refused with a 400 and `code: "guest_account_exists"`; unknown addresses still get a guest account. The sale response now returns the recipient as `user: {id, display_name}` only (frontend: run `pnpm generate:api` and show `user.display_name`).
 
 ### Fixed
 - Discount code uses taken by checkouts that are cancelled or expire are now given back, so abandoned checkouts no longer use up a limited code.
