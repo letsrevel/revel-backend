@@ -280,6 +280,28 @@ def _serialize_membership_payments(user: RevelUser) -> list[dict[str, t.Any]]:
     ]
 
 
+def _serialize_organization_invitations(user: RevelUser) -> list[dict[str, t.Any]]:
+    """Personal membership invitations the user received, without the claim secret or the inviting staff member.
+
+    Args:
+        user: The invitee
+
+    Returns:
+        One entry per invitation: organization, tier, dates and whether it was accepted
+    """
+    invitations = user.organization_invitations.select_related("organization", "membership_tier").all()
+    return [
+        {
+            "organization_name": invitation.organization.name,
+            "tier_name": invitation.membership_tier.name if invitation.membership_tier else None,
+            "invited_at": invitation.created_at,
+            "expires_at": invitation.expires_at,
+            "accepted": invitation.uses >= invitation.max_uses,
+        }
+        for invitation in invitations
+    ]
+
+
 def _serialize_dietary_restrictions(user: RevelUser) -> list[dict[str, t.Any]]:
     """Serialize dietary restrictions with expanded food_item details.
 
@@ -507,8 +529,8 @@ EXPORT_RULES: dict[str, ExportRule] = {
     "resolved_fiscal_documents": ExportRule(include=False, reason=_EXCLUDED_THIRD_PARTY),
     "eventtoken_tokens": ExportRule(include=False, reason="operational invite tokens (secret ids)"),
     "organizationtoken_tokens": ExportRule(include=False, reason="operational invite tokens (secret ids)"),
-    # Personal membership invitations: the id is the claim secret; an accepted one is exported as the membership.
-    "organization_invitations": ExportRule(include=False, reason="operational invite tokens (secret ids)"),
+    # Personal membership invitations received: exported without the claim secret (the id) or the issuer.
+    "organization_invitations": ExportRule(include=True, serializer=_serialize_organization_invitations),
     "created_announcements": ExportRule(include=False, reason="organization content authored in staff capacity"),
     "blacklist_entries": ExportRule(include=False, reason=_EXCLUDED_MODERATION),
     "organizer_notes": ExportRule(include=False, reason=_EXCLUDED_ORGANIZER_NOTE),

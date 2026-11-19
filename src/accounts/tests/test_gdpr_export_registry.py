@@ -37,6 +37,7 @@ from events.models import (
     Organization,
     OrganizationMember,
     OrganizationMembershipRequest,
+    OrganizationToken,
     SkippedFiscalDocument,
     Ticket,
     TicketTier,
@@ -550,3 +551,29 @@ def test_oauth_tokens_and_grants_are_never_exported(user: RevelUser) -> None:
     # bearer never reaches the DB and could not appear here even without the exclusions above.
     # The accessor loop is what actually proves the rules work (M2).
     assert token not in raw
+
+
+@pytest.mark.django_db
+def test_organization_invitations_exported_without_claim_secret_or_issuer(
+    user: RevelUser, organization: Organization, revel_user_factory: RevelUserFactory
+) -> None:
+    """A pending personal invitation is exported with org, tier and dates, never its token id or issuer."""
+    invitee = revel_user_factory(username="invitee@example.com", email="invitee@example.com")
+    tier = MembershipTier.objects.create(organization=organization, name="Gold")
+    token = OrganizationToken.objects.create(
+        organization=organization,
+        issuer=user,
+        invitee=invitee,
+        membership_tier=tier,
+        max_uses=1,
+        expires_at=timezone.now() + timedelta(days=14),
+    )
+
+    data, raw = _export(invitee)
+
+    (entry,) = data["organization_invitations"]
+    assert entry["organization_name"] == organization.name
+    assert entry["tier_name"] == "Gold"
+    assert entry["accepted"] is False
+    assert str(token.pk) not in raw
+    assert str(user.id) not in raw
