@@ -1,10 +1,11 @@
 """Pronoun distribution aggregation for events."""
 
-from django.db.models import Count, Q
+from django.db.models import Count, OuterRef, Q
 
 from accounts.models import RevelUser
 from events.models import Event, EventRSVP, Ticket
 from events.schema import EventPronounDistributionSchema, PronounCountSchema
+from events.service.holder_visibility import known_holder_q
 
 
 def get_event_pronoun_distribution(event: Event, viewer: RevelUser) -> EventPronounDistributionSchema:
@@ -49,7 +50,13 @@ def get_event_pronoun_distribution(event: Event, viewer: RevelUser) -> EventPron
     # Get distinct attendee IDs first, then aggregate
     # Note: .distinct() before .values().annotate() doesn't work as expected
     # because GROUP BY ignores the DISTINCT. We need to filter by IDs instead.
-    attendee_ids = RevelUser.objects.filter(ticket_filter | rsvp_filter).distinct().values_list("id", flat=True)
+    # Accounts whose only link to the organization is staff-originated are left out.
+    attendee_ids = (
+        RevelUser.objects.filter(ticket_filter | rsvp_filter)
+        .filter(known_holder_q(event.organization_id, OuterRef("pk")))
+        .distinct()
+        .values_list("id", flat=True)
+    )
 
     attendee_qs = (
         RevelUser.objects.filter(id__in=attendee_ids).values("pronouns").annotate(count=Count("id")).order_by("-count")

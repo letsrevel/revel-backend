@@ -202,6 +202,51 @@ def test_box_office_sale_and_comp_grant(
     assert record.valid_from == event.start
 
 
+@pytest.mark.parametrize(
+    ("method", "source"),
+    [
+        (TicketTier.PaymentMethod.AT_THE_DOOR, TicketSaleSource.BOX_OFFICE_SALE),
+        (TicketTier.PaymentMethod.FREE, TicketSaleSource.BOX_OFFICE_COMP),
+    ],
+)
+@pytest.mark.parametrize("guest_name", ["Typed Guest", ""])
+def test_box_office_record_snapshots_staff_supplied_name_not_account_name(
+    seated_event: tuple[Event, list[VenueSeat]],
+    day_member_tier: MembershipTier,
+    holder: RevelUser,
+    method: TicketTier.PaymentMethod,
+    source: TicketSaleSource,
+    guest_name: str,
+) -> None:
+    """Staff-issued ticket: the register shows the typed name (or the email), never the account's legal name."""
+    event, seats = seated_event
+    tier = TicketTier.objects.create(
+        event=event,
+        name="Door",
+        price=Decimal("5.00"),
+        currency="EUR",
+        payment_method=method,
+        grants_membership_tier=day_member_tier,
+        max_tickets_per_user=1,
+    )
+    ticket = box_office.sell(
+        event, tier, seat_id=seats[0].id, payment_method=method, recipient=holder, guest_name=guest_name
+    )
+    assert ticket.sale_source == source
+    (record,) = records_for(ticket)
+    assert record.full_name == (guest_name or holder.email)
+    assert record.email == holder.email
+    assert "Dana" not in record.full_name
+
+
+def test_checkout_ticket_still_snapshots_account_name(
+    day_tier: TicketTier, make_ticket: t.Callable[..., Ticket]
+) -> None:
+    ticket = make_ticket(day_tier, guest_name="Someone Else")
+    (record,) = records_for(ticket)
+    assert record.full_name == "Dana Day"
+
+
 # ---- evidence ----
 
 

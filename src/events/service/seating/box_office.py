@@ -23,9 +23,11 @@ from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.batch_ticket_service.eligibility import assert_event_sells_tickets
 from events.service.guest import get_or_create_guest_user
-from events.service.holder_visibility import require_known_holder
+from events.service.holder_visibility import is_known_holder, require_known_holder
 from events.service.seating import holds as holds_service
 from events.service.seating.pricing import TicketPrice, build_batch_pricing, should_stamp_price_paid
+
+_GUEST_NAME_MAX = 255  # TicketPurchaseItem.guest_name
 
 
 def resolve_recipient(
@@ -138,8 +140,8 @@ def sell(
         seat_id: The seat to sell.
         payment_method: AT_THE_DOOR or FREE (schema-enforced).
         recipient: The user the ticket belongs to.
-        guest_name: Ticket-holder name; defaults to the staff-typed first/last name, else the recipient's
-            email (the address staff supplied). Never the account's own profile name.
+        guest_name: Ticket-holder name; defaults to the staff-typed first/last name, else the account's
+            display name for a holder known to the organization, else the email staff supplied.
         first_name: Staff-typed first name, used only for the ``guest_name`` default.
         last_name: Staff-typed last name, used only for the ``guest_name`` default.
 
@@ -159,7 +161,12 @@ def sell(
 
     seat = _lock_seat_for_sale(event, seat_id, recipient)
 
-    item = TicketPurchaseItem(guest_name=guest_name or f"{first_name} {last_name}".strip() or recipient.email)
+    if not guest_name:
+        typed = f"{first_name} {last_name}".strip()
+        # A known holder keeps their own name; anyone else gets only what staff supplied (ADR-0020).
+        own = recipient.get_display_name() if is_known_holder(event.organization, recipient) else recipient.email
+        guest_name = (typed or own)[:_GUEST_NAME_MAX]
+    item = TicketPurchaseItem(guest_name=guest_name)
     is_comp = payment_method == TicketTier.PaymentMethod.FREE
     if is_comp:
         # A comp must not report tier-price revenue.

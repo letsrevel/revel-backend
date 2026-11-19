@@ -31,6 +31,7 @@ from events.models import (
     TicketTier,
 )
 from events.service.holder_visibility import annotate_holder_known, is_known_holder, require_known_holder
+from events.service.organization_service import has_relationship
 from questionnaires.models import Questionnaire, QuestionnaireSubmission
 
 pytestmark = pytest.mark.django_db
@@ -111,6 +112,14 @@ NOT_KNOWN: dict[str, Act] = {
     "day membership from box office": lambda e, u: _record(
         e, u, MembershipRecord.Source.TICKET, _ticket(e, u, TicketSaleSource.BOX_OFFICE_SALE)
     ),
+    "merge-linked register record": lambda e, u: MembershipRecord.objects.create(
+        organization=e.organization,
+        user=u,
+        full_name="X",
+        valid_from=timezone.now(),
+        source=MembershipRecord.Source.MANUAL,
+        linked_via=MembershipRecord.LinkMethod.MERGE,
+    ),
     "staff RSVP": lambda e, u: EventRSVP.objects.create(
         event=e, user=u, status=EventRSVP.RsvpStatus.YES, source=EventRSVP.Source.STAFF
     ),
@@ -158,3 +167,19 @@ def test_annotation_judges_each_row_in_one_query(
 
     assert len(ctx.captured_queries) == 1
     assert known == {stranger_ticket.pk: False, buyer_ticket.pk: True}
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"), [(TicketSaleSource.BOX_OFFICE_COMP, False), (TicketSaleSource.CHECKOUT, True)]
+)
+def test_default_relationship_follows_day_membership_origin(
+    event: Event, nonmember_user: RevelUser, source: str, expected: bool
+) -> None:
+    """Staff add and subscription create: a box-office day membership is no standing either."""
+    _record(event, nonmember_user, MembershipRecord.Source.TICKET, _ticket(event, nonmember_user, source))
+    assert has_relationship(event.organization, nonmember_user) is expected
+
+
+def test_default_relationship_ignores_merge_linked_record(event: Event, nonmember_user: RevelUser) -> None:
+    NOT_KNOWN["merge-linked register record"](event, nonmember_user)
+    assert not has_relationship(event.organization, nonmember_user)

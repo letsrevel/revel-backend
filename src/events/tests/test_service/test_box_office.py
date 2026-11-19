@@ -17,6 +17,7 @@ from events.models import (
     EventSeatOverride,
     EventWaitList,
     Organization,
+    OrganizationMember,
     PriceCategory,
     SeatHold,
     Ticket,
@@ -678,3 +679,32 @@ def test_reseat_target_in_other_venue_rejected(
     with pytest.raises(HttpError) as exc:
         box_office.reseat(event, ticket_id=seated_ticket.id, target_seat_id=foreign_seat.id)
     assert exc.value.status_code == 400
+
+
+def test_sell_guest_name_keeps_a_known_holders_own_name(
+    seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, revel_user_factory: RevelUserFactory
+) -> None:
+    event, seats = seated_event
+    member = revel_user_factory(first_name="Known", last_name="Member")
+    OrganizationMember.objects.create(organization=event.organization, user=member)
+    ticket = box_office.sell(
+        event, tier, seat_id=seats[0].id, payment_method=TicketTier.PaymentMethod.FREE, recipient=member
+    )
+    assert ticket.guest_name == member.get_display_name()
+
+
+def test_sell_guest_name_from_long_typed_names_is_capped(
+    seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, revel_user_factory: RevelUserFactory
+) -> None:
+    """Two 150-character names (the schema maximum) must not overflow the 255-character ticket name."""
+    event, seats = seated_event
+    ticket = box_office.sell(
+        event,
+        tier,
+        seat_id=seats[0].id,
+        payment_method=TicketTier.PaymentMethod.FREE,
+        recipient=revel_user_factory(),
+        first_name="F" * 150,
+        last_name="L" * 150,
+    )
+    assert len(ticket.guest_name) == 255

@@ -603,3 +603,31 @@ class TestAttendeeExportHolderMasking:
         row = self._rows(export_user, att_event)["ticket@example.com"]
         assert row[0] == "Alice Ticker"
         assert row[2] == "she/her"
+
+    def test_staff_rsvp_is_masked_and_self_rsvp_is_not(
+        self,
+        export_user: RevelUser,
+        att_event: Event,
+        rsvp_user: RevelUser,
+        revel_user_factory: RevelUserFactory,
+    ) -> None:
+        self_user = revel_user_factory(
+            username="self_rsvp", email="self@example.com", first_name="Sam", last_name="Self", pronouns="xe/xem"
+        )
+        EventRSVP.objects.create(
+            event=att_event, user=rsvp_user, status=EventRSVP.RsvpStatus.YES, source=EventRSVP.Source.STAFF
+        )
+        EventRSVP.objects.create(
+            event=att_event, user=self_user, status=EventRSVP.RsvpStatus.YES, source=EventRSVP.Source.SELF
+        )
+        export = _create_attendee_export(export_user, att_event)
+        generate_attendee_export(export.id)
+        workbook = _load_workbook_from_export(export)
+        rows = {row[1]: row for row in workbook["Attendees"].iter_rows(min_row=2, values_only=True)}
+        staff_row, self_row = rows["rsvp@example.com"], rows["self@example.com"]
+        assert not staff_row[0]  # Name blank
+        assert not staff_row[2]  # Pronouns blank
+        assert self_row[0] == "Sam Self"
+        assert self_row[2] == "xe/xem"
+        summary = {r[0]: r[1] for r in workbook["Summary"].iter_rows(values_only=True) if r[0]}
+        assert summary["Total with pronouns"] == 1

@@ -409,3 +409,37 @@ def test_invitation_list_masks_account_invited_by_email_and_never_includes_phone
     assert known["known"] is True
     assert known["first_name"] == "Legal"
     assert known["phone_number"] is None
+
+
+def _invite_without_message(client: Client, event: Event, *accounts: RevelUser) -> None:
+    resp = client.post(
+        reverse("api:create_direct_invitations", kwargs={"event_id": event.pk}),
+        data=orjson.dumps({"emails": [a.email for a in accounts]}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200, resp.content
+
+
+def test_default_invitation_message_does_not_carry_unknown_account_names(
+    organization_owner_client: Client, event: Event, profiled: RevelUser
+) -> None:
+    """The default greeting of an invitation to an unknown account uses the typed email, so the list leaks nothing."""
+    _invite_without_message(organization_owner_client, event, profiled)
+    url = reverse("api:list_event_invitations", kwargs={"event_id": event.pk})
+    resp = organization_owner_client.get(url)
+    assert resp.status_code == 200, resp.content
+    (row,) = resp.json()["results"]
+    for name in ("Legal", "Person", "Pref"):
+        assert name not in (row["custom_message"] or "")
+        assert organization_owner_client.get(url, {"search": name}).json()["count"] == 0
+    assert profiled.email in row["custom_message"]
+
+
+def test_default_invitation_message_greets_known_member_by_name(
+    organization_owner_client: Client, event: Event, profiled: RevelUser
+) -> None:
+    OrganizationMember.objects.create(organization=event.organization, user=profiled)
+    _invite_without_message(organization_owner_client, event, profiled)
+    resp = organization_owner_client.get(reverse("api:list_event_invitations", kwargs={"event_id": event.pk}))
+    (row,) = resp.json()["results"]
+    assert profiled.get_display_name() in row["custom_message"]

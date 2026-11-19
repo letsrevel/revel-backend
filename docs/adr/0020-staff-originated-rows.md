@@ -26,11 +26,15 @@ standing come only from acts of the account holder.
   membership applications, linked register entries, tickets not issued by the box office (a
   legacy ticket with no recorded source counts), the holder's own RSVPs (`EventRSVP.source`),
   series passes, waitlist entries, event invitation requests and questionnaire submissions. A day
-  membership inherits its ticket's origin. Box-office tickets, staff RSVPs, event invitations and
-  waitlist offers do not count.
+  membership inherits its ticket's origin, and a register entry linked by a staff merge does not count.
+  Box-office tickets, staff RSVPs, event invitations and waitlist offers do not count. The default
+  `has_relationship` gate (staff add, subscription create) applies the same register-entry rule.
 - Admin surfaces whose subject may be unknown return `StaffViewUserSchema`: `known` plus the
   account's profile when known; when not, only the email (the address staff typed) and the name
-  staff typed, every other field `null`. Members are always known, so never masked.
+  staff typed, every other field `null`. Members are always known, so never masked. The staff view of
+  the attendee list and the dietary and pronoun aggregates leave unknown holders out; the attendee
+  export, staff notifications, the register snapshot of a box-office day membership and the default
+  invitation greeting use what staff supplied (ticket name, email).
 - Staff actions on an account (RSVP on behalf, box-office sale by `user_id`, private notes) require
   a known holder.
 - A CI guard (`test_holder_profile_guard.py`) pins every API operation that projects the full user

@@ -12,16 +12,18 @@ import typing as t
 
 from api.api import api
 
-SEED_CARRIERS = {"MemberUserSchema", "MinimalRevelUserSchema"}
+SEED_CARRIERS = {"MemberUserSchema", "MinimalRevelUserSchema", "AttendeeSchema"}
 
 SELF = "the caller's own account"
 MEMBER = "subject is a member/staff of the organization"
 APPLICANT = "subject applied (membership request / invitation request / questionnaire)"
 WAITLIST = "subject joined the waitlist"
 PASS_HOLDER = "subject holds (bought) a series pass"
+ATTENDEE_OPT_IN = "attendees shown by their own opt-in; privileged view limited to known holders"
 
 HOLDER_PROFILE_OPERATIONS: dict[tuple[str, str], str] = {
     ("get", "/api/dashboard/invitation-requests"): SELF,
+    ("get", "/api/events/{event_id}/attendee-list"): ATTENDEE_OPT_IN,
     ("post", "/api/events/{event_id}/invitation-requests"): SELF,
     ("post", "/api/organizations/{slug}/membership-requests"): SELF,
     ("get", "/api/event-admin/{event_id}/invitation-requests"): APPLICANT,

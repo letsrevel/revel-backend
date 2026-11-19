@@ -33,11 +33,23 @@ STAFF_SALE_SOURCES = (TicketSaleSource.BOX_OFFICE_SALE, TicketSaleSource.BOX_OFF
 _M = t.TypeVar("_M", bound=t.Any)
 
 
+def self_linked_record_q() -> Q:
+    """Condition on ``MembershipRecord``: the register entry stands for an act of its account holder.
+
+    A day membership inherits its ticket's origin (a box-office ticket's record does not count), and a
+    record linked by a staff merge does not count (the merge links it on staff's word alone).
+    """
+    self_ticket = Ticket.objects.filter(pk=OuterRef("ticket_id")).exclude(sale_source__in=STAFF_SALE_SOURCES)
+    return (~Q(source=MembershipRecord.Source.TICKET) | Exists(self_ticket)) & ~Q(
+        linked_via=MembershipRecord.LinkMethod.MERGE
+    )
+
+
 def known_holder_q(organization_id: UUID, user_ref: OuterRef) -> Q:
     """Condition: the account at ``user_ref`` acted toward the organization (or is its owner/staff/member).
 
     Counts: owner, staff, member (any status), membership request (any status), a linked register record
-    (a day membership only when its ticket was not issued by the box office), a ticket not issued by the
+    (see ``self_linked_record_q``: not a box-office day membership, not merge-linked), a ticket not issued by the
     box office (``NULL`` sale source = self, legacy), the holder's own RSVP, a series pass, a waitlist
     entry, an event invitation request, a questionnaire submission. Not counted: box-office tickets,
     staff RSVPs, event invitations, waitlist offers.
@@ -47,10 +59,7 @@ def known_holder_q(organization_id: UUID, user_ref: OuterRef) -> Q:
         user_ref: Reference to the account id in the outer query (e.g. ``OuterRef("user_id")``).
     """
     org, user = organization_id, user_ref
-    self_ticket = Ticket.objects.filter(pk=OuterRef("ticket_id")).exclude(sale_source__in=STAFF_SALE_SOURCES)
-    record = MembershipRecord.objects.filter(organization_id=org, user_id=user).filter(
-        ~Q(source=MembershipRecord.Source.TICKET) | Exists(self_ticket)
-    )
+    record = MembershipRecord.objects.filter(organization_id=org, user_id=user).filter(self_linked_record_q())
     return (
         Q(Exists(Organization.objects.filter(pk=org, owner_id=user)))
         | Q(Exists(OrganizationStaff.objects.filter(organization_id=org, user_id=user)))

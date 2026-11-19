@@ -11,7 +11,16 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import MembershipRecord, Organization, OrganizationMember, OrganizationUserNote
+from events.models import (
+    Event,
+    MembershipRecord,
+    Organization,
+    OrganizationMember,
+    OrganizationUserNote,
+    Ticket,
+    TicketSaleSource,
+    TicketTier,
+)
 from events.models.user_note import USER_NOTE_MAX_LENGTH
 from events.service.member_register_reconciliation import merge_records
 
@@ -81,6 +90,29 @@ class TestLinkedRecord:
             owner_client.delete(_url(organization, linked_closed, "delete_member_register_record_note")).status_code
             == 204
         )
+        assert not OrganizationUserNote.objects.exists()
+
+    def test_box_office_day_membership_gives_no_note_standing(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        claimant: RevelUser,
+        make_record: RecordFactory,
+    ) -> None:
+        """A day membership from a box-office ticket is staff-made: same 404 as the user-note route."""
+        ticket = Ticket.objects.create(
+            event=event,
+            user=claimant,
+            tier=event_ticket_tier,
+            guest_name="G",
+            sale_source=TicketSaleSource.BOX_OFFICE_COMP,
+        )
+        record = make_record(
+            user=claimant, kind=MembershipRecord.Kind.TEMPORARY, source=MembershipRecord.Source.TICKET, ticket=ticket
+        )
+        assert _put(owner_client, organization, record, "About them").status_code == 404
         assert not OrganizationUserNote.objects.exists()
 
 

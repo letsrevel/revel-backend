@@ -3,7 +3,7 @@
 import typing as t
 from collections import defaultdict
 
-from django.db.models import Q
+from django.db.models import OuterRef, Q
 
 from accounts.models import DietaryRestriction, RevelUser, UserDietaryPreference
 from events.models import Event, EventRSVP, Ticket
@@ -12,6 +12,7 @@ from events.schema import (
     AggregatedDietaryRestrictionSchema,
     EventDietarySummarySchema,
 )
+from events.service.holder_visibility import known_holder_q
 
 
 def get_event_dietary_summary(event: Event, user: RevelUser) -> EventDietarySummarySchema:
@@ -34,11 +35,16 @@ def get_event_dietary_summary(event: Event, user: RevelUser) -> EventDietarySumm
         EventDietarySummarySchema with aggregated restrictions and preferences
     """
     show_counts = event.can_user_see_attendee_count(user)
-    # Get all attendees regardless of viewer - visibility is controlled by is_public flag
-    attendees = RevelUser.objects.filter(
-        Q(tickets__event=event, tickets__status__in=Ticket.ATTENDING_STATUSES)
-        | Q(rsvps__event=event, rsvps__status=EventRSVP.RsvpStatus.YES)
-    ).distinct()
+    # All attendees regardless of viewer - visibility is controlled by is_public flag. Accounts whose only
+    # link to the organization is staff-originated are left out: their data is not theirs to show.
+    attendees = (
+        RevelUser.objects.filter(
+            Q(tickets__event=event, tickets__status__in=Ticket.ATTENDING_STATUSES)
+            | Q(rsvps__event=event, rsvps__status=EventRSVP.RsvpStatus.YES)
+        )
+        .filter(known_holder_q(event.organization_id, OuterRef("pk")))
+        .distinct()
+    )
 
     # Determine if user is organizer/staff
     is_organizer = user.is_superuser or user.is_staff or event.organization.is_owner_or_staff(user)

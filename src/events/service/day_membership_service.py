@@ -29,7 +29,8 @@ from events.models import (
     Ticket,
     TicketTier,
 )
-from events.service.member_register_service import _snapshot_full_name
+from events.service.holder_visibility import STAFF_SALE_SOURCES
+from events.service.member_register_service import _FULL_NAME_MAX, _snapshot_full_name
 from events.utils import membership_access
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
@@ -111,10 +112,15 @@ def _record_kwargs(
 ) -> dict[str, t.Any]:
     valid_from, valid_until = _event_window(event)
     user = ticket.user
+    if ticket.sale_source in STAFF_SALE_SOURCES:
+        # Staff-issued: record only what staff supplied, never the account's own names.
+        full_name = (ticket.guest_name or user.email)[:_FULL_NAME_MAX]
+    else:
+        full_name = _snapshot_full_name(user)
     return {
         "organization_id": event.organization_id,
         "user": user,
-        "full_name": _snapshot_full_name(user),
+        "full_name": full_name,
         "email": user.email,
         "kind": MembershipRecord.Kind.TEMPORARY,
         "tier": granted_tier,
