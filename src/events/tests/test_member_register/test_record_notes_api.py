@@ -259,3 +259,62 @@ class TestHasNote:
         OrganizationMember.objects.filter(organization=organization, user=claimant).delete()
         url = reverse("api:get_member_register_record", kwargs={"slug": organization.slug, "record_id": record.pk})
         assert owner_client.get(url).json()["has_note"] is False
+
+
+class TestMergeNoteTransfer:
+    """A merge links the absorbed entry on staff's word alone: it must not move a note onto an account that has
+    no standing of its own (the note would then show up under that account's profile)."""
+
+    def _noted_temporary(self, make_record: RecordFactory, organization_owner_user: RevelUser) -> MembershipRecord:
+        absorbed = make_record(
+            email="walkin@example.com",
+            kind=MembershipRecord.Kind.TEMPORARY,
+            valid_until=timezone.now() + timedelta(days=1),
+        )
+        OrganizationUserNote.objects.create(
+            organization=absorbed.organization, record=absorbed, body="Staff only", updated_by=organization_owner_user
+        )
+        return absorbed
+
+    def test_stranger_survivor_does_not_receive_the_note(
+        self,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        claimant: RevelUser,
+        make_record: RecordFactory,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        ticket = Ticket.objects.create(
+            event=event,
+            user=claimant,
+            tier=event_ticket_tier,
+            guest_name="G",
+            sale_source=TicketSaleSource.BOX_OFFICE_COMP,
+        )
+        survivor = make_record(
+            user=claimant, kind=MembershipRecord.Kind.TEMPORARY, source=MembershipRecord.Source.TICKET, ticket=ticket
+        )
+        absorbed = self._noted_temporary(make_record, organization_owner_user)
+
+        merge_records(survivor, absorbed)
+
+        note = OrganizationUserNote.objects.get()
+        assert (note.user_id, note.record_id) == (None, absorbed.pk)
+
+    def test_known_survivor_receives_the_note(
+        self,
+        organization: Organization,
+        claimant: RevelUser,
+        make_record: RecordFactory,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        OrganizationMember.objects.create(organization=organization, user=claimant)
+        survivor = MembershipRecord.objects.get(
+            organization=organization, user=claimant
+        )  # mirrored from the access row
+        absorbed = self._noted_temporary(make_record, organization_owner_user)
+
+        merge_records(survivor, absorbed)
+
+        assert OrganizationUserNote.objects.get().user_id == claimant.pk

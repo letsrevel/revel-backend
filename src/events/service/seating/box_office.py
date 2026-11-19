@@ -62,7 +62,7 @@ def resolve_recipient(
         GuestAccountExistsError: the email belongs to an unverified registered account (400).
     """
     if user_id is not None:
-        user = get_object_or_404(RevelUser, pk=user_id)
+        user = get_object_or_404(RevelUser, pk=user_id, is_active=True)
         require_known_holder(organization, user)
         return user
     assert email is not None  # schema enforces exactly one of email/user_id

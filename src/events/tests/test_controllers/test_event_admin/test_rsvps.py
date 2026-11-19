@@ -214,3 +214,18 @@ def test_admin_update_omitting_note_keeps_existing(
     assert response.status_code == 200
     rsvp.refresh_from_db()
     assert rsvp.note == "keep me"
+
+
+@pytest.mark.usefixtures("organization_membership")
+def test_admin_create_rsvp_refuses_deactivated_account(
+    organization_owner_client: Client, event: Event, member_user: RevelUser
+) -> None:
+    """A deactivated account is not addressable by id, however well known it is."""
+    RevelUser.objects.filter(pk=member_user.pk).update(is_active=False)
+
+    url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
+    payload = {"user_id": str(member_user.id), "status": EventRSVP.RsvpStatus.YES}
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 404
+    assert not EventRSVP.objects.filter(event=event, user=member_user).exists()

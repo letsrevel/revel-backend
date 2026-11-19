@@ -131,7 +131,7 @@ def claim_invitation_link(user: RevelUser, event: models.Event, event_token: mod
         return
     # claim_invitation locks the token row (select_for_update) — needs a transaction.
     with transaction.atomic():
-        claim_invitation(user, event_token.pk)
+        claim_invitation(user, event_token.pk, greeting=user.email)
 
 
 def create_guest_rsvp_token(

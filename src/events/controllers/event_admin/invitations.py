@@ -52,9 +52,12 @@ class EventAdminInvitationsController(EventAdminBaseController):
     def list_invitations(self, event_id: UUID) -> QuerySet[models.EventInvitation]:
         """List all invitations for registered users."""
         event = self.get_one(event_id)
-        return annotate_holder_known(
+        qs = annotate_holder_known(
             models.EventInvitation.objects.with_related().filter(event=event), event.organization_id
-        ).distinct()
+        )
+        # "-id" is a stable tiebreaker so pagination stays deterministic across equal sort keys.
+        # No .distinct(): all joins are to-one (#880).
+        return qs.order_by("-created_at", "-id")
 
     @route.get(
         "/pending-invitations",

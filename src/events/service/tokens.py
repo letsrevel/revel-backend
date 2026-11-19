@@ -182,12 +182,14 @@ def get_token_rejection_reason(token: str) -> TokenRejection | None:
 
 
 @transaction.atomic
-def claim_invitation(user: RevelUser, token: str) -> EventInvitation | None:
+def claim_invitation(user: RevelUser, token: str, greeting: str | None = None) -> EventInvitation | None:
     """Claim an invitation using an event token.
 
     Args:
         user: The user claiming the invitation.
         token: The token ID to claim.
+        greeting: Name used in the default invitation message; defaults to the account's display name. The
+            anonymous guest path passes the email, so a stored name is never echoed to the requester.
 
     Returns:
         The EventInvitation if successfully claimed, None if token is invalid,
@@ -213,7 +215,7 @@ def claim_invitation(user: RevelUser, token: str) -> EventInvitation | None:
         **(event_token.invitation_payload or {}),
     }
     if not defaults.get("custom_message"):
-        defaults["custom_message"] = get_invitation_message(user.get_display_name(), event_token.event)
+        defaults["custom_message"] = get_invitation_message(greeting or user.get_display_name(), event_token.event)
     invitation, created = EventInvitation.objects.get_or_create(
         event=event_token.event,
         user=user,

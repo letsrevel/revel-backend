@@ -5,6 +5,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from django.http import Http404
 from django.utils import timezone
 from ninja.errors import HttpError
 
@@ -99,6 +100,15 @@ def test_resolve_recipient_reuses_existing_guest(organization: Organization) -> 
 
 def test_resolve_recipient_by_user_id_refuses_stranger(organization: Organization, recipient: RevelUser) -> None:
     with pytest.raises(InvitationRequiredError):
+        box_office.resolve_recipient(organization, None, recipient.id)
+
+
+def test_resolve_recipient_by_user_id_refuses_deactivated_account(
+    organization: Organization, recipient: RevelUser
+) -> None:
+    OrganizationMember.objects.create(organization=organization, user=recipient)
+    RevelUser.objects.filter(pk=recipient.pk).update(is_active=False)
+    with pytest.raises(Http404):
         box_office.resolve_recipient(organization, None, recipient.id)
 
 

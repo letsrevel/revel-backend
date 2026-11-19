@@ -61,8 +61,10 @@ class EventAdminRSVPsController(EventAdminBaseController):
         qs = annotate_holder_known(
             models.EventRSVP.objects.with_user().with_org_membership(event.organization_id).filter(event=event),
             event.organization_id,
-        ).order_by("-created_at")
-        return params.filter(qs).distinct()
+        )
+        # "-id" is a stable tiebreaker so pagination stays deterministic across equal sort keys.
+        # No .distinct(): all joins are to-one (#880).
+        return params.filter(qs).order_by("-created_at", "-id")
 
     @route.get(
         "/rsvps/{rsvp_id}",
@@ -91,7 +93,7 @@ class EventAdminRSVPsController(EventAdminBaseController):
         """
         event = self.get_one(event_id)
 
-        user = get_object_or_404(RevelUser, pk=payload.user_id)
+        user = get_object_or_404(RevelUser, pk=payload.user_id, is_active=True)
         require_known_holder(event.organization, user)
 
         # Capture prior status (if any) before the upsert so we can detect a
