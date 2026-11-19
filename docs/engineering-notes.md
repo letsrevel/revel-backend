@@ -478,13 +478,15 @@ negative:
 
 ## Admin responses that carry a person: `test_holder_profile_guard.py`
 
-A new admin route that nests `MemberUserSchema` or `MinimalRevelUserSchema` (directly or through
-any component that embeds them) fails `events/tests/test_controllers/test_holder_profile_guard.py`
+A new admin route that nests `MemberUserSchema`, `MinimalRevelUserSchema` or `BlacklistEntrySchema`
+(directly or through any component that embeds them) fails `events/tests/test_controllers/test_holder_profile_guard.py`
 until it is classified. Add it to `HOLDER_PROFILE_OPERATIONS` only when its subject acted toward
 the organization (member, applicant, waitlist, pass holder...). When the row can be
 staff-originated (box office, staff RSVP, invitation), return `StaffViewUserSchema` instead and
 annotate the queryset with `annotate_holder_known` (one query for the list; see ADR-0020). The
-same predicate gates staff actions on an account (`require_known_holder`).
+same predicate gates staff actions on an account (`require_known_holder`). An access row created by a
+blacklist entry for an account with no standing carries `created_by_ban` and counts for nothing in that
+predicate; unbanning deletes it (a member who was banned keeps the row and goes to `CANCELLED`).
 
 ## Key rotation (`SECRET_KEY`, `SALT_KEY`)
 

@@ -14,7 +14,7 @@ Policy-level intended behaviour that reviewers must not report as a finding. Eac
 
 ## Staff-originated rows are masked
 - behaviour: a box-office ticket, a staff-recorded RSVP or a staff-made event invitation shows staff only what staff supplied (the email they typed, the name they typed) unless the account is known to the organization through its own acts (`events/service/holder_visibility.py`); `StaffViewUserSchema` then returns `known: false` with profile fields `null`. Such rows also give no standing for RSVP on behalf, box-office sale by `user_id` or private notes. A holder who later acts becomes known, and their earlier rows unmask.
-- boundary: any admin surface, export or staff notification that shows an unknown holder's phone, legal or preferred name, pronouns, bio or picture is a bug, as is a staff-made row counting as standing, or a new operation projecting `MemberUserSchema`/`MinimalRevelUserSchema` without an entry in `test_holder_profile_guard.py`. Members are never masked.
+- boundary: any admin surface, export or staff notification that shows an unknown holder's phone, legal or preferred name, pronouns, bio or picture is a bug, as is a staff-made row counting as standing, or a new operation projecting `MemberUserSchema`/`MinimalRevelUserSchema` without an entry in `test_holder_profile_guard.py`. Members are never masked. A row created by a ban (`created_by_ban`) confers no standing, and a waitlist entry consumed by a staff sale stops conferring standing (accepted, fails closed).
 - reference: ADR-0020; maintainer decision 2026-11-19.
 
 ## Staff permissions do what they say

@@ -27,16 +27,24 @@ standing come only from acts of the account holder.
   legacy ticket with no recorded source counts), the holder's own RSVPs (`EventRSVP.source`),
   series passes, waitlist entries, event invitation requests and questionnaire submissions. A day
   membership inherits its ticket's origin, and a register entry linked by a staff merge does not count.
-  Box-office tickets, staff RSVPs, event invitations and waitlist offers do not count. The default
+  Box-office tickets, staff RSVPs, event invitations and waitlist offers do not count. Only
+  attending tickets (active or checked in) count, so a pending checkout confers nothing. An access
+  row created by a blacklist entry (`OrganizationMember.created_by_ban`) is no standing either:
+  banning an account with no standing creates the row, unbanning deletes it, while an existing member
+  who is banned keeps their row and their standing. A waitlist entry consumed by a staff sale (claim
+  or the ticket signal) stops conferring standing; this is accepted and fails closed. The default
   `has_relationship` gate (staff add, subscription create) applies the same register-entry rule.
 - Admin surfaces whose subject may be unknown return `StaffViewUserSchema`: `known` plus the
   account's profile when known; when not, only the email (the address staff typed) and the name
-  staff typed, every other field `null`. Members are always known, so never masked. The staff view of
+  staff typed, every other field `null`. Members are always known, so never masked. A blacklist entry
+  copies the account's profile (quick mode) or shows its name only for a known holder; otherwise it
+  keeps the email and what staff typed. The staff view of
   the attendee list and the dietary and pronoun aggregates leave unknown holders out; the attendee
   export, staff notifications, the register snapshot of a box-office day membership and the default
   invitation greeting use what staff supplied (ticket name, email).
 - Staff actions on an account (RSVP on behalf, box-office sale by `user_id`, private notes) require
-  a known holder.
+  a known, active holder; merging a note-bearing register entry into an account moves the note
+  only when that account is a known holder.
 - A CI guard (`test_holder_profile_guard.py`) pins every API operation that projects the full user
   profile schemas, each with the reason its subject is the holder or someone who acted. A new
   operation fails the guard until it is classified or switched to the masked schema.
