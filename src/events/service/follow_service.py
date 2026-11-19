@@ -12,6 +12,7 @@ from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import EventSeries, Organization
 from events.models.follow import EventSeriesFollow, OrganizationFollow
+from events.utils.blacklist import get_hard_blacklisted_user_ids
 from events.utils.membership_access import banned_memberships, visible_memberships
 from notifications.enums import NotificationType
 from notifications.models import NotificationPreference
@@ -423,6 +424,8 @@ def get_followers_for_new_event_notification(
         visible_memberships().filter(organization=organization).values_list("user_id", flat=True)
     )
     excluded_user_ids.update(banned_memberships().filter(organization=organization).values_list("user_id", flat=True))
+    # A blacklist bans without creating a membership row, so read it directly.
+    excluded_user_ids.update(get_hard_blacklisted_user_ids(organization.pk))
 
     # 2. Staff members (get EVENT_OPEN via staff path)
     excluded_user_ids.update(organization.staff_members.values_list("id", flat=True))

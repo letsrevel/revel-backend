@@ -28,10 +28,16 @@ standing come only from acts of the account holder.
   series passes, waitlist entries, event invitation requests and questionnaire submissions. A day
   membership inherits its ticket's origin, and a register entry linked by a staff merge does not count.
   Box-office tickets, staff RSVPs, event invitations and waitlist offers do not count. Only
-  attending tickets (active or checked in) count, so a pending checkout confers nothing. An access
-  row created by a blacklist entry (`OrganizationMember.created_by_ban`) is no standing either:
-  banning an account with no standing creates the row, unbanning deletes it, while an existing member
-  who is banned keeps their row and their standing. A waitlist entry consumed by a staff sale (claim
+  attending tickets (active or checked in) count, so a pending checkout confers nothing. A
+  blacklist entry never creates an access row for a non-member: it flips an existing member's row to
+  banned (again on commit, to catch a membership created concurrently) and leaves everyone else
+  without one. Enforcement reads the blacklist itself (`get_hard_blacklisted_user_ids` for bulk
+  checks, `check_user_hard_blacklisted` per user), including the day-membership grants, which also
+  revoke upcoming day memberships directly, and the follower new-event notifications. Manual entries
+  link an account only by an exact verified-email match; phone and telegram do not link, because
+  typing an identifier is not proof of who holds it. Unbanning a banned member sets the row to
+  cancelled, as before. Residual: banned rows created by earlier bans are indistinguishable from
+  former members and still count as known. A waitlist entry consumed by a staff sale (claim
   or the ticket signal) stops conferring standing; this is accepted and fails closed. The default
   `has_relationship` gate (staff add, subscription create) applies the same register-entry rule.
 - Admin surfaces whose subject may be unknown return `StaffViewUserSchema`: `known` plus the

@@ -32,6 +32,7 @@ from events.models import (
 from events.service.holder_visibility import STAFF_SALE_SOURCES
 from events.service.member_register_service import _FULL_NAME_MAX, _snapshot_full_name
 from events.utils import membership_access
+from events.utils.blacklist import get_hard_blacklisted_user_ids
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 _ATTENDING = tuple(Ticket.ATTENDING_STATUSES)
@@ -104,7 +105,11 @@ def _admission_evidence(user_id: UUID, event: Event, *, via_pass: bool = False) 
 
 
 def _is_banned(organization_id: UUID, user_id: UUID) -> bool:
-    return membership_access.banned_memberships().filter(organization_id=organization_id, user_id=user_id).exists()
+    """BANNED member or hard-blacklisted (a blacklist entry bans without creating a membership row)."""
+    return (
+        membership_access.banned_memberships().filter(organization_id=organization_id, user_id=user_id).exists()
+        or get_hard_blacklisted_user_ids(organization_id).filter(pk=user_id).exists()
+    )
 
 
 def _record_kwargs(
@@ -263,14 +268,15 @@ def _write_records(
                     ticket_id__in=[ticket.pk for ticket in granting]
                 )
             }
+        org_ids = {e.organization_id for e in events.values()}
+        user_ids = {ticket.user_id for ticket in granting}
         banned = set(
             membership_access.banned_memberships()
-            .filter(
-                organization_id__in={e.organization_id for e in events.values()},
-                user_id__in={ticket.user_id for ticket in granting},
-            )
+            .filter(organization_id__in=org_ids, user_id__in=user_ids)
             .values_list("organization_id", "user_id")
         )
+        for org_id in org_ids:
+            banned.update((org_id, uid) for uid in get_hard_blacklisted_user_ids(org_id).filter(pk__in=user_ids))
         reopened: list[MembershipRecord] = []
         created: list[MembershipRecord] = []
         for ticket in granting:

@@ -11,10 +11,7 @@ Tests cover:
 - Phone number normalization
 """
 
-from unittest.mock import patch
-
 import pytest
-from django.core.exceptions import ValidationError
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
@@ -62,63 +59,29 @@ def blacklist_org(blacklist_admin: RevelUser) -> Organization:
     )
 
 
-# --- find_user_by_identifiers tests ---
+# --- find_user_by_verified_email tests ---
 
 
-class TestFindUserByIdentifiers:
-    """Tests for find_user_by_identifiers function."""
+class TestFindUserByVerifiedEmail:
+    """Manual entries link an account only on an exact verified-email match."""
 
-    def test_finds_user_by_email(self, target_user: RevelUser) -> None:
-        """Should find user by exact email match (case insensitive)."""
-        result = blacklist_service.find_user_by_identifiers(email="TARGET@EXAMPLE.COM")
-        assert result == target_user
+    def test_finds_verified_user_case_insensitively(self, target_user: RevelUser) -> None:
+        RevelUser.objects.filter(pk=target_user.pk).update(email_verified=True)
+        assert blacklist_service.find_user_by_verified_email("TARGET@EXAMPLE.COM") == target_user
 
-    def test_finds_user_by_phone(self, target_user: RevelUser) -> None:
-        """Should find user by phone number."""
-        result = blacklist_service.find_user_by_identifiers(phone_number="+1234567890")
-        assert result == target_user
+    def test_unverified_email_does_not_match(self, target_user: RevelUser) -> None:
+        RevelUser.objects.filter(pk=target_user.pk).update(email_verified=False)
+        assert blacklist_service.find_user_by_verified_email("target@example.com") is None
 
-    def test_finds_user_by_phone_with_formatting(self, target_user: RevelUser) -> None:
-        """Should find user by phone number even with formatting differences."""
-        # Phone is normalized, so +1 234-567-890 should match +1234567890
-        result = blacklist_service.find_user_by_identifiers(phone_number="+1 234-567-890")
-        assert result == target_user
+    def test_inactive_or_guest_account_does_not_match(self, target_user: RevelUser) -> None:
+        RevelUser.objects.filter(pk=target_user.pk).update(email_verified=True, is_active=False)
+        assert blacklist_service.find_user_by_verified_email("target@example.com") is None
+        RevelUser.objects.filter(pk=target_user.pk).update(is_active=True, guest=True)
+        assert blacklist_service.find_user_by_verified_email("target@example.com") is None
 
-    def test_finds_user_by_telegram(self, target_user: RevelUser) -> None:
-        """Should find user by telegram username."""
-        TelegramUser.objects.create(
-            user=target_user,
-            telegram_id=12345,
-            telegram_username="johndoe",
-        )
-        result = blacklist_service.find_user_by_identifiers(
-            telegram_username="@JohnDoe"  # with @ prefix, different case
-        )
-        assert result == target_user
-
-    def test_returns_none_when_no_match(self) -> None:
-        """Should return None when no user matches."""
-        result = blacklist_service.find_user_by_identifiers(email="nonexistent@example.com")
-        assert result is None
-
-    def test_email_takes_priority(self, target_user: RevelUser, django_user_model: type[RevelUser]) -> None:
-        """Email match should be returned first even if other identifiers match different users."""
-        # First update target_user to free up the phone number
-        target_user.phone_number = "+9999999999"
-        target_user.save()
-
-        # Now create other user with the old phone number
-        django_user_model.objects.create_user(
-            username="other",
-            email="other@example.com",
-            phone_number="+1234567890",  # previously target's phone
-        )
-
-        result = blacklist_service.find_user_by_identifiers(
-            email="target@example.com",
-            phone_number="+1234567890",  # matches other_user (but email wins)
-        )
-        assert result == target_user  # email match wins
+    def test_no_email_or_no_match_returns_none(self) -> None:
+        assert blacklist_service.find_user_by_verified_email(None) is None
+        assert blacklist_service.find_user_by_verified_email("nonexistent@example.com") is None
 
 
 # --- add_to_blacklist tests (Manual Mode) ---
@@ -208,7 +171,8 @@ class TestAddToBlacklistManualMode:
         blacklist_admin: RevelUser,
         target_user: RevelUser,
     ) -> None:
-        """Should auto-link to existing user when email matches."""
+        """Should auto-link to an existing user on a verified-email match."""
+        RevelUser.objects.filter(pk=target_user.pk).update(email_verified=True)
         entry = blacklist_service.add_to_blacklist(
             organization=blacklist_org,
             created_by=blacklist_admin,
@@ -217,13 +181,13 @@ class TestAddToBlacklistManualMode:
 
         assert entry.user == target_user
 
-    def test_auto_links_existing_user_by_telegram(
+    def test_does_not_auto_link_by_telegram(
         self,
         blacklist_org: Organization,
         blacklist_admin: RevelUser,
         target_user: RevelUser,
     ) -> None:
-        """Should auto-link to existing user when telegram matches."""
+        """A typed telegram handle is not proof of who holds it: no link in manual mode."""
         TelegramUser.objects.create(
             user=target_user,
             telegram_id=12345,
@@ -236,7 +200,7 @@ class TestAddToBlacklistManualMode:
             telegram_username="@targetuser",
         )
 
-        assert entry.user == target_user
+        assert entry.user is None
 
     def test_raises_error_no_identifiers(
         self,
@@ -887,6 +851,7 @@ class TestUpdateAndRemove:
         target_user: RevelUser,
     ) -> None:
         """If another blacklist entry still covers the user, the ban must persist."""
+        OrganizationMember.objects.create(organization=blacklist_org, user=target_user)
         linked_entry = Blacklist.objects.create(
             organization=blacklist_org,
             user=target_user,
@@ -903,35 +868,6 @@ class TestUpdateAndRemove:
 
         membership = OrganizationMember.objects.get(organization=blacklist_org, user=target_user)
         assert membership.status == OrganizationMember.MembershipStatus.BANNED
-
-    def test_apply_consequences_survives_lost_membership_creation_race(
-        self,
-        blacklist_org: Organization,
-        target_user: RevelUser,
-    ) -> None:
-        """A membership materialized concurrently must not stop the ban from landing.
-
-        ``(organization, user)`` is unique on ``OrganizationMember`` and
-        ``TimeStampedModel.save`` runs ``full_clean``, so a row committed by a
-        concurrent invitation claim / application approval between our lookup and
-        our INSERT surfaces as ``ValidationError`` — which Django's own
-        ``update_or_create`` does not absorb. The user would be left unbanned.
-        """
-        existing = OrganizationMember.objects.create(
-            organization=blacklist_org,
-            user=target_user,
-            status=OrganizationMember.MembershipStatus.ACTIVE,
-        )
-
-        with patch.object(
-            OrganizationMember.objects,
-            "update_or_create",
-            side_effect=ValidationError("Organization member with this Organization and User already exists."),
-        ):
-            blacklist_service.apply_blacklist_consequences(target_user, blacklist_org)
-
-        existing.refresh_from_db()
-        assert existing.status == OrganizationMember.MembershipStatus.BANNED
 
     def test_remove_from_blacklist_without_user_is_noop(
         self,

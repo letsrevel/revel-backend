@@ -398,3 +398,25 @@ def test_confirm_reopens_revoked_records_in_bulk_and_skips_banned_members(
     )
     day_membership_service.on_tickets_issued(tickets, old_status=Ticket.TicketStatus.PENDING)
     assert not MembershipRecord.objects.filter(ticket__in=tickets).exclude(ended_reason=Reason.REVOKED).exists()
+
+
+def test_bulk_grant_skips_a_blacklisted_non_member(
+    organization: Organization,
+    organization_owner_user: RevelUser,
+    event_series: EventSeries,
+    day_member_tier: MembershipTier,
+    holder: RevelUser,
+) -> None:
+    """A blacklist entry bans without a membership row, so the bulk grant checks it directly."""
+    from events.models import Blacklist
+
+    series_pass, events = _make_pass(organization, event_series, day_member_tier, TicketTier.PaymentMethod.FREE)
+    held_pass = HeldSeriesPass.objects.create(
+        series_pass=series_pass, user=holder, price_paid=Decimal("0.00"),
+        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
+    )  # fmt: skip
+    Blacklist.objects.create(organization=organization, email=holder.email, created_by=organization_owner_user)
+
+    series_pass_service.materialize_tickets(held_pass, list(series_pass.tier_links.all()), Ticket.TicketStatus.ACTIVE)
+
+    assert not MembershipRecord.objects.filter(user=holder, event__in=events).exists()

@@ -48,7 +48,7 @@ def self_linked_record_q() -> Q:
 def known_holder_q(organization_id: UUID, user_ref: OuterRef) -> Q:
     """Condition: the account at ``user_ref`` acted toward the organization (or is its owner/staff/member).
 
-    Counts: owner, staff, member (any status, except a row created by a ban), membership request (any
+    Counts: owner, staff, member (any status), membership request (any
     status), a linked register record (see ``self_linked_record_q``: not a box-office day membership, not
     merge-linked), an attending ticket (active or checked in) not issued by the box office (``NULL`` sale
     source = self, legacy), the holder's own RSVP, a series pass, a waitlist entry, an event invitation
@@ -64,7 +64,7 @@ def known_holder_q(organization_id: UUID, user_ref: OuterRef) -> Q:
     return (
         Q(Exists(Organization.objects.filter(pk=org, owner_id=user)))
         | Q(Exists(OrganizationStaff.objects.filter(organization_id=org, user_id=user)))
-        | Q(Exists(OrganizationMember.objects.filter(organization_id=org, user_id=user, created_by_ban=False)))
+        | Q(Exists(OrganizationMember.objects.filter(organization_id=org, user_id=user)))
         | Q(Exists(OrganizationMembershipRequest.objects.filter(organization_id=org, user_id=user)))
         | Q(Exists(record))
         | Q(

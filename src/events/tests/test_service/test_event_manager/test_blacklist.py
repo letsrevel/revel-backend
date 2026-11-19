@@ -254,9 +254,8 @@ class TestBlacklistGate:
         # Staff status should be removed
         assert not OrganizationStaff.objects.filter(organization=organization, user=organization_staff_user).exists()
 
-        # User should have BANNED membership
-        membership = OrganizationMember.objects.get(organization=organization, user=organization_staff_user)
-        assert membership.status == OrganizationMember.MembershipStatus.BANNED
+        # No membership row is created; the blacklist entry alone blocks them
+        assert not OrganizationMember.objects.filter(organization=organization, user=organization_staff_user).exists()
 
         handler = EligibilityService(user=organization_staff_user, event=public_event)
         eligibility = handler.check_eligibility()

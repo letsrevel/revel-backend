@@ -126,10 +126,10 @@ def test_backfill_closed_row_with_updated_before_created(organization: Organizat
 
 
 def test_backfill_skips_stranger_ban(organization: Organization, member_user: RevelUser) -> None:
-    """A BANNED row created by the ban itself was never a member."""
+    """A legacy BANNED row created by the ban itself (before bans stopped creating rows) was never a member."""
     owner = organization.owner
-    Blacklist.objects.create(organization=organization, user=member_user, created_by=owner)  # also creates the row
-    assert OrganizationMember.objects.get(user=member_user).status == Status.BANNED
+    Blacklist.objects.create(organization=organization, user=member_user, created_by=owner)
+    _member(organization, member_user, Status.BANNED)  # the row an earlier ban would have created, right after
     MembershipRecord.objects.all().delete()
 
     backfill.forward(apps, None)

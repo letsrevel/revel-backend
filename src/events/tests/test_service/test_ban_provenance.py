@@ -1,4 +1,4 @@
-"""A ban-created access row confers no standing; blacklist entries do not copy a stranger's profile (ADR-0020)."""
+"""Blacklisting never creates a membership row for a non-member; entries do not copy a stranger's profile (ADR-0020)."""
 
 import typing as t
 from unittest.mock import patch
@@ -27,6 +27,7 @@ def profiled_user(django_user_model: type[RevelUser]) -> RevelUser:
         last_name="Lovelace",
         preferred_name="Countess",
         phone_number="+4915112345678",
+        email_verified=True,
     )
 
 
@@ -34,53 +35,143 @@ def _row(org: Organization, user: RevelUser) -> OrganizationMember:
     return OrganizationMember.objects.get(organization=org, user=user)
 
 
-class TestBanCreatedRow:
-    def test_ban_of_a_stranger_confers_no_standing(
-        self, organization: Organization, organization_owner_user: RevelUser, nonmember_user: RevelUser
-    ) -> None:
-        blacklist_service.add_to_blacklist(organization, organization_owner_user, user=nonmember_user)
+def _members_url(org: Organization) -> str:
+    return f"/api/organization-admin/{org.slug}/members"
 
-        assert _row(organization, nonmember_user).status == Status.BANNED
-        assert _row(organization, nonmember_user).created_by_ban is True
+
+def _client(user: RevelUser) -> t.Any:
+    from django.test import Client
+    from ninja_jwt.tokens import RefreshToken
+
+    token = str(RefreshToken.for_user(user).access_token)  # type: ignore[attr-defined]
+    return Client(headers={"Authorization": f"Bearer {token}"})
+
+
+class TestBlacklistingANonMember:
+    def test_quick_mode_creates_no_member_row_and_no_welcome(
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        nonmember_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        with patch("events.signals.notification_requested.send") as send:
+            with django_capture_on_commit_callbacks(execute=True):
+                blacklist_service.add_to_blacklist(organization, organization_owner_user, user=nonmember_user)
+
+        assert not OrganizationMember.objects.filter(organization=organization, user=nonmember_user).exists()
+        assert [c for c in send.call_args_list if c.kwargs.get("notification_type") == "membership_granted"] == []
         assert not is_known_holder(organization, nonmember_user)
         assert not has_relationship(organization, nonmember_user)
 
-    def test_unban_removes_the_row_it_created(
+    def test_manual_mode_by_verified_email_creates_no_member_row(
+        self, organization: Organization, organization_owner_user: RevelUser, profiled_user: RevelUser
+    ) -> None:
+        entry = blacklist_service.add_to_blacklist(organization, organization_owner_user, email=profiled_user.email)
+
+        assert entry.user == profiled_user
+        assert not OrganizationMember.objects.filter(organization=organization, user=profiled_user).exists()
+        assert not is_known_holder(organization, profiled_user)
+
+    def test_members_list_and_update_do_not_see_the_banned_stranger(
+        self, organization: Organization, organization_owner_user: RevelUser, nonmember_user: RevelUser
+    ) -> None:
+        blacklist_service.add_to_blacklist(organization, organization_owner_user, user=nonmember_user)
+        client = _client(organization_owner_user)
+
+        listed = client.get(_members_url(organization)).json()
+        put = client.put(
+            f"{_members_url(organization)}/{nonmember_user.pk}",
+            data={"status": "active"},
+            content_type="application/json",
+        )
+
+        assert str(nonmember_user.pk) not in str(listed)
+        assert put.status_code == 404
+
+    def test_unblacklist_leaves_nothing_behind(
         self, organization: Organization, organization_owner_user: RevelUser, nonmember_user: RevelUser
     ) -> None:
         entry = blacklist_service.add_to_blacklist(organization, organization_owner_user, user=nonmember_user)
-
         blacklist_service.remove_from_blacklist(entry)
 
         assert not OrganizationMember.objects.filter(organization=organization, user=nonmember_user).exists()
 
-    def test_banning_an_existing_member_keeps_standing(
+    def test_signup_auto_link_applies_consequences_without_a_row(
         self, organization: Organization, organization_owner_user: RevelUser, nonmember_user: RevelUser
     ) -> None:
-        OrganizationMember.objects.create(organization=organization, user=nonmember_user)
-        entry = blacklist_service.add_to_blacklist(organization, organization_owner_user, user=nonmember_user)
-
-        assert _row(organization, nonmember_user).status == Status.BANNED
-        assert _row(organization, nonmember_user).created_by_ban is False
-        assert is_known_holder(organization, nonmember_user)
-        assert has_relationship(organization, nonmember_user)
-
-        blacklist_service.remove_from_blacklist(entry)
-        assert _row(organization, nonmember_user).status == Status.CANCELLED
-
-    def test_signup_auto_link_creates_no_standing(
-        self, organization: Organization, organization_owner_user: RevelUser, nonmember_user: RevelUser
-    ) -> None:
-        Blacklist.objects.filter(organization=organization).delete()
         Blacklist.objects.create(
             organization=organization, email=nonmember_user.email, created_by=organization_owner_user
         )
 
         assert blacklist_service.link_blacklist_entries_for_user(nonmember_user) == 1
 
-        assert _row(organization, nonmember_user).created_by_ban is True
+        assert not OrganizationMember.objects.filter(organization=organization, user=nonmember_user).exists()
         assert not is_known_holder(organization, nonmember_user)
-        assert not has_relationship(organization, nonmember_user)
+        assert blacklist_service.check_user_hard_blacklisted(nonmember_user, organization)
+
+    def test_a_concurrent_membership_is_banned_on_commit(
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        nonmember_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """A row created after the blacklist check but before the entry committed is still flipped."""
+        with django_capture_on_commit_callbacks(execute=True):
+            blacklist_service.add_to_blacklist(organization, organization_owner_user, user=nonmember_user)
+            OrganizationMember.objects.create(organization=organization, user=nonmember_user)
+
+        assert _row(organization, nonmember_user).status == Status.BANNED
+
+
+class TestBanningAnExistingMember:
+    def test_member_is_banned_stays_known_and_unban_cancels(
+        self, organization: Organization, organization_owner_user: RevelUser, nonmember_user: RevelUser
+    ) -> None:
+        OrganizationMember.objects.create(organization=organization, user=nonmember_user)
+        entry = blacklist_service.add_to_blacklist(organization, organization_owner_user, user=nonmember_user)
+
+        assert _row(organization, nonmember_user).status == Status.BANNED
+        assert is_known_holder(organization, nonmember_user)
+        assert has_relationship(organization, nonmember_user)
+
+        blacklist_service.remove_from_blacklist(entry)
+        assert _row(organization, nonmember_user).status == Status.CANCELLED
+
+
+class TestManualModeAutoLink:
+    def test_phone_does_not_link(
+        self, organization: Organization, organization_owner_user: RevelUser, profiled_user: RevelUser
+    ) -> None:
+        entry = blacklist_service.add_to_blacklist(
+            organization, organization_owner_user, phone_number=profiled_user.phone_number
+        )
+        assert entry.user is None
+
+    def test_telegram_does_not_link(
+        self, organization: Organization, organization_owner_user: RevelUser, profiled_user: RevelUser
+    ) -> None:
+        from telegram.models import TelegramUser
+
+        TelegramUser.objects.create(telegram_id=42, telegram_username="ada_l", user=profiled_user)
+        entry = blacklist_service.add_to_blacklist(organization, organization_owner_user, telegram_username="ada_l")
+        assert entry.user is None
+
+    def test_unverified_email_does_not_link(
+        self, organization: Organization, organization_owner_user: RevelUser, profiled_user: RevelUser
+    ) -> None:
+        RevelUser.objects.filter(pk=profiled_user.pk).update(email_verified=False)
+        entry = blacklist_service.add_to_blacklist(organization, organization_owner_user, email=profiled_user.email)
+        assert entry.user is None
+
+    def test_verified_email_links(
+        self, organization: Organization, organization_owner_user: RevelUser, profiled_user: RevelUser
+    ) -> None:
+        entry = blacklist_service.add_to_blacklist(
+            organization, organization_owner_user, email=profiled_user.email.upper()
+        )
+        assert entry.user == profiled_user
 
 
 class TestBlacklistEntryProfile:
@@ -124,19 +215,6 @@ class TestBlacklistEntryProfile:
 
         assert (entry.first_name, entry.last_name, entry.phone_number) == ("Ada", "Lovelace", "+4915112345678")
         assert out.user_display_name == profiled_user.get_display_name()
-
-
-def test_unban_of_a_ban_created_row_sends_no_removal_notice(
-    organization: Organization,
-    organization_owner_user: RevelUser,
-    nonmember_user: RevelUser,
-    django_capture_on_commit_callbacks: t.Any,
-) -> None:
-    entry = blacklist_service.add_to_blacklist(organization, organization_owner_user, user=nonmember_user)
-    with patch("events.signals.notification_requested") as signal:
-        with django_capture_on_commit_callbacks(execute=True):
-            blacklist_service.remove_from_blacklist(entry)
-    signal.send.assert_not_called()
 
 
 def test_blacklist_endpoints_show_staff_supplied_identity_for_a_stranger(

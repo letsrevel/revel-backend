@@ -484,9 +484,9 @@ until it is classified. Add it to `HOLDER_PROFILE_OPERATIONS` only when its subj
 the organization (member, applicant, waitlist, pass holder...). When the row can be
 staff-originated (box office, staff RSVP, invitation), return `StaffViewUserSchema` instead and
 annotate the queryset with `annotate_holder_known` (one query for the list; see ADR-0020). The
-same predicate gates staff actions on an account (`require_known_holder`). An access row created by a
-blacklist entry for an account with no standing carries `created_by_ban` and counts for nothing in that
-predicate; unbanning deletes it (a member who was banned keeps the row and goes to `CANCELLED`).
+same predicate gates staff actions on an account (`require_known_holder`). A blacklist entry never
+creates an `OrganizationMember` row for a non-member, so code that must exclude banned people checks
+`get_hard_blacklisted_user_ids` / `check_user_hard_blacklisted` as well as `banned_memberships()`.
 
 ## Key rotation (`SECRET_KEY`, `SALT_KEY`)
 

@@ -16,8 +16,8 @@ from rapidfuzz import fuzz
 
 from accounts.models import RevelUser
 from accounts.validators import normalize_phone_number
-from common.utils import update_or_create_with_race_protection
 from events.models import Blacklist, Organization, OrganizationMember, OrganizationStaff
+from events.service import day_membership_service
 from events.service.holder_visibility import is_known_holder
 
 logger = structlog.get_logger(__name__)
@@ -37,12 +37,34 @@ def _normalize_email(email: str | None) -> str | None:
     return email.lower().strip() if email else None
 
 
+def _ban_existing_member(user: RevelUser, organization: Organization) -> None:
+    """Flip the user's existing membership rows (if any) to BANNED. Never creates one.
+
+    Per-row ``save`` (not a queryset update) so post_save receivers run: permission snapshot invalidation,
+    member-register mirror, day-membership revoke.
+    """
+    with transaction.atomic():
+        for member in (
+            OrganizationMember.objects.select_for_update()
+            .filter(organization=organization, user=user)
+            .exclude(status=OrganizationMember.MembershipStatus.BANNED)
+        ):
+            member.status = OrganizationMember.MembershipStatus.BANNED
+            member.save(update_fields=["status", "updated_at"])
+            logger.info(
+                "blacklisted_user_membership_status_set_to_banned",
+                organization_id=str(organization.id),
+                user_id=str(user.id),
+            )
+
+
 def apply_blacklist_consequences(user: RevelUser, organization: Organization) -> None:
     """Apply consequences when a user is blacklisted in an organization.
 
     This function:
     1. Removes the user from OrganizationStaff (if they are staff)
-    2. Sets their OrganizationMember status to BANNED (or creates one with BANNED)
+    2. Sets an existing OrganizationMember to BANNED (never creates one for a non-member)
+    3. Revokes their upcoming day memberships
 
     Note: Organization owners cannot be banned from their own organization.
 
@@ -72,31 +94,14 @@ def apply_blacklist_consequences(user: RevelUser, organization: Organization) ->
             user_id=str(user.id),
         )
 
-    # Create or update membership with BANNED status. (org, user) is unique and
-    # TimeStampedModel.save runs full_clean, so a membership materialized
-    # concurrently (invitation claim, application approval, invoice.paid) would
-    # make a plain update_or_create raise ValidationError and leave the user
-    # unbanned; the helper re-fetches the winner and still applies BANNED.
-    membership, membership_created = update_or_create_with_race_protection(
-        OrganizationMember,
-        {"organization": organization, "user": user},
-        {"status": OrganizationMember.MembershipStatus.BANNED},
-    )
+    # A ban never creates a membership row for a non-member (ADR-0020): enforcement reads the blacklist
+    # itself. An existing member is flipped to BANNED, and again on commit to catch a membership created
+    # concurrently whose blacklist check ran before this entry committed.
+    _ban_existing_member(user, organization)
+    transaction.on_commit(lambda: _ban_existing_member(user, organization))
 
-    if membership_created:
-        # Provenance: a row born from a ban confers no standing (ADR-0020); a member banned later keeps theirs.
-        OrganizationMember.objects.filter(pk=membership.pk).update(created_by_ban=True)
-        logger.info(
-            "blacklisted_user_membership_created_as_banned",
-            organization_id=str(organization.id),
-            user_id=str(user.id),
-        )
-    else:
-        logger.info(
-            "blacklisted_user_membership_status_set_to_banned",
-            organization_id=str(organization.id),
-            user_id=str(user.id),
-        )
+    # No membership row means no post_save ban signal for a non-member, so revoke day memberships directly.
+    day_membership_service.revoke_upcoming_for_ban(organization.id, user.id)
 
     # A ban must also stop billing: cancel any live subscription (and its Stripe
     # side) so the member isn't charged for access they no longer have.
@@ -117,36 +122,15 @@ def _normalize_phone(phone: str | None) -> str | None:
     return normalize_phone_number(phone) if phone else None
 
 
-def find_user_by_identifiers(
-    *,
-    email: str | None = None,
-    telegram_username: str | None = None,
-    phone_number: str | None = None,
-) -> RevelUser | None:
-    """Try to find an existing user by hard identifiers.
+def find_user_by_verified_email(email: str | None) -> RevelUser | None:
+    """Find the account that owns ``email``: exact (case-insensitive) match on a verified, active, non-guest account.
 
-    Args:
-        email: Email address to search for
-        telegram_username: Telegram username to search for
-        phone_number: Phone number to search for
-
-    Returns:
-        RevelUser if found, None otherwise
+    Manual blacklist entries link an account only this way: a typed phone number, telegram handle or
+    unverified email is something staff supplied, not proof of who holds it.
     """
-    if email and (user := RevelUser.objects.filter(email__iexact=email).first()):
-        return user
-
-    if phone_number:
-        normalized_phone = _normalize_phone(phone_number)
-        if user := RevelUser.objects.filter(phone_number=normalized_phone).first():
-            return user
-
-    if telegram_username:
-        if normalized := _normalize_telegram_username(telegram_username):
-            if user := RevelUser.objects.filter(telegram_users__telegram_username__iexact=normalized).first():
-                return user
-
-    return None
+    if not email:
+        return None
+    return RevelUser.objects.filter(email__iexact=email, email_verified=True, is_active=True, guest=False).first()
 
 
 @transaction.atomic
@@ -211,12 +195,8 @@ def add_to_blacklist(
                 str(_("At least one identifier (email, telegram, phone) or name is required.")),
             )
 
-        # Try to find matching user by hard identifiers
-        user = find_user_by_identifiers(
-            email=email,
-            telegram_username=telegram_username,
-            phone_number=phone_number,
-        )
+        # Link an account only on an exact verified-email match.
+        user = find_user_by_verified_email(email)
 
     # Check if user is already blacklisted (if we have a user)
     if user and Blacklist.objects.filter(organization=organization, user=user).exists():
@@ -290,8 +270,7 @@ def remove_from_blacklist(entry: Blacklist) -> None:
     from :func:`apply_blacklist_consequences` is transitioned to ``CANCELLED``
     so the user regains visibility of the organization. ``CANCELLED`` is used
     instead of restoring ``ACTIVE`` to avoid implicitly re-granting membership
-    privileges that may have pre-existed the ban. A row the ban itself created
-    (``created_by_ban``) is deleted instead: it never stood for anything.
+    privileges that may have pre-existed the ban.
 
     Args:
         entry: The Blacklist entry to remove
@@ -321,9 +300,6 @@ def remove_from_blacklist(entry: Blacklist) -> None:
         )
     )
     for banned_member in banned:
-        if banned_member.created_by_ban:
-            banned_member.delete()
-            continue
         banned_member.status = OrganizationMember.MembershipStatus.CANCELLED
         banned_member.save(update_fields=["status", "updated_at"])
 

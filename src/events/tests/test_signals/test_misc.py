@@ -682,10 +682,10 @@ class TestBlacklistUserLinkedSignal:
         membership.refresh_from_db()
         assert membership.status == OrganizationMember.MembershipStatus.BANNED
 
-    def test_creates_banned_membership_if_not_exists(
+    def test_creates_no_membership_for_a_non_member(
         self, organization: t.Any, django_user_model: type[RevelUser]
     ) -> None:
-        """Test that a BANNED membership is created if user wasn't a member."""
+        """A non-member gets no membership row; the blacklist entry alone bans them."""
         from events.models import Blacklist, OrganizationMember
 
         # Create a user who is NOT a member
@@ -704,9 +704,7 @@ class TestBlacklistUserLinkedSignal:
             created_by=organization.owner,
         )
 
-        # A BANNED membership should be created
-        membership = OrganizationMember.objects.get(organization=organization, user=non_member)
-        assert membership.status == OrganizationMember.MembershipStatus.BANNED
+        assert not OrganizationMember.objects.filter(organization=organization, user=non_member).exists()
 
     def test_owner_cannot_be_banned_from_own_org(self, organization: t.Any) -> None:
         """Test that the organization owner cannot be banned from their own org."""
@@ -753,9 +751,8 @@ class TestBlacklistUserLinkedSignal:
         entry.refresh_from_db()
         assert entry.user == new_user
 
-        # User should have BANNED membership
-        membership = OrganizationMember.objects.get(organization=organization, user=new_user)
-        assert membership.status == OrganizationMember.MembershipStatus.BANNED
+        # Banned through the entry, with no membership row
+        assert not OrganizationMember.objects.filter(organization=organization, user=new_user).exists()
 
     def test_blacklist_without_user_does_nothing(self, organization: t.Any) -> None:
         """Test that blacklist entries without user FK don't trigger banning."""
