@@ -134,7 +134,8 @@ def upsert_record_note(
 
     A linked entry proxies to its user's note, under the same rule as ``upsert_note``: the user must be
     known to the organization through their own acts (a box-office day membership is not). An unlinked
-    entry, or one linked to a user who is not a known holder, keeps its own note.
+    entry, or one linked to a user who is not a known holder, keeps its own note. A record note that predates
+    the holder becoming known is converted into the account's note on the first edit.
 
     Raises:
         Http404: The entry does not exist in the organization.
@@ -155,6 +156,15 @@ def upsert_record_note(
         # A record linked to a non-holder keeps writing to its own note (mirrors ``get_record_note``): the note
         # never lands on an account that has no standing with the organization.
         if record.user_id is not None and is_known_holder(organization, record.user):  # type: ignore[arg-type]  # user_id checked
+            user_note = OrganizationUserNote.objects.filter(organization=organization, user_id=record.user_id).first()
+            record_note = OrganizationUserNote.objects.filter(organization=organization, record=record).first()
+            if user_note is None and record_note is not None:
+                # The holder became known after the note was written on the record: move it onto the account
+                # in place, so exactly one note remains and a later delete reveals nothing older.
+                record_note.user_id, record_note.record = record.user_id, None
+                record_note.body, record_note.updated_by = body, updated_by
+                record_note.save(update_fields=["user", "record", "body", "updated_by", "updated_at"])
+                return record_note
             return _upsert(
                 organization,
                 Q(organization=organization, user_id=record.user_id),
@@ -166,7 +176,13 @@ def upsert_record_note(
 
 
 def delete_record_note(organization: Organization, record_id: UUID) -> None:
-    """Delete the note of a register entry (the user's note when linked); 404 if none."""
+    """Delete the note of a register entry (the user's note when linked); 404 if none.
+
+    For a known holder the record's own note goes too, so deleting never reveals an older hidden note.
+    """
     with transaction.atomic():
-        _lock_record(organization, record_id)
-        get_record_note(organization, record_id).delete()
+        record = _lock_record(organization, record_id)
+        note = get_record_note(organization, record_id)
+        if note.user_id is not None:
+            OrganizationUserNote.objects.filter(organization=organization, record=record).delete()
+        note.delete()

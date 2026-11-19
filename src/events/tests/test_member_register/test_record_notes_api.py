@@ -450,3 +450,41 @@ class TestNoteVisibilityFollowsKnownHolder:
 
         assert owner_client.get(_url(organization, box_office_record)).status_code == 404
         assert self._flag(box_office_record) is False
+
+    def test_write_after_the_holder_becomes_known_converts_the_record_note(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        event: Event,
+        claimant: RevelUser,
+        box_office_record: MembershipRecord,
+    ) -> None:
+        """Edit and delete follow the read rule: one note survives the edit, and the delete hides nothing older."""
+        OrganizationUserNote.objects.create(organization=organization, record=box_office_record, body="old")
+        self._become_known(event, claimant)
+
+        assert _put(owner_client, organization, box_office_record, "new").status_code == 200
+        (note,) = OrganizationUserNote.objects.all()
+        assert (note.user_id, note.record_id, note.body) == (claimant.pk, None, "new")
+        assert owner_client.get(_url(organization, box_office_record)).json()["body"] == "new"
+
+        deleted = owner_client.delete(_url(organization, box_office_record, "delete_member_register_record_note"))
+        assert deleted.status_code == 204
+        assert owner_client.get(_url(organization, box_office_record)).status_code == 404
+        assert self._flag(box_office_record) is False
+
+    def test_delete_removes_both_notes_of_a_known_holder(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        event: Event,
+        claimant: RevelUser,
+        box_office_record: MembershipRecord,
+    ) -> None:
+        OrganizationUserNote.objects.create(organization=organization, record=box_office_record, body="record")
+        OrganizationUserNote.objects.create(organization=organization, user=claimant, body="user")
+        self._become_known(event, claimant)
+
+        deleted = owner_client.delete(_url(organization, box_office_record, "delete_member_register_record_note"))
+        assert deleted.status_code == 204
+        assert not OrganizationUserNote.objects.exists()

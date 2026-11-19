@@ -305,11 +305,11 @@ def remove_from_blacklist(entry: Blacklist) -> None:
         entry: The Blacklist entry to remove
     """
     organization = entry.organization
-    if entry.user is not None:
-        holders = [entry.user]
-    else:
-        # An unlinked entry banned the holders it matched; collect them before the entry is gone.
-        holders = list(
+    # The entry may have banned holders it matched before it was linked to an account (or while unlinked);
+    # collect them before the entry is gone, together with its linked user.
+    holders = {
+        holder.pk: holder
+        for holder in (
             users_matching_entries(Blacklist.objects.filter(pk=entry.pk))
             .filter(
                 Exists(
@@ -322,9 +322,12 @@ def remove_from_blacklist(entry: Blacklist) -> None:
             )
             .exclude(pk=organization.owner_id)
         )
+    }
+    if entry.user is not None:
+        holders.setdefault(entry.user.pk, entry.user)
     entry.delete()
 
-    for holder in holders:
+    for holder in holders.values():
         _lift_ban_if_clear(holder, organization)
 
 

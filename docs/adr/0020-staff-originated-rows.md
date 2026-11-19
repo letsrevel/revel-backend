@@ -47,7 +47,8 @@ standing come only from acts of the account holder.
   banned row, unless another entry still covers them. Residual: banned rows created by earlier bans are indistinguishable from
   former members and still count as known. A waitlist entry consumed by a staff sale (claim
   or the ticket signal) stops conferring standing; this is accepted and fails closed. The default
-  `has_relationship` gate (staff add, subscription create) applies the same register-entry rule.
+  `has_relationship` gate (staff add, subscription create) applies the same origin and merge rule, without the
+  attending-ticket condition.
 - Admin surfaces whose subject may be unknown return `StaffViewUserSchema`: `known` plus the
   account's profile when known; when not, only the email (the account's email: the address staff typed, or one the holder later set) and the name
   staff typed, every other field `null`. Members are always known, so never masked. A blacklist entry

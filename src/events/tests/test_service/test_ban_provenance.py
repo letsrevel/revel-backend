@@ -315,6 +315,37 @@ class TestLoggedInClaimGreeting:
         assert self._message(profiled_user, claim_token) == "Welcome aboard"
 
 
+def test_removing_an_entry_linked_after_creation_lifts_every_holder_it_banned(
+    organization: Organization,
+    organization_owner_user: RevelUser,
+    django_user_model: type[RevelUser],
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """An entry created unlinked banned B by phone, was later linked to A by email: removing it lifts both."""
+    from events.service.blacklist_service import link_blacklist_entries_for_user
+
+    b = django_user_model.objects.create_user(
+        username="b", email="phone-holder@example.org", password="pass", phone_number="+4915100000042"
+    )
+    a = django_user_model.objects.create_user(username="a", email="late-link@example.org", password="pass")
+    OrganizationMember.objects.create(organization=organization, user=a)
+    OrganizationMember.objects.create(organization=organization, user=b)
+    with django_capture_on_commit_callbacks(execute=True):
+        entry = blacklist_service.add_to_blacklist(
+            organization, organization_owner_user, phone_number=b.phone_number, email=a.email
+        )
+        assert entry.user is None
+        link_blacklist_entries_for_user(a)
+    entry.refresh_from_db()
+    assert entry.user_id == a.pk
+    assert _row(organization, a).status == Status.BANNED and _row(organization, b).status == Status.BANNED
+
+    blacklist_service.remove_from_blacklist(entry)
+
+    assert _row(organization, a).status == Status.CANCELLED
+    assert _row(organization, b).status == Status.CANCELLED
+
+
 class TestManualEntryReachesExistingHolders:
     """A manual entry links no account unless the email is verified, but it still bans matching staff/members."""
 

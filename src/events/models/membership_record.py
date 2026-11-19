@@ -98,7 +98,7 @@ class MembershipRecordQuerySet(models.QuerySet["MembershipRecord"]):
                 models.When(
                     user__isnull=False,
                     then=models.ExpressionWrapper(
-                        models.Q(models.Exists(record_note)) | (known & models.Q(models.Exists(user_note))),
+                        models.Q(models.Exists(record_note)) | (models.Q(models.Exists(user_note)) & known),
                         output_field=models.BooleanField(),
                     ),
                 ),
