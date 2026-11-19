@@ -42,7 +42,8 @@ def ban_existing_member(user: RevelUser, organization: Organization) -> None:
     """Flip the user's existing membership rows (if any) to BANNED. Never creates one.
 
     Per-row ``save`` (not a queryset update) so post_save receivers run: permission snapshot invalidation,
-    member-register mirror, day-membership revoke.
+    member-register mirror, and the day-membership revoke for an existing member. A day membership granted
+    concurrently is swept by the on-commit revoke in :func:`apply_blacklist_consequences`.
     """
     with transaction.atomic():
         for member in (
@@ -103,6 +104,8 @@ def apply_blacklist_consequences(user: RevelUser, organization: Organization) ->
 
     # No membership row means no post_save ban signal for a non-member, so revoke day memberships directly.
     day_membership_service.revoke_upcoming_for_ban(organization.id, user.id)
+    # A day-membership grant that committed concurrently is invisible to the revoke above; sweep again on commit.
+    transaction.on_commit(lambda: day_membership_service.revoke_upcoming_for_ban(organization.id, user.id))
 
     # A ban must also stop billing: cancel any live subscription (and its Stripe
     # side) so the member isn't charged for access they no longer have.
