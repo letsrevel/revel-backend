@@ -757,7 +757,7 @@ def test_paid_ticket_added_while_waiting_on_the_pass_lock_is_left_alone(
     event_series: EventSeries,
     organization_owner_user: RevelUser,
 ) -> None:
-    """A ticket with a Payment that appears after the snapshot keeps the normal refund flow: not cancelled here."""
+    """A ticket with a Payment that appears after the snapshot is not cancelled or refunded here; it is logged."""
     held_pass = online_pass_setup.held_pass
     new_event = _make_event(organization, event_series, "Late paid", "late-paid", timezone.now() + timedelta(days=9))
     new_tier = _make_tier(new_event, "Late Paid Tier")

@@ -600,8 +600,9 @@ def _cancel_locked_tickets(tickets: list[Ticket], cancelled_by: RevelUser, reaso
 def _late_free_ticket_ids(late: QuerySet[Ticket], held_pass_pk: t.Any) -> list[t.Any]:
     """Return the ids of ``late`` tickets that have no Payment; log any that have one.
 
-    Only free tickets are expected here (extension and activation backfill create no Payment).
-    A ticket with a Payment is left to the normal refund flow and is not cancelled by this call.
+    Only free tickets are expected here: extension and activation backfill create no Payment.
+    A ticket with a Payment is not expected. This call does not cancel or refund it; it logs it
+    for a manual decision, because its Payment was not locked before the pass lock.
     """
     rows = list(late.values_list("pk", "payment"))
     for ticket_id, payment_id in rows:
@@ -710,8 +711,9 @@ def cancel_held_pass(
             # Expire before the SeriesPass/tier/ticket locks: the buyer must not pay a cancelled pass.
             _expire_stripe_session(held_pass)
 
-        # Statuses can still change before the tier/ticket lock (check-in takes no lock);
-        # lock_tier_then_ticket re-reads the set under the row locks, which makes the final set safe.
+        # Statuses can still change before the tier/ticket lock (check-in takes no lock).
+        # lock_tier_then_ticket re-reads the set under the row locks, so only tickets that are still
+        # cancellable get cancelled. A ticket checked in after its refund keeps both, and is logged.
         cancellable_ids = set(still_cancellable.values_list("pk", flat=True))
         refunded_ticket_ids: set[t.Any] = set()
         for payment in payments:
