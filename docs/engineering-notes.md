@@ -228,12 +228,17 @@ One global order, everywhere a transaction locks more than one of these:
 
 **Ticket-ownership lemma.** Every transaction that touches an existing ticket that has a `Payment`
 locks that `Payment` first. So, once a transaction holds the `Payment`, no other path can cancel,
-activate or release that ticket. Check-in is the one writer that takes no lock. A path that reads
-the ticket status under the `Payment` lock can trust it, except for `CHECKED_IN`. Re-check
-`CHECKED_IN` after the ticket lock.
+activate or release that ticket. Check-in is the one writer that takes no lock. A path may trust
+the ticket status only when it reads it in a statement that starts **after** it holds the `Payment`
+lock, and never from the locking statement itself (for example through `select_related("ticket")`).
+Under READ COMMITTED, a statement that waited for a row lock is re-checked only if the locked row
+changed. A cancel locks the `Payment` but updates only the `Ticket`, `TicketTier` and
+`DiscountCode`, so the waiting statement would keep the old ticket state. Re-check `CHECKED_IN`
+after the ticket lock.
 
 Paths that follow the lemma: user cancel (`cancel_ticket_by_user`), organizer cancel
-(`admin_cancel_ticket`), offline refund (`mark_offline_ticket_refunded`), the event-cancel sweep
+(`admin_cancel_ticket`), offline cancel (`cancel_offline_ticket`), offline refund
+(`mark_offline_ticket_refunded`), the event-cancel sweep
 (`refund_one_cancelled_event_ticket`), series-pass cancel (`cancel_held_pass`), the
 `checkout.session.completed`, `payment_intent.canceled` and `charge.refunded` webhooks, and the
 reclaim routes (`cleanup_expired_payments`, `cancel_pending_checkout`, `release_uses_of_pending_tickets`).

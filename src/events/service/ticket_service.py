@@ -604,8 +604,8 @@ def _cancel_offline_ticket_core(
 
     This mutates ``ticket`` in place (status, cancelled_at, cancelled_by, cancellation_source,
     cancellation_reason). It must be called inside a ``transaction.atomic()`` block by the caller
-    (``cancel_offline_ticket`` / ``mark_offline_ticket_refunded``) with the ticket row already
-    locked via ``select_for_update`` to prevent concurrent double-decrement.
+    (``cancel_offline_ticket`` / ``mark_offline_ticket_refunded`` / ``admin_cancel_ticket``) with the
+    tier and ticket rows already locked (``lock_tier_then_ticket``) to prevent concurrent double-decrement.
 
     The tier decrement uses ``F("quantity_sold") - 1`` guarded by ``quantity_sold__gt=0`` so the
     counter can never drop below zero (race-safe and floor-safe).
@@ -646,9 +646,10 @@ def cancel_offline_ticket(
 ) -> Ticket:
     """Cancel an offline/at-the-door ticket and record organizer audit fields.
 
-    The ticket row is re-fetched with ``select_for_update`` inside the atomic block
-    so concurrent cancel/refund requests serialize on the row lock and cannot both
-    pass the status check and double-decrement ``TicketTier.quantity_sold``.
+    The Payment (if any), the tier and then the ticket row are locked inside the atomic
+    block (``Payment -> TicketTier -> Ticket``) so concurrent cancel/refund requests
+    serialize on the row locks and cannot both pass the status check and
+    double-decrement ``TicketTier.quantity_sold``.
 
     Args:
         ticket: The ticket to cancel.
@@ -664,7 +665,12 @@ def cancel_offline_ticket(
     """
     _reject_series_pass_ticket(ticket)
 
-    locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
+    # Lock order: Payment -> TicketTier -> Ticket (docs/engineering-notes.md), like mark_offline_ticket_refunded.
+    Payment.objects.select_for_update(of=("self",)).filter(ticket_id=ticket.pk).order_by("pk").first()
+    locked_tickets = lock_tier_then_ticket(Ticket.objects.filter(pk=ticket.pk).select_related("tier"))
+    if not locked_tickets:  # a reclaim deleted the ticket while we waited on the Payment lock
+        raise TicketAlreadyCancelledError
+    locked_ticket = locked_tickets[0]
     if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
         raise TicketAlreadyCancelledError
 
@@ -776,7 +782,10 @@ def mark_offline_ticket_refunded(
     # only for a seated ticket, on a single-row request path.
     # Lock order: Payment -> TicketTier -> Ticket (docs/engineering-notes.md).
     locked_payment = Payment.objects.select_for_update(of=("self",)).filter(ticket_id=ticket.pk).first()
-    locked_ticket = lock_tier_then_ticket(Ticket.objects.filter(pk=ticket.pk).select_related("tier"))[0]
+    locked_tickets = lock_tier_then_ticket(Ticket.objects.filter(pk=ticket.pk).select_related("tier"))
+    if not locked_tickets:  # a reclaim deleted the ticket while we waited on the Payment lock
+        raise TicketAlreadyCancelledError
+    locked_ticket = locked_tickets[0]
     if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
         raise TicketAlreadyCancelledError
 

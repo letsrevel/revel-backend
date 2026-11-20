@@ -716,7 +716,9 @@ def cancel_held_pass(
         cancelled_count = _cancel_locked_tickets(locked_tickets, cancelled_by, reason or "", now)
 
     if was_pending and held_pass.stripe_session_id:
-        _expire_stripe_session(held_pass)
+        # After commit: ATOMIC_REQUESTS keeps the transaction open past the block above, and the
+        # Stripe call must not run while the SeriesPass/tier/ticket locks are held.
+        transaction.on_commit(functools.partial(_expire_stripe_session, held_pass))
 
     # Only reached when this call actually performed the cancellation (both early
     # returns above exit the function first), so a repeat cancel can't double-notify.

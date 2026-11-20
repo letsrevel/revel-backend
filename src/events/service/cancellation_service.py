@@ -397,9 +397,12 @@ def cancel_ticket_by_user(
         locked_ticket: Ticket | None = None
         try:
             with transaction.atomic():
-                locked_ticket = ticket_service.lock_tier_then_ticket(
+                locked_tickets = ticket_service.lock_tier_then_ticket(
                     Ticket.objects.filter(pk=ticket.pk).select_related("tier", "event__organization")
-                )[0]
+                )
+                if not locked_tickets:  # a reclaim deleted the ticket while we waited on the Payment lock
+                    raise CancellationBlocked(CancellationBlockReason.ALREADY_CANCELLED)
+                locked_ticket = locked_tickets[0]
                 _raise_if_not_cancellable(locked_ticket)
                 _finalize_cancellation(locked_ticket, user, reason, now, actual_refund_amount, quote.currency)
         except CancellationBlocked as exc:

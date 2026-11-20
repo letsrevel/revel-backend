@@ -381,6 +381,40 @@ class TestCancelTicketByUser:
         assert refund.amount == Decimal("40.00")
         assert refund.source == "user_cancellation"
 
+    def test_failure_after_successful_refund_propagates_and_keeps_ticket(
+        self,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        event: t.Any,
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        """If the DB step after Stripe fails, the error surfaces, the ticket stays ACTIVE and a warning is logged."""
+        event.start = timezone.now() + timedelta(hours=72)
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
+        policy = {"tiers": [{"hours_before_event": 48, "refund_percentage": "100"}], "flat_fee": "0"}
+        tier = tier_factory(
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+            price=Decimal("40.00"),
+            allow_user_cancellation=True,
+            refund_policy=policy,
+            quantity_sold=1,
+        )
+        ticket = ticket_factory(tier=tier, refund_policy_snapshot=policy)
+        payment_factory(ticket=ticket, amount=Decimal("40.00"), stripe_payment_intent_id="pi_boom")
+        with (
+            patch("stripe.Refund.create") as mock_create,
+            patch("events.service.cancellation_service._finalize_cancellation", side_effect=RuntimeError("db down")),
+            patch("events.service.cancellation_service.logger") as log,
+        ):
+            mock_create.return_value.id = "re_boom"
+            with pytest.raises(RuntimeError, match="db down"):
+                cancel_ticket_by_user(ticket, ticket.user, reason="", now=timezone.now())
+        mock_create.assert_called_once()
+        ticket.refresh_from_db()
+        assert ticket.status == Ticket.TicketStatus.ACTIVE
+        assert any(c.args and c.args[0] == "cancel_rolled_back_after_refund" for c in log.warning.call_args_list)
+
     def test_online_ticket_omits_stripe_account_for_platform_account(
         self,
         ticket_factory: t.Callable[..., Ticket],

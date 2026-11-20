@@ -619,7 +619,6 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
         payments = list(
             Payment.objects.select_for_update(of=("self",))
             .filter(stripe_payment_intent_id=payment_intent_id)
-            .select_related("ticket", "ticket__tier")
             .order_by("pk")
         )
 
@@ -637,6 +636,11 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
                 payment_count=len(payments),
             )
             return
+
+        # Read the tickets in a NEW statement, after the Payment lock is held: a cancel path locks
+        # the Payment but changes only the Ticket, so the locking statement cannot be trusted
+        # for ticket state (READ COMMITTED re-checks only a changed locked row).
+        tickets_by_id = Ticket.objects.select_related("tier").in_bulk(p.ticket_id for p in pending_payments)
 
         raw_response = dict(event)
         canceled_tickets = []
@@ -659,7 +663,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             payment.save(update_fields=["status", "raw_response"])
 
             # Cancel the ticket
-            ticket = payment.ticket
+            ticket = tickets_by_id[payment.ticket_id]
             already_cancelled = ticket.status == Ticket.TicketStatus.CANCELLED
             was_pending = ticket.status == Ticket.TicketStatus.PENDING
             ticket.status = Ticket.TicketStatus.CANCELLED

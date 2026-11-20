@@ -468,9 +468,12 @@ def admin_cancel_ticket(
                 reason=reason or "",
                 source=Refund.Source.ORGANIZER_API,
             )
-        locked_ticket = ticket_service.lock_tier_then_ticket(
+        locked_tickets = ticket_service.lock_tier_then_ticket(
             Ticket.objects.filter(pk=ticket.pk).select_related("tier", "event__organization")
-        )[0]
+        )
+        if not locked_tickets:  # a reclaim deleted the ticket while we waited on the Payment lock
+            raise TicketAlreadyCancelledError
+        locked_ticket = locked_tickets[0]
         if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
             raise TicketAlreadyCancelledError
         if refund_row is not None:

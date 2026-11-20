@@ -12,7 +12,7 @@ Two behaviors under test:
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.utils import timezone
@@ -305,6 +305,34 @@ class TestCancelHeldPassOnlinePaid:
         # No refund attempted for the checked-in or past-event ticket's payments.
         assert mock_create.call_count == 2
 
+    def test_ticket_changed_during_stripe_is_left_untouched_and_logged(
+        self, online_pass_setup: _PassSetup, organization_owner_user: RevelUser
+    ) -> None:
+        """A check-in that lands while Stripe refunds one pass ticket: it stays CHECKED_IN, the rest cancel."""
+        changed, other = online_pass_setup.future_tickets
+        changed_tier, other_tier = online_pass_setup.future_tiers
+
+        def refund_and_check_in(**_: t.Any) -> MagicMock:
+            Ticket.objects.filter(pk=changed.pk).update(status=Ticket.TicketStatus.CHECKED_IN)
+            return MagicMock(id="re_x")
+
+        with (
+            patch("stripe.Refund.create", side_effect=refund_and_check_in),
+            patch("events.service.series_pass_service.logger") as log,
+        ):
+            cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user)
+
+        changed.refresh_from_db()
+        other.refresh_from_db()
+        assert changed.status == Ticket.TicketStatus.CHECKED_IN
+        assert other.status == Ticket.TicketStatus.CANCELLED
+        changed_tier.refresh_from_db()
+        other_tier.refresh_from_db()
+        assert changed_tier.quantity_sold == 1
+        assert other_tier.quantity_sold == 0
+        logged = [c for c in log.warning.call_args_list if c.args and c.args[0] == "cancel_rolled_back_after_refund"]
+        assert [c.kwargs["ticket_id"] for c in logged] == [str(changed.pk)]
+
 
 class TestCancelHeldPassCounters:
     def test_cancel_decrements_pass_quantity_sold_and_frees_repurchase(
@@ -453,6 +481,7 @@ class TestCancelPendingOnlinePass:
         self,
         pending_online_setup: tuple[HeldSeriesPass, Ticket, Payment],
         organization_owner_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         held_pass, ticket, payment = pending_online_setup
 
@@ -460,7 +489,12 @@ class TestCancelPendingOnlinePass:
             patch("stripe.checkout.Session.expire") as mock_expire,
             patch("stripe.Refund.create") as mock_refund,
         ):
-            cancel_held_pass(held_pass, cancelled_by=organization_owner_user)
+            with django_capture_on_commit_callbacks(execute=False) as callbacks:
+                cancel_held_pass(held_pass, cancelled_by=organization_owner_user)
+            # The Stripe call must not run inside the transaction that holds the locks.
+            mock_expire.assert_not_called()
+            for callback in callbacks:
+                callback()
 
         mock_expire.assert_called_once_with("cs_pending_cancel", stripe_account="acct_org_cancel")
         mock_refund.assert_not_called()
@@ -479,14 +513,18 @@ class TestCancelPendingOnlinePass:
         self,
         pending_online_setup: tuple[HeldSeriesPass, Ticket, Payment],
         organization_owner_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         held_pass, _, _ = pending_online_setup
 
         import stripe as stripe_module
 
-        with patch(
-            "stripe.checkout.Session.expire",
-            side_effect=stripe_module.error.InvalidRequestError("already expired", param=None),
+        with (
+            patch(
+                "stripe.checkout.Session.expire",
+                side_effect=stripe_module.error.InvalidRequestError("already expired", param=None),
+            ),
+            django_capture_on_commit_callbacks(execute=True),
         ):
             result = cancel_held_pass(held_pass, cancelled_by=organization_owner_user)
 

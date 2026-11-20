@@ -12,11 +12,13 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
+import stripe
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from accounts.models import RevelUser
+from events.exceptions import TicketAlreadyCancelledError
 from events.models import EventSeries, HeldSeriesPass, Organization, Payment, Ticket, TicketTier
 from events.service import refund_service, series_pass_service, ticket_service
 from events.service.cancellation_service import cancel_ticket_by_user
@@ -273,7 +275,98 @@ def test_checkout_completed_webhook_locks_payment_then_ticket(
         "events_heldseriespass",
         "events_ticket",
     ]
-    assert any("ORDER BY" in q["sql"] and "FOR UPDATE" in q["sql"] for q in ctx.captured_queries)
+    _assert_payment_lock_of_self_pk_order(ctx.captured_queries)
+
+
+def _assert_payment_lock_of_self_pk_order(queries: list[dict[str, t.Any]]) -> None:
+    """The Payment locking statement locks only the Payment rows (``OF``) and orders them by pk."""
+    payment_lock = next(
+        q["sql"]
+        for q in queries
+        if "FOR UPDATE" in q["sql"] and q["sql"].split(" FROM ")[1].startswith('"events_payment"')
+    )
+    assert 'FOR UPDATE OF "events_payment"' in payment_lock
+    assert 'ORDER BY "events_payment"."id"' in payment_lock
+
+
+def test_offline_cancel_locks_payment_then_tier_then_ticket(
+    event: t.Any,
+    ticket_factory: t.Callable[..., Ticket],
+    tier_factory: t.Callable[..., TicketTier],
+    payment_factory: t.Callable[..., Payment],
+    organization_owner_user: RevelUser,
+) -> None:
+    tier = tier_factory(payment_method=TicketTier.PaymentMethod.OFFLINE, quantity_sold=1)
+    ticket = ticket_factory(tier=tier)
+    payment_factory(ticket)
+    with CaptureQueriesContext(connection) as ctx:
+        ticket_service.cancel_offline_ticket(ticket, cancelled_by=organization_owner_user, reason="x")
+    assert _assert_in_global_order(ctx.captured_queries)[:3] == ["events_payment", "events_tickettier", "events_ticket"]
+
+
+def test_offline_cancel_without_payment_still_locks_in_order(
+    ticket_factory: t.Callable[..., Ticket],
+    tier_factory: t.Callable[..., TicketTier],
+    organization_owner_user: RevelUser,
+) -> None:
+    tier = tier_factory(payment_method=TicketTier.PaymentMethod.OFFLINE, quantity_sold=1)
+    ticket = ticket_factory(tier=tier)
+    with CaptureQueriesContext(connection) as ctx:
+        ticket_service.cancel_offline_ticket(ticket, cancelled_by=organization_owner_user, reason="x")
+    assert _assert_in_global_order(ctx.captured_queries)[:3] == ["events_payment", "events_tickettier", "events_ticket"]
+
+
+def test_cancel_pending_checkout_locks_payment_rows_in_pk_order(paid_ticket: Ticket) -> None:
+    from events.service.pending_checkout import cancel_pending_checkout
+
+    payment = Payment.objects.get(ticket=paid_ticket)
+    Payment.objects.filter(pk=payment.pk).update(status=Payment.PaymentStatus.PENDING, stripe_payment_intent_id=None)
+    Ticket.objects.filter(pk=paid_ticket.pk).update(status=Ticket.TicketStatus.PENDING)
+    with CaptureQueriesContext(connection) as ctx:
+        cancel_pending_checkout(str(payment.pk), paid_ticket.user)
+    _assert_payment_lock_of_self_pk_order(ctx.captured_queries)
+
+
+def test_payment_intent_canceled_webhook_locks_payment_rows_in_pk_order(paid_ticket: Ticket) -> None:
+    Payment.objects.filter(ticket=paid_ticket).update(
+        status=Payment.PaymentStatus.PENDING, stripe_payment_intent_id="pi_lock_order"
+    )
+    Ticket.objects.filter(pk=paid_ticket.pk).update(status=Ticket.TicketStatus.PENDING)
+    obj = {"id": "pi_lock_order"}
+    event = MagicMock(spec=stripe.Event)
+    event.__iter__.return_value = iter({"type": "payment_intent.canceled", "data": {"object": obj}}.items())
+    event.type = "payment_intent.canceled"
+    event.data = MagicMock()
+    event.data.object = obj
+    with CaptureQueriesContext(connection) as ctx:
+        StripeEventHandler(event).handle_payment_intent_canceled(event)
+    _assert_payment_lock_of_self_pk_order(ctx.captured_queries)
+
+
+def test_refund_paths_raise_already_cancelled_when_the_ticket_vanished(
+    paid_ticket: Ticket, organization_owner_user: RevelUser
+) -> None:
+    """A reclaim can delete the ticket while the caller waits on the Payment lock: refuse, do not IndexError."""
+    with patch("events.service.ticket_service.lock_tier_then_ticket", return_value=[]):
+        with pytest.raises(TicketAlreadyCancelledError):
+            refund_service.admin_cancel_ticket(
+                paid_ticket, cancelled_by=organization_owner_user, reason="x", refund_amount=Decimal("0.00")
+            )
+        with pytest.raises(TicketAlreadyCancelledError):
+            ticket_service.mark_offline_ticket_refunded(paid_ticket, cancelled_by=organization_owner_user)
+        with pytest.raises(TicketAlreadyCancelledError):
+            ticket_service.cancel_offline_ticket(paid_ticket, cancelled_by=organization_owner_user)
+
+
+def test_user_cancel_blocks_when_the_ticket_vanished(paid_ticket: Ticket) -> None:
+    from events.service.cancellation_service import CancellationBlocked
+
+    with (
+        patch("stripe.Refund.create", return_value=MagicMock(id="re_gone")),
+        patch("events.service.ticket_service.lock_tier_then_ticket", return_value=[]),
+    ):
+        with pytest.raises(CancellationBlocked):
+            cancel_ticket_by_user(paid_ticket, paid_ticket.user, reason="", now=timezone.now())
 
 
 def test_reclaim_routes_lock_only_payment_rows_in_pk_order(paid_ticket: Ticket) -> None:
