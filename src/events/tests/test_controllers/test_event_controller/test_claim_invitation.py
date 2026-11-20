@@ -1,8 +1,11 @@
 """Tests for POST /events/{event_id}/claim-invitation/{token} endpoint."""
 
+import datetime
+
 import pytest
 from django.test.client import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import (
@@ -36,3 +39,30 @@ class TestClaimInvitation:
         url = reverse("api:event_claim_invitation", kwargs={"token": "invalid-token"})
         response = nonmember_client.post(url)
         assert response.status_code == 400
+
+    def test_claim_invitation_used_up_token_names_the_reason(
+        self, nonmember_client: Client, event_token: EventToken
+    ) -> None:
+        EventToken.objects.filter(pk=event_token.pk).update(max_uses=1, uses=1)
+        url = reverse("api:event_claim_invitation", kwargs={"token": event_token.id})
+        response = nonmember_client.post(url)
+        assert response.status_code == 400
+        assert response.json()["message"] == "This invitation link has reached its maximum number of uses."
+
+    def test_claim_invitation_expired_token_names_the_reason(
+        self, nonmember_client: Client, event_token: EventToken
+    ) -> None:
+        EventToken.objects.filter(pk=event_token.pk).update(expires_at=timezone.now() - datetime.timedelta(minutes=1))
+        url = reverse("api:event_claim_invitation", kwargs={"token": event_token.id})
+        response = nonmember_client.post(url)
+        assert response.status_code == 400
+        assert response.json()["message"] == "This invitation link has expired."
+
+    def test_claim_invitation_used_up_token_succeeds_for_an_invitation_holder(
+        self, nonmember_client: Client, event_token: EventToken, nonmember_user: RevelUser
+    ) -> None:
+        EventInvitation.objects.create(event=event_token.event, user=nonmember_user)
+        EventToken.objects.filter(pk=event_token.pk).update(max_uses=1, uses=1)
+        url = reverse("api:event_claim_invitation", kwargs={"token": event_token.id})
+        response = nonmember_client.post(url)
+        assert response.status_code == 200

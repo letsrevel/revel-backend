@@ -94,12 +94,14 @@ class TestTokenClaimWaivers:
         token.save()
 
         assert claim_invitation(invited_user, token.pk) is not None
-        assert claim_invitation(other, token.pk) is None
+        assert claim_invitation(other, token.pk) == second  # used up: returned unchanged
 
         first.refresh_from_db()
         second.refresh_from_db()
+        token.refresh_from_db()
         assert first.waives_purchase is True
         assert second.waives_purchase is False
+        assert token.uses == 1
 
     def test_granting_a_waiver_updates_updated_at(
         self,
@@ -176,10 +178,12 @@ class TestTokenClaimWaivers:
         )
 
         assert claim_invitation(invited_user, token.pk) is not None
-        assert claim_invitation(other, token.pk) is None
+        assert claim_invitation(other, token.pk) == second  # used up: returned unchanged
 
         assert tier in first.tiers.all()
         assert tier not in second.tiers.all()
+        token.refresh_from_db()
+        assert token.uses == 1
 
     def test_reopening_a_used_up_link_returns_the_unchanged_invitation(
         self,
@@ -216,3 +220,23 @@ class TestTokenClaimWaivers:
         token.refresh_from_db()
         assert invitation.waives_purchase is False
         assert token.uses == 0
+
+    def test_used_up_token_returns_the_holders_invitation_without_new_grants(
+        self,
+        private_event: Event,
+        owner: RevelUser,
+        invited_user: RevelUser,
+    ) -> None:
+        invitation = EventInvitation.objects.create(event=private_event, user=invited_user)
+        token = create_event_token(event=private_event, issuer=owner, duration=60, grants_invitation=True, max_uses=1)
+        token.invitation_payload = {"waives_purchase": True}
+        token.save()
+        type(token).objects.filter(pk=token.pk).update(uses=1)
+
+        result = claim_invitation(invited_user, token.pk)
+
+        assert result is not None and result.pk == invitation.pk
+        invitation.refresh_from_db()
+        token.refresh_from_db()
+        assert invitation.waives_purchase is False
+        assert token.uses == 1

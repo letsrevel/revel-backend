@@ -11,6 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from common.utils import get_or_create_with_race_protection
 from events.models import Event, EventInvitation, EventToken, TicketTier
 from events.schema import EventTokenUpdateSchema
 from events.service.holder_visibility import is_known_holder_id
@@ -210,11 +211,11 @@ def claim_invitation(user: RevelUser, token: str, greeting: str | None = None) -
 
     A claim on an existing invitation turns on the waivers the token grants (never off) and adds its tiers.
     Each claim that creates an invitation, turns on a waiver or adds a tier uses up one token use; a repeat
-    claim that changes nothing returns the invitation and uses nothing, even when the token is used up.
+    claim that changes nothing, or any claim on a used-up token, returns the existing invitation unchanged.
 
     Returns:
-        The EventInvitation if successfully claimed, None if token is invalid,
-        doesn't grant invitations, or has reached max uses.
+        The EventInvitation (new, updated or unchanged), or None if the token is invalid, does not grant
+        invitations, or has reached max uses and the user holds no invitation to the event yet.
     """
     # Lock the token row (only that row) so concurrent claims cannot exceed max_uses.
     event_token = (
@@ -229,7 +230,12 @@ def claim_invitation(user: RevelUser, token: str, greeting: str | None = None) -
     if not event_token.grants_invitation:
         return None
     used_up = bool(event_token.max_uses) and event_token.uses >= event_token.max_uses
-    payload = event_token.invitation_payload or {}
+    # A waiver is granted only by a literal True, on the create and the merge path alike.
+    payload = {
+        key: value
+        for key, value in (event_token.invitation_payload or {}).items()
+        if key not in INVITATION_WAIVER_FIELDS or value is True
+    }
     token_tiers = list(event_token.ticket_tiers.all())
 
     existing = EventInvitation.objects.select_for_update().filter(event=event_token.event, user=user).first()
@@ -243,7 +249,9 @@ def claim_invitation(user: RevelUser, token: str, greeting: str | None = None) -
         defaults["custom_message"] = get_invitation_message(
             greeting or _default_greeting(user, event_token.event.organization_id), event_token.event
         )
-    invitation, created = EventInvitation.objects.get_or_create(event=event_token.event, user=user, defaults=defaults)
+    invitation, created = get_or_create_with_race_protection(
+        EventInvitation, Q(event=event_token.event, user=user), {"event": event_token.event, "user": user, **defaults}
+    )
     if not created:  # another request created it after our lookup
         locked = EventInvitation.objects.select_for_update().get(pk=invitation.pk)
         return _merge_into_existing(locked, event_token, payload, token_tiers, used_up)
@@ -262,16 +270,14 @@ def _merge_into_existing(
 ) -> EventInvitation | None:
     """Add the token's waivers and tiers to an invitation the user already holds (caller holds the row locks).
 
-    Turns waivers on, never off. A claim that grants something uses up one token use and is refused when the
-    token is used up; a claim that grants nothing returns the invitation unchanged and uses nothing.
+    Turns waivers on, never off. A claim that grants something uses up one token use. When the token is used up,
+    or the claim grants nothing, the invitation is returned unchanged and no use is counted.
     """
     granted = [f for f in INVITATION_WAIVER_FIELDS if payload.get(f) is True and not getattr(invitation, f)]
     linked = set(invitation.tiers.values_list("pk", flat=True))
     new_tiers = [tier for tier in token_tiers if tier.pk not in linked]
-    if not granted and not new_tiers:
+    if used_up or (not granted and not new_tiers):
         return invitation
-    if used_up:
-        return None
     if granted:
         for field in granted:
             setattr(invitation, field, True)
