@@ -242,6 +242,22 @@ class TestRenewalReminderTask:
         assert due_today.renewal_reminded_for == due_today.current_period_end
         assert send_subscription_renewal_reminders()["sent"] == 0
 
+    @freeze_time("2026-11-21 06:00:00")
+    def test_backfill_migration_leaves_a_period_that_started_after_todays_run(
+        self, make_sub: t.Callable[..., MembershipSubscription]
+    ) -> None:
+        """A period created after the 05:00 UTC run never got that run's reminder: it keeps its one reminder."""
+        import importlib
+
+        from django.apps import apps as django_apps
+
+        backfill = importlib.import_module("events.migrations.0148_backfill_renewal_reminded_for").backfill
+        late = make_sub(period_end_offset_days=REMINDER_DAYS, status=MembershipSubscription.SubscriptionStatus.ACTIVE)
+        backfill(django_apps, None)
+        late.refresh_from_db()
+        assert late.renewal_reminded_for is None
+        assert send_subscription_renewal_reminders()["sent"] == 1
+
     def test_skipped_four_days_before(self, make_sub: t.Callable[..., MembershipSubscription]) -> None:
         make_sub(
             period_end_offset_days=REMINDER_DAYS + 1,
