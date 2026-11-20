@@ -29,6 +29,9 @@ def backfill(apps: "Apps", schema_editor: "BaseDatabaseSchemaEditor") -> None:
         cancel_at_period_end=False,
         renewal_reminded_for__isnull=True,
         current_period_end__gt=timezone.now(),
+        # ponytail: the cohort ending exactly on target_date is left for the beat. If this migration runs after
+        # the old 05:00 UTC run that day, that cohort gets one extra reminder; a duplicate is safer than a
+        # missed reminder. Deploy before 05:00 UTC to avoid it.
         current_period_end__date__lt=target_date,
         current_period_start__lte=F("current_period_end") - datetime.timedelta(days=REMINDER_DAYS),
     ).update(renewal_reminded_for=F("current_period_end"))

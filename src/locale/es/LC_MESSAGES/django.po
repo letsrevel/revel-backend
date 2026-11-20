@@ -739,10 +739,10 @@ msgstr ""
 #, python-format
 msgid ""
 "If this wasn't you, change your password immediately at "
-"%(frontend_base_url)s/account/password-reset and contact support."
+"%(frontend_base_url)s/password-reset and contact support."
 msgstr ""
 "Si no has sido tú, cambia tu contraseña inmediatamente en "
-"%(frontend_base_url)s/account/password-reset y ponte en contacto con soporte."
+"%(frontend_base_url)s/password-reset y ponte en contacto con soporte."
 
 msgid "Verify your email"
 msgstr "Verifica tu correo electrónico"

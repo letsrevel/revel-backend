@@ -88,7 +88,7 @@ If the diff is purely internal (renames, helper extraction, type hints, test reo
 | **Fixed** | Bug fixes — describe the symptom |
 | **Deprecated** | Features still working but slated for removal |
 | **Removed** | Removed features, endpoints, settings |
-| **Security** | Auth fixes, permission tightenings, vulnerability patches (do not name the CVE if not public) |
+| **Security** | Only fixes that are disclosed publicly (an advisory or a CVE). Quiet fixes, including auth fixes and permission tightenings that are not disclosed, go under **Changed** or **Fixed** and describe the user-facing effect and the API contract, never the weakness (see `.claude/review/by-design.md`, "Release notes describe effects, not weaknesses"). |
 
 Bundle related commits into one bullet. A feature that spans 5 PRs becomes one bold-prefixed bullet, optionally with sub-bullets per sub-feature.
 

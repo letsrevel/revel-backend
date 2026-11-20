@@ -88,3 +88,8 @@ Policy-level intended behaviour that reviewers must not report as a finding. Eac
 - Feature requests: missing audit trails, extra logging, soft-delete suggestions, additional confirmation steps, and more throttling on endpoints that are already throttled go to the backlog, not a security report.
 - boundary: a missing throttle on an expensive or abusable endpoint (LLM, file scan, geo, mass email) with no throttle at all remains a valid finding.
 - reference: maintainer decision.
+
+## Release notes describe effects, not weaknesses
+- behaviour: CHANGELOG entries and release notes state the user-facing effect and the API contract of a change (status codes, error codes, fields). They do not use a `### Security` heading for quiet fixes, and do not describe a weakness, its trigger or its mechanics.
+- boundary: a missing contract fact that clients or operators need (a new status code, a field change, a required operator step) is a docs finding; the absence of a security label or of exploit detail is not.
+- reference: owner decision 2026-11-20.
