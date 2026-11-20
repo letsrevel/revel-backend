@@ -211,11 +211,11 @@ def claim_invitation(user: RevelUser, token: str, greeting: str | None = None) -
 
     A claim on an existing invitation turns on the waivers the token grants (never off) and adds its tiers.
     Each claim that creates an invitation, turns on a waiver or adds a tier uses up one token use; a repeat
-    claim that changes nothing, or any claim on a used-up token, returns the existing invitation unchanged.
+    claim that changes nothing returns the existing invitation unchanged, also when the token is used up.
 
     Returns:
         The EventInvitation (new, updated or unchanged), or None if the token is invalid, does not grant
-        invitations, or has reached max uses and the user holds no invitation to the event yet.
+        invitations, or has reached max uses for a claim that would grant something.
     """
     # Lock the token row (only that row) so concurrent claims cannot exceed max_uses.
     event_token = (
@@ -250,7 +250,7 @@ def claim_invitation(user: RevelUser, token: str, greeting: str | None = None) -
             greeting or _default_greeting(user, event_token.event.organization_id), event_token.event
         )
     invitation, created = get_or_create_with_race_protection(
-        EventInvitation, Q(event=event_token.event, user=user), {"event": event_token.event, "user": user, **defaults}
+        EventInvitation, Q(event=event_token.event, user=user), {**defaults, "event": event_token.event, "user": user}
     )
     if not created:  # another request created it after our lookup
         locked = EventInvitation.objects.select_for_update().get(pk=invitation.pk)
@@ -270,14 +270,16 @@ def _merge_into_existing(
 ) -> EventInvitation | None:
     """Add the token's waivers and tiers to an invitation the user already holds (caller holds the row locks).
 
-    Turns waivers on, never off. A claim that grants something uses up one token use. When the token is used up,
-    or the claim grants nothing, the invitation is returned unchanged and no use is counted.
+    Turns waivers on, never off. A claim that grants something uses up one token use, and is refused (None) when
+    the token is used up. A claim that grants nothing returns the invitation unchanged and uses nothing.
     """
     granted = [f for f in INVITATION_WAIVER_FIELDS if payload.get(f) is True and not getattr(invitation, f)]
     linked = set(invitation.tiers.values_list("pk", flat=True))
     new_tiers = [tier for tier in token_tiers if tier.pk not in linked]
-    if used_up or (not granted and not new_tiers):
+    if not granted and not new_tiers:
         return invitation
+    if used_up:
+        return None
     if granted:
         for field in granted:
             setattr(invitation, field, True)

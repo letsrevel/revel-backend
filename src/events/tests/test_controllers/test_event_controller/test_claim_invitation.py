@@ -62,7 +62,10 @@ class TestClaimInvitation:
         self, nonmember_client: Client, event_token: EventToken, nonmember_user: RevelUser
     ) -> None:
         EventInvitation.objects.create(event=event_token.event, user=nonmember_user)
-        EventToken.objects.filter(pk=event_token.pk).update(max_uses=1, uses=1)
+        EventToken.objects.filter(pk=event_token.pk).update(max_uses=1, uses=1, invitation_payload={})
+        event_token.ticket_tiers.clear()
         url = reverse("api:event_claim_invitation", kwargs={"token": event_token.id})
         response = nonmember_client.post(url)
         assert response.status_code == 200
+        event_token.refresh_from_db()
+        assert event_token.uses == 1

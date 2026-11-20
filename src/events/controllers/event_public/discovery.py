@@ -217,8 +217,8 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         Creates an EventInvitation record for the user, granting access to the event. If the user already
         has an invitation, the token's ticket tiers are added and its waivers are turned on (never off).
         Invitations can bypass certain eligibility requirements like membership, capacity limits,
-        and RSVP deadlines. Returns the event on success (also for a user who already holds an invitation, even when
-        the token is used up), or 400 if the token is invalid, expired, or used up for a new invitee.
+        and RSVP deadlines. Returns the event on success (also when a user who already holds the invitation reopens a
+        used-up link that grants nothing new), or 400 if the token is invalid, expired, or used up.
         """
         if invitation := event_service.claim_invitation(self.user(), token):
             return 200, invitation.event

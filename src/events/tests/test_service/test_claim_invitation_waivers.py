@@ -94,7 +94,7 @@ class TestTokenClaimWaivers:
         token.save()
 
         assert claim_invitation(invited_user, token.pk) is not None
-        assert claim_invitation(other, token.pk) == second  # used up: returned unchanged
+        assert claim_invitation(other, token.pk) is None  # would grant, but the token is used up
 
         first.refresh_from_db()
         second.refresh_from_db()
@@ -178,7 +178,7 @@ class TestTokenClaimWaivers:
         )
 
         assert claim_invitation(invited_user, token.pk) is not None
-        assert claim_invitation(other, token.pk) == second  # used up: returned unchanged
+        assert claim_invitation(other, token.pk) is None  # would grant, but the token is used up
 
         assert tier in first.tiers.all()
         assert tier not in second.tiers.all()
@@ -221,7 +221,7 @@ class TestTokenClaimWaivers:
         assert invitation.waives_purchase is False
         assert token.uses == 0
 
-    def test_used_up_token_returns_the_holders_invitation_without_new_grants(
+    def test_used_up_token_refuses_a_claim_that_would_grant_something(
         self,
         private_event: Event,
         owner: RevelUser,
@@ -233,9 +233,8 @@ class TestTokenClaimWaivers:
         token.save()
         type(token).objects.filter(pk=token.pk).update(uses=1)
 
-        result = claim_invitation(invited_user, token.pk)
+        assert claim_invitation(invited_user, token.pk) is None
 
-        assert result is not None and result.pk == invitation.pk
         invitation.refresh_from_db()
         token.refresh_from_db()
         assert invitation.waives_purchase is False
