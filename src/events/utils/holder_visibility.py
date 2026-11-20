@@ -46,10 +46,11 @@ def known_holder_q(organization_id: UUID | OuterRef, user_ref: OuterRef) -> Q:
 
     Counts: owner, staff, member (any status), membership request (any status), a linked register record
     (see ``self_linked_record_q``: not a box-office day membership, not merge-linked; a day membership
-    counts only while its ticket is attending), an attending ticket (active or checked in) not issued by
-    the box office (``NULL`` sale source = self, legacy), the holder's own RSVP, a series pass, a
-    waitlist entry, an event invitation request, a questionnaire submission. Not counted: box-office
-    tickets, pending or cancelled tickets, staff RSVPs, event invitations, waitlist offers.
+    counts only while its ticket is attending), an attending ticket (active or checked in), or a pending
+    ticket of a registered (non-guest) account, not issued by the box office (``NULL`` sale source = self,
+    legacy), the holder's own RSVP, a series pass, a waitlist entry, an event invitation request, a
+    questionnaire submission. Not counted: box-office tickets, pending tickets of guest accounts (#1430),
+    cancelled tickets, staff RSVPs, event invitations, waitlist offers.
 
     Args:
         organization_id: The organization.
@@ -70,7 +71,9 @@ def known_holder_q(organization_id: UUID | OuterRef, user_ref: OuterRef) -> Q:
         | Q(
             Exists(
                 Ticket.objects.filter(
-                    event__organization_id=org, user_id=user, status__in=Ticket.ATTENDING_STATUSES
+                    Q(status__in=Ticket.ATTENDING_STATUSES) | Q(status=Ticket.TicketStatus.PENDING, user__guest=False),
+                    event__organization_id=org,
+                    user_id=user,
                 ).exclude(sale_source__in=STAFF_SALE_SOURCES)
             )
         )

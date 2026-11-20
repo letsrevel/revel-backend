@@ -47,6 +47,11 @@ def _ticket(event: Event, user: RevelUser, source: str | None, status: str = Tic
     return ticket
 
 
+def _guest_pending_checkout(event: Event, user: RevelUser) -> Ticket:
+    RevelUser.objects.filter(pk=user.pk).update(guest=True)
+    return _ticket(event, user, TicketSaleSource.CHECKOUT, Ticket.TicketStatus.PENDING)
+
+
 def _record(event: Event, user: RevelUser, source: str, ticket: Ticket | None = None) -> MembershipRecord:
     return MembershipRecord.objects.create(
         organization=event.organization,
@@ -95,6 +100,9 @@ KNOWN: dict[str, Act] = {
     "day membership from checkout": lambda e, u: _record(
         e, u, MembershipRecord.Source.TICKET, _ticket(e, u, TicketSaleSource.CHECKOUT)
     ),
+    "pending checkout ticket of a registered account": lambda e, u: _ticket(
+        e, u, TicketSaleSource.CHECKOUT, Ticket.TicketStatus.PENDING
+    ),
     "own RSVP": lambda e, u: EventRSVP.objects.create(event=e, user=u, status=EventRSVP.RsvpStatus.NO),
     "series pass": _held_pass,
     "waitlist entry": lambda e, u: EventWaitList.objects.create(event=e, user=u),
@@ -104,7 +112,10 @@ KNOWN: dict[str, Act] = {
 
 NOT_KNOWN: dict[str, Act] = {
     "nothing": lambda e, u: None,
-    "pending checkout ticket": lambda e, u: _ticket(e, u, TicketSaleSource.CHECKOUT, Ticket.TicketStatus.PENDING),
+    "pending checkout ticket of a guest account": _guest_pending_checkout,
+    "pending box-office sale": lambda e, u: _ticket(
+        e, u, TicketSaleSource.BOX_OFFICE_SALE, Ticket.TicketStatus.PENDING
+    ),
     "cancelled checkout ticket": lambda e, u: _ticket(e, u, TicketSaleSource.CHECKOUT, Ticket.TicketStatus.CANCELLED),
     "box-office sale": lambda e, u: _ticket(e, u, TicketSaleSource.BOX_OFFICE_SALE),
     "box-office comp": lambda e, u: _ticket(e, u, TicketSaleSource.BOX_OFFICE_COMP),
