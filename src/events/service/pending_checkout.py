@@ -246,7 +246,9 @@ def _cleanup_expired_batch(payment: Payment) -> None:
     # locked list (rather than re-querying) keeps everything downstream consistent
     # with the snapshot the lock was taken against (#632).
     batch_payments = list(
-        Payment.objects.select_for_update().filter(_batch_filter(payment), status=Payment.PaymentStatus.PENDING)
+        Payment.objects.select_for_update(of=("self",))
+        .filter(_batch_filter(payment), status=Payment.PaymentStatus.PENDING)
+        .order_by("pk")
     )
     payment_ids = [p.id for p in batch_payments]
     ticket_ids = [p.ticket_id for p in batch_payments]
@@ -390,7 +392,9 @@ def cancel_pending_checkout(
     # lock serializes that instead of racing it; ticket_count/ticket_ids come from
     # this same locked list rather than re-querying (#632).
     batch_payments = list(
-        Payment.objects.select_for_update().filter(_batch_filter(payment), status=Payment.PaymentStatus.PENDING)
+        Payment.objects.select_for_update(of=("self",))
+        .filter(_batch_filter(payment), status=Payment.PaymentStatus.PENDING)
+        .order_by("pk")
     )
     payment_ids = [p.id for p in batch_payments]
     ticket_ids = [p.ticket_id for p in batch_payments]
@@ -402,8 +406,8 @@ def cancel_pending_checkout(
 
     # Already-sessioned batch: best-effort expire the Stripe session after commit,
     # so the buyer's still-open checkout URL can't be paid once the Payment rows
-    # (the webhook's reconciliation target) are deleted below (#632). on_commit
-    # keeps the network call outside the select_for_update window.
+    # (the webhook's reconciliation target) are deleted below (#632). It is the first
+    # on_commit callback on this path, so an earlier failing callback cannot skip it.
     session_ids = sorted({p.stripe_session_id for p in batch_payments if p.stripe_session_id})
     if session_ids:
         first_ticket = Ticket.objects.filter(id__in=ticket_ids).select_related("event__organization").first()

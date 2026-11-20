@@ -219,12 +219,39 @@ for now (capped-plan checkout traffic is a fraction of a hot tier's on-sale rush
 subscribe-path docstring carries the same NOTE). The reserve/session split is the upgrade
 path if a capped plan ever sees rush-level traffic.
 
-## Lock order for tickets and ticket numbers
+## Lock order
 
-One canonical order, everywhere a transaction locks more than one of these:
+One global order, everywhere a transaction locks more than one of these:
 
-**parent row (Event / SeriesPass / HeldSeriesPass / Payment) → `TicketTier` (pk order) →
-`Ticket` → `MembershipRecord` (day-membership grants) → `TicketNumberSequence` (org-id order)**
+**`Payment` (pk order) → `HeldSeriesPass` → `SeriesPass` → `TicketTier` (pk order) → `Event` → `Ticket` (pk order)
+→ `DiscountCode` (pk order) → `MembershipRecord` → `TicketNumberSequence` (org-id order)**
+
+**Ticket-ownership lemma.** Every transaction that touches an existing ticket that has a `Payment`
+locks that `Payment` first. So, once a transaction holds the `Payment`, no other path can cancel,
+activate or release that ticket. Check-in is the one writer that takes no lock. A path may trust
+the ticket status only when it reads it in a statement that starts **after** it holds the `Payment`
+lock, and never from the locking statement itself (for example through `select_related("ticket")`).
+Under READ COMMITTED, a statement that waited for a row lock is re-checked only if the locked row
+changed. A cancel locks the `Payment` but updates only the `Ticket`, `TicketTier` and
+`DiscountCode`, so the waiting statement would keep the old ticket state. Re-check `CHECKED_IN`
+after the ticket lock.
+
+Paths that follow the lemma: user cancel (`cancel_ticket_by_user`), organizer cancel
+(`admin_cancel_ticket`), offline cancel (`cancel_offline_ticket`), offline refund
+(`mark_offline_ticket_refunded`), the event-cancel sweep
+(`refund_one_cancelled_event_ticket`), series-pass cancel (`cancel_held_pass`), the
+`checkout.session.completed`, `payment_intent.canceled` and `charge.refunded` webhooks, and the
+reclaim routes (`cleanup_expired_payments`, `cancel_pending_checkout`, `release_uses_of_pending_tickets`).
+
+Rules for new code:
+
+- Lock `Payment` rows with `select_for_update(of=("self",))` and `.order_by("pk")`.
+- Lock tiers and then tickets with `ticket_service.lock_tier_then_ticket(queryset)`. It uses
+  `of=("self",)` and pk order, and it reads the tickets again under the lock.
+- Do not use `select_for_update()` without `of=` on a query with `select_related`. Postgres then
+  locks every joined row (`Ticket`, `Event`, `Organization`).
+- Do not read a ticket from `select_related("ticket")` on an unlocked `Payment` query and then
+  write it. Read it again under its lock.
 
 `ticket_number_service.assign_ticket_numbers` locks the issued tickets and then the
 organization's `TicketNumberSequence`, and the sequence lock is held until commit. So
@@ -242,11 +269,7 @@ the ticket inserts in checkout, so every path that gives uses back
 (`discount_code_service.release_discount_uses`: cancel/expiry of an unfinished checkout) must lock
 the codes only after the tiers it touches, in pk order. Derive the ids only after the Payment rows
 (batch routes) or the ticket row (single cancel) are locked, filtered to PENDING tickets. The
-organizer cancel (`admin_cancel_ticket`) locks the ticket's Payment rows (even when no refund is
-issued) and then the Ticket row, i.e. Payment -> Ticket like the reclaim routes, so it serializes
-with them. User cancel still has the documented pre-existing ticket -> payment inversion
-(`_refund_if_required` locks the Payment after the ticket); a resulting deadlock is resolved by
-Postgres aborting one transaction. The cascade-delete helper `release_uses_of_pending_tickets`
+cascade-delete helper `release_uses_of_pending_tickets`
 locks Payment, then TicketTier, then the candidate Ticket rows (pk order), re-queries which are
 still PENDING, and only then releases. Call it once after the whole tier loop (as
 `handle_payment_intent_canceled` does) rather than interleaved per ticket.
@@ -260,37 +283,70 @@ Unlike the reserve/session split above, the single-refund paths deliberately do 
 split the request. `refund_service.issue_refund` — and every caller: the organizer refund
 endpoint (`refund_ticket_payment` → `issue_refund_for_ticket`), cancel-with-refund
 (`admin_cancel_ticket`), user self-cancel (`cancellation_service.cancel_ticket_by_user` →
-`_refund_if_required`), and series-pass cancel (`series_pass_service.cancel_held_pass`,
-looping per ticket) — takes `select_for_update` on the `Payment` row (`admin_cancel_ticket`
-and series-pass cancel also lock the `Ticket`/`HeldSeriesPass` row) and holds it across one
-`stripe.Refund.create` round-trip, inside the `ATOMIC_REQUESTS` transaction. That lock
-releases only when the view returns, exactly the hazard the checkout split exists to avoid.
+`_refund_if_required`), the event-cancel sweep and series-pass cancel
+(`series_pass_service.cancel_held_pass`, looping per ticket) — calls `stripe.Refund.create`
+inside a transaction (the `ATOMIC_REQUESTS` transaction for request paths). That is accepted
+for one reason: the locked rows are small and belong to one payment.
 
-**Why this one is accepted instead of split:** the same three guarantees documented on
-`cancel_ticket_by_user` apply to every caller. The idempotency key
+**The rule.** Across a Stripe call, hold only:
+
+- the `Payment` row (`select_for_update(of=("self",))`, pk order),
+- its new `Refund` rows,
+- the `HeldSeriesPass` row (series-pass cancel only).
+
+Never hold a `TicketTier`, `SeriesPass`, `Event`, `Organization` or `Ticket` row across the call.
+`issue_refund` locks with `of=("self",)`, so Postgres does not lock the joined `Ticket`, `Event` and
+`Organization`. Each cancel path does its work in two steps:
+
+1. Lock the `Payment` (and `HeldSeriesPass`). Read the ticket status. Call Stripe.
+2. After Stripe returns, lock the `SeriesPass`, the tiers and the tickets
+   (`ticket_service.lock_tier_then_ticket`). Check the state again. Change the status and
+   release capacity (`quantity_sold__gt=0` and `F() - 1`).
+
+**If step 2 finds the ticket changed** (for example a check-in during the Stripe call), two paths
+handle it, in different ways. Do not try to undo the Stripe refund in either: the
+`charge.refunded` webhook later records it as refunded-not-cancelled.
+
+- `cancel_ticket_by_user`: step 2 runs in a savepoint. On a changed ticket the savepoint rolls
+  back, the `Refund` row stays, and the path logs the structlog warning
+  `cancel_rolled_back_after_refund`. On any other error in step 2 it logs the same warning and
+  re-raises, so the whole transaction rolls back. A retry replays the same idempotency key.
+- `cancel_held_pass`: no savepoint. A ticket that changed during the Stripe call is left as it
+  is, the warning is logged, and the other tickets still cancel. Any other error rolls back the
+  whole transaction, with no log.
+
+`admin_cancel_ticket` holds the Payment lock throughout. The ticket cannot change under it after
+the refund, because every writer that sets a ticket to CANCELLED takes the Payment lock first.
+The event-cancel sweep refunds and cancels in separate transactions.
+
+**Series-pass session expiry.** `cancel_held_pass` calls `stripe.checkout.Session.expire` right
+after it locks the `HeldSeriesPass`, before the `SeriesPass`, tier and ticket locks. Only the
+`Payment` and `HeldSeriesPass` rows are locked then, so the rule above allows the call. It runs
+inside the transaction, not in `on_commit`: a failed earlier `on_commit` callback would skip it
+and leave the session payable. `_expire_stripe_session` logs Stripe errors and does not raise.
+
+**Why a refund in a transaction is acceptable.** The idempotency key
 (`refund:{payment.pk}:{sequence}:{amount}`) is deterministic per attempt, so a retry after a
 post-Stripe DB failure (rollback) replays the same key and gets back the same Stripe refund
-object instead of double-refunding. The `charge.refunded` webhook self-heals a lost response
-regardless of whether a retry ever happens — it only finalizes a `Refund` row PENDING →
-SUCCEEDED via the `refund_id` metadata, it never re-cancels or re-decrements. And the locked
-rows are **user/payment-scoped**, not tier-scoped: the blast radius of one slow Stripe call is
-one payment intent, not every buyer of a hot tier. The worst realistic collision is that
-intent's own `charge.refunded` webhook delivery blocking for one round-trip behind the
-request that issued the refund — and Stripe retries webhook deliveries, so a blocked delivery
-is not lost, only delayed.
+object instead of double-refunding. The `charge.refunded` webhook self-heals a lost
+response regardless of whether a retry ever happens — it only finalizes a `Refund` row PENDING →
+SUCCEEDED via the `refund_id` metadata, it never re-cancels or re-decrements. The blast radius of
+one slow Stripe call is one payment intent. The worst realistic collision is that intent's own
+`charge.refunded` webhook delivery blocking for one round-trip behind the request that issued the
+refund — and Stripe retries webhook deliveries, so a blocked delivery is not lost, only delayed.
 
-**Scope discipline that must be preserved** if this area changes: never let a *tier/inventory*
-row join the locked set across the network call. Every cancel path refunds first and only
-`F("quantity_sold") - 1`s the `TicketTier`/`SeriesPass` row afterwards, as a separate
-lock-free `UPDATE` — that's what keeps this trade-off confined to one payment instead of
-regressing into the tier-wide contention the reserve/session split exists to prevent. On the
-webhook side, `stripe_webhook_refunds`'s `_resolve_refunds` (the `Refund.list` fallback for
+On the webhook side, `stripe_webhook_refunds`'s `_resolve_refunds` (the `Refund.list` fallback for
 API versions where `charge.refunded` doesn't embed the refunds list) is called **before** any
 `Payment.select_for_update()` — the call site's own comment states why: holding the lock
 across that outbound call "would block concurrent user-initiated cancels
 (`cancellation_service` locks the same Payment rows) for its duration." The advisory balance
 preview (`build_event_refund_preview`, which calls `stripe.Balance.retrieve`) takes no row
 locks at all — it is read-only and racy by design.
+
+**Known follow-up.** A payment that completes after its ticket was cancelled keeps the ticket
+`CANCELLED` (the `checkout.session.completed` handler skips the activation and logs
+`stripe_session_completed_cancelled_ticket_skipped`). The captured money is not refunded
+automatically yet.
 
 **Mitigation:** `STRIPE_HTTP_TIMEOUT_SECONDS` (`revel/settings/stripe.py`, default 15,
 configured on `stripe.default_http_client` by

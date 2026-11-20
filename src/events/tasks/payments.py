@@ -103,24 +103,31 @@ def cleanup_expired_payments() -> int:
         # deleted, and the tickets deleted all come from this same in-transaction,
         # locked, still-reclaimable set (#632).
         locked_payments = list(
-            Payment.objects.select_for_update()
+            Payment.objects.select_for_update(of=("self",))
             .filter(reclaimable, pk__in=candidate_payment_ids)
-            .select_related("ticket", "ticket__tier")
+            .order_by("pk")
         )
         if not locked_payments:
             return 0
 
         payment_ids_to_delete = [payment.id for payment in locked_payments]
         ticket_ids_to_delete = [payment.ticket_id for payment in locked_payments]
+        # Read the tickets in a NEW statement, after the Payment lock is held. A cancel path
+        # locks the Payment but updates only Ticket/Tier/DiscountCode, so a ticket read in the
+        # locking statement itself can be stale under READ COMMITTED (the row-lock re-check
+        # only fires for a changed Payment row).
+        pending_tickets = list(
+            Ticket.objects.filter(pk__in=ticket_ids_to_delete, status=Ticket.TicketStatus.PENDING).values_list(
+                "tier_id", "discount_code_id"
+            )
+        )
         # Only count payments whose ticket is still PENDING. A ticket cancelled via
         # POST /tickets/{id}/cancel (cancellation_service._finalize_cancellation)
         # already decremented quantity_sold at cancel time and may leave its Payment
         # PENDING forever (no stripe_payment_intent_id -> no refund path ever touches
         # it) — counting it here too would release the tier slot a second time (#632).
         tickets_to_release_by_tier: Counter[UUID] = Counter(
-            payment.ticket.tier_id
-            for payment in locked_payments
-            if payment.ticket.tier_id is not None and payment.ticket.status == Ticket.TicketStatus.PENDING
+            tier_id for tier_id, _ in pending_tickets if tier_id is not None
         )
 
         logger.info(
@@ -148,11 +155,7 @@ def cleanup_expired_payments() -> int:
             )
 
         # Give back discount code uses of the same still-PENDING tickets (locked after the tiers).
-        discount_code_service.release_discount_uses(
-            payment.ticket.discount_code_id
-            for payment in locked_payments
-            if payment.ticket.status == Ticket.TicketStatus.PENDING
-        )
+        discount_code_service.release_discount_uses(discount_code_id for _, discount_code_id in pending_tickets)
 
         # Delete payments first due to PROTECT constraint on Ticket
         Payment.objects.filter(pk__in=payment_ids_to_delete).delete()

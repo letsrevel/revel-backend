@@ -294,8 +294,13 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             )
             return
 
-        # Get all payments for this session (supports batch purchases)
-        payments = list(Payment.objects.filter(stripe_session_id=session_id).select_related("ticket"))
+        # Get all payments for this session (supports batch purchases). Lock order:
+        # Payment (pk order) -> HeldSeriesPass -> TicketTier -> Ticket (docs/engineering-notes.md).
+        # Every path that cancels a ticket with a Payment locks the Payment first, so the
+        # ticket statuses read below cannot change under us.
+        payments = list(
+            Payment.objects.select_for_update(of=("self",)).filter(stripe_session_id=session_id).order_by("pk")
+        )
 
         if not payments:
             self._report_missing_payments(session, session_id)
@@ -331,6 +336,15 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
         # (docs/engineering-notes.md), so tiers must be locked before any numbering.
         self._activate_series_passes(session_id)
 
+        # Re-read the tickets under a row lock (pk order, after the backfill above has locked
+        # the tiers): the cancelled-ticket skip below must see the committed status.
+        tickets_by_id = {
+            ticket.pk: ticket
+            for ticket in Ticket.objects.select_for_update(of=("self",))
+            .filter(pk__in=[p.ticket_id for p in payments])
+            .order_by("pk")
+        }
+
         # Update all payments and tickets
         for payment in payments:
             if payment.status == Payment.PaymentStatus.SUCCEEDED:
@@ -341,12 +355,12 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             payment.raw_response = raw_response
             payment.save(update_fields=["status", "stripe_payment_intent_id", "raw_response"])
 
-            ticket = payment.ticket
+            ticket = tickets_by_id[payment.ticket_id]
             if ticket.status == Ticket.TicketStatus.CANCELLED:
-                # Defense-in-depth: a late payment on a checkout whose ticket was
-                # cancelled in the meantime (e.g. organizer cancelled a pending
-                # series pass) must not resurrect the ticket. Payment bookkeeping
-                # above still runs — the money was captured and needs a refund.
+                # A late payment on a checkout whose ticket was cancelled in the meantime
+                # (a user cancel, or an organizer cancelling a pending series pass) must not
+                # resurrect the ticket. Payment bookkeeping above still runs: the money was
+                # captured. Refunding it automatically is a follow-up.
                 logger.warning(
                     "stripe_session_completed_cancelled_ticket_skipped",
                     session_id=session_id,
@@ -444,10 +458,12 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
         # Imported here to avoid a cycle (series_pass_service -> events.tasks -> services).
         from events.service.series_pass_service import backfill_missing_tickets
 
+        # Locked (pk order) after the Payment rows: HeldSeriesPass comes right after Payment.
         activated_pass_ids = list(
-            HeldSeriesPass.objects.filter(
-                stripe_session_id=session_id, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING
-            ).values_list("id", flat=True)
+            HeldSeriesPass.objects.select_for_update(of=("self",))
+            .filter(stripe_session_id=session_id, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING)
+            .order_by("pk")
+            .values_list("id", flat=True)
         )
         if not activated_pass_ids:
             return
@@ -603,7 +619,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
         payments = list(
             Payment.objects.select_for_update(of=("self",))
             .filter(stripe_payment_intent_id=payment_intent_id)
-            .select_related("ticket", "ticket__tier")
+            .order_by("pk")
         )
 
         if not payments:
@@ -620,6 +636,11 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
                 payment_count=len(payments),
             )
             return
+
+        # Read the tickets in a NEW statement, after the Payment lock is held: a cancel path locks
+        # the Payment but changes only the Ticket, so the locking statement cannot be trusted
+        # for ticket state (READ COMMITTED re-checks only a changed locked row).
+        tickets_by_id = Ticket.objects.select_related("tier").in_bulk(p.ticket_id for p in pending_payments)
 
         raw_response = dict(event)
         canceled_tickets = []
@@ -642,7 +663,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             payment.save(update_fields=["status", "raw_response"])
 
             # Cancel the ticket
-            ticket = payment.ticket
+            ticket = tickets_by_id[payment.ticket_id]
             already_cancelled = ticket.status == Ticket.TicketStatus.CANCELLED
             was_pending = ticket.status == Ticket.TicketStatus.PENDING
             ticket.status = Ticket.TicketStatus.CANCELLED

@@ -9,12 +9,15 @@ Two behaviors under test:
    checked-in and past-event tickets are left untouched.
 """
 
+import re
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -24,6 +27,7 @@ from events.models import (
     HeldSeriesPass,
     Organization,
     Payment,
+    Refund,
     SeriesPass,
     Ticket,
     TicketTier,
@@ -305,6 +309,34 @@ class TestCancelHeldPassOnlinePaid:
         # No refund attempted for the checked-in or past-event ticket's payments.
         assert mock_create.call_count == 2
 
+    def test_ticket_changed_during_stripe_is_left_untouched_and_logged(
+        self, online_pass_setup: _PassSetup, organization_owner_user: RevelUser
+    ) -> None:
+        """A check-in that lands while Stripe refunds one pass ticket: it stays CHECKED_IN, the rest cancel."""
+        changed, other = online_pass_setup.future_tickets
+        changed_tier, other_tier = online_pass_setup.future_tiers
+
+        def refund_and_check_in(**_: t.Any) -> MagicMock:
+            Ticket.objects.filter(pk=changed.pk).update(status=Ticket.TicketStatus.CHECKED_IN)
+            return MagicMock(id="re_x")
+
+        with (
+            patch("stripe.Refund.create", side_effect=refund_and_check_in),
+            patch("events.service.series_pass_service.logger") as log,
+        ):
+            cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user)
+
+        changed.refresh_from_db()
+        other.refresh_from_db()
+        assert changed.status == Ticket.TicketStatus.CHECKED_IN
+        assert other.status == Ticket.TicketStatus.CANCELLED
+        changed_tier.refresh_from_db()
+        other_tier.refresh_from_db()
+        assert changed_tier.quantity_sold == 1
+        assert other_tier.quantity_sold == 0
+        logged = [c for c in log.warning.call_args_list if c.args and c.args[0] == "cancel_rolled_back_after_refund"]
+        assert [c.kwargs["ticket_id"] for c in logged] == [str(changed.pk)]
+
 
 class TestCancelHeldPassCounters:
     def test_cancel_decrements_pass_quantity_sold_and_frees_repurchase(
@@ -456,14 +488,25 @@ class TestCancelPendingOnlinePass:
     ) -> None:
         held_pass, ticket, payment = pending_online_setup
 
+        seen: list[list[str]] = []
+
+        def _spy(*_: t.Any, **__: t.Any) -> None:
+            seen.append(
+                [m.group(1) for q in ctx.captured_queries if (m := re.search(r'FOR UPDATE OF "(\w+)"', q["sql"]))]
+            )
+
         with (
-            patch("stripe.checkout.Session.expire") as mock_expire,
+            CaptureQueriesContext(connection) as ctx,
+            patch("stripe.checkout.Session.expire", side_effect=_spy) as mock_expire,
             patch("stripe.Refund.create") as mock_refund,
         ):
             cancel_held_pass(held_pass, cancelled_by=organization_owner_user)
 
         mock_expire.assert_called_once_with("cs_pending_cancel", stripe_account="acct_org_cancel")
         mock_refund.assert_not_called()
+        # Expired inside the transaction, before the SeriesPass, tier and ticket locks.
+        assert len(seen) == 1
+        assert set(seen[0]) == {"events_payment", "events_heldseriespass"}, seen[0]
 
         held_pass.refresh_from_db()
         assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
@@ -479,14 +522,18 @@ class TestCancelPendingOnlinePass:
         self,
         pending_online_setup: tuple[HeldSeriesPass, Ticket, Payment],
         organization_owner_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         held_pass, _, _ = pending_online_setup
 
         import stripe as stripe_module
 
-        with patch(
-            "stripe.checkout.Session.expire",
-            side_effect=stripe_module.error.InvalidRequestError("already expired", param=None),
+        with (
+            patch(
+                "stripe.checkout.Session.expire",
+                side_effect=stripe_module.error.InvalidRequestError("already expired", param=None),
+            ),
+            django_capture_on_commit_callbacks(execute=True),
         ):
             result = cancel_held_pass(held_pass, cancelled_by=organization_owner_user)
 
@@ -631,3 +678,117 @@ class TestCancelHeldPassNotifications:
             Notification.objects.filter(user=holder, notification_type=NotificationType.SERIES_PASS_CANCELLED).count()
             == 1
         )
+
+
+def test_event_moved_to_the_future_during_refunds_is_not_cancelled_without_refund(
+    online_pass_setup: _PassSetup, organization_owner_user: RevelUser
+) -> None:
+    """An organizer can move a past event into the future while the pass cancel calls Stripe.
+
+    The candidate tickets are fixed before the Payment lock: a ticket outside that set must not be
+    cancelled, because its Payment was never considered for a refund.
+    """
+    past_ticket = online_pass_setup.past_ticket
+    moved = False
+
+    def _refund_and_move_past_event(**_: t.Any) -> MagicMock:
+        nonlocal moved
+        if not moved:
+            Event.objects.filter(pk=past_ticket.event_id).update(start=timezone.now() + timedelta(days=3))
+            moved = True
+        refund = MagicMock()
+        refund.id = "re_moved"
+        return refund
+
+    with patch("stripe.Refund.create", side_effect=_refund_and_move_past_event):
+        cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user, reason="x")
+
+    past_ticket.refresh_from_db()
+    has_refund = Refund.objects.filter(payment__ticket=past_ticket).exists()
+    assert past_ticket.status != Ticket.TicketStatus.CANCELLED or has_refund
+    assert past_ticket.status != Ticket.TicketStatus.CANCELLED
+
+
+def test_ticket_added_while_waiting_on_the_pass_lock_is_cancelled(
+    online_pass_setup: _PassSetup,
+    organization: Organization,
+    event_series: EventSeries,
+    organization_owner_user: RevelUser,
+) -> None:
+    """An extension can commit a free pass ticket after the candidate snapshot, before the pass lock.
+
+    The cancel must still cancel it and give the tier capacity back.
+    """
+    held_pass = online_pass_setup.held_pass
+    new_event = _make_event(organization, event_series, "Late link", "late-link", timezone.now() + timedelta(days=9))
+    new_tier = _make_tier(new_event, "Late Tier")
+    added: list[Ticket] = []
+
+    def _add_ticket_at_payment_lock(execute: t.Any, sql: str, params: t.Any, many: bool, context: t.Any) -> t.Any:
+        if not added and '"events_payment"' in sql and "FOR UPDATE" in sql:
+            added.append(
+                Ticket.objects.create(
+                    event=new_event,
+                    tier=new_tier,
+                    user=held_pass.user,
+                    held_pass=held_pass,
+                    status=Ticket.TicketStatus.ACTIVE,
+                    price_paid=Decimal("0"),
+                )
+            )
+            TicketTier.objects.filter(pk=new_tier.pk).update(quantity_sold=1)
+        return execute(sql, params, many, context)
+
+    with patch("stripe.Refund.create") as refund:
+        refund.return_value.id = "re_late"
+        with connection.execute_wrapper(_add_ticket_at_payment_lock):
+            cancel_held_pass(held_pass, cancelled_by=organization_owner_user, reason="x")
+
+    assert added, "the hook did not run"
+    added[0].refresh_from_db()
+    new_tier.refresh_from_db()
+    assert added[0].status == Ticket.TicketStatus.CANCELLED
+    assert new_tier.quantity_sold == 0
+
+
+def test_paid_ticket_added_while_waiting_on_the_pass_lock_is_left_alone(
+    online_pass_setup: _PassSetup,
+    organization: Organization,
+    event_series: EventSeries,
+    organization_owner_user: RevelUser,
+) -> None:
+    """A ticket with a Payment that appears after the snapshot is not cancelled or refunded here; it is logged."""
+    held_pass = online_pass_setup.held_pass
+    new_event = _make_event(organization, event_series, "Late paid", "late-paid", timezone.now() + timedelta(days=9))
+    new_tier = _make_tier(new_event, "Late Paid Tier")
+    added: list[Ticket] = []
+
+    def _add_paid_ticket_at_payment_lock(execute: t.Any, sql: str, params: t.Any, many: bool, context: t.Any) -> t.Any:
+        if not added and '"events_payment"' in sql and "FOR UPDATE" in sql:
+            ticket = Ticket.objects.create(
+                event=new_event,
+                tier=new_tier,
+                user=held_pass.user,
+                held_pass=held_pass,
+                status=Ticket.TicketStatus.ACTIVE,
+            )
+            added.append(ticket)
+            _make_payment(ticket, Decimal("5.00"))
+        return execute(sql, params, many, context)
+
+    with (
+        patch("stripe.Refund.create") as refund,
+        patch("events.service.series_pass_service.logger") as log,
+    ):
+        refund.return_value.id = "re_late_paid"
+        with connection.execute_wrapper(_add_paid_ticket_at_payment_lock):
+            cancel_held_pass(held_pass, cancelled_by=organization_owner_user, reason="x")
+
+    assert added, "the hook did not run"
+    added[0].refresh_from_db()
+    assert added[0].status == Ticket.TicketStatus.ACTIVE
+    assert not Refund.objects.filter(payment__ticket=added[0]).exists()
+    assert refund.call_count == len(online_pass_setup.future_tickets)
+    log.warning.assert_any_call(
+        "series_pass_cancel_skipped_late_paid_ticket", ticket_id=str(added[0].pk), held_pass_id=str(held_pass.pk)
+    )

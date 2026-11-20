@@ -13,7 +13,7 @@ from uuid import UUID
 import structlog
 from django.contrib.auth.models import AnonymousUser
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, QuerySet
 from django.db.models.deletion import ProtectedError, RestrictedError
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -38,7 +38,13 @@ from events.models import (
 )
 from events.models.ticket import CancellationSource
 from events.schema.series_pass import SeriesPassCreateSchema
-from events.service import day_membership_service, refund_service, series_pass_event_checks, ticket_number_service
+from events.service import (
+    day_membership_service,
+    refund_service,
+    series_pass_event_checks,
+    ticket_number_service,
+    ticket_service,
+)
 from events.service.event_manager import Reasons
 from events.service.vat_service import distribute_amount_across_items
 from events.tasks import build_attendee_visibility_flags, materialize_series_pass_holders
@@ -570,6 +576,43 @@ def _expire_stripe_session(held_pass: HeldSeriesPass) -> None:
         )
 
 
+def _cancel_locked_tickets(tickets: list[Ticket], cancelled_by: RevelUser, reason: str, now: datetime) -> int:
+    """Cancel already-locked pass tickets and release one unit of each tier (floored at zero)."""
+    for ticket in tickets:
+        ticket.status = Ticket.TicketStatus.CANCELLED
+        ticket.cancelled_at = now
+        ticket.cancelled_by = cancelled_by
+        ticket.cancellation_source = CancellationSource.ORGANIZER
+        ticket.cancellation_reason = reason
+        ticket.save(
+            update_fields=[
+                "status",
+                "cancelled_at",
+                "cancelled_by",
+                "cancellation_source",
+                "cancellation_reason",
+            ]
+        )
+        TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(quantity_sold=F("quantity_sold") - 1)
+    return len(tickets)
+
+
+def _late_free_ticket_ids(late: QuerySet[Ticket], held_pass_pk: t.Any) -> list[t.Any]:
+    """Return the ids of ``late`` tickets that have no Payment; log any that have one.
+
+    Only free tickets are expected here: extension and activation backfill create no Payment.
+    A ticket with a Payment is not expected. This call does not cancel or refund it; it logs it
+    for a manual decision, because its Payment was not locked before the pass lock.
+    """
+    rows = list(late.values_list("pk", "payment"))
+    for ticket_id, payment_id in rows:
+        if payment_id is not None:
+            logger.warning(
+                "series_pass_cancel_skipped_late_paid_ticket", ticket_id=str(ticket_id), held_pass_id=str(held_pass_pk)
+            )
+    return [ticket_id for ticket_id, payment_id in rows if payment_id is None]
+
+
 def cancel_held_pass(
     held_pass: HeldSeriesPass,
     cancelled_by: RevelUser,
@@ -578,7 +621,11 @@ def cancel_held_pass(
     """Organizer-initiated cancellation of an entire series pass.
 
     Cancels every future, non-checked-in ticket materialized from ``held_pass``;
-    past-event and checked-in tickets are left untouched. Refunds any
+    past-event and checked-in tickets are left untouched. "Future" is decided when the
+    cancel starts for the tickets it already holds. Free tickets added while it waits on
+    the pass lock are cancelled with the rest. A ticket with a Payment added in that window
+    is not cancelled or refunded; it is logged (``series_pass_cancel_skipped_late_paid_ticket``)
+    for a manual decision. Later steps re-check only the ticket status. Refunds any
     successfully-paid ticket (a pass paid online may be mapped to offline/free
     tiers — the Payment row, not the tier's payment method, is authoritative),
     decrements each cancelled ticket's tier ``quantity_sold`` and the pass's own
@@ -594,7 +641,8 @@ def cancel_held_pass(
     For a PENDING pass with a live Stripe checkout session, the pending Payment
     rows are marked FAILED (so the payment-expiry sweep can't re-release the tier
     capacity this cancellation already freed) and the session is expired at
-    Stripe after commit, so a late buyer payment can't slip through.
+    Stripe before the SeriesPass, tier and ticket locks, so a late buyer payment
+    can't slip through.
 
     Args:
         held_pass: The HeldSeriesPass to cancel.
@@ -618,40 +666,62 @@ def cancel_held_pass(
     now = timezone.now()
     refunded_total = _ZERO
     cancelled_count = 0
+
+    held_pass_pk = held_pass.pk
+
+    def _cancellable_tickets() -> QuerySet[Ticket]:
+        return Ticket.objects.filter(held_pass_id=held_pass_pk, event__start__gt=now).exclude(
+            status__in=[Ticket.TicketStatus.CANCELLED, Ticket.TicketStatus.CHECKED_IN]
+        )
+
     with transaction.atomic():
+        # Decide the candidate tickets before the Payment lock. ``event__start`` can change
+        # meanwhile (no lock covers it), so later steps re-check only the status of these ids:
+        # every ticket this call cancels had its Payment locked and considered for a refund.
+        candidate_ids = list(_cancellable_tickets().values_list("pk", flat=True))
+
+        # Lock order: Payment -> HeldSeriesPass -> SeriesPass -> TicketTier -> Ticket
+        # (docs/engineering-notes.md). Across the Stripe refunds only the Payment rows (pk
+        # order), their new Refund rows and the HeldSeriesPass row are locked. The SeriesPass,
+        # tier and ticket rows are locked after the last Stripe call.
+        payments = list(
+            Payment.objects.select_for_update(of=("self",)).filter(ticket_id__in=candidate_ids).order_by("pk")
+        )
         # Re-read under a row lock and re-check the status: the caller's instance is
         # unlocked, so a concurrent cancel (or expiry route) may have committed
         # CANCELLED after the fast-path check above — cancelling again would
         # double-decrement the pass counter and re-release tier capacity.
         held_pass = (
             HeldSeriesPass.objects.select_for_update(of=("self",))
-            .select_related("series_pass", "user")
-            .get(pk=held_pass.pk)
+            .select_related("series_pass__event_series__organization", "user")
+            .get(pk=held_pass_pk)
         )
         if held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED:
             return held_pass
+        # An extension or activation backfill may have committed tickets while we waited on the
+        # HeldSeriesPass lock. Free ones need no refund, so they join the set; nothing can add more
+        # while we hold the lock. Build the filter only now: ``pk__in`` copies the list when built.
+        candidate_ids += _late_free_ticket_ids(_cancellable_tickets().exclude(pk__in=candidate_ids), held_pass_pk)
+        # Lazy: each use below (values_list, select_related) runs a fresh query on these ids.
+        still_cancellable = Ticket.objects.filter(pk__in=candidate_ids).exclude(
+            status__in=[Ticket.TicketStatus.CANCELLED, Ticket.TicketStatus.CHECKED_IN]
+        )
         was_pending = held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
-        # Pass row first, tier rows after (deadlock discipline — see
-        # SeriesPassPurchaseService.purchase, the only other writer that locks both).
-        held_pass.status = HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
-        held_pass.save(update_fields=["status"])
-        SeriesPass.objects.filter(pk=held_pass.series_pass_id, quantity_sold__gt=0).update(
-            quantity_sold=F("quantity_sold") - 1
-        )
+        if was_pending and held_pass.stripe_session_id:
+            # Only Payment and HeldSeriesPass are locked here, so the Stripe call is allowed.
+            # Expire before the SeriesPass/tier/ticket locks: the buyer must not pay a cancelled pass.
+            _expire_stripe_session(held_pass)
 
-        tickets = (
-            Ticket.objects.filter(held_pass=held_pass, event__start__gt=now)
-            .exclude(status__in=[Ticket.TicketStatus.CANCELLED, Ticket.TicketStatus.CHECKED_IN])
-            .select_related("payment", "tier", "event", "event__organization")
-            .select_for_update(of=("self",))
-        )
-        for ticket in tickets:
-            payment: Payment | None = getattr(ticket, "payment", None)
-            if (
-                payment is not None
-                and payment.status == Payment.PaymentStatus.SUCCEEDED
-                and payment.stripe_payment_intent_id
-            ):
+        # Statuses can still change before the tier/ticket lock (check-in takes no lock).
+        # lock_tier_then_ticket re-reads the set under the row locks, so only tickets that are still
+        # cancellable get cancelled. A ticket checked in after its refund keeps its status and its
+        # refund, and is logged.
+        cancellable_ids = set(still_cancellable.values_list("pk", flat=True))
+        refunded_ticket_ids: set[t.Any] = set()
+        for payment in payments:
+            if payment.ticket_id not in cancellable_ids:
+                continue
+            if payment.status == Payment.PaymentStatus.SUCCEEDED and payment.stripe_payment_intent_id:
                 refund_row = refund_service.issue_refund(
                     payment,
                     amount=None,  # full remaining
@@ -660,34 +730,28 @@ def cancel_held_pass(
                     source=Refund.Source.ORGANIZER_API,
                 )
                 refunded_total += refund_row.amount
-            elif payment is not None and payment.status == Payment.PaymentStatus.PENDING:
+                refunded_ticket_ids.add(payment.ticket_id)
+            elif payment.status == Payment.PaymentStatus.PENDING:
                 # Never-completed checkout: fail the payment so the expiry sweep
                 # (which only processes PENDING payments) can't decrement this
                 # ticket's tier a second time after we release it below.
                 payment.status = Payment.PaymentStatus.FAILED
                 payment.save(update_fields=["status"])
 
-            ticket.status = Ticket.TicketStatus.CANCELLED
-            ticket.cancelled_at = now
-            ticket.cancelled_by = cancelled_by
-            ticket.cancellation_source = CancellationSource.ORGANIZER
-            ticket.cancellation_reason = reason or ""
-            ticket.save(
-                update_fields=[
-                    "status",
-                    "cancelled_at",
-                    "cancelled_by",
-                    "cancellation_source",
-                    "cancellation_reason",
-                ]
-            )
-            TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(
-                quantity_sold=F("quantity_sold") - 1
-            )
-            cancelled_count += 1
+        held_pass.status = HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
+        held_pass.save(update_fields=["status"])
+        # SeriesPass (the UPDATE locks the row), then tier rows, then ticket rows (purchase's order).
+        SeriesPass.objects.filter(pk=held_pass.series_pass_id, quantity_sold__gt=0).update(
+            quantity_sold=F("quantity_sold") - 1
+        )
 
-    if was_pending and held_pass.stripe_session_id:
-        _expire_stripe_session(held_pass)
+        locked_tickets = ticket_service.lock_tier_then_ticket(still_cancellable.select_related("tier", "event"))
+        locked_ids = {ticket.pk for ticket in locked_tickets}
+        for ticket_id in refunded_ticket_ids - locked_ids:
+            # Refunded at Stripe, but the ticket changed meanwhile (e.g. a check-in): leave it as it is.
+            # The ``charge.refunded`` webhook records the refund.
+            logger.warning("cancel_rolled_back_after_refund", ticket_id=str(ticket_id), held_pass_id=str(held_pass.pk))
+        cancelled_count = _cancel_locked_tickets(locked_tickets, cancelled_by, reason or "", now)
 
     # Only reached when this call actually performed the cancellation (both early
     # returns above exit the function first), so a repeat cancel can't double-notify.

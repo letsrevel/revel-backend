@@ -96,7 +96,10 @@ def issue_refund(
     import stripe
     from django.conf import settings
 
-    locked = Payment.objects.select_for_update().select_related("ticket__event__organization").get(pk=payment.pk)
+    # of=("self",): only the Payment is locked across the Stripe call, never Ticket/Event/Organization.
+    locked = (
+        Payment.objects.select_for_update(of=("self",)).select_related("ticket__event__organization").get(pk=payment.pk)
+    )
     # Gate on the Payment row itself, not the ticket's tier: a series pass paid
     # online can be materialized onto an OFFLINE/FREE-tier ticket (the tier
     # governs display/checkout for that event, not how the pass itself was
@@ -445,19 +448,16 @@ def admin_cancel_ticket(
 
     ticket_service._reject_series_pass_ticket(ticket)
     with transaction.atomic():
-        # Canonical lock order (parent row ... Payment -> TicketTier -> Ticket): lock the ticket's
-        # Payment row(s) first, refund or not, then the Ticket row, like the pending-checkout reclaim
-        # routes (cancel_pending_checkout, the expiry sweep, payment_intent.canceled), which lock
-        # Payment rows before touching tickets. That is what serializes them with this cancel: without
-        # it both could release the same PENDING ticket's discount use. Status is read only under
-        # both locks, so ``was_pending`` in the cancel primitive reflects what a reclaim route left behind.
-        payments = list(Payment.objects.select_for_update().filter(ticket_id=ticket.pk))
-        locked_ticket = (
-            Ticket.objects.select_for_update().select_related("tier", "event__organization").get(pk=ticket.pk)
-        )
-        if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
-            raise TicketAlreadyCancelledError
+        # Lock order: Payment -> TicketTier -> Ticket (docs/engineering-notes.md). The Payment
+        # row(s) come first, refund or not, so this cancel serializes with every other path that
+        # changes the ticket (user cancel, webhooks, reclaim routes). Across the Stripe call only
+        # the Payment and its new Refund row are locked; tier and ticket are locked after it.
+        payments = list(Payment.objects.select_for_update(of=("self",)).filter(ticket_id=ticket.pk).order_by("pk"))
+        refund_row: Refund | None = None
         if refund_amount is not None and refund_amount > _ZERO:
+            # Status is stable here: ticket changes need this Payment lock, except check-in.
+            if Ticket.objects.filter(pk=ticket.pk, status=Ticket.TicketStatus.CANCELLED).exists():
+                raise TicketAlreadyCancelledError
             payment = payments[0] if payments else None
             if payment is None:
                 raise NothingToRefundError(str(_("This ticket has no payment to refund.")))
@@ -468,6 +468,15 @@ def admin_cancel_ticket(
                 reason=reason or "",
                 source=Refund.Source.ORGANIZER_API,
             )
+        locked_tickets = ticket_service.lock_tier_then_ticket(
+            Ticket.objects.filter(pk=ticket.pk).select_related("tier", "event__organization")
+        )
+        if not locked_tickets:  # a reclaim deleted the ticket while we waited on the Payment lock
+            raise TicketAlreadyCancelledError
+        locked_ticket = locked_tickets[0]
+        if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
+            raise TicketAlreadyCancelledError
+        if refund_row is not None:
             # Pre-save hints for the TICKET_CANCELLED notification signal handler,
             # same mechanism as cancellation_service._finalize_cancellation — use the
             # persisted Refund row's amount/currency (post-clamp) rather than the raw

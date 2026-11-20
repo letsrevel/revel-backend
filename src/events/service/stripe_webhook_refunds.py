@@ -107,7 +107,7 @@ class TicketRefundHandlersMixin:
         candidates = list(
             Payment.objects.select_for_update(of=("self",))
             .filter(stripe_payment_intent_id=payment_intent_id)
-            .select_related("ticket", "ticket__tier")
+            .order_by("pk")
         )
         if not candidates:
             logger.warning("stripe_refund_unknown_intent", payment_intent_id=payment_intent_id)
