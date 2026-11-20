@@ -389,3 +389,33 @@ def test_reclaim_routes_lock_only_payment_rows_in_pk_order(paid_ticket: Ticket) 
     )
     assert 'FOR UPDATE OF "events_payment"' in payment_lock
     assert 'ORDER BY "events_payment"."id"' in payment_lock
+
+
+def test_user_cancel_blocks_when_a_ticket_without_payment_vanishes_under_the_lock(paid_ticket: Ticket) -> None:
+    """A ticket with no Payment can be deleted by a cascade between the read and the tier/ticket lock."""
+    from events.service.cancellation_service import CancellationBlocked
+
+    Payment.objects.filter(ticket=paid_ticket).delete()
+    with patch("events.service.ticket_service.lock_tier_then_ticket", return_value=[]):
+        with pytest.raises(CancellationBlocked) as exc_info:
+            cancel_ticket_by_user(paid_ticket, paid_ticket.user, reason="", now=timezone.now())
+    assert exc_info.value.reason == CancellationBlockReason.ALREADY_CANCELLED
+
+
+def test_charge_refunded_webhook_locks_payment_rows_without_join(paid_ticket: Ticket) -> None:
+    Payment.objects.filter(ticket=paid_ticket).update(
+        status=Payment.PaymentStatus.SUCCEEDED, stripe_payment_intent_id="pi_refund_lock"
+    )
+    refund = {"id": "re_lock", "amount": 100, "metadata": {}}
+    charge = {"id": "ch_lock", "payment_intent": "pi_refund_lock", "refunds": {"data": [refund]}}
+    payload: dict[str, t.Any] = {"id": "evt_lock", "type": "charge.refunded", "account": None, "livemode": False}
+    payload["data"] = {"object": charge}
+    event = MagicMock(spec=stripe.Event)
+    event.id, event.type, event.account, event.livemode = "evt_lock", "charge.refunded", None, False
+    event.data = MagicMock()
+    event.data.object = charge
+    event.keys.return_value = list(payload.keys())
+    event.__getitem__.side_effect = payload.__getitem__
+    with CaptureQueriesContext(connection) as ctx:
+        StripeEventHandler(event).handle_charge_refunded(event)
+    _assert_payment_lock_of_self_pk_order(ctx.captured_queries)

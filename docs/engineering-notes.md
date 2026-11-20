@@ -304,13 +304,16 @@ Never hold a `TicketTier`, `SeriesPass`, `Event`, `Organization` or `Ticket` row
    release capacity (`quantity_sold__gt=0` and `F() - 1`).
 
 **If step 2 finds the ticket changed** (for example a check-in during the Stripe call), two paths
-handle it: `cancel_ticket_by_user` and `cancel_held_pass`. In both, step 2 rolls back (a
-savepoint), the `Refund` row stays, and the path logs the structlog warning
-`cancel_rolled_back_after_refund`. Do not try to undo the Stripe refund. The `charge.refunded`
-webhook later records the refund as refunded-not-cancelled. Series-pass cancel leaves such a
-ticket as it is and continues with the other tickets. If step 2 raises another error, the
-whole transaction rolls back (and the warning is logged). A retry then replays the same
-idempotency key.
+handle it, in different ways. Do not try to undo the Stripe refund in either: the
+`charge.refunded` webhook later records it as refunded-not-cancelled.
+
+- `cancel_ticket_by_user`: step 2 runs in a savepoint. On a changed ticket the savepoint rolls
+  back, the `Refund` row stays, and the path logs the structlog warning
+  `cancel_rolled_back_after_refund`. On any other error in step 2 it logs the same warning and
+  re-raises, so the whole transaction rolls back. A retry replays the same idempotency key.
+- `cancel_held_pass`: no savepoint. A ticket that changed during the Stripe call is left as it
+  is, the warning is logged, and the other tickets still cancel. Any other error rolls back the
+  whole transaction, with no log.
 
 `admin_cancel_ticket` holds the Payment lock throughout. The ticket cannot change under it after
 the refund, because every writer that sets a ticket to CANCELLED takes the Payment lock first.

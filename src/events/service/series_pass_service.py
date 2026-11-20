@@ -662,7 +662,6 @@ def cancel_held_pass(
         payments = list(
             Payment.objects.select_for_update(of=("self",))
             .filter(ticket_id__in=_cancellable_tickets().values("pk"))
-            .select_related("ticket__event__organization")
             .order_by("pk")
         )
         # Re-read under a row lock and re-check the status: the caller's instance is

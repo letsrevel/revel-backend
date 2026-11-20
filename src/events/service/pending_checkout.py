@@ -406,8 +406,8 @@ def cancel_pending_checkout(
 
     # Already-sessioned batch: best-effort expire the Stripe session after commit,
     # so the buyer's still-open checkout URL can't be paid once the Payment rows
-    # (the webhook's reconciliation target) are deleted below (#632). on_commit
-    # keeps the network call outside the select_for_update window.
+    # (the webhook's reconciliation target) are deleted below (#632). It is the first
+    # on_commit callback on this path, so an earlier failing callback cannot skip it.
     session_ids = sorted({p.stripe_session_id for p in batch_payments if p.stripe_session_id})
     if session_ids:
         first_ticket = Ticket.objects.filter(id__in=ticket_ids).select_related("event__organization").first()

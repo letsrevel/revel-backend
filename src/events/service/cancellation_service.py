@@ -403,6 +403,8 @@ def cancel_ticket_by_user(
                 locked_tickets = ticket_service.lock_tier_then_ticket(
                     Ticket.objects.filter(pk=ticket.pk).select_related("tier", "event__organization")
                 )
+                if not locked_tickets:  # a ticket with no Payment can be deleted by a cascade meanwhile
+                    raise CancellationBlocked(CancellationBlockReason.ALREADY_CANCELLED)
                 locked_ticket = locked_tickets[0]
                 _raise_if_not_cancellable(locked_ticket)
                 _finalize_cancellation(locked_ticket, user, reason, now, actual_refund_amount, quote.currency)
