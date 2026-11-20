@@ -7,6 +7,7 @@ import typing as t
 from uuid import UUID
 
 import structlog
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext as _
@@ -14,7 +15,7 @@ from django.utils.translation import gettext as _
 from events.models import Event, Organization, TicketTier
 from integrations import registry
 from integrations.enums import IntegrationErrorCode
-from integrations.exceptions import IntegrationError, ProviderError, RetryableProviderError
+from integrations.exceptions import BudgetDeferredError, IntegrationError, ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, TierLink
 from integrations.providers.base import ListingProvider, RemoteEventRef
 from integrations.schema import (
@@ -126,6 +127,18 @@ def _break_link(
         )
     )
     return _write_report(link, entries, EventLink.SyncState.BROKEN)
+
+
+def raise_if_budget_low(provider: ListingProvider, provider_key: str) -> None:
+    """Raise ``BudgetDeferredError`` below the shared budget reserve (the one definition of that gate).
+
+    Webhook-driven work spends the instance-wide provider budget, so it honours the same
+    ``INTEGRATIONS_RATE_RESERVE`` as the reconcile sweep. An unknown budget (``None``) proceeds.
+    """
+    remaining = provider.remaining_budget()
+    if remaining is not None and remaining < settings.INTEGRATIONS_RATE_RESERVE:
+        logger.warning("integration_budget_low", provider=provider_key, remaining=remaining)
+        raise BudgetDeferredError(IntegrationErrorCode.PROVIDER_RATE_LIMITED, "Provider rate budget is low.")
 
 
 def refresh_counts(link: EventLink) -> bool:

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from accounts.models import RevelUser
-from events.models import Event, EventInvitationRequest, EventWaitList, Organization, WhitelistRequest
+from events.models import Blacklist, Event, EventInvitationRequest, EventWaitList, Organization, WhitelistRequest
 from events.service.event_manager import EventUserEligibility, NextStep, UserIsIneligibleError
 from events.suppression import suppress_event_notifications
 from telegram.models import TelegramUser
@@ -43,6 +43,16 @@ async def _make_event_visible(event: Event, *, waitlist_open: bool) -> None:
         await event.asave(update_fields=["visibility", "status", "waitlist_open"])
 
 
+async def _make_org_visible(organization: Organization) -> None:
+    """Make the organization publicly visible so a plain user can resolve it."""
+    organization.visibility = Organization.Visibility.PUBLIC
+    await organization.asave(update_fields=["visibility"])
+
+
+async def _blacklist(organization: Organization, user: RevelUser) -> None:
+    await Blacklist.objects.acreate(organization=organization, user=user, created_by_id=organization.owner_id)
+
+
 # ── cb_handle_rsvp ──────────────────────────────────────────────────
 
 
@@ -55,6 +65,7 @@ class TestHandleRsvp:
         private_event: Event,
     ) -> None:
         tg_user = await _get_tg_user(django_user)
+        await _make_event_visible(private_event, waitlist_open=False)
         mock_callback_query.data = f"rsvp:{private_event.id}:yes"
 
         with patch("telegram.routers.events.get_ticket_handler", new_callable=AsyncMock) as mock_get_handler:
@@ -77,6 +88,7 @@ class TestHandleRsvp:
         private_event: Event,
     ) -> None:
         tg_user = await _get_tg_user(django_user)
+        await _make_event_visible(private_event, waitlist_open=False)
         mock_callback_query.data = f"rsvp:{private_event.id}:no"
 
         with patch("telegram.routers.events.get_ticket_handler", new_callable=AsyncMock) as mock_get_handler:
@@ -97,6 +109,7 @@ class TestHandleRsvp:
         private_event: Event,
     ) -> None:
         tg_user = await _get_tg_user(django_user)
+        await _make_event_visible(private_event, waitlist_open=False)
         mock_callback_query.data = f"rsvp:{private_event.id}:maybe"
 
         with patch("telegram.routers.events.get_ticket_handler", new_callable=AsyncMock) as mock_get_handler:
@@ -118,6 +131,7 @@ class TestHandleRsvp:
     ) -> None:
         """When user is ineligible with JOIN_WAITLIST next step, show waitlist keyboard."""
         tg_user = await _get_tg_user(django_user)
+        await _make_event_visible(private_event, waitlist_open=False)
         mock_callback_query.data = f"rsvp:{private_event.id}:yes"
 
         eligibility = EventUserEligibility(
@@ -154,6 +168,7 @@ class TestHandleRsvp:
     ) -> None:
         """When user is ineligible with a non-waitlist reason, show generic error."""
         tg_user = await _get_tg_user(django_user)
+        await _make_event_visible(private_event, waitlist_open=False)
         mock_callback_query.data = f"rsvp:{private_event.id}:yes"
 
         eligibility = EventUserEligibility(
@@ -176,6 +191,25 @@ class TestHandleRsvp:
         assert "You must be a member" in text
         mock_callback_query.answer.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_rsvp_invisible_event(
+        self,
+        mock_callback_query: AsyncMock,
+        django_user: RevelUser,
+        private_event: Event,
+    ) -> None:
+        """An event the user cannot see is not resolved and the RSVP handler never runs."""
+        tg_user = await _get_tg_user(django_user)
+        mock_callback_query.data = f"rsvp:{private_event.id}:yes"
+
+        with patch("telegram.routers.events.get_ticket_handler", new_callable=AsyncMock) as mock_get_handler:
+            await cb_handle_rsvp(mock_callback_query, user=django_user, tg_user=tg_user)
+
+        mock_get_handler.assert_not_awaited()
+        text = mock_callback_query.message.answer.call_args.args[0]
+        assert "not available" in text.lower()
+        mock_callback_query.answer.assert_awaited_once()
+
 
 # ── cb_handle_request_invitation ─────────────────────────────────────
 
@@ -189,6 +223,7 @@ class TestHandleRequestInvitation:
         private_event: Event,
     ) -> None:
         tg_user = await _get_tg_user(django_user)
+        await _make_event_visible(private_event, waitlist_open=False)
         mock_callback_query.data = f"request_invitation:{private_event.id}"
 
         with patch("telegram.routers.events.event_service") as mock_svc:
@@ -211,6 +246,7 @@ class TestHandleRequestInvitation:
         private_event.name = '<a href="https://example.com">x</a>'
         await private_event.asave(update_fields=["name"])
         tg_user = await _get_tg_user(django_user)
+        await _make_event_visible(private_event, waitlist_open=False)
         mock_callback_query.data = f"request_invitation:{private_event.id}"
 
         with patch("telegram.routers.events.event_service") as mock_svc:
@@ -230,6 +266,7 @@ class TestHandleRequestInvitation:
         private_event: Event,
     ) -> None:
         tg_user = await _get_tg_user(django_user)
+        await _make_event_visible(private_event, waitlist_open=False)
         mock_callback_query.data = f"request_invitation:{private_event.id}"
 
         with patch("telegram.routers.events.event_service") as mock_svc:
@@ -239,6 +276,60 @@ class TestHandleRequestInvitation:
 
         text = mock_callback_query.message.answer.call_args.args[0]
         assert "something went wrong" in text.lower()
+
+    @pytest.mark.asyncio
+    async def test_invisible_event(
+        self,
+        mock_callback_query: AsyncMock,
+        django_user: RevelUser,
+        private_event: Event,
+    ) -> None:
+        """An event the user cannot see yields no invitation request."""
+        tg_user = await _get_tg_user(django_user)
+        mock_callback_query.data = f"request_invitation:{private_event.id}"
+
+        await cb_handle_request_invitation(mock_callback_query, user=django_user, tg_user=tg_user)
+
+        text = mock_callback_query.message.answer.call_args.args[0]
+        assert "not available" in text.lower()
+        assert not await EventInvitationRequest.objects.filter(event=private_event, user=django_user).aexists()
+        mock_callback_query.answer.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_blacklisted_user_cannot_act_on_a_public_event(
+        self,
+        mock_callback_query: AsyncMock,
+        django_user: RevelUser,
+        private_event: Event,
+    ) -> None:
+        """Visible to everyone else, but the organization blacklisted this account: nothing is created."""
+        tg_user = await _get_tg_user(django_user)
+        await _make_event_visible(private_event, waitlist_open=False)
+        await _blacklist(private_event.organization, django_user)
+        mock_callback_query.data = f"request_invitation:{private_event.id}"
+
+        await cb_handle_request_invitation(mock_callback_query, user=django_user, tg_user=tg_user)
+
+        assert "not available" in mock_callback_query.message.answer.call_args.args[0].lower()
+        assert not await EventInvitationRequest.objects.filter(event=private_event, user=django_user).aexists()
+
+    @pytest.mark.asyncio
+    async def test_blacklisted_user_cannot_rsvp(
+        self,
+        mock_callback_query: AsyncMock,
+        django_user: RevelUser,
+        private_event: Event,
+    ) -> None:
+        tg_user = await _get_tg_user(django_user)
+        await _make_event_visible(private_event, waitlist_open=False)
+        await _blacklist(private_event.organization, django_user)
+        mock_callback_query.data = f"rsvp:{private_event.id}:yes"
+
+        with patch("telegram.routers.events.get_ticket_handler", new_callable=AsyncMock) as mock_get_handler:
+            await cb_handle_rsvp(mock_callback_query, user=django_user, tg_user=tg_user)
+
+        mock_get_handler.assert_not_awaited()
+        assert "not available" in mock_callback_query.message.answer.call_args.args[0].lower()
 
 
 # ── cb_handle_become_member ──────────────────────────────────────────
@@ -253,6 +344,7 @@ class TestHandleBecomeMember:
         organization: Organization,
     ) -> None:
         tg_user = await _get_tg_user(django_user)
+        await _make_org_visible(organization)
         mock_callback_query.data = f"become_member:{organization.id}"
 
         with patch("telegram.routers.events.organization_service") as mock_svc:
@@ -272,6 +364,7 @@ class TestHandleBecomeMember:
         organization: Organization,
     ) -> None:
         tg_user = await _get_tg_user(django_user)
+        await _make_org_visible(organization)
         mock_callback_query.data = f"become_member:{organization.id}"
 
         with patch("telegram.routers.events.organization_service") as mock_svc:
@@ -281,6 +374,43 @@ class TestHandleBecomeMember:
 
         text = mock_callback_query.message.answer.call_args.args[0]
         assert "something went wrong" in text.lower()
+
+    @pytest.mark.asyncio
+    async def test_invisible_organization(
+        self,
+        mock_callback_query: AsyncMock,
+        django_user: RevelUser,
+        organization: Organization,
+    ) -> None:
+        """An organization the user cannot see yields no membership request."""
+        tg_user = await _get_tg_user(django_user)
+        mock_callback_query.data = f"become_member:{organization.id}"
+
+        with patch("telegram.routers.events.organization_service") as mock_svc:
+            await cb_handle_become_member(mock_callback_query, user=django_user, tg_user=tg_user)
+
+        mock_svc.create_membership_request.assert_not_called()
+        text = mock_callback_query.message.answer.call_args.args[0]
+        assert "not available" in text.lower()
+        mock_callback_query.answer.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_blacklisted_user_cannot_request_membership(
+        self,
+        mock_callback_query: AsyncMock,
+        django_user: RevelUser,
+        organization: Organization,
+    ) -> None:
+        tg_user = await _get_tg_user(django_user)
+        await _make_org_visible(organization)
+        await _blacklist(organization, django_user)
+        mock_callback_query.data = f"become_member:{organization.id}"
+
+        with patch("telegram.routers.events.organization_service") as mock_svc:
+            await cb_handle_become_member(mock_callback_query, user=django_user, tg_user=tg_user)
+
+        mock_svc.create_membership_request.assert_not_called()
+        assert "not available" in mock_callback_query.message.answer.call_args.args[0].lower()
 
 
 # ── cb_handle_join_waitlist ──────────────────────────────────────────

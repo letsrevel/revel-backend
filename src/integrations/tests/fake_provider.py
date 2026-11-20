@@ -109,6 +109,15 @@ class FakeProvider:
             return ResolvedNotification(remote_event_id=event_id, kind=kind)
         return ResolvedNotification(remote_event_id=None, kind="ignored")
 
+    def resolves_remotely(self, notification: WebhookNotification) -> bool:
+        """Mirror the real provider: only an order path costs a fetch."""
+        kind = notification.raw.get("kind") or _KIND_BY_ACTION.get(notification.action, "ignored")
+        return (
+            kind != "ignored"
+            and not _EVENT_PATH.match(notification.resource_path)
+            and bool(_ORDER_PATH.match(notification.resource_path))
+        )
+
     def remaining_budget(self) -> int | None:
         """Return the configured budget (None = unknown)."""
         return self.budget

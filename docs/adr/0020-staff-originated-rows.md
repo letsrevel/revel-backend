@@ -29,7 +29,9 @@ standing come only from acts of the account holder.
   membership inherits its ticket's origin and counts only while its ticket is attending (a cancelled
   ticket's record confers nothing), and a register entry linked by a staff merge does not count.
   Box-office tickets, staff RSVPs, event invitations and waitlist offers do not count. Only
-  attending tickets (active or checked in) count, so a pending checkout confers nothing. A
+  attending tickets (active or checked in) count, plus a pending ticket from a registered (non-guest)
+  account's own checkout, such as an offline payment awaiting confirmation; a guest account's pending
+  ticket confers nothing (#1430). A
   blacklist entry never creates an access row for a non-member: it flips an existing member's row to
   banned and leaves everyone else without one. The race with a membership granted concurrently is closed
   from both sides after commit: applying an entry bans the account's rows once more on commit, and every

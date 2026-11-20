@@ -1,6 +1,7 @@
 """Deliveries are dispatched on commit; kinds route to counts or the status matrix; unknown → ignored."""
 
 import typing as t
+from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
 
@@ -9,6 +10,7 @@ import pytest
 from django.core.cache import cache
 from django.test.client import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from events.models import Event, TicketTier
 from integrations import tasks
@@ -246,3 +248,139 @@ def test_exhausted_retries_mark_the_delivery_failed(
 
     d.refresh_from_db()
     assert d.outcome == WebhookDelivery.Outcome.FAILED
+
+
+def test_low_shared_budget_defers_delivery_without_resolving(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider, settings: t.Any
+) -> None:
+    """Below the reserve the delivery waits for a Celery retry instead of spending the shared budget."""
+    settings.INTEGRATIONS_RATE_RESERVE = 200
+    fake_provider.budget = 150
+    d = _deliver(connected, "order.placed", "/orders/ord-1/")
+    before = [c for c in fake_provider.calls if c[0] == "resolve_notification"]
+    with pytest.raises(RetryableProviderError) as exc_info:
+        webhook_service.handle_delivery(d.id)
+    assert exc_info.value.code == IntegrationErrorCode.PROVIDER_RATE_LIMITED
+    assert [c for c in fake_provider.calls if c[0] == "resolve_notification"] == before
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.RECEIVED
+
+
+@pytest.mark.parametrize(("action", "target"), [("event.unpublished", "draft"), ("event.published", "live")])
+def test_low_budget_does_not_defer_status_deliveries(
+    connected: PlatformConnection,
+    pushed: EventLink,
+    fake_provider: FakeProvider,
+    settings: t.Any,
+    action: str,
+    target: str,
+) -> None:
+    """Status deliveries make no provider call, so they apply at once: a deferred one could overwrite a newer status."""
+    _low_budget(fake_provider, settings)
+    pushed.remote_status = "live" if target == "draft" else "draft"
+    pushed.save(update_fields=["remote_status"])
+    d = _deliver(connected, action, f"/events/{pushed.remote_id}/")
+    webhook_service.handle_delivery(d.id)
+    d.refresh_from_db()
+    pushed.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.PROCESSED
+    assert pushed.remote_status == target
+    assert [c for c in fake_provider.calls if c[0] == "get_event"] == []
+
+
+def test_unknown_budget_still_resolves_delivery(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider, settings: t.Any
+) -> None:
+    settings.INTEGRATIONS_RATE_RESERVE = 200
+    fake_provider.budget = None
+    d = _deliver(connected, "order.placed", f"/events/{pushed.remote_id}/")
+    webhook_service.handle_delivery(d.id)
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.PROCESSED
+
+
+def _low_budget(fake_provider: FakeProvider, settings: t.Any) -> None:
+    settings.INTEGRATIONS_RATE_RESERVE = 200
+    fake_provider.budget = 150
+
+
+def test_budget_defer_reschedules_without_consuming_retries(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider, settings: t.Any
+) -> None:
+    """A budget defer delays the delivery on its own countdown, even past WEBHOOK_MAX_RETRIES."""
+    _low_budget(fake_provider, settings)
+    d = _deliver(connected, "order.placed", "/orders/ord-1/")
+    with mock.patch.object(tasks.handle_webhook_delivery, "apply_async") as apply_async:
+        tasks.handle_webhook_delivery.apply(args=(str(d.id),), retries=tasks.WEBHOOK_MAX_RETRIES + 2)
+    apply_async.assert_called_once_with(args=(str(d.id),), countdown=tasks.WEBHOOK_BUDGET_DEFER_COUNTDOWN_SECONDS)
+    assert tasks.WEBHOOK_BUDGET_DEFER_COUNTDOWN_SECONDS == 15 * 60
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.RECEIVED
+
+
+def test_budget_defer_gives_up_once_the_delivery_is_too_old(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider, settings: t.Any
+) -> None:
+    _low_budget(fake_provider, settings)
+    d = _deliver(connected, "order.placed", "/orders/ord-1/")
+    WebhookDelivery.objects.filter(id=d.id).update(
+        created_at=timezone.now() - tasks.WEBHOOK_BUDGET_DEFER_MAX_AGE - timedelta(minutes=1)
+    )
+    with mock.patch.object(tasks.handle_webhook_delivery, "apply_async") as apply_async:
+        tasks.handle_webhook_delivery.apply(args=(str(d.id),))
+    apply_async.assert_not_called()
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.FAILED
+
+
+def test_redelivered_task_skips_a_finished_delivery(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider
+) -> None:
+    """A redelivered message (acks_late) must not resolve a delivery that is already finished."""
+    d = _deliver(connected, "order.placed", f"/events/{pushed.remote_id}/")
+    WebhookDelivery.objects.filter(id=d.id).update(outcome=WebhookDelivery.Outcome.PROCESSED)
+    before = len(fake_provider.calls)
+    tasks.handle_webhook_delivery.apply(args=(str(d.id),), throw=True)
+    assert len(fake_provider.calls) == before
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.PROCESSED
+
+
+def test_budget_lookup_failure_fails_the_delivery(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider
+) -> None:
+    """A broken budget read must not leave the row RECEIVED forever."""
+    d = _deliver(connected, "order.placed", f"/events/{pushed.remote_id}/")
+    with (
+        mock.patch.object(fake_provider, "remaining_budget", side_effect=RuntimeError("cache down")),
+        pytest.raises(RuntimeError),
+    ):
+        webhook_service.handle_delivery(d.id)
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.FAILED
+
+
+def test_trailing_counts_refresh_respects_the_budget_reserve(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider, settings: t.Any
+) -> None:
+    _low_budget(fake_provider, settings)
+    before = [c for c in fake_provider.calls if c[0] == "get_event"]
+    # No provider call and no retry: the reconcile sweep restores counts once the budget recovers.
+    tasks.refresh_link_counts.apply(args=(str(pushed.id),), throw=True)
+    assert [c for c in fake_provider.calls if c[0] == "get_event"] == before
+
+
+def test_immediate_counts_refresh_respects_the_budget_reserve_on_the_event_path(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider, settings: t.Any
+) -> None:
+    """An event-path order notification makes no resolving call, so only the refresh itself can overspend."""
+    _low_budget(fake_provider, settings)
+    d = _deliver(connected, "order.updated", f"/events/{pushed.remote_id}/")
+    before = [c for c in fake_provider.calls if c[0] == "get_event"]
+    with mock.patch.object(tasks.refresh_link_counts, "apply_async") as apply_async:
+        webhook_service.handle_delivery(d.id)
+    assert [c for c in fake_provider.calls if c[0] == "get_event"] == before
+    apply_async.assert_not_called()  # the reconcile sweep owns recovery
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.PROCESSED
+    assert cache.get(sync_service.counts_debounce_key(pushed.id)) is None

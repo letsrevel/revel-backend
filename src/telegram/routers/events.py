@@ -46,7 +46,14 @@ async def cb_handle_rsvp(callback: CallbackQuery, user: RevelUser, tg_user: Tele
 
     _, event_id_str, status = callback.data.split(":")
     event_id = uuid.UUID(event_id_str)
-    event = await Event.objects.aget(id=event_id)
+    # Resolve within the user's visibility scope (see cb_handle_join_waitlist). include_past
+    # keeps RSVPs to events that already started working as before.
+    try:
+        event = await sync_to_async(lambda: Event.objects.for_user(user, include_past=True).get(id=event_id))()
+    except Event.DoesNotExist:
+        await callback.message.answer("❌ This event is not available.", parse_mode="HTML")
+        await callback.answer()
+        return
 
     handler = await get_ticket_handler(user, event)
 
@@ -106,7 +113,14 @@ async def cb_handle_request_invitation(callback: CallbackQuery, user: RevelUser,
     assert isinstance(callback.message, Message)
     _, event_id_str = callback.data.split(":")
     event_id = uuid.UUID(event_id_str)
-    event = await Event.objects.select_related("organization").aget(id=event_id)
+    try:
+        event = await sync_to_async(
+            lambda: Event.objects.for_user(user, include_past=True).select_related("organization").get(id=event_id)
+        )()
+    except Event.DoesNotExist:
+        await callback.message.answer("❌ This event is not available.", parse_mode="HTML")
+        await callback.answer()
+        return
 
     try:
         await sync_to_async(event_service.create_invitation_request)(event=event, user=user, message=None)
@@ -130,7 +144,13 @@ async def cb_handle_become_member(callback: CallbackQuery, user: RevelUser, tg_u
     org_id = uuid.UUID(org_id_str)
 
     try:
-        organization = await Organization.objects.aget(id=org_id)
+        organization = await sync_to_async(lambda: Organization.objects.for_user(user).get(id=org_id))()
+    except Organization.DoesNotExist:
+        await callback.message.answer("❌ This organization is not available.", parse_mode="HTML")
+        await callback.answer()
+        return
+
+    try:
         await sync_to_async(organization_service.create_membership_request)(
             organization=organization, user=user, message=None
         )

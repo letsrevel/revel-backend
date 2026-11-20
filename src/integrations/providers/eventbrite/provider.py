@@ -165,6 +165,14 @@ class EventbriteProvider:
             return ResolvedNotification(remote_event_id=self._shape(lambda: str(body["event_id"])), kind=kind)
         return ResolvedNotification(remote_event_id=None, kind="ignored")
 
+    def resolves_remotely(self, notification: WebhookNotification) -> bool:
+        """True only for a recognised action on an order path: the one case that fetches the order."""
+        return (
+            _KIND_BY_ACTION.get(notification.action, "ignored") != "ignored"
+            and not _EVENT_PATH.match(notification.resource_path)
+            and bool(_ORDER_PATH.match(notification.resource_path))
+        )
+
     def remaining_budget(self) -> int | None:
         """Remaining calls in the shared app-key bucket, as last reported by the API (None = unknown)."""
         value = cache.get(BUDGET_CACHE_KEY)

@@ -369,6 +369,32 @@ def test_event_token_grants_visibility_via_header(client: Client, private_event:
     assert data["id"] == str(private_event.pk)
 
 
+def test_event_token_does_not_expose_draft_event_to_anonymous(client: Client, private_event: Event) -> None:
+    """A token never unlocks an event that is still a draft, even for anonymous visitors."""
+    token = event_service.create_event_token(event=private_event, issuer=private_event.organization.owner)
+    private_event.status = Event.EventStatus.DRAFT
+    private_event.save(update_fields=["status"])
+
+    url = reverse("api:get_event", kwargs={"event_id": private_event.pk})
+    response = client.get(url, HTTP_X_EVENT_TOKEN=token.id)
+
+    assert response.status_code == 404
+
+
+def test_event_token_does_not_expose_draft_event_to_logged_in_non_staff(
+    nonmember_client: Client, private_event: Event
+) -> None:
+    """Same for a logged-in user without a staff role in the organization."""
+    token = event_service.create_event_token(event=private_event, issuer=private_event.organization.owner)
+    private_event.status = Event.EventStatus.DRAFT
+    private_event.save(update_fields=["status"])
+
+    url = reverse("api:get_event", kwargs={"event_id": private_event.pk})
+    response = nonmember_client.get(url, HTTP_X_EVENT_TOKEN=token.id)
+
+    assert response.status_code == 404
+
+
 def test_organization_token_grants_visibility_via_header(client: Client, organization_owner_user: RevelUser) -> None:
     """Test that X-Org-Token header grants visibility to private organizations."""
     # Arrange - create a private organization

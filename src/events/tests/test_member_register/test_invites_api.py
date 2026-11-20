@@ -6,10 +6,11 @@ each test in a rolled-back transaction); the email task is mocked at ``.delay`` 
 
 import typing as t
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 from django.core import mail
+from django.core.cache import cache
 from django.db import connection
 from django.test.client import Client
 from django.test.utils import CaptureQueriesContext
@@ -19,13 +20,14 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import Blacklist, MembershipRecord, Organization, OrganizationMember
+from events.service import member_register_linking as linking
 from events.tasks import send_member_register_invite
 
 from .conftest import RecordFactory, make_client
 
 pytestmark = pytest.mark.django_db
 
-DELAY = "events.tasks.member_register.send_member_register_invite.delay"
+APPLY_ASYNC = "events.tasks.member_register.send_member_register_invite.apply_async"
 
 
 def _invite_url(organization: Organization, record: MembershipRecord) -> str:
@@ -44,6 +46,11 @@ def _claim(client: Client, token: str) -> t.Any:
     return client.post(reverse("api:claim_member_register_invite", kwargs={"token": token}))
 
 
+def _patch_email(client: Client, organization: Organization, record: MembershipRecord, email: str) -> None:
+    url = reverse("api:update_member_register_record", kwargs={"slug": organization.slug, "record_id": record.pk})
+    assert client.patch(url, {"email": email}, content_type="application/json").status_code == 200
+
+
 class TestSendInvite:
     def test_merged_record_cannot_be_invited(
         self, owner_client: Client, organization: Organization, make_record: RecordFactory
@@ -51,7 +58,7 @@ class TestSendInvite:
         survivor = make_record(email="survivor@example.com")
         absorbed = make_record(merged_into=survivor)
 
-        with patch(DELAY) as delay:
+        with patch(APPLY_ASYNC) as delay:
             response = owner_client.post(_invite_url(organization, absorbed))
 
         assert response.status_code == 400
@@ -68,7 +75,7 @@ class TestSendInvite:
     ) -> None:
         record = make_record()
 
-        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 200, response.content
@@ -77,7 +84,10 @@ class TestSendInvite:
         assert "invite_token" not in body
         record.refresh_from_db()
         assert record.invite_token and record.invited_at is not None
-        delay.assert_called_once_with(str(record.pk))
+        # One positional arg (an old worker's signature) with the marker in a message header.
+        delay.assert_called_once_with(
+            args=(str(record.pk),), headers={"invite_marker": linking.invite_marker(record.invite_token)}
+        )
 
     def test_resend_rotates_token(
         self,
@@ -87,12 +97,13 @@ class TestSendInvite:
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         record = make_record()
-        with patch(DELAY), django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC), django_capture_on_commit_callbacks(execute=True):
             owner_client.post(_invite_url(organization, record))
         record.refresh_from_db()
         old = t.cast(str, record.invite_token)
+        cache.clear()  # the resend interval has passed
 
-        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
             assert owner_client.post(_invite_url(organization, record)).status_code == 200
 
         record.refresh_from_db()
@@ -121,7 +132,7 @@ class TestSendInvite:
     ) -> None:
         record = make_record(kind=MembershipRecord.Kind.TEMPORARY)
 
-        with patch(DELAY) as delay:
+        with patch(APPLY_ASYNC) as delay:
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 400
@@ -136,7 +147,7 @@ class TestSendInvite:
             valid_from=timezone.now() - timedelta(days=3), valid_until=timezone.now() - timedelta(days=1)
         )
 
-        with patch(DELAY) as delay:
+        with patch(APPLY_ASYNC) as delay:
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 400
@@ -153,13 +164,13 @@ class TestSendInvite:
     ) -> None:
         record = make_record()
 
-        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 200
         record.refresh_from_db()
         assert record.invite_token is not None
-        delay.assert_called_once_with(str(record.pk))
+        delay.assert_called_once_with(args=(str(record.pk),), headers=ANY)
 
     def test_resend_to_invited_open_entry_still_works(
         self,
@@ -168,15 +179,104 @@ class TestSendInvite:
         make_record: RecordFactory,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        record = make_record(invited_at=timezone.now(), invite_token="old-token")
+        record = make_record(invited_at=timezone.now() - timedelta(hours=2), invite_token="old-token")
 
-        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 200
         record.refresh_from_db()
         assert record.invite_token != "old-token"
-        delay.assert_called_once_with(str(record.pk))
+        delay.assert_called_once_with(args=(str(record.pk),), headers=ANY)
+
+    def test_resend_within_cooldown_is_400(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """A second invite right after the first is refused: token unchanged, one dispatch in total."""
+        record = make_record()
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
+            assert owner_client.post(_invite_url(organization, record)).status_code == 200
+            record.refresh_from_db()
+            first_token = record.invite_token
+
+            response = owner_client.post(_invite_url(organization, record))
+
+        assert response.status_code == 400
+        assert "sent recently" in response.json()["detail"]
+        record.refresh_from_db()
+        assert record.invite_token == first_token
+        delay.assert_called_once_with(args=(str(record.pk),), headers=ANY)
+
+    def test_resend_after_email_change_to_a_new_address_is_allowed(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """The interval is per address: correcting the email lets the new address be invited at once."""
+        record = make_record(email="a@example.com")
+        with patch(APPLY_ASYNC), django_capture_on_commit_callbacks(execute=True):
+            assert owner_client.post(_invite_url(organization, record)).status_code == 200
+        _patch_email(owner_client, organization, record, "b@example.com")
+
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
+            response = owner_client.post(_invite_url(organization, record))
+
+        assert response.status_code == 200, response.content
+        delay.assert_called_once_with(args=(str(record.pk),), headers=ANY)
+
+    def test_email_changed_back_to_a_recent_address_is_still_refused(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """A -> B -> A does not reset the interval for A."""
+        record = make_record(email="a@example.com")
+        with patch(APPLY_ASYNC), django_capture_on_commit_callbacks(execute=True):
+            assert owner_client.post(_invite_url(organization, record)).status_code == 200
+        _patch_email(owner_client, organization, record, "b@example.com")
+        _patch_email(owner_client, organization, record, "A@Example.com")
+
+        with patch(APPLY_ASYNC) as delay:
+            response = owner_client.post(_invite_url(organization, record))
+
+        assert response.status_code == 400
+        delay.assert_not_called()
+
+    def test_two_records_with_the_same_address_share_the_interval(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        first = make_record(email="same@example.com")
+        second = make_record(email="Same@Example.com")
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
+            assert owner_client.post(_invite_url(organization, first)).status_code == 200
+            assert owner_client.post(_invite_url(organization, second)).status_code == 400
+        delay.assert_called_once_with(args=(str(first.pk),), headers=ANY)
+
+    def test_resend_after_the_interval_is_allowed(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        record = make_record()
+        with patch(APPLY_ASYNC), django_capture_on_commit_callbacks(execute=True):
+            assert owner_client.post(_invite_url(organization, record)).status_code == 200
+        cache.clear()
+        with patch(APPLY_ASYNC), django_capture_on_commit_callbacks(execute=True):
+            assert owner_client.post(_invite_url(organization, record)).status_code == 200
 
     def test_permissions(
         self,
@@ -187,7 +287,7 @@ class TestSendInvite:
     ) -> None:
         record = make_record()
         url = _invite_url(organization, record)
-        with patch(DELAY):
+        with patch(APPLY_ASYNC):
             assert staff_client.post(url).status_code == 200
         assert outsider_client.post(url).status_code in (403, 404)
         assert Client().post(url).status_code == 401
@@ -273,6 +373,32 @@ class TestInviteEligibilityFields:
 
 
 class TestBulkInvite:
+    def test_bulk_respects_and_sets_the_address_interval(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        recent = make_record(email="recent@example.com")
+        fresh = make_record(email="fresh@example.com")
+        dup = make_record(email="Fresh@example.com")
+        with patch(APPLY_ASYNC), django_capture_on_commit_callbacks(execute=True):
+            assert owner_client.post(_invite_url(organization, recent)).status_code == 200
+        MembershipRecord.objects.filter(pk=recent.pk).update(invited_at=None, invite_token=None)
+
+        with patch(APPLY_ASYNC), django_capture_on_commit_callbacks(execute=True):
+            body = owner_client.post(_bulk_url(organization)).json()
+
+        assert body["invited"] == 1
+        sent = list(MembershipRecord.objects.filter(pk__in=[fresh.pk, dup.pk], invited_at__isnull=False))
+        assert len(sent) == 1
+        assert MembershipRecord.objects.get(pk=recent.pk).invited_at is None
+        # the address it just sent to is now inside the interval for a single invite too
+        retry_target = sent[0]
+        with patch(APPLY_ASYNC):
+            assert owner_client.post(_invite_url(organization, retry_target)).status_code == 400
+
     def test_invites_only_open_unlinked_never_invited_with_email(
         self,
         owner_client: Client,
@@ -289,7 +415,7 @@ class TestBulkInvite:
         make_record(email="z@example.com", valid_from=start, valid_until=start + timedelta(days=1))  # closed
         make_record(email="w@example.com", kind=MembershipRecord.Kind.TEMPORARY)  # not STANDARD
 
-        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
             response = owner_client.post(_bulk_url(organization))
 
         assert response.status_code == 202, response.content
@@ -362,6 +488,41 @@ class TestInviteEmail:
         send_member_register_invite(str(record.pk))
         (message,) = mail.outbox
         assert "/member-invite/new" in message.body
+
+    def test_superseded_job_is_skipped_and_current_job_sends(self, make_record: RecordFactory) -> None:
+        """Invite A, retarget to B, invite B before the tasks run: only the job for B's invitation sends."""
+        record = make_record(email="a@example.com", invite_token="tok-a", invited_at=timezone.now())
+        stale_marker = linking.invite_marker("tok-a")
+        record.email, record.invite_token = "b@example.com", "tok-b"
+        record.save(update_fields=["email", "invite_token", "updated_at"])
+
+        send_member_register_invite.apply(args=(str(record.pk),), headers={"invite_marker": stale_marker}, throw=True)
+        assert mail.outbox == []
+
+        send_member_register_invite.apply(
+            args=(str(record.pk),), headers={"invite_marker": linking.invite_marker("tok-b")}, throw=True
+        )
+        (message,) = mail.outbox
+        assert message.to == ["b@example.com"]
+
+    def test_no_marker_header_still_sends(self, make_record: RecordFactory) -> None:
+        record = make_record(invite_token="tok", invited_at=timezone.now())
+        send_member_register_invite.apply(args=(str(record.pk),), throw=True)
+        assert len(mail.outbox) == 1
+
+    def test_a_worker_exposes_the_header_on_request_headers(self) -> None:
+        """Celery merges ``apply_async(headers=...)`` into the message headers (amqp.send_task_message), and a worker
+        builds the task's ``Context`` from them; custom keys surface in ``request.headers`` (not as an argument)."""
+        from celery import current_app
+        from celery.app.task import Context
+
+        message = current_app.amqp.as_task_v2("tid", send_member_register_invite.name, args=("rec",))
+        message.headers.update({"invite_marker": "m1"})  # what send_task_message does with headers=
+        request = Context(message.headers)
+        assert request.headers == {"invite_marker": "m1"}
+
+    def test_marker_does_not_expose_the_token(self) -> None:
+        assert "tok-secret-value" not in linking.invite_marker("tok-secret-value")
 
     def test_skips_when_no_token(self, make_record: RecordFactory) -> None:
         record = make_record()

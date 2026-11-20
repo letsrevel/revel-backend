@@ -45,7 +45,10 @@ Policy decisions baked into the protocol and the sync/reconcile services:
 - **The app-key rate budget is shared instance-wide**, not per organization; the 15-minute
   reconcile processes links oldest-`counts_updated_at` first and stops once the remaining budget
   drops below a configurable reserve (`INTEGRATIONS_RATE_RESERVE`), so organizer-initiated push
-  and pause calls never starve behind the sweep.
+  and pause calls never starve behind the sweep. Webhook dispatch and the trailing counts refresh honour
+  the same reserve: below it, a delivery stays `RECEIVED` and is re-enqueued every 15 minutes (not counted
+  against the webhook retry limit) until it is 24 hours old, then marked `FAILED`; intake itself stays
+  unthrottled.
 - **`listed` follows Revel's own visibility** — a private event is never mirrored regardless of
   connection or auto-sync state.
 - **The `provider` column is unconstrained** (no `choices=`); the registry is the single point

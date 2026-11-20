@@ -9,11 +9,14 @@ and the verified-email match (:func:`auto_link_records_for_user`).
 """
 
 import enum
+import hashlib
 import secrets
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import structlog
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -25,6 +28,7 @@ from common.utils import get_or_create_with_race_protection
 from events.models import MembershipRecord, MembershipRecordLinkMethod, Organization, OrganizationMember
 from events.service import blacklist_service
 from events.service.user_note_transfer import transfer_record_note
+from events.utils import format_organization_datetime
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.membership_context_schemas import MembershipContext, StaffMemberRecordAutoLinkedContext
@@ -227,15 +231,29 @@ def adopt_unlinked_record(member: OrganizationMember) -> MembershipRecord | None
     return record
 
 
+# Minimum gap between two invitation emails to the same register entry.
+MEMBER_REGISTER_INVITE_RESEND_COOLDOWN = timedelta(hours=1)
+
+
 def _new_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def _dispatch_invite(record_id: UUID) -> None:
+def invite_marker(token: str) -> str:
+    """Non-secret identifier of one invitation generation (a truncated digest, so the token cannot be recovered)."""
+    return hashlib.sha256(token.encode()).hexdigest()[:16]
+
+
+def _dispatch_invite(record: MembershipRecord) -> None:
     from events.tasks.member_register import send_member_register_invite  # lazy: the task imports this module
 
-    # Only the id travels through the broker: the task reads the current token itself.
-    transaction.on_commit(lambda: send_member_register_invite.delay(str(record_id)))
+    # The id travels through the broker, never the token: the task reads the current token itself. The
+    # generation marker rides in a message header (the task signature stays one argument, so an old worker
+    # during a rolling deploy still accepts the message) and the task skips when a later invitation superseded it.
+    record_id, marker = str(record.pk), invite_marker(record.invite_token or "")
+    transaction.on_commit(
+        lambda: send_member_register_invite.apply_async(args=(record_id,), headers={"invite_marker": marker})
+    )
 
 
 def invite_blocked_reason(record: MembershipRecord) -> str | None:
@@ -257,25 +275,67 @@ def invite_blocked_reason(record: MembershipRecord) -> str | None:
     return None
 
 
+def _invite_cooldown_key(organization_id: UUID, email: str) -> str:
+    """Cache key of the resend interval: one per organization and (case-insensitive) address."""
+    return f"member_register_invite:{organization_id}:{email.strip().casefold()}"
+
+
+def _claim_invite_slot(organization: Organization, email: str) -> bool:
+    """Atomically start the resend interval for ``email``; False if one is already running.
+
+    The value is the send time, so a refusal can say when the next invite is allowed.
+    """
+    return cache.add(
+        _invite_cooldown_key(organization.pk, email),
+        timezone.now().timestamp(),
+        int(MEMBER_REGISTER_INVITE_RESEND_COOLDOWN.total_seconds()),
+    )
+
+
+def _release_invite_slot(organization: Organization, email: str) -> None:
+    cache.delete(_invite_cooldown_key(organization.pk, email))
+
+
 def send_invite(record: MembershipRecord) -> MembershipRecord:
-    """Send (or resend) the claim link for one record. A resend invalidates the previous link."""
+    """Send (or resend) the claim link for one record. A resend invalidates the previous link.
+
+    At most one invitation per organization and address per ``MEMBER_REGISTER_INVITE_RESEND_COOLDOWN``,
+    whichever record it goes through, so editing the address back and forth cannot be used to resend.
+    """
     if reason := invite_blocked_reason(record):
         raise HttpError(400, reason)
-    record.invite_token = _new_token()
-    record.invited_at = timezone.now()
-    record.save(update_fields=["invite_token", "invited_at", "updated_at"])
-    _dispatch_invite(record.pk)
+    organization = record.organization
+    if not _claim_invite_slot(organization, record.email):
+        sent_at = cache.get(_invite_cooldown_key(organization.pk, record.email))
+        next_at = (
+            datetime.fromtimestamp(sent_at, tz=UTC) if sent_at else timezone.now()
+        ) + MEMBER_REGISTER_INVITE_RESEND_COOLDOWN
+        raise HttpError(
+            400,
+            str(_("An invitation was sent recently. You can resend it after {time}.")).format(
+                time=format_organization_datetime(next_at, organization)
+            ),
+        )
+    try:
+        record.invite_token = _new_token()
+        record.invited_at = timezone.now()
+        record.save(update_fields=["invite_token", "invited_at", "updated_at"])
+    except Exception:
+        _release_invite_slot(organization, record.email)
+        raise
+    _dispatch_invite(record)
     return record
 
 
 def send_bulk_invites(organization: Organization) -> int:
     """Invite every open STANDARD, unlinked, never-invited record that has an email. Returns the count.
 
-    Closed records and already-invited ones are skipped; a resend is per record.
+    Closed records and already-invited ones are skipped; a resend is per record. An address that was
+    invited within the resend interval (or appears on an earlier record of the same batch) is skipped too.
     """
     now = timezone.now()
     with transaction.atomic():
-        records = list(
+        candidates = list(
             MembershipRecord.objects.open()
             .unlinked()
             .select_for_update(of=("self",))
@@ -287,13 +347,22 @@ def send_bulk_invites(organization: Organization) -> int:
             )
             .exclude(email="")
         )
+        records: list[MembershipRecord] = []
+        try:
+            for record in candidates:
+                if _claim_invite_slot(organization, record.email):
+                    records.append(record)
+                    record.invite_token = _new_token()
+                    record.invited_at = now
+                    record.updated_at = now
+            MembershipRecord.objects.bulk_update(records, ["invite_token", "invited_at", "updated_at"])
+        except Exception:
+            # Nothing committed: free the addresses so a retry is not locked out for the cooldown.
+            for record in records:
+                _release_invite_slot(organization, record.email)
+            raise
         for record in records:
-            record.invite_token = _new_token()
-            record.invited_at = now
-            record.updated_at = now
-        MembershipRecord.objects.bulk_update(records, ["invite_token", "invited_at", "updated_at"])
-        for record in records:
-            _dispatch_invite(record.pk)
+            _dispatch_invite(record)
     return len(records)
 
 

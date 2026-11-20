@@ -8,6 +8,7 @@ or the remote-status transition matrix.
 
 from uuid import UUID
 
+import structlog
 from django.core.cache import cache
 from django.db import transaction
 from django.http import Http404, HttpRequest
@@ -16,10 +17,12 @@ from django.utils.translation import gettext_lazy as _
 
 from integrations import registry
 from integrations.enums import IntegrationErrorCode
-from integrations.exceptions import IntegrationError, ProviderError, RetryableProviderError
+from integrations.exceptions import BudgetDeferredError, IntegrationError, ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, WebhookDelivery
-from integrations.providers.base import NotificationKind, WebhookNotification
+from integrations.providers.base import ListingProvider, NotificationKind, WebhookNotification
 from integrations.service import connection_service, sync_service
+
+logger = structlog.get_logger(__name__)
 
 _STATUS_ON: dict[str, str] = {
     "event_published": EventLink.RemoteStatus.LIVE,
@@ -93,6 +96,15 @@ def _refresh_counts_debounced(delivery: WebhookDelivery, link: EventLink) -> Web
     if not cache.add(key, 1, sync_service.COUNTS_DEBOUNCE_TTL_SECONDS):
         return _finish(delivery, WebhookDelivery.Outcome.PROCESSED)
     try:
+        # Gate the refresh call itself on either path: an event path never fetched, and an order path's fetch may
+        # have pushed the budget under the reserve.
+        # The delivery already resolved; skipping is best-effort and the reconcile sweep restores the counts.
+        sync_service.raise_if_budget_low(registry.get_provider(link.connection.provider), link.connection.provider)
+    except BudgetDeferredError:
+        cache.delete(key)
+        logger.info("integration_counts_skipped_budget_low", link_id=str(link.id))
+        return _finish(delivery, WebhookDelivery.Outcome.PROCESSED)
+    try:
         refreshed = sync_service.refresh_counts(link)
     except RetryableProviderError:
         cache.delete(key)
@@ -101,6 +113,15 @@ def _refresh_counts_debounced(delivery: WebhookDelivery, link: EventLink) -> Web
         return _finish(delivery, WebhookDelivery.Outcome.FAILED)
     refresh_link_counts.apply_async(args=(str(link.id),), countdown=sync_service.COUNTS_DEBOUNCE_SECONDS)
     return _finish(delivery, WebhookDelivery.Outcome.PROCESSED)
+
+
+def _raise_if_fetch_would_overspend(provider: ListingProvider, key: str, notification: WebhookNotification) -> None:
+    """Gate only deliveries that call the provider; a status delivery makes no call and must not be deferred.
+
+    Deferring one would let an older transition land after a newer one.
+    """
+    if provider.resolves_remotely(notification):
+        sync_service.raise_if_budget_low(provider, key)
 
 
 def handle_delivery(delivery_id: UUID) -> WebhookDelivery:
@@ -114,6 +135,7 @@ def handle_delivery(delivery_id: UUID) -> WebhookDelivery:
         action=delivery.action, resource_path=delivery.resource_path, raw=delivery.payload
     )
     try:
+        _raise_if_fetch_would_overspend(provider, conn.provider, notification)
         resolved = provider.resolve_notification(conn.token(), notification)
         if resolved.kind == "ignored" or not resolved.remote_event_id:
             return _finish(delivery, WebhookDelivery.Outcome.IGNORED)
