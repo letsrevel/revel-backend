@@ -8902,5 +8902,7 @@ msgstr "<b>%(org)s</b> hat dich eingeladen, Mitglied zu werden (%(tier)s). Du wi
 msgid "<strong>%(org)s</strong> invited you to become a member (%(tier)s). You only become a member if you accept."
 msgstr "<strong>%(org)s</strong> hat dich eingeladen, Mitglied zu werden (%(tier)s). Du wirst nur Mitglied, wenn du annimmst."
 
+#: events/service/member_register_linking.py
+#, python-brace-format
 msgid "An invitation was sent recently. You can resend it after {time}."
 msgstr "Es wurde kürzlich eine Einladung gesendet. Du kannst sie nach {time} erneut senden."
