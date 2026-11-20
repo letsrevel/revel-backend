@@ -104,9 +104,14 @@ def handle_webhook_delivery(self: t.Any, delivery_id: str) -> None:
     from integrations.models import WebhookDelivery
     from integrations.service import webhook_service
 
-    created_at = WebhookDelivery.objects.filter(id=delivery_id).values_list("created_at", flat=True).first()
+    # Only a RECEIVED row is pending work: a redelivered message (acks_late) must not process it twice.
+    created_at = (
+        WebhookDelivery.objects.filter(id=delivery_id, outcome=WebhookDelivery.Outcome.RECEIVED)
+        .values_list("created_at", flat=True)
+        .first()
+    )
     if created_at is None:
-        logger.info("integration_webhook_skipped_missing_delivery", delivery_id=delivery_id)
+        logger.info("integration_webhook_skipped_missing_or_finished_delivery", delivery_id=delivery_id)
         return
     try:
         webhook_service.handle_delivery(UUID(delivery_id))
@@ -158,7 +163,12 @@ def refresh_link_counts(link_id: str) -> None:
     if link.connection.provider not in registry.PROVIDERS:
         logger.info("integration_counts_skipped_disabled_provider", link_id=link_id, provider=link.connection.provider)
         return
-    sync_service.raise_if_budget_low(registry.get_provider(link.connection.provider), link.connection.provider)
+    try:
+        sync_service.raise_if_budget_low(registry.get_provider(link.connection.provider), link.connection.provider)
+    except BudgetDeferredError:
+        # The reconcile sweep restores counts once the budget recovers; keep retries for real provider errors.
+        logger.info("integration_counts_skipped_budget_low", link_id=link_id)
+        return
     sync_service.refresh_counts(link)
 
 

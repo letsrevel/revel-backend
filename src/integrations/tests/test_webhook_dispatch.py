@@ -7,7 +7,6 @@ from unittest import mock
 
 import orjson
 import pytest
-from celery.exceptions import Retry
 from django.core.cache import cache
 from django.test.client import Client
 from django.urls import reverse
@@ -312,6 +311,19 @@ def test_budget_defer_gives_up_once_the_delivery_is_too_old(
     assert d.outcome == WebhookDelivery.Outcome.FAILED
 
 
+def test_redelivered_task_skips_a_finished_delivery(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider
+) -> None:
+    """A redelivered message (acks_late) must not resolve a delivery that is already finished."""
+    d = _deliver(connected, "order.placed", f"/events/{pushed.remote_id}/")
+    WebhookDelivery.objects.filter(id=d.id).update(outcome=WebhookDelivery.Outcome.PROCESSED)
+    before = len(fake_provider.calls)
+    tasks.handle_webhook_delivery.apply(args=(str(d.id),), throw=True)
+    assert len(fake_provider.calls) == before
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.PROCESSED
+
+
 def test_budget_lookup_failure_fails_the_delivery(
     connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider
 ) -> None:
@@ -331,6 +343,6 @@ def test_trailing_counts_refresh_respects_the_budget_reserve(
 ) -> None:
     _low_budget(fake_provider, settings)
     before = [c for c in fake_provider.calls if c[0] == "get_event"]
-    with pytest.raises(Retry):  # eager autoretry: the budget error is retried (with backoff), not swallowed
-        tasks.refresh_link_counts.apply(args=(str(pushed.id),), throw=True)
+    # No provider call and no retry: the reconcile sweep restores counts once the budget recovers.
+    tasks.refresh_link_counts.apply(args=(str(pushed.id),), throw=True)
     assert [c for c in fake_provider.calls if c[0] == "get_event"] == before
