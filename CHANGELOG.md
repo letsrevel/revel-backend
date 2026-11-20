@@ -12,11 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **Every instance, including self-hosted ones, must run one command after upgrading to this release.** If you skip it, some guest tickets bought during the upgrade keep counting as a connection to the organization although the guest never confirmed their email.
 
 1. Upgrade as usual (`./deploy.sh update`, or your own rolling deploy). Migration `events` 0152 flags the existing tickets automatically.
-2. Write down the time, in UTC, when the **last container that ran the previous version stopped**. In a rolling deploy this is when the rollout finished; with `./deploy.sh update` it is when the old `web` container was replaced.
-3. Preview the change: `python manage.py backfill_unconfirmed_guest --before <that time, ISO 8601 with offset, e.g. 2026-11-21T09:30:00+00:00> --dry-run`. It prints a count only. A count of 0 is normal when the old and new containers did not overlap.
+2. Write down the **cutoff**: the time, in UTC, when the last container that ran the previous version stopped. With `./deploy.sh update` this is when the old `web` container was replaced; in a rolling deploy it is when the rollout finished.
+3. Preview the change, inside the web container:
+   `docker compose exec web python manage.py backfill_unconfirmed_guest --before <cutoff, ISO 8601 with offset, e.g. 2026-11-21T09:30:00+00:00> --dry-run`
+   It prints a count only. With `./deploy.sh update` the count is normally 0, because the old and new `web` containers never run at the same time.
 4. Run the same command without `--dry-run`.
 
-Run it **once per instance**. If you upgrade past this release later, or skip it in a multi-version upgrade, set `--before` to the time your upgrade to this release finished. Do not use the current time.
+Always use that same cutoff. Running the command again with it is harmless; running it with a later time, for example "now", can flag tickets whose guest did confirm by email. If you reach this release in a multi-version upgrade, the cutoff is when the last container older than this release stopped.
 
 ### Added
 - **Calendar-aligned membership plans**: a plan can now bill on calendar boundaries (the 1st of each month, or the 1st of a chosen month each year, at 00:00 UTC) instead of a fixed duration after the member joins.
