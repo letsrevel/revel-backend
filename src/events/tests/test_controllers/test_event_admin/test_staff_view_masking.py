@@ -239,6 +239,24 @@ def test_check_in_of_a_pending_offline_ticket_unmasks_only_a_self_made_ticket(
         _assert_masked(resp.json()["user"], profiled, "Typed Name")
 
 
+def test_check_in_of_an_unconfirmed_guest_offline_ticket_stays_masked(
+    organization_owner_client: Client, event: Event, profiled: RevelUser
+) -> None:
+    """A guest checkout never proved the email (#1430): checking it in confers no standing."""
+    offline_tier = TicketTier.objects.create(
+        event=event, name="Door", price=Decimal("10.00"), payment_method=TicketTier.PaymentMethod.OFFLINE
+    )
+    ticket = _ticket(event, offline_tier, profiled, TicketSaleSource.CHECKOUT, unconfirmed_guest=True)
+    Ticket.objects.filter(pk=ticket.pk).update(status=Ticket.TicketStatus.PENDING)
+    resp = organization_owner_client.post(
+        reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": str(ticket.pk)}),
+        data=orjson.dumps({}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200, resp.content
+    _assert_masked(resp.json()["user"], profiled, "Typed Name")
+
+
 # ---- sell / reseat ----
 
 

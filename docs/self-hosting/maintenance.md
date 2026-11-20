@@ -52,6 +52,11 @@ This pulls the latest application images from the registry and recreates the aff
 with them (the `web` container runs any pending database migrations on startup). Read the changelog
 before updating a production instance, and take a backup first.
 
+Some releases need a command after the upgrade. The release notes list it under
+**"⚠️ Upgrade notes: action required after you deploy"**. Run those commands in the order given, inside
+the web container (`docker compose exec web python manage.py ...`). Write down when the old `web`
+container stopped during the upgrade: some of them take that time as a cutoff.
+
 ## Refreshing geo data
 
 Geolocation uses two datasets: the **cities** dataset (for city/region lookups) and the

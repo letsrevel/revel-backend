@@ -158,6 +158,7 @@ class BatchTicketContext:
         groups: list[CartGroup] | None = None,
         discount_valid_tier_ids: set[UUID] | None = None,
         attribution: TicketAttribution | None = None,
+        unconfirmed_guest: bool = False,
     ) -> None:
         """Initialize the batch ticket service.
 
@@ -182,6 +183,10 @@ class BatchTicketContext:
                 cart (see :meth:`_dc_for`).
             attribution: Sanitised campaign tags from the checkout payload (#922),
                 stamped verbatim on every ticket in the cart.
+            unconfirmed_guest: The buyer is a guest whose email was not confirmed (paid guest
+                checkout, #1430). Stamped on every ticket as provenance; ``create_batch`` then
+                raises ``GuestEmailConfirmationRequired`` instead of issuing a cart that is not
+                an ONLINE paid one.
 
         Raises:
             TypeError: If ``user`` is missing, or if ``tier``/``groups`` aren't
@@ -212,6 +217,7 @@ class BatchTicketContext:
         self.accessible_required = accessible_required
         self.price_category_id = price_category_id
         self.attribution = attribution
+        self.unconfirmed_guest = unconfirmed_guest
         self._reserve_buyer_vat: "BuyerVATContext | None" = None
 
     def _dc_for(self, tier: TicketTier) -> DiscountCode | None:

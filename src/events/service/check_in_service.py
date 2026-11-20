@@ -22,7 +22,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from events.models import Event, HeldSeriesPass, OrganizationUserNote, Ticket, TicketTier
 from events.service import day_membership_service
-from events.service.holder_visibility import STAFF_SALE_SOURCES, annotate_holder_known
+from events.service.holder_visibility import annotate_holder_known
 from events.service.seating.pricing import price_paid_is_admin_entered
 
 
@@ -109,15 +109,6 @@ def _pending_check_in_allowed(ticket: Ticket) -> bool:
     if ticket.held_pass is not None:
         return ticket.held_pass.series_pass.payment_method == TicketTier.PaymentMethod.OFFLINE
     return ticket.tier.payment_method == TicketTier.PaymentMethod.OFFLINE
-
-
-def _unmask_if_now_attending(ticket: Ticket) -> None:
-    """A PENDING ticket (not attending when ``holder_known`` was read) is attending now.
-
-    A self-made one confers standing, so the response must not mask its holder; staff-made tickets stay masked.
-    """
-    if not ticket.holder_known and ticket.sale_source not in STAFF_SALE_SOURCES:  # type: ignore[attr-defined]
-        ticket.holder_known = True  # type: ignore[attr-defined]
 
 
 def annotate_private_note(ticket_qs: QuerySet[Ticket], organization_id: UUID) -> QuerySet[Ticket]:
@@ -231,7 +222,6 @@ def check_in_ticket(
     ticket.checked_in_at = timezone.now()
     ticket.checked_in_by = checked_in_by
     ticket.save(update_fields=update_fields)
-    _unmask_if_now_attending(ticket)
 
     # After the transition, so a PENDING -> CHECKED_IN day-membership grant is already visible. Read by
     # ``CheckInResponseSchema.membership``.

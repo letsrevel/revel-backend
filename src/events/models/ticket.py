@@ -867,6 +867,13 @@ class Ticket(PreserveTicketNumberMixin, TimeStampedModel):
         editable=False,
         help_text="How the ticket was issued (#1013). Null for tickets created before this was recorded.",
     )
+    unconfirmed_guest = models.BooleanField(
+        default=False,
+        db_default=False,
+        editable=False,
+        help_text="Issued to a guest account without email confirmation (paid guest checkout, #1430). "
+        "Confers no standing (ADR-0020). Never updated.",
+    )
     cancelled_at = models.DateTimeField(null=True, blank=True, editable=False)
     cancelled_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

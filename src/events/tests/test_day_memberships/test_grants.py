@@ -247,6 +247,15 @@ def test_checkout_ticket_still_snapshots_account_name(
     assert record.full_name == "Dana Day"
 
 
+def test_unconfirmed_guest_record_snapshots_the_ticket_name_not_the_account_name(
+    day_tier: TicketTier, make_ticket: t.Callable[..., Ticket]
+) -> None:
+    """A guest-checkout ticket never proved the email, so the register must not copy the account's names (#1430)."""
+    ticket = make_ticket(day_tier, guest_name="Typed Guest", unconfirmed_guest=True)
+    (record,) = records_for(ticket)
+    assert record.full_name == "Typed Guest"
+
+
 # ---- evidence ----
 
 

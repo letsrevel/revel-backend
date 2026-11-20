@@ -32,10 +32,13 @@ STAFF_SALE_SOURCES = (TicketSaleSource.BOX_OFFICE_SALE, TicketSaleSource.BOX_OFF
 def self_linked_record_q() -> Q:
     """Condition on ``MembershipRecord``: the register entry stands for an act of its account holder.
 
-    A day membership inherits its ticket's origin (a box-office ticket's record does not count), and a
+    A day membership inherits its ticket's origin (neither a box-office ticket's record nor an unconfirmed
+    guest's does, #1430), and a
     record linked by a staff merge does not count (the merge links it on staff's word alone).
     """
-    self_ticket = Ticket.objects.filter(pk=OuterRef("ticket_id")).exclude(sale_source__in=STAFF_SALE_SOURCES)
+    self_ticket = Ticket.objects.filter(pk=OuterRef("ticket_id"), unconfirmed_guest=False).exclude(
+        sale_source__in=STAFF_SALE_SOURCES
+    )
     return (~Q(source=MembershipRecord.Source.TICKET) | Exists(self_ticket)) & ~Q(
         linked_via=MembershipRecord.LinkMethod.MERGE
     )
@@ -46,11 +49,12 @@ def known_holder_q(organization_id: UUID | OuterRef, user_ref: OuterRef) -> Q:
 
     Counts: owner, staff, member (any status), membership request (any status), a linked register record
     (see ``self_linked_record_q``: not a box-office day membership, not merge-linked; a day membership
-    counts only while its ticket is attending), an attending ticket (active or checked in), or a pending
-    ticket of a registered (non-guest) account, not issued by the box office (``NULL`` sale source = self,
-    legacy), the holder's own RSVP, a series pass, a waitlist entry, an event invitation request, a
-    questionnaire submission. Not counted: box-office tickets, pending tickets of guest accounts (#1430),
-    cancelled tickets, staff RSVPs, event invitations, waitlist offers.
+    counts only while its ticket is attending), an attending or pending ticket that is not issued by the
+    box office (``NULL`` sale source = self, legacy) and not ``unconfirmed_guest`` (a paid guest checkout
+    that never confirmed its email, #1430; the flag is provenance, so it keeps the ticket out of standing
+    whatever the account became later), the holder's own RSVP, a series pass, a waitlist entry, an event
+    invitation request, a questionnaire submission. Not counted: box-office tickets, unconfirmed-guest
+    tickets, cancelled tickets, staff RSVPs, event invitations, waitlist offers.
 
     Args:
         organization_id: The organization.
@@ -71,9 +75,10 @@ def known_holder_q(organization_id: UUID | OuterRef, user_ref: OuterRef) -> Q:
         | Q(
             Exists(
                 Ticket.objects.filter(
-                    Q(status__in=Ticket.ATTENDING_STATUSES) | Q(status=Ticket.TicketStatus.PENDING, user__guest=False),
+                    Q(status__in=Ticket.ATTENDING_STATUSES) | Q(status=Ticket.TicketStatus.PENDING),
                     event__organization_id=org,
                     user_id=user,
+                    unconfirmed_guest=False,
                 ).exclude(sale_source__in=STAFF_SALE_SOURCES)
             )
         )

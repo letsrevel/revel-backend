@@ -47,9 +47,25 @@ def _ticket(event: Event, user: RevelUser, source: str | None, status: str = Tic
     return ticket
 
 
-def _guest_pending_checkout(event: Event, user: RevelUser) -> Ticket:
+def _unconfirmed_guest_ticket(
+    event: Event, user: RevelUser, status: str = Ticket.TicketStatus.PENDING, *, guest: bool = True
+) -> Ticket:
+    """A paid guest checkout (#1430): no email proof, flagged ``unconfirmed_guest``."""
+    RevelUser.objects.filter(pk=user.pk).update(guest=guest)
+    ticket = _ticket(event, user, TicketSaleSource.CHECKOUT, status)
+    Ticket.objects.filter(pk=ticket.pk).update(unconfirmed_guest=True)
+    return ticket
+
+
+def _confirmed_guest_ticket(event: Event, user: RevelUser, status: str) -> Ticket:
     RevelUser.objects.filter(pk=user.pk).update(guest=True)
-    return _ticket(event, user, TicketSaleSource.CHECKOUT, Ticket.TicketStatus.PENDING)
+    return _ticket(event, user, TicketSaleSource.CHECKOUT, status)
+
+
+def _day_record_on_unconfirmed(event: Event, user: RevelUser) -> MembershipRecord:
+    return _record(
+        event, user, MembershipRecord.Source.TICKET, _unconfirmed_guest_ticket(event, user, Ticket.TicketStatus.ACTIVE)
+    )
 
 
 def _record(event: Event, user: RevelUser, source: str, ticket: Ticket | None = None) -> MembershipRecord:
@@ -103,6 +119,12 @@ KNOWN: dict[str, Act] = {
     "pending checkout ticket of a registered account": lambda e, u: _ticket(
         e, u, TicketSaleSource.CHECKOUT, Ticket.TicketStatus.PENDING
     ),
+    "pending ticket of a confirmed guest account": lambda e, u: _confirmed_guest_ticket(
+        e, u, Ticket.TicketStatus.PENDING
+    ),
+    "active ticket of a confirmed guest account": lambda e, u: _confirmed_guest_ticket(
+        e, u, Ticket.TicketStatus.ACTIVE
+    ),
     "own RSVP": lambda e, u: EventRSVP.objects.create(event=e, user=u, status=EventRSVP.RsvpStatus.NO),
     "series pass": _held_pass,
     "waitlist entry": lambda e, u: EventWaitList.objects.create(event=e, user=u),
@@ -112,7 +134,12 @@ KNOWN: dict[str, Act] = {
 
 NOT_KNOWN: dict[str, Act] = {
     "nothing": lambda e, u: None,
-    "pending checkout ticket of a guest account": _guest_pending_checkout,
+    "pending ticket of an unconfirmed guest": _unconfirmed_guest_ticket,
+    "active ticket of an unconfirmed guest": lambda e, u: _unconfirmed_guest_ticket(e, u, Ticket.TicketStatus.ACTIVE),
+    "unconfirmed pending ticket of an account that later registered": lambda e, u: _unconfirmed_guest_ticket(
+        e, u, guest=False
+    ),
+    "day membership from an unconfirmed guest ticket": _day_record_on_unconfirmed,
     "pending box-office sale": lambda e, u: _ticket(
         e, u, TicketSaleSource.BOX_OFFICE_SALE, Ticket.TicketStatus.PENDING
     ),

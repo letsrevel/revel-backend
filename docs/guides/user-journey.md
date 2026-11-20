@@ -563,7 +563,7 @@ A VAT-precise financial-reporting suite for organizers, driven by one tax engine
 
 ### Guest Checkout & Guest-to-User Upgrade
 
-When an event has `can_attend_without_login=True`, anonymous visitors can attend without an account: a guest RSVP (`POST /events/{event_id}/rsvp/{answer}/public`) or guest ticket checkout (`POST /events/{event_id}/checkout/public`) creates a guest `RevelUser` (`guest=True`) from just a name and email. If the guest later registers with the same email, an activation link upgrades the guest account to a full user and all previous guest tickets/RSVPs are preserved. Both guest endpoints require a valid `turnstile_token` when Turnstile is configured (400 otherwise).
+When an event has `can_attend_without_login=True`, anonymous visitors can attend without an account: a guest RSVP (`POST /events/{event_id}/rsvp/{answer}/public`) or guest ticket checkout (`POST /events/{event_id}/checkout/public`) creates a guest `RevelUser` (`guest=True`) from just a name and email. If the guest later registers with the same email, an activation link upgrades the guest account to a full user and all previous guest tickets/RSVPs are preserved. Both guest endpoints require a valid `turnstile_token` when Turnstile is configured (400 otherwise). A guest cart on a free, offline or at-the-door tier, or on an online tier whose total the buyer brings to zero (a 100% code), is only created once the emailed link is clicked. A paid online guest checkout goes straight to Stripe; its tickets are marked `unconfirmed_guest` (the email was never confirmed), which keeps them from making the guest known to the organization.
 
 ### Self-Served Email Change
 
