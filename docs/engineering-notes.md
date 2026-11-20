@@ -303,13 +303,24 @@ Never hold a `TicketTier`, `SeriesPass`, `Event`, `Organization` or `Ticket` row
    (`ticket_service.lock_tier_then_ticket`). Check the state again. Change the status and
    release capacity (`quantity_sold__gt=0` and `F() - 1`).
 
-**If step 2 finds the ticket changed** (for example a check-in during the Stripe call), step 2
-rolls back (a savepoint), the `Refund` row stays, and the path logs the structlog warning
+**If step 2 finds the ticket changed** (for example a check-in during the Stripe call), two paths
+handle it: `cancel_ticket_by_user` and `cancel_held_pass`. In both, step 2 rolls back (a
+savepoint), the `Refund` row stays, and the path logs the structlog warning
 `cancel_rolled_back_after_refund`. Do not try to undo the Stripe refund. The `charge.refunded`
 webhook later records the refund as refunded-not-cancelled. Series-pass cancel leaves such a
 ticket as it is and continues with the other tickets. If step 2 raises another error, the
 whole transaction rolls back (and the warning is logged). A retry then replays the same
 idempotency key.
+
+`admin_cancel_ticket` holds the Payment lock throughout. The ticket cannot change under it after
+the refund, because every writer that sets a ticket to CANCELLED takes the Payment lock first.
+The event-cancel sweep refunds and cancels in separate transactions.
+
+**Series-pass session expiry.** `cancel_held_pass` calls `stripe.checkout.Session.expire` right
+after it locks the `HeldSeriesPass`, before the `SeriesPass`, tier and ticket locks. Only the
+`Payment` and `HeldSeriesPass` rows are locked then, so the rule above allows the call. It runs
+inside the transaction, not in `on_commit`: a failed earlier `on_commit` callback would skip it
+and leave the session payable. `_expire_stripe_session` logs Stripe errors and does not raise.
 
 **Why a refund in a transaction is acceptable.** The idempotency key
 (`refund:{payment.pk}:{sequence}:{amount}`) is deterministic per attempt, so a retry after a

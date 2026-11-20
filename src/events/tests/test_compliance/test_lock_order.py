@@ -20,6 +20,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from events.exceptions import TicketAlreadyCancelledError
 from events.models import EventSeries, HeldSeriesPass, Organization, Payment, Ticket, TicketTier
+from events.models.ticket import CancellationBlockReason
 from events.service import refund_service, series_pass_service, ticket_service
 from events.service.cancellation_service import cancel_ticket_by_user
 from events.service.series_pass_purchase import SeriesPassPurchaseService
@@ -287,6 +288,7 @@ def _assert_payment_lock_of_self_pk_order(queries: list[dict[str, t.Any]]) -> No
     )
     assert 'FOR UPDATE OF "events_payment"' in payment_lock
     assert 'ORDER BY "events_payment"."id"' in payment_lock
+    assert " JOIN " not in payment_lock, f"Payment lock must not join other tables: {payment_lock}"
 
 
 def test_offline_cancel_locks_payment_then_tier_then_ticket(
@@ -359,14 +361,16 @@ def test_refund_paths_raise_already_cancelled_when_the_ticket_vanished(
 
 
 def test_user_cancel_blocks_when_the_ticket_vanished(paid_ticket: Ticket) -> None:
+    """The expiry sweep can delete the PENDING Payment and ticket while the cancel waits: refuse with a 4xx."""
     from events.service.cancellation_service import CancellationBlocked
 
-    with (
-        patch("stripe.Refund.create", return_value=MagicMock(id="re_gone")),
-        patch("events.service.ticket_service.lock_tier_then_ticket", return_value=[]),
-    ):
-        with pytest.raises(CancellationBlocked):
+    Payment.objects.filter(ticket=paid_ticket).delete()
+    Ticket.objects.filter(pk=paid_ticket.pk).delete()
+    with patch("stripe.Refund.create") as refund:
+        with pytest.raises(CancellationBlocked) as exc_info:
             cancel_ticket_by_user(paid_ticket, paid_ticket.user, reason="", now=timezone.now())
+    assert exc_info.value.reason == CancellationBlockReason.ALREADY_CANCELLED
+    refund.assert_not_called()
 
 
 def test_reclaim_routes_lock_only_payment_rows_in_pk_order(paid_ticket: Ticket) -> None:

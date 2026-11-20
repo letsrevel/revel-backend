@@ -383,7 +383,10 @@ def cancel_ticket_by_user(
         payment: Payment | None = (
             Payment.objects.select_for_update(of=("self",)).filter(ticket_id=ticket.pk).order_by("pk").first()
         )
-        _raise_if_not_cancellable(Ticket.objects.get(pk=ticket.pk))
+        current = Ticket.objects.filter(pk=ticket.pk).first()
+        if current is None:  # a reclaim deleted the ticket while we waited on the Payment lock
+            raise CancellationBlocked(CancellationBlockReason.ALREADY_CANCELLED)
+        _raise_if_not_cancellable(current)
 
         # Online tickets with refund > 0 -> hit Stripe before mutating local state. Only the
         # Payment (and its new Refund row) is locked across that call: never the tier or ticket.
@@ -400,8 +403,6 @@ def cancel_ticket_by_user(
                 locked_tickets = ticket_service.lock_tier_then_ticket(
                     Ticket.objects.filter(pk=ticket.pk).select_related("tier", "event__organization")
                 )
-                if not locked_tickets:  # a reclaim deleted the ticket while we waited on the Payment lock
-                    raise CancellationBlocked(CancellationBlockReason.ALREADY_CANCELLED)
                 locked_ticket = locked_tickets[0]
                 _raise_if_not_cancellable(locked_ticket)
                 _finalize_cancellation(locked_ticket, user, reason, now, actual_refund_amount, quote.currency)

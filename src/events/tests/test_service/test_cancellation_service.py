@@ -401,10 +401,16 @@ class TestCancelTicketByUser:
             quantity_sold=1,
         )
         ticket = ticket_factory(tier=tier, refund_policy_snapshot=policy)
-        payment_factory(ticket=ticket, amount=Decimal("40.00"), stripe_payment_intent_id="pi_boom")
+        payment = payment_factory(ticket=ticket, amount=Decimal("40.00"), stripe_payment_intent_id="pi_boom")
+        before = (payment.refund_amount, payment.stripe_refund_id)
+
+        def _write_then_fail(locked_ticket: Ticket, *_: t.Any, **__: t.Any) -> None:
+            Ticket.objects.filter(pk=locked_ticket.pk).update(status=Ticket.TicketStatus.CANCELLED)
+            raise RuntimeError("db down")
+
         with (
             patch("stripe.Refund.create") as mock_create,
-            patch("events.service.cancellation_service._finalize_cancellation", side_effect=RuntimeError("db down")),
+            patch("events.service.cancellation_service._finalize_cancellation", side_effect=_write_then_fail),
             patch("events.service.cancellation_service.logger") as log,
         ):
             mock_create.return_value.id = "re_boom"
@@ -413,6 +419,10 @@ class TestCancelTicketByUser:
         mock_create.assert_called_once()
         ticket.refresh_from_db()
         assert ticket.status == Ticket.TicketStatus.ACTIVE
+        # The whole transaction rolled back, including the Refund row and the Payment totals.
+        assert Refund.objects.filter(payment=payment).count() == 0
+        payment.refresh_from_db()
+        assert (payment.refund_amount, payment.stripe_refund_id) == before
         assert any(c.args and c.args[0] == "cancel_rolled_back_after_refund" for c in log.warning.call_args_list)
 
     def test_online_ticket_omits_stripe_account_for_platform_account(

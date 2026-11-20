@@ -9,12 +9,15 @@ Two behaviors under test:
    checked-in and past-event tickets are left untouched.
 """
 
+import re
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -481,23 +484,28 @@ class TestCancelPendingOnlinePass:
         self,
         pending_online_setup: tuple[HeldSeriesPass, Ticket, Payment],
         organization_owner_user: RevelUser,
-        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         held_pass, ticket, payment = pending_online_setup
 
+        seen: list[list[str]] = []
+
+        def _spy(*_: t.Any, **__: t.Any) -> None:
+            seen.append(
+                [m.group(1) for q in ctx.captured_queries if (m := re.search(r'FOR UPDATE OF "(\w+)"', q["sql"]))]
+            )
+
         with (
-            patch("stripe.checkout.Session.expire") as mock_expire,
+            CaptureQueriesContext(connection) as ctx,
+            patch("stripe.checkout.Session.expire", side_effect=_spy) as mock_expire,
             patch("stripe.Refund.create") as mock_refund,
         ):
-            with django_capture_on_commit_callbacks(execute=False) as callbacks:
-                cancel_held_pass(held_pass, cancelled_by=organization_owner_user)
-            # The Stripe call must not run inside the transaction that holds the locks.
-            mock_expire.assert_not_called()
-            for callback in callbacks:
-                callback()
+            cancel_held_pass(held_pass, cancelled_by=organization_owner_user)
 
         mock_expire.assert_called_once_with("cs_pending_cancel", stripe_account="acct_org_cancel")
         mock_refund.assert_not_called()
+        # Expired inside the transaction, before the SeriesPass, tier and ticket locks.
+        assert len(seen) == 1
+        assert set(seen[0]) == {"events_payment", "events_heldseriespass"}, seen[0]
 
         held_pass.refresh_from_db()
         assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED

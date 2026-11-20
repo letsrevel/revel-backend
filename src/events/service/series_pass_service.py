@@ -621,7 +621,8 @@ def cancel_held_pass(
     For a PENDING pass with a live Stripe checkout session, the pending Payment
     rows are marked FAILED (so the payment-expiry sweep can't re-release the tier
     capacity this cancellation already freed) and the session is expired at
-    Stripe after commit, so a late buyer payment can't slip through.
+    Stripe before the SeriesPass, tier and ticket locks, so a late buyer payment
+    can't slip through.
 
     Args:
         held_pass: The HeldSeriesPass to cancel.
@@ -670,12 +671,16 @@ def cancel_held_pass(
         # double-decrement the pass counter and re-release tier capacity.
         held_pass = (
             HeldSeriesPass.objects.select_for_update(of=("self",))
-            .select_related("series_pass", "user")
+            .select_related("series_pass__event_series__organization", "user")
             .get(pk=held_pass_pk)
         )
         if held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED:
             return held_pass
         was_pending = held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
+        if was_pending and held_pass.stripe_session_id:
+            # Only Payment and HeldSeriesPass are locked here, so the Stripe call is allowed.
+            # Expire before the SeriesPass/tier/ticket locks: the buyer must not pay a cancelled pass.
+            _expire_stripe_session(held_pass)
 
         # Ticket statuses are stable under the Payment locks (check-in takes no lock).
         cancellable_ids = set(_cancellable_tickets().values_list("pk", flat=True))
@@ -714,11 +719,6 @@ def cancel_held_pass(
             # The ``charge.refunded`` webhook records the refund.
             logger.warning("cancel_rolled_back_after_refund", ticket_id=str(ticket_id), held_pass_id=str(held_pass.pk))
         cancelled_count = _cancel_locked_tickets(locked_tickets, cancelled_by, reason or "", now)
-
-    if was_pending and held_pass.stripe_session_id:
-        # After commit: ATOMIC_REQUESTS keeps the transaction open past the block above, and the
-        # Stripe call must not run while the SeriesPass/tier/ticket locks are held.
-        transaction.on_commit(functools.partial(_expire_stripe_session, held_pass))
 
     # Only reached when this call actually performed the cancellation (both early
     # returns above exit the function first), so a repeat cancel can't double-notify.
