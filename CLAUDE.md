@@ -2,9 +2,26 @@
 
 Guidance for Claude Code (claude.ai/code) when working in this repository.
 
-> **Layout:** _Operating Principles_ (how you work — read first) → _Development Commands_ →
+> **Layout:** _Writing Style_ (ASD-STE100) → _Operating Principles_ (how you work — read first) → _Development Commands_ →
 > _Architecture_ → _Project Rules_ (style, schemas, controllers, services) → _Workflow_ →
 > _Hard Rules_. Deep production gotchas live in [`docs/engineering-notes.md`](docs/engineering-notes.md).
+
+---
+
+## Writing Style: ASD-STE100
+
+**Standing rule (decided 2026-11-20).** Write in ASD-STE100 Simplified Technical English wherever possible.
+This applies to chat replies, PR titles and descriptions, issues, and responses (for example, replies to review comments).
+
+- Keep each sentence short: 20 words or fewer for instructions, 25 words or fewer for descriptions.
+- Use the active voice and simple verb tenses.
+- Write one instruction in each sentence. Give the steps in the sequence that the reader does them.
+- Use one word for one meaning, and use the same term for the same thing every time.
+- Use articles ("a", "the"). Do not remove words only to make the text shorter.
+- Use vertical lists for sequences and for text that has many parts.
+
+Code, identifiers, commands, quoted text, log output, and technical names stay as they are.
+Do not rewrite existing documentation only to apply this rule.
 
 ---
 
