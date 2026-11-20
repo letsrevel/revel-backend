@@ -66,7 +66,7 @@ class AuthController(TokenObtainPairController):
 
     @route.post(
         "/token/pair/otp",
-        response={200: TokenObtainPairOutputSchema, 403: schema.LoginErrorSchema, 429: schema.LoginErrorSchema},
+        response={200: TokenObtainPairOutputSchema, 403: schema.LoginErrorSchema, 429: schema.LoginRateLimitSchema},
         url_name="token_obtain_pair_otp",
     )
     def obtain_token_with_otp(

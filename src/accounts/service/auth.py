@@ -15,8 +15,7 @@ from ninja_jwt.tokens import RefreshToken
 
 from accounts import schema
 from accounts.exceptions import EmailNotVerifiedError
-from accounts.jwt import TOTPJWTPayload, check_blacklist, create_token, validate_otp_jwt
-from accounts.jwt import blacklist as blacklist_token
+from accounts.jwt import TOTPJWTPayload, consume_one_shot_token, create_token, validate_otp_jwt
 from accounts.models import RevelUser
 from accounts.service import totp as totp_service
 from accounts.service.tenant_session import tenant_claims
@@ -65,11 +64,10 @@ def verify_otp_jwt(token: str, otp: str) -> tuple[RevelUser, bool]:
 def _burn_temporary_token(token: str) -> RevelUser:
     """Validate the temporary token, blacklist it (single use) and return its user."""
     validated_token = validate_otp_jwt(token)
-    check_blacklist(validated_token.jti)
     if validated_token.type != "totp-access":
         logger.warning("otp_verification_invalid_token_type", token_type=validated_token.type)  # type: ignore[unreachable]
         raise HttpError(401, str(_("Invalid token type.")))
-    blacklist_token(token)
+    consume_one_shot_token(token)
     return get_object_or_404(RevelUser, id=validated_token.user_id)
 
 

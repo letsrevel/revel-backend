@@ -31,7 +31,7 @@ LOCKED_MESSAGE = (
 
 
 @pytest.fixture(autouse=True)
-def _enable_throttling(settings: t.Any) -> None:
+def _throttling_off(settings: t.Any) -> None:
     """Prove the lock does not depend on the rate throttle: throttling stays off for these tests."""
     settings.DISABLE_THROTTLING = True
 
@@ -156,7 +156,33 @@ def test_locked_message_follows_the_request_language(
 
     assert response.status_code == 429
     assert response.json()["code"] == "totp_locked"
-    assert response.json()["detail"] != LOCKED_MESSAGE
+    assert response.json()["detail"] == (
+        "Zu viele falsche Zwei-Faktor-Codes. Zu deiner Sicherheit ist die Verifizierung pausiert. "
+        "Bitte versuche es später erneut."
+    )
+
+
+def test_temp_token_is_consumed_even_if_the_blacklist_precheck_misses(
+    client: Client, totp_user: RevelUser, mock_email: MagicMock
+) -> None:
+    """Two concurrent redemptions both pass a read-then-write check; the blacklist row must decide."""
+    token = auth_service.get_temporary_otp_jwt(totp_user)
+    code = pyotp.TOTP(totp_user.totp_secret).now()
+    assert _post(client, "token_obtain_pair_otp", {"token": token, "otp": code}).status_code == 200
+
+    with patch("accounts.service.auth.check_blacklist", create=True):  # the racing loser's view: not yet burned
+        response = _post(client, "token_obtain_pair_otp", {"token": token, "otp": code})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Token is blacklisted."
+
+
+def test_temp_token_cannot_be_redeemed_twice(client: Client, totp_user: RevelUser) -> None:
+    token = auth_service.get_temporary_otp_jwt(totp_user)
+    code = pyotp.TOTP(totp_user.totp_secret).now()
+    assert _post(client, "token_obtain_pair_otp", {"token": token, "otp": code}).status_code == 200
+
+    assert _post(client, "token_obtain_pair_otp", {"token": token, "otp": code}).status_code == 401
 
 
 # --- OTP enable / disable ---
@@ -236,3 +262,15 @@ def test_openapi_documents_429_on_the_three_otp_routes() -> None:
         responses = schema["paths"][path]["post"]["responses"]
         assert 429 in responses, path
     assert 429 not in schema["paths"]["/api/auth/token/pair"]["post"]["responses"]
+
+
+def test_openapi_429_code_is_optional_because_the_rate_limit_has_none() -> None:
+    """A throttle 429 carries no ``code``; only the account lock does. The generated types must say so."""
+    api._schema_cache = {}
+    schema = api.get_openapi_schema()
+    for path in ("/api/auth/token/pair/otp", "/api/otp/verify", "/api/otp/disable"):
+        ref = schema["paths"][path]["post"]["responses"][429]["content"]["application/json"]["schema"]["$ref"]
+        body = schema["components"]["schemas"][ref.rsplit("/", 1)[1]]
+        assert "code" in body["properties"], path
+        assert "code" not in body.get("required", []), path
+        assert "detail" in body["required"], path

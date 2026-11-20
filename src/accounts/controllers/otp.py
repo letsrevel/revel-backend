@@ -51,7 +51,7 @@ class OtpController(UserAwareController):
 
     @route.post(
         "/verify",
-        response={200: schema.RevelUserSchema, 429: schema.LoginErrorSchema},
+        response={200: schema.RevelUserSchema, 429: schema.LoginRateLimitSchema},
         url_name="enable-otp",
     )
     def enable_otp(self, payload: schema.OTPVerifySchema) -> RevelUser:
@@ -71,7 +71,7 @@ class OtpController(UserAwareController):
 
     @route.post(
         "/disable",
-        response={200: schema.RevelUserSchema, 429: schema.LoginErrorSchema},
+        response={200: schema.RevelUserSchema, 429: schema.LoginRateLimitSchema},
         url_name="disable-otp",
     )
     def disable_otp(self, request: HttpRequest, payload: schema.OTPVerifySchema) -> RevelUser:

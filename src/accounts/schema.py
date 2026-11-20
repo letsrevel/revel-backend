@@ -622,6 +622,17 @@ class LoginErrorSchema(Schema):
     code: LoginErrorCode
 
 
+class LoginRateLimitSchema(Schema):
+    """429 body of the 2FA routes: the account lock (``code`` = ``totp_locked``) or a plain rate limit.
+
+    A 429 without ``code`` is the request throttle, not the account lock; the ``Retry-After`` header
+    is set on both. ``detail`` is translated and must never be matched on.
+    """
+
+    detail: str
+    code: LoginErrorCode | None = None
+
+
 class EmailChangeErrorSchema(Schema):
     """400 body when an email-change confirmation is refused.
 

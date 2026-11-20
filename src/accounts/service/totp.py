@@ -3,8 +3,8 @@
 Every place that checks a TOTP code (login step 2, 2FA enable, 2FA disable) calls
 :func:`verify_totp`; nothing else may call ``pyotp`` directly. Per-IP and per-user request throttles
 do not stop a distributed guesser, so the account itself locks: after :data:`FAILURE_THRESHOLD`
-consecutive wrong codes verification is refused for :data:`LOCK_SECONDS`, even for the right code,
-and the owner is emailed once. A success resets the counter.
+wrong codes (counted when the attempt is reserved) verification is refused for :data:`LOCK_SECONDS`,
+even for the right code, and the owner is emailed once. A success resets the counter.
 
 Any future second factor (e.g. recovery codes) must go through this helper so it shares the counter.
 State lives in the default cache (no migration). This is a security control, so it is deliberately
@@ -27,7 +27,7 @@ from accounts.models import RevelUser
 logger = structlog.get_logger(__name__)
 
 FAILURE_THRESHOLD = 5
-LOCK_SECONDS = 15 * 60
+LOCK_SECONDS = 15 * 60  # the lock email says "15 minutes" (totp_locked_body); keep them in step
 # ponytail: the failure window is bounded by the cache TTL (a counter evicted or flushed with the
 # cache restarts at zero). Upgrade path: a DB column on the user if the lock must survive a flush.
 FAILURE_WINDOW_SECONDS = 24 * 60 * 60
@@ -65,22 +65,34 @@ def verify_totp(user: RevelUser, code: str, *, reason: str) -> bool:
     if (unlock_at := cache.get(_lock_key(user))) is not None:
         _raise_locked(unlock_at)
 
-    if pyotp.TOTP(user.totp_secret).verify(code):
-        cache.delete(_fail_key(user))
-        return True
-
+    # Reserve the attempt *before* verifying: the counter is the budget, so however many requests are
+    # in flight at once, at most FAILURE_THRESHOLD of them ever reach pyotp inside one window.
     fail_key = _fail_key(user)
     cache.add(fail_key, 0, timeout=FAILURE_WINDOW_SECONDS)
     try:
-        failures = cache.incr(fail_key)
+        attempt = cache.incr(fail_key)
     except ValueError:  # the key expired between add and incr
         cache.set(fail_key, 1, timeout=FAILURE_WINDOW_SECONDS)
-        failures = 1
-    if failures < FAILURE_THRESHOLD:
+        attempt = 1
+
+    if attempt > FAILURE_THRESHOLD:  # the budget went to concurrent requests: refuse unverified
+        _raise_locked(_ensure_locked(user, reason))
+
+    if pyotp.TOTP(user.totp_secret).verify(code):
+        cache.delete(fail_key)
+        return True
+    if attempt < FAILURE_THRESHOLD:
         return False
 
+    unlock_at = _ensure_locked(user, reason)
+    cache.delete(fail_key)
+    _raise_locked(unlock_at)
+
+
+def _ensure_locked(user: RevelUser, reason: str) -> float:
+    """Create the lock if absent (the winner logs and emails the owner) and return its unlock time."""
     unlock_at = time.time() + LOCK_SECONDS
-    # First writer wins: concurrent threshold-crossing failures send one email, not several.
+    # First writer wins: concurrent threshold-crossing attempts send one email, not several.
     if cache.add(_lock_key(user), unlock_at, timeout=LOCK_SECONDS):
         logger.warning("totp_verification_locked", user_id=str(user.id), reason=reason)
         email, language = user.email, user.language
@@ -89,5 +101,4 @@ def verify_totp(user: RevelUser, code: str, *, reason: str) -> bool:
                 tasks.AccountEmail.TOTP_LOCKED, email, context={"language": language}
             )
         )
-    cache.delete(fail_key)
-    _raise_locked(cache.get(_lock_key(user), unlock_at))
+    return t.cast(float, cache.get(_lock_key(user), unlock_at))

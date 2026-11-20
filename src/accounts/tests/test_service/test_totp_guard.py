@@ -1,5 +1,6 @@
 """Per-account TOTP failure lock (#1429): the shared second-factor check."""
 
+import time
 import typing as t
 from unittest.mock import MagicMock, patch
 
@@ -109,7 +110,8 @@ def test_success_resets_the_failure_counter(totp_user: RevelUser, mock_email: Ma
 def test_lock_expires(totp_user: RevelUser, mock_email: MagicMock) -> None:
     _fail_until_locked(totp_user)
 
-    cache.delete(totp_service._lock_key(totp_user))  # what the 15-minute TTL does
+    with patch("time.time", return_value=time.time() + totp_service.LOCK_SECONDS + 1):  # LocMem reads this
+        assert cache.get(totp_service._lock_key(totp_user)) is None
 
     assert totp_service.verify_totp(totp_user, _correct(totp_user), reason="login") is True
 
@@ -134,3 +136,54 @@ def test_counter_survives_a_missing_key_on_incr(totp_user: RevelUser) -> None:
         assert totp_service.verify_totp(totp_user, WRONG, reason="login") is False
 
     assert cache.get(totp_service._fail_key(totp_user)) == 1
+
+
+def test_attempt_is_reserved_before_verifying(totp_user: RevelUser, mock_email: MagicMock) -> None:
+    """Concurrent requests that already passed the lock check must not get a sixth verification.
+
+    Simulate the interleaving: the counter already holds the full budget when this request arrives
+    (other in-flight requests reserved it). Even the correct code is refused, and unverified.
+    """
+    cache.set(totp_service._fail_key(totp_user), totp_service.FAILURE_THRESHOLD, timeout=60)
+
+    code = _correct(totp_user)
+    with patch("accounts.service.totp.pyotp.TOTP") as totp_cls:
+        with pytest.raises(TOTPLockedError):
+            totp_service.verify_totp(totp_user, code, reason="login")
+
+    totp_cls.assert_not_called()
+    assert cache.get(totp_service._lock_key(totp_user)) is not None  # the lock is ensured, not left to chance
+
+
+def test_over_budget_attempt_locks_and_emails_once(
+    totp_user: RevelUser, mock_email: MagicMock, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    cache.set(totp_service._fail_key(totp_user), totp_service.FAILURE_THRESHOLD + 3, timeout=60)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        for _ in range(2):
+            with pytest.raises(TOTPLockedError):
+                totp_service.verify_totp(totp_user, WRONG, reason="login")
+
+    mock_email.assert_called_once()
+
+
+def test_fifth_reserved_attempt_with_a_wrong_code_locks(totp_user: RevelUser, mock_email: MagicMock) -> None:
+    cache.set(totp_service._fail_key(totp_user), totp_service.FAILURE_THRESHOLD - 1, timeout=60)
+
+    with pytest.raises(TOTPLockedError):
+        totp_service.verify_totp(totp_user, WRONG, reason="login")
+
+    assert cache.get(totp_service._fail_key(totp_user)) is None
+    assert cache.get(totp_service._lock_key(totp_user)) is not None
+
+
+def test_fifth_reserved_attempt_with_the_correct_code_succeeds_and_resets(
+    totp_user: RevelUser, mock_email: MagicMock
+) -> None:
+    cache.set(totp_service._fail_key(totp_user), totp_service.FAILURE_THRESHOLD - 1, timeout=60)
+
+    assert totp_service.verify_totp(totp_user, _correct(totp_user), reason="login") is True
+
+    assert cache.get(totp_service._fail_key(totp_user)) is None
+    assert cache.get(totp_service._lock_key(totp_user)) is None
