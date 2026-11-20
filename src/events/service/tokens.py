@@ -182,6 +182,16 @@ def get_token_rejection_reason(token: str) -> TokenRejection | None:
     return None
 
 
+INVITATION_WAIVER_FIELDS = (
+    "waives_questionnaire",
+    "waives_purchase",
+    "overrides_max_attendees",
+    "waives_membership_required",
+    "waives_rsvp_deadline",
+    "waives_apply_deadline",
+)
+
+
 def _default_greeting(user: RevelUser, organization_id: UUID) -> str:
     """Display name for a known holder of the organization, else the email."""
     return user.get_display_name() if is_known_holder_id(organization_id, user.pk) else user.email
@@ -232,6 +242,13 @@ def claim_invitation(user: RevelUser, token: str, greeting: str | None = None) -
     )
     if created:
         EventToken.objects.filter(pk=event_token.pk).update(uses=F("uses") + 1)
+    else:
+        # Existing invitation: turn on the waivers the token grants. Never turn one off. Uses stay unchanged.
+        granted = [f for f in INVITATION_WAIVER_FIELDS if defaults.get(f) and not getattr(invitation, f)]
+        if granted:
+            for field in granted:
+                setattr(invitation, field, True)
+            invitation.save(update_fields=granted)
     # Add tier links from token to invitation (additive — works for both new and existing invitations)
     token_tiers = event_token.ticket_tiers.all()
     if token_tiers:
