@@ -131,11 +131,63 @@ def test_lock_is_per_account(totp_user: RevelUser, user: RevelUser, mock_email: 
 
 
 def test_counter_survives_a_missing_key_on_incr(totp_user: RevelUser) -> None:
-    """The key expiring between ``add`` and ``incr`` must count the failure, not 500."""
-    with patch("accounts.service.totp.cache.incr", side_effect=ValueError):
+    """The key vanishing between ``add`` and ``incr`` once is retried and the failure still counts."""
+    real_incr = cache.incr
+    calls = {"n": 0}
+
+    def vanish_once(key: str, *args: t.Any, **kwargs: t.Any) -> int:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            cache.delete(key)
+            raise ValueError
+        return real_incr(key, *args, **kwargs)
+
+    with patch.object(cache, "incr", side_effect=vanish_once):
         assert totp_service.verify_totp(totp_user, WRONG, reason="login") is False
 
     assert cache.get(totp_service._fail_key(totp_user)) == 1
+
+
+def test_missing_key_recovery_keeps_concurrent_reservations(totp_user: RevelUser) -> None:
+    """Recovering from a vanished key must not reset reservations other requests made meanwhile."""
+    fail_key = totp_service._fail_key(totp_user)
+    real_incr = cache.incr
+    calls = {"n": 0}
+
+    def others_reserve_meanwhile(key: str, *args: t.Any, **kwargs: t.Any) -> int:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            cache.delete(key)
+            cache.set(fail_key, 3, timeout=totp_service.FAILURE_WINDOW_SECONDS)  # 3 concurrent reservations
+            raise ValueError
+        return real_incr(key, *args, **kwargs)
+
+    with patch.object(cache, "incr", side_effect=others_reserve_meanwhile):
+        assert totp_service.verify_totp(totp_user, WRONG, reason="login") is False
+
+    assert cache.get(fail_key) == 4
+
+
+def test_reservation_fails_closed_when_the_key_keeps_vanishing(totp_user: RevelUser) -> None:
+    with (
+        patch.object(cache, "incr", side_effect=ValueError),
+        patch("accounts.service.totp.pyotp.TOTP") as totp_cls,
+        pytest.raises(RuntimeError),
+    ):
+        totp_service.verify_totp(totp_user, WRONG, reason="login")
+    totp_cls.assert_not_called()
+
+
+def test_concurrent_overflow_lock_clears_the_counter(totp_user: RevelUser, mock_email: MagicMock) -> None:
+    """A lock taken on the overflow path leaves no counter behind to re-lock after it expires."""
+    fail_key = totp_service._fail_key(totp_user)
+    cache.set(fail_key, totp_service.FAILURE_THRESHOLD, timeout=totp_service.FAILURE_WINDOW_SECONDS)
+    with pytest.raises(TOTPLockedError):
+        totp_service.verify_totp(totp_user, WRONG, reason="login")
+    assert cache.get(fail_key) is None
+
+    cache.delete(totp_service._lock_key(totp_user))  # the lock expired
+    assert totp_service.verify_totp(totp_user, pyotp.TOTP(totp_user.totp_secret).now(), reason="login") is True
 
 
 def test_attempt_is_reserved_before_verifying(totp_user: RevelUser, mock_email: MagicMock) -> None:

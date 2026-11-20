@@ -1,5 +1,6 @@
 """Per-account TOTP failure lock (#1429) across login step 2 and OTP enable/disable."""
 
+import threading
 import typing as t
 from unittest.mock import MagicMock, patch
 
@@ -7,6 +8,7 @@ import orjson
 import pyotp
 import pytest
 from django.core.cache import cache
+from django.db import connection
 from django.test.client import Client
 from django.urls import reverse
 from django.utils import translation
@@ -259,3 +261,31 @@ def test_openapi_429_code_is_optional_because_the_rate_limit_has_none() -> None:
         assert "code" in body["properties"], path
         assert "code" not in body.get("required", []), path
         assert "detail" in body["required"], path
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_redemption_of_one_temp_token_is_granted_once(totp_user: RevelUser) -> None:
+    """Two simultaneous step-2 requests with the same temp token: exactly one succeeds.
+
+    ``transaction=True`` so each thread sees the other's committed blacklist row; under the default
+    wrapping transaction the consumption race could not happen at all.
+    """
+    token = auth_service.get_temporary_otp_jwt(totp_user)
+    code = pyotp.TOTP(totp_user.totp_secret).now()
+    barrier = threading.Barrier(2)
+    statuses: list[int] = []
+
+    def redeem() -> None:
+        try:
+            barrier.wait(timeout=10)
+            statuses.append(_post(Client(), "token_obtain_pair_otp", {"token": token, "otp": code}).status_code)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=redeem) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert sorted(statuses) == [200, 401]

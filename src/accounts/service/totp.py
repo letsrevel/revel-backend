@@ -31,6 +31,7 @@ LOCK_SECONDS = 15 * 60  # the lock email says "15 minutes" (totp_locked_body); k
 # ponytail: the failure window is bounded by the cache TTL (a counter evicted or flushed with the
 # cache restarts at zero). Upgrade path: a DB column on the user if the lock must survive a flush.
 FAILURE_WINDOW_SECONDS = 24 * 60 * 60
+_RESERVE_RETRIES = 3
 
 
 def _fail_key(user: RevelUser) -> str:
@@ -68,17 +69,16 @@ def verify_totp(user: RevelUser, code: str, *, reason: str) -> bool:
     # Reserve the attempt *before* verifying: the counter is the budget, so however many requests are
     # in flight at once, at most FAILURE_THRESHOLD of them ever reach pyotp inside one window.
     fail_key = _fail_key(user)
-    cache.add(fail_key, 0, timeout=FAILURE_WINDOW_SECONDS)
-    try:
-        attempt = cache.incr(fail_key)
-    except ValueError:  # the key expired between add and incr
-        cache.set(fail_key, 1, timeout=FAILURE_WINDOW_SECONDS)
-        attempt = 1
+    attempt = _reserve_attempt(fail_key)
 
+    # Every locked exit clears the counter, so the next window starts fresh once the lock expires.
     if attempt > FAILURE_THRESHOLD:  # the budget went to concurrent requests: refuse unverified
-        _raise_locked(_ensure_locked(user, reason))
+        unlock_at = _ensure_locked(user, reason)
+        cache.delete(fail_key)
+        _raise_locked(unlock_at)
     # A lock set after our first read (by the 5th attempt, which then reset the counter) still applies.
     if (unlock_at := cache.get(_lock_key(user))) is not None:
+        cache.delete(fail_key)
         _raise_locked(unlock_at)
 
     if pyotp.TOTP(user.totp_secret).verify(code):
@@ -90,6 +90,25 @@ def verify_totp(user: RevelUser, code: str, *, reason: str) -> bool:
     unlock_at = _ensure_locked(user, reason)
     cache.delete(fail_key)
     _raise_locked(unlock_at)
+
+
+def _reserve_attempt(fail_key: str) -> int:
+    """Atomically take the next attempt number from the failure counter.
+
+    ``incr`` raises ``ValueError`` when the key vanished between ``add`` and ``incr`` (a success or a lock
+    deleted it, or it expired). Retrying ``add`` + ``incr`` never overwrites reservations that concurrent
+    requests made meanwhile, unlike a plain ``set``.
+
+    Raises:
+        RuntimeError: The key kept vanishing; fail closed (500) rather than verify uncounted.
+    """
+    for _ in range(_RESERVE_RETRIES):
+        cache.add(fail_key, 0, timeout=FAILURE_WINDOW_SECONDS)
+        try:
+            return int(cache.incr(fail_key))
+        except ValueError:
+            continue
+    raise RuntimeError("Could not reserve a two-factor attempt.")
 
 
 def _ensure_locked(user: RevelUser, reason: str) -> float:
