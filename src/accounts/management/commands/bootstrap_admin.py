@@ -46,9 +46,8 @@ class Command(BaseCommand):
 
         try:
             with transaction.atomic():
+                # create_superuser marks the email as verified, so no verification mail is sent.
                 user = RevelUser.objects.create_superuser(username=email, email=email, password=password)
-                user.email_verified = True  # auto-verifies the org contact email; suppresses the verification mail
-                user.save(update_fields=["email_verified"])
                 org = create_organization(owner=user, name=org_name, contact_email=email, slug=slug)
         except HttpError as exc:  # create_organization signals validation failures as HttpError
             self.stderr.write(self.style.ERROR(f"Could not create the organization: {exc}"))

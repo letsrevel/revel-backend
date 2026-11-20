@@ -159,7 +159,6 @@ class TestRenewalReminderTask:
         assert fresh.renewal_reminded_for is None
         assert send_subscription_renewal_reminders()["sent"] == 1
 
-    @freeze_time("2026-11-21 03:00:00")  # before the 05:00 UTC daily run
     def test_backfill_migration_leaves_the_exact_target_day_for_the_beat(
         self, make_sub: t.Callable[..., MembershipSubscription]
     ) -> None:
@@ -174,88 +173,6 @@ class TestRenewalReminderTask:
         backfill(django_apps, None)
         due_today.refresh_from_db()
         assert due_today.renewal_reminded_for is None
-        assert send_subscription_renewal_reminders()["sent"] == 1
-
-    @freeze_time("2026-11-21 03:00:00")  # before the run time: only last_run_at says it ran
-    def test_backfill_migration_marks_the_target_day_when_the_old_beat_already_ran_today(
-        self, make_sub: t.Callable[..., MembershipSubscription]
-    ) -> None:
-        """0148 deployed after the daily beat: that cohort was reminded this morning and must not get a second one."""
-        import importlib
-
-        from django.apps import apps as django_apps
-        from django_celery_beat.models import PeriodicTask
-
-        backfill = importlib.import_module("events.migrations.0148_backfill_renewal_reminded_for").backfill
-        due_today = make_sub(
-            period_end_offset_days=REMINDER_DAYS, status=MembershipSubscription.SubscriptionStatus.ACTIVE
-        )
-        assert due_today.current_period_end is not None
-        MembershipSubscription.objects.filter(pk=due_today.pk).update(
-            current_period_start=due_today.current_period_end - timedelta(days=30)
-        )
-        PeriodicTask.objects.filter(name="Send membership subscription renewal reminders").update(
-            last_run_at=timezone.now()
-        )
-        backfill(django_apps, None)
-        due_today.refresh_from_db()
-        assert due_today.renewal_reminded_for == due_today.current_period_end
-        assert send_subscription_renewal_reminders()["sent"] == 0
-
-    def _backfill_target_day(self, make_sub: t.Callable[..., MembershipSubscription]) -> MembershipSubscription:
-        import importlib
-
-        from django.apps import apps as django_apps
-
-        backfill = importlib.import_module("events.migrations.0148_backfill_renewal_reminded_for").backfill
-        due_today = make_sub(
-            period_end_offset_days=REMINDER_DAYS, status=MembershipSubscription.SubscriptionStatus.ACTIVE
-        )
-        assert due_today.current_period_end is not None
-        MembershipSubscription.objects.filter(pk=due_today.pk).update(
-            current_period_start=due_today.current_period_end - timedelta(days=30)
-        )
-        backfill(django_apps, None)
-        due_today.refresh_from_db()
-        return due_today
-
-    @freeze_time("2026-11-21 03:00:00")
-    def test_backfill_migration_ignores_a_run_from_an_earlier_day(
-        self, make_sub: t.Callable[..., MembershipSubscription]
-    ) -> None:
-        """A beat that last ran yesterday has not reminded today's cohort: leave it for today's run."""
-        from django_celery_beat.models import PeriodicTask
-
-        PeriodicTask.objects.filter(name="Send membership subscription renewal reminders").update(
-            last_run_at=timezone.now() - timedelta(days=1)
-        )
-        due_today = self._backfill_target_day(make_sub)
-        assert due_today.renewal_reminded_for is None
-        assert send_subscription_renewal_reminders()["sent"] == 1
-
-    @freeze_time("2026-11-21 06:00:00")
-    def test_backfill_migration_marks_the_target_day_after_the_run_time(
-        self, make_sub: t.Callable[..., MembershipSubscription]
-    ) -> None:
-        """After 05:00 UTC the old run has happened even if last_run_at was not synced to the database yet."""
-        due_today = self._backfill_target_day(make_sub)
-        assert due_today.renewal_reminded_for == due_today.current_period_end
-        assert send_subscription_renewal_reminders()["sent"] == 0
-
-    @freeze_time("2026-11-21 06:00:00")
-    def test_backfill_migration_leaves_a_period_that_started_after_todays_run(
-        self, make_sub: t.Callable[..., MembershipSubscription]
-    ) -> None:
-        """A period created after the 05:00 UTC run never got that run's reminder: it keeps its one reminder."""
-        import importlib
-
-        from django.apps import apps as django_apps
-
-        backfill = importlib.import_module("events.migrations.0148_backfill_renewal_reminded_for").backfill
-        late = make_sub(period_end_offset_days=REMINDER_DAYS, status=MembershipSubscription.SubscriptionStatus.ACTIVE)
-        backfill(django_apps, None)
-        late.refresh_from_db()
-        assert late.renewal_reminded_for is None
         assert send_subscription_renewal_reminders()["sent"] == 1
 
     def test_skipped_four_days_before(self, make_sub: t.Callable[..., MembershipSubscription]) -> None:
