@@ -246,3 +246,30 @@ def test_exhausted_retries_mark_the_delivery_failed(
 
     d.refresh_from_db()
     assert d.outcome == WebhookDelivery.Outcome.FAILED
+
+
+def test_low_shared_budget_defers_delivery_without_resolving(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider, settings: t.Any
+) -> None:
+    """Below the reserve the delivery waits for a Celery retry instead of spending the shared budget."""
+    settings.INTEGRATIONS_RATE_RESERVE = 200
+    fake_provider.budget = 150
+    d = _deliver(connected, "order.placed", f"/events/{pushed.remote_id}/")
+    before = [c for c in fake_provider.calls if c[0] == "resolve_notification"]
+    with pytest.raises(RetryableProviderError) as exc_info:
+        webhook_service.handle_delivery(d.id)
+    assert exc_info.value.code == IntegrationErrorCode.PROVIDER_RATE_LIMITED
+    assert [c for c in fake_provider.calls if c[0] == "resolve_notification"] == before
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.RECEIVED
+
+
+def test_unknown_budget_still_resolves_delivery(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider, settings: t.Any
+) -> None:
+    settings.INTEGRATIONS_RATE_RESERVE = 200
+    fake_provider.budget = None
+    d = _deliver(connected, "order.placed", f"/events/{pushed.remote_id}/")
+    webhook_service.handle_delivery(d.id)
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.PROCESSED
