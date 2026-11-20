@@ -247,10 +247,13 @@ def invite_marker(token: str) -> str:
 def _dispatch_invite(record: MembershipRecord) -> None:
     from events.tasks.member_register import send_member_register_invite  # lazy: the task imports this module
 
-    # The id and a generation marker travel through the broker, never the token: the task reads the
-    # current token itself and skips when a later invitation has superseded this one.
+    # The id travels through the broker, never the token: the task reads the current token itself. The
+    # generation marker rides in a message header (the task signature stays one argument, so an old worker
+    # during a rolling deploy still accepts the message) and the task skips when a later invitation superseded it.
     record_id, marker = str(record.pk), invite_marker(record.invite_token or "")
-    transaction.on_commit(lambda: send_member_register_invite.delay(record_id, marker))
+    transaction.on_commit(
+        lambda: send_member_register_invite.apply_async(args=(record_id,), headers={"invite_marker": marker})
+    )
 
 
 def invite_blocked_reason(record: MembershipRecord) -> str | None:

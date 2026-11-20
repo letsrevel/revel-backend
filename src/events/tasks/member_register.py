@@ -3,7 +3,7 @@
 from uuid import UUID
 
 import structlog
-from celery import shared_task
+from celery import Task, shared_task
 from django.template.loader import render_to_string
 from django.utils import translation
 from django.utils.translation import gettext as _
@@ -18,17 +18,18 @@ from events.utils.frontend_urls import frontend_base_url_for
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(name="events.send_member_register_invite")
-def send_member_register_invite(record_id: str, marker: str | None = None) -> None:
+@shared_task(name="events.send_member_register_invite", bind=True)
+def send_member_register_invite(self: Task, record_id: str) -> None:  # type: ignore[type-arg]
     """Email the claim link of an account-less register record.
 
     A direct templated email (like guest confirmations), not a ``NotificationType``: the notification system
     needs a recipient account, and handing the claim link to whoever registered the address would defeat it.
     The current ``invite_token`` is read from the record (it never travels through the broker), so a resend
     simply makes the latest link win. Skipped when the record is gone, already linked or holds no token,
-    and when ``marker`` (the invitation generation it was queued for) no longer matches the record's token:
-    a later invitation superseded it. ``marker`` is optional so messages queued before it existed still send.
+    and when the ``invite_marker`` message header (the invitation generation it was queued for) no longer matches
+    the record's token: a later invitation superseded it. Without the header the email still sends.
     """
+    marker = (self.request.headers or {}).get("invite_marker")
     record = MembershipRecord.objects.select_related("organization").filter(pk=record_id).first()
     token = record.invite_token if record else None
     if (

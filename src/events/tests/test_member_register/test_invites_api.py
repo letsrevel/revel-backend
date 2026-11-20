@@ -27,7 +27,7 @@ from .conftest import RecordFactory, make_client
 
 pytestmark = pytest.mark.django_db
 
-DELAY = "events.tasks.member_register.send_member_register_invite.delay"
+DELAY = "events.tasks.member_register.send_member_register_invite.apply_async"
 
 
 def _invite_url(organization: Organization, record: MembershipRecord) -> str:
@@ -84,7 +84,10 @@ class TestSendInvite:
         assert "invite_token" not in body
         record.refresh_from_db()
         assert record.invite_token and record.invited_at is not None
-        delay.assert_called_once_with(str(record.pk), linking.invite_marker(record.invite_token))
+        # One positional arg (an old worker's signature) with the marker in a message header.
+        delay.assert_called_once_with(
+            args=(str(record.pk),), headers={"invite_marker": linking.invite_marker(record.invite_token)}
+        )
 
     def test_resend_rotates_token(
         self,
@@ -167,7 +170,7 @@ class TestSendInvite:
         assert response.status_code == 200
         record.refresh_from_db()
         assert record.invite_token is not None
-        delay.assert_called_once_with(str(record.pk), ANY)
+        delay.assert_called_once_with(args=(str(record.pk),), headers=ANY)
 
     def test_resend_to_invited_open_entry_still_works(
         self,
@@ -184,7 +187,7 @@ class TestSendInvite:
         assert response.status_code == 200
         record.refresh_from_db()
         assert record.invite_token != "old-token"
-        delay.assert_called_once_with(str(record.pk), ANY)
+        delay.assert_called_once_with(args=(str(record.pk),), headers=ANY)
 
     def test_resend_within_cooldown_is_400(
         self,
@@ -206,7 +209,7 @@ class TestSendInvite:
         assert "sent recently" in response.json()["detail"]
         record.refresh_from_db()
         assert record.invite_token == first_token
-        delay.assert_called_once_with(str(record.pk), ANY)
+        delay.assert_called_once_with(args=(str(record.pk),), headers=ANY)
 
     def test_resend_after_email_change_to_a_new_address_is_allowed(
         self,
@@ -225,7 +228,7 @@ class TestSendInvite:
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 200, response.content
-        delay.assert_called_once_with(str(record.pk), ANY)
+        delay.assert_called_once_with(args=(str(record.pk),), headers=ANY)
 
     def test_email_changed_back_to_a_recent_address_is_still_refused(
         self,
@@ -259,7 +262,7 @@ class TestSendInvite:
         with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
             assert owner_client.post(_invite_url(organization, first)).status_code == 200
             assert owner_client.post(_invite_url(organization, second)).status_code == 400
-        delay.assert_called_once_with(str(first.pk), ANY)
+        delay.assert_called_once_with(args=(str(first.pk),), headers=ANY)
 
     def test_resend_after_the_interval_is_allowed(
         self,
@@ -493,17 +496,30 @@ class TestInviteEmail:
         record.email, record.invite_token = "b@example.com", "tok-b"
         record.save(update_fields=["email", "invite_token", "updated_at"])
 
-        send_member_register_invite(str(record.pk), stale_marker)
+        send_member_register_invite.apply(args=(str(record.pk),), headers={"invite_marker": stale_marker}, throw=True)
         assert mail.outbox == []
 
-        send_member_register_invite(str(record.pk), linking.invite_marker("tok-b"))
+        send_member_register_invite.apply(
+            args=(str(record.pk),), headers={"invite_marker": linking.invite_marker("tok-b")}, throw=True
+        )
         (message,) = mail.outbox
         assert message.to == ["b@example.com"]
 
-    def test_marker_is_optional_for_in_flight_messages(self, make_record: RecordFactory) -> None:
+    def test_no_marker_header_still_sends(self, make_record: RecordFactory) -> None:
         record = make_record(invite_token="tok", invited_at=timezone.now())
-        send_member_register_invite(str(record.pk))
+        send_member_register_invite.apply(args=(str(record.pk),), throw=True)
         assert len(mail.outbox) == 1
+
+    def test_a_worker_exposes_the_header_on_request_headers(self) -> None:
+        """Celery merges ``apply_async(headers=...)`` into the message headers (amqp.send_task_message), and a worker
+        builds the task's ``Context`` from them; custom keys surface in ``request.headers`` (not as an argument)."""
+        from celery import current_app
+        from celery.app.task import Context
+
+        message = current_app.amqp.as_task_v2("tid", send_member_register_invite.name, args=("rec",))
+        message.headers.update({"invite_marker": "m1"})  # what send_task_message does with headers=
+        request = Context(message.headers)
+        assert request.headers == {"invite_marker": "m1"}
 
     def test_marker_does_not_expose_the_token(self) -> None:
         assert "tok-secret-value" not in linking.invite_marker("tok-secret-value")
