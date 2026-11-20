@@ -4,7 +4,9 @@ During a rolling deploy the old pods keep inserting guest tickets with the colum
 migration 0152 already ran. Run this ONCE after the rollout completes (dry-run first), with ``--before`` set to
 the moment the last old web container stopped: old containers are the ones that still create guest tickets
 without the flag. Only tickets with a Payment row match, so new pods' email-confirmed zero-total tickets
-never do. Prints counts only.
+never do. One residual: if a tier became ONLINE between the confirmation email and the click, the confirmed
+cart is reserved with Payment rows, and such a ticket created before the cutoff is flagged too (rare; it fails
+closed). Prints counts only.
 """
 
 import datetime

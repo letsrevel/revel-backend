@@ -2,12 +2,12 @@
 
 Before 0151 a guest's ONLINE checkout issued PENDING tickets with no email proof, and nothing recorded that.
 A ticket is such a checkout when its holder is still a guest account, it came from checkout (or predates
-``sale_source``), and it sits on an ONLINE tier or carries a Payment row. Free and offline guest tickets were
-email-confirmed, so they are left alone. Accounts that already converted to a registered one are untraceable
-(``guest`` is no longer set) and keep the flag False, an accepted gap. The UPDATE lives in
-``events.utils.unconfirmed_guest``. A rolling deploy's old code still inserts rows without the flag, so ops run
-``manage.py backfill_unconfirmed_guest --before <rollout-finished time>`` ONCE after the rollout (dry-run first).
-Never re-run it later: email-confirmed zero-total guest tickets created after the deploy match the same shape.
+``sale_source``), and it carries a Payment row, the only evidence of a paid checkout. Free, offline and
+email-confirmed zero-total guest tickets have no Payment row, so they are left alone. Accepted gaps, which keep
+the flag False: accounts that already converted to a registered one (``guest`` is no longer set), and ONLINE
+guest tickets with no Payment row. The UPDATE lives in ``events.utils.unconfirmed_guest``. A rolling deploy's
+old code still inserts rows without the flag, so ops run ``manage.py backfill_unconfirmed_guest --before
+<moment the last old web container stopped>`` ONCE after the rollout (dry-run first).
 """
 
 import typing as t
