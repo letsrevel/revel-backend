@@ -70,6 +70,7 @@ def test_link_email_renders_byte_for_byte(
 
 # (email_type, recipient, template_base, extra_context) — informational emails, no token.
 _CONTEXT_CASES = [
+    (AccountEmail.TOTP_LOCKED, "cur@example.com", "totp_locked", {}),
     (AccountEmail.CHANGE_NOTICE, "cur@example.com", "email_change_notice", {"masked_new_email": "n***@example.com"}),
     (
         AccountEmail.CHANGE_COMPLETED_OLD,

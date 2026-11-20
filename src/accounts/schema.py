@@ -609,7 +609,10 @@ class LinkTokenErrorSchema(Schema):
 
 
 class LoginErrorSchema(Schema):
-    """403 body when a login is refused because the account's email is not verified.
+    """403/429 body when a login is refused after the credentials checked out.
+
+    403 ``email_not_verified``: the account's email is not verified. 429 ``totp_locked``: too many
+    wrong two-factor codes; the ``Retry-After`` header says how many seconds remain.
 
     ``detail`` is translated and must never be matched on; ``code`` is the stable
     machine-readable discriminator.

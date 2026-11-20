@@ -17,6 +17,7 @@ TEMPLATES = [
     "email_change_notice",
     "email_change_completed_old",
     "email_change_completed_new",
+    "totp_locked",
     "account_delete",
     "email_verification_reminder",
     "email_verification_final_warning",

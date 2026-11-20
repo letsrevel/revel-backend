@@ -1,0 +1,12 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2>{% trans "Two-factor sign-in is paused on your account" %}</h2>
+<p>{% blocktrans %}We received several incorrect two-factor codes for your Revel account. For your security, two-factor verification is paused for 15 minutes.{% endblocktrans %}</p>
+<p>{% blocktrans %}If this wasn't you, change your password immediately and contact support:{% endblocktrans %}</p>
+<div class="card">
+  <a href="{{ frontend_base_url }}/account/password-reset" class="button button--danger">{% trans "Reset my password" %}</a>
+</div>
+<p>{% blocktrans %}If it was you, no action is needed — just try again after the pause.{% endblocktrans %}</p>
+<p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
+{% endblock %}

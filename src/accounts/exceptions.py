@@ -126,6 +126,7 @@ class LoginErrorCode(models.TextChoices):
     """Stable machine-readable reasons a login is refused after the credentials checked out. Renaming is breaking."""
 
     EMAIL_NOT_VERIFIED = "email_not_verified"
+    TOTP_LOCKED = "totp_locked"
 
 
 class EmailNotVerifiedError(Exception):
@@ -136,6 +137,21 @@ class EmailNotVerifiedError(Exception):
     """
 
     code = LoginErrorCode.EMAIL_NOT_VERIFIED
+
+
+class TOTPLockedError(Exception):
+    """Raised when an account's two-factor check is paused after too many wrong codes (429, ``totp_locked``).
+
+    The handler renders ``{"detail": <translated message>, "code": "totp_locked"}`` plus a
+    ``Retry-After`` header. While it is raised even a correct code is refused.
+    """
+
+    code = LoginErrorCode.TOTP_LOCKED
+
+    def __init__(self, retry_after: int) -> None:
+        """Store the seconds until the lock lifts (also sent as ``Retry-After``)."""
+        super().__init__("Two-factor verification is locked")
+        self.retry_after = retry_after
 
 
 class EmailChangeErrorCode(models.TextChoices):

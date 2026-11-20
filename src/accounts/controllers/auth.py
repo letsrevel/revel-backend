@@ -66,7 +66,7 @@ class AuthController(TokenObtainPairController):
 
     @route.post(
         "/token/pair/otp",
-        response={200: TokenObtainPairOutputSchema, 403: schema.LoginErrorSchema},
+        response={200: TokenObtainPairOutputSchema, 403: schema.LoginErrorSchema, 429: schema.LoginErrorSchema},
         url_name="token_obtain_pair_otp",
     )
     def obtain_token_with_otp(
@@ -76,8 +76,10 @@ class AuthController(TokenObtainPairController):
 
         Call this after POST /auth/token/pair returns a temporary token for a 2FA-enabled user.
         Validates the TOTP code from the user's authenticator app and returns a standard JWT token
-        pair on success. Returns 401 if the TOTP code is invalid, and 403 with code `email_not_verified`
-        when the account's email has not been verified.
+        pair on success. Returns 401 if the TOTP code is invalid, 403 with code `email_not_verified`
+        when the account's email has not been verified, and 429 with code `totp_locked` (plus a
+        `Retry-After` header, in seconds) once the account has had too many wrong codes in a row;
+        while locked even a correct code is refused.
         """
         user, verified = auth_service.verify_otp_jwt(payload.token, payload.otp)
         if not verified:

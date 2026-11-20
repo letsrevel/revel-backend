@@ -28,6 +28,7 @@ from accounts.exceptions import (
     ReferralApplicationError,
     ReferralApplicationsDisabledError,
     ReferralForfeitureConfirmationRequiredError,
+    TOTPLockedError,
     TurnstileFailedError,
 )
 from accounts.service import oidc as oidc_service
@@ -104,6 +105,23 @@ def handle_email_not_verified(request: HttpRequest, exc: Exception | t.Type[Exce
     return Response(status=403, data={"detail": str(error), "code": error.code.value})
 
 
+def handle_totp_locked(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Render a :class:`TOTPLockedError` as a 429 ``{"detail", "code": "totp_locked"}`` with ``Retry-After``."""
+    error = t.cast(TOTPLockedError, exc)
+    response = Response(
+        status=429,
+        data={
+            "detail": _(
+                "Too many incorrect two-factor codes. For your security, verification is paused. "
+                "Please try again later."
+            ),
+            "code": error.code.value,
+        },
+    )
+    response["Retry-After"] = str(error.retry_after)
+    return response
+
+
 def make_referral_application_handler(status: int) -> ExceptionHandler:
     """Render a :class:`ReferralApplicationError` as ``{"detail": <message>, "code": <code>}``.
 
@@ -129,6 +147,7 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     LinkTokenError: handle_link_token_error,
     EmailChangeError: handle_email_change_error,
     EmailNotVerifiedError: handle_email_not_verified,
+    TOTPLockedError: handle_totp_locked,
 }
 
 
