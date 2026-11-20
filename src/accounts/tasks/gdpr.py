@@ -204,6 +204,7 @@ def delete_user_account(user_id: str) -> None:
     # Deliberately no email here: this log outlives the erasure it records.
     logger.info("account_deletion_started", user_id=str(user.id))
     from events.service import discount_code_service
+    from events.service.account_deletion_service import release_capacity_of_account
     from events.service.member_register_service import suppress_mirror
 
     # The cancel flips the member to CANCELLED, which would close the register record;
@@ -215,7 +216,9 @@ def delete_user_account(user_id: str) -> None:
     try:
         cleanup_referral_data(user)
         with transaction.atomic():
-            # PENDING tickets cascade with the user: give their discount code uses back first.
+            # Unfinished (PENDING) checkouts cascade with the account: give their capacity back, then
+            # their discount code uses. Tiers are locked before discount codes.
+            release_capacity_of_account(user)
             discount_code_service.release_uses_of_pending_tickets(user=user)
             user.delete()
             gdpr.purge_user_history(pk)

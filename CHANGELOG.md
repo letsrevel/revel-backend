@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Deleting an account gives back the ticket-tier and series-pass places of its unfinished (pending) checkouts. Issued tickets and passes keep their places.
+
 ## [3.0.0] - 2026-11-20
 
 ### ⚠️ Upgrade notes: action required after you deploy
