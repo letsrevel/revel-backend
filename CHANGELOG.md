@@ -67,7 +67,7 @@ Optional: finish the upgrade, including stopping the old Celery containers, befo
 
 ### Fixed
 - The password-reset links in the two-factor pause email and the email-change notice now open the frontend's password-reset page.
-- Claiming an event invitation link as someone who is already invited now applies the waivers and ticket tiers the link grants (a waiver is never turned off). A claim that grants something counts toward the link's use limit; a claim that grants nothing returns the invitation unchanged. When a link is used up or expired, `POST /events/claim-invitation/{token}` names the reason in its 400 message.
+- Claiming an event invitation link as someone who is already invited now applies the waivers and ticket tiers the link grants (a waiver is never turned off). A claim that grants something counts toward the link's use limit; a claim that grants nothing returns the invitation unchanged. When a link is expired, or is used up and the claim would grant something, `POST /events/claim-invitation/{token}` returns 400 and names the reason.
 - Zero-total guest checkouts on an online tier are confirmed by email, like free guest checkouts. The API response keeps its shape (`message` set, no tickets, `requires_payment` false).
 - Simultaneous cancellations, refunds and payment confirmations of the same ticket no longer fail.
 - Discount code uses of checkouts that are cancelled or expire are given back.
