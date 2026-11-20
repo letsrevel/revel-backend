@@ -126,7 +126,8 @@ class EventQuerySet(models.QuerySet["Event"]):
                     visibility__in=Event.Visibility.publicly_accessible(),
                     status__in=[Event.EventStatus.OPEN, Event.EventStatus.CLOSED],
                 )
-                | is_allowed_special
+                # A token never unlocks a draft (logged-in users get the same rule at the end).
+                | ((Q(id__in=allowed_ids) & ~Q(status=Event.EventStatus.DRAFT)) if allowed_ids else Q())
             )
 
         # --- Get banned and blacklisted organization IDs ---
