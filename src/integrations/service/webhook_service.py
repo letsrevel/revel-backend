@@ -8,8 +8,6 @@ or the remote-status transition matrix.
 
 from uuid import UUID
 
-import structlog
-from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.http import Http404, HttpRequest
@@ -20,10 +18,8 @@ from integrations import registry
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError, ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, WebhookDelivery
-from integrations.providers.base import ListingProvider, NotificationKind, WebhookNotification
+from integrations.providers.base import NotificationKind, WebhookNotification
 from integrations.service import connection_service, sync_service
-
-logger = structlog.get_logger(__name__)
 
 _STATUS_ON: dict[str, str] = {
     "event_published": EventLink.RemoteStatus.LIVE,
@@ -107,18 +103,6 @@ def _refresh_counts_debounced(delivery: WebhookDelivery, link: EventLink) -> Web
     return _finish(delivery, WebhookDelivery.Outcome.PROCESSED)
 
 
-def _defer_if_budget_low(provider: ListingProvider, conn: PlatformConnection) -> None:
-    """Raise a retryable error below the shared budget reserve, like the reconcile sweep.
-
-    Resolving spends the provider's shared rate budget; the delivery stays RECEIVED and the
-    Celery retry picks it up once the budget recovers.
-    """
-    remaining = provider.remaining_budget()
-    if remaining is not None and remaining < settings.INTEGRATIONS_RATE_RESERVE:
-        logger.warning("integration_webhook_budget_low", provider=conn.provider, remaining=remaining)
-        raise RetryableProviderError(IntegrationErrorCode.PROVIDER_RATE_LIMITED, "Provider rate budget is low.")
-
-
 def handle_delivery(delivery_id: UUID) -> WebhookDelivery:
     """Resolve the pointer with the connection's token, then refresh counts or move the status (spec §8)."""
     delivery = WebhookDelivery.objects.select_related("connection").get(id=delivery_id)
@@ -129,8 +113,8 @@ def handle_delivery(delivery_id: UUID) -> WebhookDelivery:
     notification = WebhookNotification(
         action=delivery.action, resource_path=delivery.resource_path, raw=delivery.payload
     )
-    _defer_if_budget_low(provider, conn)
     try:
+        sync_service.raise_if_budget_low(provider, conn.provider)
         resolved = provider.resolve_notification(conn.token(), notification)
         if resolved.kind == "ignored" or not resolved.remote_event_id:
             return _finish(delivery, WebhookDelivery.Outcome.IGNORED)

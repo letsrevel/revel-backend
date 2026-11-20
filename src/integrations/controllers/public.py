@@ -100,8 +100,9 @@ class IntegrationsPublicController(ControllerBase):
         collect 429s — dropped notifications, since we never get the pointer body again. The
         endpoint is cheap by construction (parse, insert one audit row, dispatch after commit)
         and an unknown secret is a 404 before any work happens. Resolving a delivery is what spends
-        the provider's shared rate budget, and that happens later in the Celery task, which defers
-        (and retries) once the remaining budget is below ``INTEGRATIONS_RATE_RESERVE``. ``throttle=[]`` rather than
+        the provider's shared rate budget, and that happens later in the Celery task, which delays
+        the delivery (re-enqueued every 15 minutes until it is 24 hours old) while the remaining budget is
+        below ``INTEGRATIONS_RATE_RESERVE``. ``throttle=[]`` rather than
         ``None``: an empty list is how ninja spells "no throttles" while still overriding the
         controller's (``None`` is not iterable there).
         """

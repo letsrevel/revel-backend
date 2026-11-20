@@ -1,19 +1,25 @@
 """Celery entry points for the integrations app. Every task pins ``name=``."""
 
 import typing as t
+from datetime import timedelta
 from uuid import UUID
 
 import structlog
 from celery import shared_task
 from celery.exceptions import MaxRetriesExceededError
+from django.utils import timezone
 
 from integrations import registry
-from integrations.exceptions import RetryableProviderError
+from integrations.exceptions import BudgetDeferredError, RetryableProviderError
 
 logger = structlog.get_logger(__name__)
 
 MAX_RETRIES = 5
 WEBHOOK_MAX_RETRIES = 3
+# A delivery held back by a low shared budget is re-enqueued on its own countdown (not a retry, so
+# WEBHOOK_MAX_RETRIES is untouched) until it is older than the cap, then it is marked FAILED.
+WEBHOOK_BUDGET_DEFER_COUNTDOWN_SECONDS = 15 * 60
+WEBHOOK_BUDGET_DEFER_MAX_AGE = timedelta(hours=24)
 RETRY_BACKOFF_SECONDS = 30
 RETRY_BACKOFF_MAX_SECONDS = 600
 
@@ -98,11 +104,19 @@ def handle_webhook_delivery(self: t.Any, delivery_id: str) -> None:
     from integrations.models import WebhookDelivery
     from integrations.service import webhook_service
 
-    if not WebhookDelivery.objects.filter(id=delivery_id).exists():
+    created_at = WebhookDelivery.objects.filter(id=delivery_id).values_list("created_at", flat=True).first()
+    if created_at is None:
         logger.info("integration_webhook_skipped_missing_delivery", delivery_id=delivery_id)
         return
     try:
         webhook_service.handle_delivery(UUID(delivery_id))
+    except BudgetDeferredError:
+        if timezone.now() - created_at >= WEBHOOK_BUDGET_DEFER_MAX_AGE:
+            logger.warning("integration_webhook_budget_defer_expired", delivery_id=delivery_id)
+            webhook_service.mark_exhausted(UUID(delivery_id))
+            return
+        # A fresh task, not self.retry(): the retry counter stays free for real provider errors.
+        handle_webhook_delivery.apply_async(args=(delivery_id,), countdown=WEBHOOK_BUDGET_DEFER_COUNTDOWN_SECONDS)
     except RetryableProviderError as e:
         try:
             raise self.retry(exc=e, countdown=_retry_countdown(self.request.retries))
@@ -144,6 +158,7 @@ def refresh_link_counts(link_id: str) -> None:
     if link.connection.provider not in registry.PROVIDERS:
         logger.info("integration_counts_skipped_disabled_provider", link_id=link_id, provider=link.connection.provider)
         return
+    sync_service.raise_if_budget_low(registry.get_provider(link.connection.provider), link.connection.provider)
     sync_service.refresh_counts(link)
 
 

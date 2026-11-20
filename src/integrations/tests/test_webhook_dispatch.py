@@ -1,14 +1,17 @@
 """Deliveries are dispatched on commit; kinds route to counts or the status matrix; unknown → ignored."""
 
 import typing as t
+from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
 
 import orjson
 import pytest
+from celery.exceptions import Retry
 from django.core.cache import cache
 from django.test.client import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from events.models import Event, TicketTier
 from integrations import tasks
@@ -273,3 +276,61 @@ def test_unknown_budget_still_resolves_delivery(
     webhook_service.handle_delivery(d.id)
     d.refresh_from_db()
     assert d.outcome == WebhookDelivery.Outcome.PROCESSED
+
+
+def _low_budget(fake_provider: FakeProvider, settings: t.Any) -> None:
+    settings.INTEGRATIONS_RATE_RESERVE = 200
+    fake_provider.budget = 150
+
+
+def test_budget_defer_reschedules_without_consuming_retries(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider, settings: t.Any
+) -> None:
+    """A budget defer delays the delivery on its own countdown, even past WEBHOOK_MAX_RETRIES."""
+    _low_budget(fake_provider, settings)
+    d = _deliver(connected, "order.placed", f"/events/{pushed.remote_id}/")
+    with mock.patch.object(tasks.handle_webhook_delivery, "apply_async") as apply_async:
+        tasks.handle_webhook_delivery.apply(args=(str(d.id),), retries=tasks.WEBHOOK_MAX_RETRIES + 2)
+    apply_async.assert_called_once_with(args=(str(d.id),), countdown=tasks.WEBHOOK_BUDGET_DEFER_COUNTDOWN_SECONDS)
+    assert tasks.WEBHOOK_BUDGET_DEFER_COUNTDOWN_SECONDS == 15 * 60
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.RECEIVED
+
+
+def test_budget_defer_gives_up_once_the_delivery_is_too_old(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider, settings: t.Any
+) -> None:
+    _low_budget(fake_provider, settings)
+    d = _deliver(connected, "order.placed", f"/events/{pushed.remote_id}/")
+    WebhookDelivery.objects.filter(id=d.id).update(
+        created_at=timezone.now() - tasks.WEBHOOK_BUDGET_DEFER_MAX_AGE - timedelta(minutes=1)
+    )
+    with mock.patch.object(tasks.handle_webhook_delivery, "apply_async") as apply_async:
+        tasks.handle_webhook_delivery.apply(args=(str(d.id),))
+    apply_async.assert_not_called()
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.FAILED
+
+
+def test_budget_lookup_failure_fails_the_delivery(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider
+) -> None:
+    """A broken budget read must not leave the row RECEIVED forever."""
+    d = _deliver(connected, "order.placed", f"/events/{pushed.remote_id}/")
+    with (
+        mock.patch.object(fake_provider, "remaining_budget", side_effect=RuntimeError("cache down")),
+        pytest.raises(RuntimeError),
+    ):
+        webhook_service.handle_delivery(d.id)
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.FAILED
+
+
+def test_trailing_counts_refresh_respects_the_budget_reserve(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider, settings: t.Any
+) -> None:
+    _low_budget(fake_provider, settings)
+    before = [c for c in fake_provider.calls if c[0] == "get_event"]
+    with pytest.raises(Retry):  # eager autoretry: the budget error is retried (with backoff), not swallowed
+        tasks.refresh_link_counts.apply(args=(str(pushed.id),), throw=True)
+    assert [c for c in fake_provider.calls if c[0] == "get_event"] == before

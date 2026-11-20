@@ -24,6 +24,10 @@ class RetryableProviderError(ProviderError):
     """A transient provider failure (429/5xx/transport). Celery tasks retry on this class only."""
 
 
+class BudgetDeferredError(RetryableProviderError):
+    """The provider's shared rate budget is below the reserve: try again later, without spending it."""
+
+
 class IntegrationError(Exception):
     """A request-level failure with a stable code; rendered by ``integrations.exception_handlers``."""
 
