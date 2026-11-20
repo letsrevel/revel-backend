@@ -8605,3 +8605,15 @@ msgstr "<strong>%(org)s</strong> convidou-o a tornar-se membro (%(tier)s). Só s
 #, python-brace-format
 msgid "An invitation was sent recently. You can resend it after {time}."
 msgstr "Foi enviado um convite recentemente. Pode reenviá-lo depois de {time}."
+
+msgid "Too many incorrect two-factor codes. For your security, verification is paused. Please try again later."
+msgstr "Demasiados códigos de dois fatores incorretos. Para sua segurança, a verificação está em pausa. Tente novamente mais tarde."
+
+msgid "Two-factor sign-in is paused on your account"
+msgstr "O início de sessão com dois fatores está em pausa na sua conta"
+
+msgid "We received several incorrect two-factor codes for your Revel account. For your security, two-factor verification is paused for 15 minutes."
+msgstr "Recebemos vários códigos de dois fatores incorretos para a sua conta Revel. Para sua segurança, a verificação de dois fatores está em pausa durante 15 minutos."
+
+msgid "If it was you, no action is needed — just try again after the pause."
+msgstr "Se foi você, não precisa de fazer nada: tente novamente quando a pausa terminar."

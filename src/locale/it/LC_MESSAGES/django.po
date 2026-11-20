@@ -8889,3 +8889,15 @@ msgstr "<strong>%(org)s</strong> ti ha invitato a diventare membro (%(tier)s). D
 #, python-brace-format
 msgid "An invitation was sent recently. You can resend it after {time}."
 msgstr "Un invito è stato inviato di recente. Puoi reinviarlo dopo {time}."
+
+msgid "Too many incorrect two-factor codes. For your security, verification is paused. Please try again later."
+msgstr "Troppi codici a due fattori errati. Per la tua sicurezza la verifica è sospesa. Riprova più tardi."
+
+msgid "Two-factor sign-in is paused on your account"
+msgstr "L'accesso a due fattori è sospeso sul tuo account"
+
+msgid "We received several incorrect two-factor codes for your Revel account. For your security, two-factor verification is paused for 15 minutes."
+msgstr "Abbiamo ricevuto diversi codici a due fattori errati per il tuo account Revel. Per la tua sicurezza la verifica a due fattori è sospesa per 15 minuti."
+
+msgid "If it was you, no action is needed — just try again after the pause."
+msgstr "Se eri tu, non devi fare nulla: riprova semplicemente al termine della pausa."
