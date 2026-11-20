@@ -120,10 +120,14 @@ def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | Non
             )
 
     with transaction.atomic():
-        locked_ticket = Ticket.objects.select_for_update().select_related("tier", "event").filter(pk=ticket_id).first()
+        # Lock order: Payment -> TicketTier -> Ticket (docs/engineering-notes.md).
+        locked_payment = Payment.objects.select_for_update(of=("self",)).filter(ticket_id=ticket_id).first()
+        locked_tickets = ticket_service.lock_tier_then_ticket(
+            Ticket.objects.filter(pk=ticket_id).select_related("tier", "event")
+        )
+        locked_ticket = locked_tickets[0] if locked_tickets else None
         if locked_ticket is None or locked_ticket.status == Ticket.TicketStatus.CANCELLED:
             return
-        locked_payment = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
         if locked_payment is not None and locked_payment.status == Payment.PaymentStatus.PENDING:
             locked_payment.status = Payment.PaymentStatus.FAILED
             locked_payment.save(update_fields=["status"])

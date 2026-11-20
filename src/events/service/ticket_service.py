@@ -566,6 +566,34 @@ def check_online_tier_prerequisites(org: "Organization", payment_method: TicketT
     check_online_payment_prerequisites(org)
 
 
+def lock_tier_then_ticket(tickets: QuerySet[Ticket]) -> list[Ticket]:
+    """Lock the tiers of ``tickets`` (pk order), then the tickets themselves (pk order).
+
+    Follows the global lock order (``TicketTier`` before ``Ticket``, see
+    ``docs/engineering-notes.md``). Only the tier and ticket rows are locked
+    (``of=("self",)``): joined rows from ``select_related`` stay unlocked. The tickets
+    are read again under the lock, so the filters of ``tickets`` are checked against
+    the committed state; a row that changed in the meantime is missing from the result.
+
+    Call it inside ``transaction.atomic()``, after the ``Payment`` rows (and the
+    ``HeldSeriesPass``/``SeriesPass`` rows) are locked and after any Stripe call.
+
+    Args:
+        tickets: Queryset that selects the tickets to lock (may use ``select_related``).
+
+    Returns:
+        The locked tickets, in pk order.
+    """
+    tier_ids = sorted(set(tickets.order_by().values_list("tier_id", flat=True)))
+    list(
+        TicketTier.objects.select_for_update(of=("self",))
+        .filter(pk__in=tier_ids)
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+    return list(tickets.select_for_update(of=("self",)).order_by("pk"))
+
+
 def _cancel_offline_ticket_core(
     ticket: Ticket,
     *,
@@ -746,7 +774,9 @@ def mark_offline_ticket_refunded(
     # make it the nullable side of an outer join and Postgres rejects FOR UPDATE on that.
     # _resolve_offline_refund_amount lazy-loads it instead — at most one extra query, and
     # only for a seated ticket, on a single-row request path.
-    locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
+    # Lock order: Payment -> TicketTier -> Ticket (docs/engineering-notes.md).
+    locked_payment = Payment.objects.select_for_update(of=("self",)).filter(ticket_id=ticket.pk).first()
+    locked_ticket = lock_tier_then_ticket(Ticket.objects.filter(pk=ticket.pk).select_related("tier"))[0]
     if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
         raise TicketAlreadyCancelledError
 
@@ -759,7 +789,6 @@ def mark_offline_ticket_refunded(
         locked_ticket.offline_refund_amount = resolved_refund
         locked_ticket.save(update_fields=["offline_refund_amount"])
 
-    locked_payment = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
     if locked_payment is not None:
         locked_payment.status = Payment.PaymentStatus.REFUNDED
         locked_payment.refund_amount = resolved_refund if resolved_refund is not None else locked_payment.amount

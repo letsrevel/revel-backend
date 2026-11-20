@@ -246,7 +246,9 @@ def _cleanup_expired_batch(payment: Payment) -> None:
     # locked list (rather than re-querying) keeps everything downstream consistent
     # with the snapshot the lock was taken against (#632).
     batch_payments = list(
-        Payment.objects.select_for_update().filter(_batch_filter(payment), status=Payment.PaymentStatus.PENDING)
+        Payment.objects.select_for_update(of=("self",))
+        .filter(_batch_filter(payment), status=Payment.PaymentStatus.PENDING)
+        .order_by("pk")
     )
     payment_ids = [p.id for p in batch_payments]
     ticket_ids = [p.ticket_id for p in batch_payments]
@@ -390,7 +392,9 @@ def cancel_pending_checkout(
     # lock serializes that instead of racing it; ticket_count/ticket_ids come from
     # this same locked list rather than re-querying (#632).
     batch_payments = list(
-        Payment.objects.select_for_update().filter(_batch_filter(payment), status=Payment.PaymentStatus.PENDING)
+        Payment.objects.select_for_update(of=("self",))
+        .filter(_batch_filter(payment), status=Payment.PaymentStatus.PENDING)
+        .order_by("pk")
     )
     payment_ids = [p.id for p in batch_payments]
     ticket_ids = [p.ticket_id for p in batch_payments]

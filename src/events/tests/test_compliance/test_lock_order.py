@@ -5,24 +5,37 @@ backfill (locking tiers) and number tickets (locking the per-org sequence); the 
 must come first, or two transactions can wait on each other in a cycle.
 """
 
+import re
 import typing as t
-from unittest.mock import patch
+from datetime import timedelta
+from decimal import Decimal
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import EventSeries, HeldSeriesPass, Organization, TicketTier
-from events.service import series_pass_service
+from events.models import EventSeries, HeldSeriesPass, Organization, Payment, Ticket, TicketTier
+from events.service import refund_service, series_pass_service, ticket_service
+from events.service.cancellation_service import cancel_ticket_by_user
 from events.service.series_pass_purchase import SeriesPassPurchaseService
 from events.service.stripe_webhooks import StripeEventHandler
+from events.tasks.refunds import refund_one_cancelled_event_ticket
 from events.tasks.series_pass import materialize_series_pass_holders
+from events.tests.test_series_pass.conftest import revel_user  # noqa: F401 - fixture used by held_pass
 from events.tests.test_series_pass.test_backfill import (
     _completed_checkout_event,
     _make_covered_event,
     _make_pass,
     _purchase_online,
+)
+from events.tests.test_series_pass.test_cancellation import (  # noqa: F401 - fixtures
+    _PassSetup,
+    held_pass,
+    online_pass_setup,
+    online_series_pass,
 )
 
 pytestmark = pytest.mark.django_db
@@ -57,7 +70,7 @@ def test_offline_confirm_locks_tiers_before_numbering(
     organization: Organization, event_series: EventSeries, member_user: RevelUser
 ) -> None:
     series_pass = _make_pass(organization, event_series, TicketTier.PaymentMethod.OFFLINE, "lo-off")
-    held_pass = SeriesPassPurchaseService(series_pass, member_user).purchase()
+    held_pass = SeriesPassPurchaseService(series_pass, member_user).purchase()  # noqa: F811
     assert isinstance(held_pass, HeldSeriesPass)
     _extend_while_pending(organization, event_series, series_pass, "lo-off-new")
 
@@ -82,3 +95,200 @@ def test_webhook_activation_locks_tiers_before_numbering(
         StripeEventHandler(event).handle_checkout_session_completed(event)
 
     _assert_tiers_locked_before_sequence(ctx.captured_queries)
+
+
+# --- Payment-first lock order on the cancel, refund and webhook paths (#1431, #1450) ---------------------
+
+# Global order (docs/engineering-notes.md): Payment -> HeldSeriesPass -> SeriesPass -> TicketTier -> Event -> Ticket.
+_RANK = {
+    "events_payment": 0,
+    "events_heldseriespass": 1,
+    "events_seriespass": 2,
+    "events_tickettier": 3,
+    "events_event": 4,
+    "events_ticket": 5,
+    "events_discountcode": 6,
+    "events_membershiprecord": 7,
+    "events_ticketnumbersequence": 8,
+}
+_LOCK_RE = re.compile(r'FROM "(\w+)".*FOR UPDATE(?: OF ((?:"\w+"(?:, )?)+))?', re.DOTALL)
+
+
+def _locks(queries: list[dict[str, t.Any]]) -> list[str]:
+    """Tables locked by the ``FOR UPDATE`` statements, in statement order (``OF`` list when present).
+
+    Fails when a statement that joins other tables locks without ``OF``: that would lock the joined rows too.
+    """
+    locked: list[str] = []
+    for query in queries:
+        sql = query["sql"]
+        if "FOR UPDATE" not in sql:
+            continue
+        match = _LOCK_RE.search(sql)
+        assert match is not None, sql
+        if match.group(2) is None:
+            assert " JOIN " not in sql, f"FOR UPDATE without OF on a joined query: {sql}"
+            locked.append(match.group(1))
+        else:
+            locked.extend(re.findall(r'"(\w+)"', match.group(2)))
+    return locked
+
+
+def _assert_in_global_order(queries: list[dict[str, t.Any]]) -> list[str]:
+    """Assert the locks follow the global order; return each table once, in first-lock order.
+
+    A repeated lock on a row the transaction already holds (``issue_refund`` locks its Payment again) is a no-op.
+    """
+    tables = list(dict.fromkeys(_locks(queries)))
+    ranks = [_RANK[name] for name in tables if name in _RANK]
+    assert ranks == sorted(ranks), f"locks out of global order: {tables}"
+    return tables
+
+
+class _StripeSpy:
+    """Stand-in for ``stripe.Refund.create`` that snapshots the queries run before the call."""
+
+    def __init__(self, ctx: CaptureQueriesContext) -> None:
+        self.ctx = ctx
+        self.snapshots: list[list[dict[str, t.Any]]] = []
+
+    def __call__(self, **_: t.Any) -> MagicMock:
+        self.snapshots.append(list(self.ctx.captured_queries))
+        return MagicMock(id=f"re_spy_{len(self.snapshots)}")
+
+
+def _assert_only_payment_locks_before_stripe(spy: _StripeSpy, allowed: tuple[str, ...] = ("events_payment",)) -> None:
+    assert spy.snapshots, "Stripe was not called"
+    for snapshot in spy.snapshots:
+        assert set(_locks(snapshot)) <= set(allowed), _locks(snapshot)
+        assert "events_payment" in _locks(snapshot)
+
+
+def _run_with_spy(call: t.Callable[[], t.Any]) -> tuple[list[dict[str, t.Any]], _StripeSpy]:
+    with CaptureQueriesContext(connection) as ctx:
+        spy = _StripeSpy(ctx)
+        with patch("stripe.Refund.create", side_effect=spy):
+            call()
+    return list(ctx.captured_queries), spy
+
+
+_POLICY = {"tiers": [{"hours_before_event": 0, "refund_percentage": "100"}], "flat_fee": "0"}
+
+
+@pytest.fixture
+def paid_ticket(
+    event: t.Any,
+    ticket_factory: t.Callable[..., Ticket],
+    tier_factory: t.Callable[..., TicketTier],
+    payment_factory: t.Callable[..., Payment],
+) -> Ticket:
+    event.start = timezone.now() + timedelta(hours=72)
+    event.end = event.start + timedelta(hours=2)
+    event.save(update_fields=["start", "end"])
+    tier = tier_factory(
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        allow_user_cancellation=True,
+        refund_policy=_POLICY,
+        quantity_sold=1,
+    )
+    ticket = ticket_factory(tier=tier, refund_policy_snapshot=_POLICY)
+    payment_factory(ticket)
+    return Ticket.objects.select_related("tier", "event", "user").get(pk=ticket.pk)
+
+
+def test_user_cancel_locks_payment_then_tier_then_ticket(paid_ticket: Ticket) -> None:
+    queries, spy = _run_with_spy(
+        lambda: cancel_ticket_by_user(paid_ticket, paid_ticket.user, reason="", now=timezone.now())
+    )
+    assert _assert_in_global_order(queries)[:3] == ["events_payment", "events_tickettier", "events_ticket"]
+    _assert_only_payment_locks_before_stripe(spy)
+
+
+def test_organizer_cancel_with_refund_locks_payment_then_tier_then_ticket(
+    paid_ticket: Ticket, organization_owner_user: RevelUser
+) -> None:
+    queries, spy = _run_with_spy(
+        lambda: refund_service.admin_cancel_ticket(
+            paid_ticket, cancelled_by=organization_owner_user, reason="x", refund_amount=Decimal("10.00")
+        )
+    )
+    assert _assert_in_global_order(queries)[:3] == ["events_payment", "events_tickettier", "events_ticket"]
+    _assert_only_payment_locks_before_stripe(spy)
+
+
+def test_event_cancel_sweep_locks_payment_then_tier_then_ticket(
+    paid_ticket: Ticket, organization_owner_user: RevelUser
+) -> None:
+    queries, spy = _run_with_spy(
+        lambda: refund_one_cancelled_event_ticket(str(paid_ticket.pk), str(organization_owner_user.pk))
+    )
+    assert _assert_in_global_order(queries)[:3] == ["events_payment", "events_tickettier", "events_ticket"]
+    _assert_only_payment_locks_before_stripe(spy)
+
+
+def test_offline_refund_locks_payment_then_tier_then_ticket(
+    event: t.Any,
+    ticket_factory: t.Callable[..., Ticket],
+    tier_factory: t.Callable[..., TicketTier],
+    payment_factory: t.Callable[..., Payment],
+    organization_owner_user: RevelUser,
+) -> None:
+    tier = tier_factory(payment_method=TicketTier.PaymentMethod.OFFLINE, quantity_sold=1)
+    ticket = ticket_factory(tier=tier)
+    payment_factory(ticket)
+    with CaptureQueriesContext(connection) as ctx:
+        ticket_service.mark_offline_ticket_refunded(
+            ticket, cancelled_by=organization_owner_user, reason="x", refund_amount=Decimal("5.00")
+        )
+    assert _assert_in_global_order(ctx.captured_queries)[:3] == ["events_payment", "events_tickettier", "events_ticket"]
+
+
+def test_series_pass_cancel_holds_only_payment_and_pass_across_stripe(
+    online_pass_setup: _PassSetup,  # noqa: F811
+    organization_owner_user: RevelUser,
+) -> None:
+    queries, spy = _run_with_spy(
+        lambda: series_pass_service.cancel_held_pass(
+            online_pass_setup.held_pass, cancelled_by=organization_owner_user, reason="x"
+        )
+    )
+    tables = _assert_in_global_order(queries)
+    assert tables[:2] == ["events_payment", "events_heldseriespass"]
+    _assert_only_payment_locks_before_stripe(spy, ("events_payment", "events_heldseriespass"))
+    assert len(spy.snapshots) == 2
+
+
+def test_checkout_completed_webhook_locks_payment_then_ticket(
+    paid_ticket: Ticket, payment_factory: t.Callable[..., Payment]
+) -> None:
+    Payment.objects.filter(ticket=paid_ticket).update(
+        status=Payment.PaymentStatus.PENDING, stripe_session_id="cs_lo_webhook"
+    )
+    Ticket.objects.filter(pk=paid_ticket.pk).update(status=Ticket.TicketStatus.PENDING)
+    event = _completed_checkout_event("cs_lo_webhook")
+    with CaptureQueriesContext(connection) as ctx:
+        StripeEventHandler(event).handle_checkout_session_completed(event)
+    assert _assert_in_global_order(ctx.captured_queries)[:3] == [
+        "events_payment",
+        "events_heldseriespass",
+        "events_ticket",
+    ]
+    assert any("ORDER BY" in q["sql"] and "FOR UPDATE" in q["sql"] for q in ctx.captured_queries)
+
+
+def test_reclaim_routes_lock_only_payment_rows_in_pk_order(paid_ticket: Ticket) -> None:
+    from events.tasks.payments import cleanup_expired_payments
+
+    Payment.objects.filter(ticket=paid_ticket).update(
+        status=Payment.PaymentStatus.PENDING,
+        stripe_payment_intent_id=None,
+        expires_at=timezone.now() - timedelta(minutes=1),
+    )
+    Ticket.objects.filter(pk=paid_ticket.pk).update(status=Ticket.TicketStatus.PENDING)
+    with CaptureQueriesContext(connection) as ctx:
+        cleanup_expired_payments()
+    payment_lock = next(
+        q["sql"] for q in ctx.captured_queries if "FOR UPDATE" in q["sql"] and "events_payment" in q["sql"]
+    )
+    assert 'FOR UPDATE OF "events_payment"' in payment_lock
+    assert 'ORDER BY "events_payment"."id"' in payment_lock

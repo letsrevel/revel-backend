@@ -103,9 +103,10 @@ def cleanup_expired_payments() -> int:
         # deleted, and the tickets deleted all come from this same in-transaction,
         # locked, still-reclaimable set (#632).
         locked_payments = list(
-            Payment.objects.select_for_update()
+            Payment.objects.select_for_update(of=("self",))
             .filter(reclaimable, pk__in=candidate_payment_ids)
             .select_related("ticket", "ticket__tier")
+            .order_by("pk")
         )
         if not locked_payments:
             return 0

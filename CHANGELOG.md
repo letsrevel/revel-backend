@@ -57,6 +57,7 @@ Always use that same cutoff. Running the command again with it is harmless; runn
 
 ### Fixed
 - A guest checkout whose total the buyer brings to zero (a 100% discount code, or a fixed code worth the whole price) on an online tier no longer issues active tickets without an email check. It now sends the same confirmation email as a free guest checkout, and the ticket, the discount use and the seat are only created when the link is clicked. The API response keeps its shape (`message` set, no tickets, `requires_payment` false).
+- A cancelled ticket can no longer be reactivated by a late payment confirmation, and simultaneous cancellations of the same ticket no longer fail.
 - Discount code uses taken by checkouts that are cancelled or expire are now given back, so abandoned checkouts no longer use up a limited code.
   - Only unfinished checkouts give their use back; a confirmed ticket that is cancelled or refunded later keeps it.
 - **Billing period of a plan with members can no longer change**: changing a subscription plan's period (for example monthly to yearly) is now refused with a 400 while the plan has pending, active, paused or past-due subscriptions, or members with a downgrade scheduled into it.

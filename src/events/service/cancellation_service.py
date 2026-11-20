@@ -18,7 +18,7 @@ from pydantic import ValidationError as PydanticValidationError
 from events.exceptions import StripeRefundFailed as StripeRefundFailed
 from events.models import Payment, Refund, Ticket, TicketTier
 from events.models.ticket import CancellationBlockReason, CancellationSource
-from events.service import discount_code_service
+from events.service import discount_code_service, ticket_service
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.refund_policy import RefundPolicy, validate_refund_policy
 
@@ -308,7 +308,7 @@ def cancel_ticket_by_user(
     """Run the full user-initiated cancellation flow atomically.
 
     Validates ownership and business rules, optionally issues a Stripe refund,
-    then mutates the ticket, payment, and tier rows within a single transaction.
+    then mutates the ticket and tier rows within a single transaction.
 
     Args:
         ticket: The ticket to cancel. Must be fully loaded (tier, event, payment).
@@ -352,9 +352,14 @@ def cancel_ticket_by_user(
           synchronously, in this flow — so ``cancellation_source`` stays
           ``USER``, ``cancelled_by`` stays this user, and
           ``cancellation_reason`` keeps the caller's text.
-        * **Lock contention is bounded.** The locked rows (this Ticket and
-          its Payment) are user-scoped; concurrent cancels of *other*
-          tickets on the same tier do not contend on these locks.
+        * **Lock contention is bounded.** Only the Payment (and its new
+          Refund row) is locked across the Stripe call. The tier and ticket
+          rows are locked after Stripe returns (Payment -> TicketTier ->
+          Ticket, see ``docs/engineering-notes.md``), so concurrent cancels of
+          *other* tickets on the same tier do not wait for the network call.
+        * **A changed ticket rolls back only the final step.** If a check-in
+          lands during the Stripe call, the status change is rolled back, the
+          Refund row stays, and ``cancel_rolled_back_after_refund`` is logged.
 
         The alternative — calling Stripe outside the transaction with a
         two-phase ``PENDING_CANCELLATION`` state and a janitor task — costs
@@ -372,27 +377,44 @@ def cancel_ticket_by_user(
         raise CancellationBlocked(quote.reason)
 
     with transaction.atomic():
-        # Re-fetch the ticket under a row lock and re-check the two state-mutating
-        # block reasons (ALREADY_CANCELLED, CHECKED_IN). Without this, two concurrent
-        # cancel requests can both pass the pre-atomic quote, both issue Stripe
-        # refunds (the idempotency key prevents a double charge but not a double DB
-        # mutation), and both decrement quantity_sold. CHECKED_IN is racy because
-        # check_in_ticket() does not take a row lock. The remaining block reasons
-        # (EVENT_STARTED, NOT_PERMITTED, PAST_DEADLINE) depend only on the injected
-        # ``now`` and on static tier/event config — they cannot flip inside this
-        # transaction, so re-checking them would be dead work.
-        locked_ticket = (
-            Ticket.objects.select_for_update().select_related("tier", "event__organization").get(pk=ticket.pk)
+        # Lock order: Payment -> TicketTier -> Ticket (docs/engineering-notes.md). Every path
+        # that changes a ticket with a Payment locks the Payment first, so the ticket status
+        # read below cannot change under us (check-in is the one writer that takes no lock).
+        payment: Payment | None = (
+            Payment.objects.select_for_update(of=("self",)).filter(ticket_id=ticket.pk).order_by("pk").first()
         )
-        if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
-            raise CancellationBlocked(CancellationBlockReason.ALREADY_CANCELLED)
-        if locked_ticket.status == Ticket.TicketStatus.CHECKED_IN:
-            raise CancellationBlocked(CancellationBlockReason.CHECKED_IN)
+        _raise_if_not_cancellable(Ticket.objects.get(pk=ticket.pk))
 
-        # Online tickets with refund > 0 → hit Stripe before mutating local state.
-        refund_status, actual_refund_amount = _refund_if_required(locked_ticket, quote, user)
-        _finalize_cancellation(locked_ticket, user, reason, now, actual_refund_amount, quote.currency)
+        # Online tickets with refund > 0 -> hit Stripe before mutating local state. Only the
+        # Payment (and its new Refund row) is locked across that call: never the tier or ticket.
+        refund_status, actual_refund_amount = _refund_if_required(ticket, payment, quote, user)
 
+        # Now lock tier, then ticket, and re-check: two concurrent cancels must not both
+        # decrement quantity_sold, and check-in takes no Payment lock. The nested atomic is a
+        # savepoint: if the re-check fails after a refund, only this step rolls back and the
+        # Refund row stays, so the ``charge.refunded`` webhook can record the refund.
+        block: CancellationBlocked | None = None
+        locked_ticket: Ticket | None = None
+        try:
+            with transaction.atomic():
+                locked_ticket = ticket_service.lock_tier_then_ticket(
+                    Ticket.objects.filter(pk=ticket.pk).select_related("tier", "event__organization")
+                )[0]
+                _raise_if_not_cancellable(locked_ticket)
+                _finalize_cancellation(locked_ticket, user, reason, now, actual_refund_amount, quote.currency)
+        except CancellationBlocked as exc:
+            if refund_status is None:
+                raise
+            block = exc
+            logger.warning("cancel_rolled_back_after_refund", ticket_id=str(ticket.pk), reason=str(exc.reason))
+        except Exception:
+            if refund_status is not None:
+                logger.warning("cancel_rolled_back_after_refund", ticket_id=str(ticket.pk), exc_info=True)
+            raise
+
+    if block is not None:
+        raise block
+    assert locked_ticket is not None
     return CancellationResult(
         ticket=locked_ticket,
         refund_amount=actual_refund_amount,
@@ -401,11 +423,22 @@ def cancel_ticket_by_user(
     )
 
 
-def _refund_if_required(locked_ticket: Ticket, quote: RefundQuote, user: t.Any) -> tuple[str | None, Decimal]:
-    """Issue a Stripe refund when the locked ticket is an online paid ticket with refund > 0.
+def _raise_if_not_cancellable(ticket: Ticket) -> None:
+    """Raise ``CancellationBlocked`` when the ticket is already CANCELLED or CHECKED_IN."""
+    if ticket.status == Ticket.TicketStatus.CANCELLED:
+        raise CancellationBlocked(CancellationBlockReason.ALREADY_CANCELLED)
+    if ticket.status == Ticket.TicketStatus.CHECKED_IN:
+        raise CancellationBlocked(CancellationBlockReason.CHECKED_IN)
 
-    Must run inside ``cancel_ticket_by_user``'s atomic block (it acquires a row lock
-    on the Payment). Returns ``(refund_status, actual_amount)``: ``actual_amount`` is
+
+def _refund_if_required(
+    ticket: Ticket, payment: Payment | None, quote: RefundQuote, user: t.Any
+) -> tuple[str | None, Decimal]:
+    """Issue a Stripe refund when the ticket is an online paid ticket with refund > 0.
+
+    Must run inside ``cancel_ticket_by_user``'s atomic block, with ``payment`` already
+    locked by the caller. Only the Payment (and the new Refund row) is locked across
+    the Stripe call. Returns ``(refund_status, actual_amount)``: ``actual_amount`` is
     the amount actually issued to Stripe — capped under the row lock, which may be
     less than ``quote.refund_amount`` when a concurrent organizer/webhook refund
     landed between the pre-atomic quote and this lock. Callers must report this
@@ -414,9 +447,8 @@ def _refund_if_required(locked_ticket: Ticket, quote: RefundQuote, user: t.Any) 
     """
     from events.service import refund_service
 
-    payment: Payment | None = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
     if (
-        locked_ticket.tier.payment_method == TicketTier.PaymentMethod.ONLINE
+        ticket.tier.payment_method == TicketTier.PaymentMethod.ONLINE
         and payment is not None
         and payment.stripe_payment_intent_id
         and quote.refund_amount > _ZERO
