@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Staff now invite an existing account to become a member instead of adding it directly. `POST /organization-admin/{slug}/member-invitations` (`user_id`, `tier_id`) sends the account a personal invitation link (new `membership_invitation_received` notification). The account becomes a member at that tier only by accepting it through the usual `/organizations/claim-invitation/{token}`. Only accounts with a verified email can be invited. The invitation is valid for 14 days, nobody else can accept it, and inviting the same account again renews it (the account is notified again at most once a day). Staff list pending invitations with `GET …/member-invitations` and withdraw a pending one with `DELETE …/member-invitations/{id}`; an invitation stops being pending once it is accepted, expires, or the account becomes a member another way. Pending invitations are not listed with the organization's shareable invitation links. The account lookup returns `pending_invitation_id`.
 
 ### Security
-- Tightened access checks in the Telegram bot and on event links, added a one-hour resend interval for member register invitations, and protected the shared Eventbrite rate budget from webhook load.
+- Tightened access checks in the Telegram bot and on event links, added a one-hour resend interval per address for member register invitations, and protected the shared Eventbrite rate budget from webhook load.
 
 ### Changed
 - A pending ticket from a registered account's own checkout (for example an offline payment awaiting confirmation) counts as a connection to the organization.

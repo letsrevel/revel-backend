@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 from django.core import mail
+from django.core.cache import cache
 from django.db import connection
 from django.test.client import Client
 from django.test.utils import CaptureQueriesContext
@@ -42,6 +43,11 @@ def _preview(client: Client, token: str) -> t.Any:
 
 def _claim(client: Client, token: str) -> t.Any:
     return client.post(reverse("api:claim_member_register_invite", kwargs={"token": token}))
+
+
+def _patch_email(client: Client, organization: Organization, record: MembershipRecord, email: str) -> None:
+    url = reverse("api:update_member_register_record", kwargs={"slug": organization.slug, "record_id": record.pk})
+    assert client.patch(url, {"email": email}, content_type="application/json").status_code == 200
 
 
 class TestSendInvite:
@@ -91,7 +97,7 @@ class TestSendInvite:
             owner_client.post(_invite_url(organization, record))
         record.refresh_from_db()
         old = t.cast(str, record.invite_token)
-        MembershipRecord.objects.filter(pk=record.pk).update(invited_at=timezone.now() - timedelta(hours=2))
+        cache.clear()  # the resend interval has passed
 
         with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
             assert owner_client.post(_invite_url(organization, record)).status_code == 200
@@ -201,23 +207,72 @@ class TestSendInvite:
         assert record.invite_token == first_token
         delay.assert_called_once_with(str(record.pk))
 
-    def test_resend_after_email_change_is_allowed_within_cooldown(
+    def test_resend_after_email_change_to_a_new_address_is_allowed(
         self,
         owner_client: Client,
         organization: Organization,
         make_record: RecordFactory,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        """Correcting the address clears the invite, so the corrected address can be invited at once."""
-        record = make_record(invited_at=timezone.now(), invite_token="old-token")
-        url = reverse("api:update_member_register_record", kwargs={"slug": organization.slug, "record_id": record.pk})
-        owner_client.patch(url, {"email": "fixed@example.com"}, content_type="application/json")
+        """The interval is per address: correcting the email lets the new address be invited at once."""
+        record = make_record(email="a@example.com")
+        with patch(DELAY), django_capture_on_commit_callbacks(execute=True):
+            assert owner_client.post(_invite_url(organization, record)).status_code == 200
+        _patch_email(owner_client, organization, record, "b@example.com")
 
         with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 200, response.content
         delay.assert_called_once_with(str(record.pk))
+
+    def test_email_changed_back_to_a_recent_address_is_still_refused(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """A -> B -> A does not reset the interval for A."""
+        record = make_record(email="a@example.com")
+        with patch(DELAY), django_capture_on_commit_callbacks(execute=True):
+            assert owner_client.post(_invite_url(organization, record)).status_code == 200
+        _patch_email(owner_client, organization, record, "b@example.com")
+        _patch_email(owner_client, organization, record, "A@Example.com")
+
+        with patch(DELAY) as delay:
+            response = owner_client.post(_invite_url(organization, record))
+
+        assert response.status_code == 400
+        delay.assert_not_called()
+
+    def test_two_records_with_the_same_address_share_the_interval(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        first = make_record(email="same@example.com")
+        second = make_record(email="Same@Example.com")
+        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+            assert owner_client.post(_invite_url(organization, first)).status_code == 200
+            assert owner_client.post(_invite_url(organization, second)).status_code == 400
+        delay.assert_called_once_with(str(first.pk))
+
+    def test_resend_after_the_interval_is_allowed(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        record = make_record()
+        with patch(DELAY), django_capture_on_commit_callbacks(execute=True):
+            assert owner_client.post(_invite_url(organization, record)).status_code == 200
+        cache.clear()
+        with patch(DELAY), django_capture_on_commit_callbacks(execute=True):
+            assert owner_client.post(_invite_url(organization, record)).status_code == 200
 
     def test_permissions(
         self,
@@ -314,6 +369,32 @@ class TestInviteEligibilityFields:
 
 
 class TestBulkInvite:
+    def test_bulk_respects_and_sets_the_address_interval(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        recent = make_record(email="recent@example.com")
+        fresh = make_record(email="fresh@example.com")
+        dup = make_record(email="Fresh@example.com")
+        with patch(DELAY), django_capture_on_commit_callbacks(execute=True):
+            assert owner_client.post(_invite_url(organization, recent)).status_code == 200
+        MembershipRecord.objects.filter(pk=recent.pk).update(invited_at=None, invite_token=None)
+
+        with patch(DELAY), django_capture_on_commit_callbacks(execute=True):
+            body = owner_client.post(_bulk_url(organization)).json()
+
+        assert body["invited"] == 1
+        sent = list(MembershipRecord.objects.filter(pk__in=[fresh.pk, dup.pk], invited_at__isnull=False))
+        assert len(sent) == 1
+        assert MembershipRecord.objects.get(pk=recent.pk).invited_at is None
+        # the address it just sent to is now inside the interval for a single invite too
+        retry_target = sent[0]
+        with patch(DELAY):
+            assert owner_client.post(_invite_url(organization, retry_target)).status_code == 400
+
     def test_invites_only_open_unlinked_never_invited_with_email(
         self,
         owner_client: Client,

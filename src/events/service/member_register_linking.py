@@ -11,10 +11,11 @@ and the verified-email match (:func:`auto_link_records_for_user`).
 import enum
 import secrets
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import structlog
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -263,21 +264,54 @@ def invite_blocked_reason(record: MembershipRecord) -> str | None:
     return None
 
 
+def _invite_cooldown_key(organization_id: UUID, email: str) -> str:
+    """Cache key of the resend interval: one per organization and (case-insensitive) address."""
+    return f"member_register_invite:{organization_id}:{email.strip().casefold()}"
+
+
+def _claim_invite_slot(organization: Organization, email: str) -> bool:
+    """Atomically start the resend interval for ``email``; False if one is already running.
+
+    The value is the send time, so a refusal can say when the next invite is allowed.
+    """
+    return cache.add(
+        _invite_cooldown_key(organization.pk, email),
+        timezone.now().timestamp(),
+        int(MEMBER_REGISTER_INVITE_RESEND_COOLDOWN.total_seconds()),
+    )
+
+
+def _release_invite_slot(organization: Organization, email: str) -> None:
+    cache.delete(_invite_cooldown_key(organization.pk, email))
+
+
 def send_invite(record: MembershipRecord) -> MembershipRecord:
-    """Send (or resend) the claim link for one record. A resend invalidates the previous link."""
+    """Send (or resend) the claim link for one record. A resend invalidates the previous link.
+
+    At most one invitation per organization and address per ``MEMBER_REGISTER_INVITE_RESEND_COOLDOWN``,
+    whichever record it goes through, so editing the address back and forth cannot be used to resend.
+    """
     if reason := invite_blocked_reason(record):
         raise HttpError(400, reason)
-    now = timezone.now()
-    if record.invited_at and now - record.invited_at < MEMBER_REGISTER_INVITE_RESEND_COOLDOWN:
-        next_at = format_organization_datetime(
-            record.invited_at + MEMBER_REGISTER_INVITE_RESEND_COOLDOWN, record.organization
-        )
+    organization = record.organization
+    if not _claim_invite_slot(organization, record.email):
+        sent_at = cache.get(_invite_cooldown_key(organization.pk, record.email))
+        next_at = (
+            datetime.fromtimestamp(sent_at, tz=UTC) if sent_at else timezone.now()
+        ) + MEMBER_REGISTER_INVITE_RESEND_COOLDOWN
         raise HttpError(
-            400, str(_("An invitation was sent recently. You can resend it after {time}.")).format(time=next_at)
+            400,
+            str(_("An invitation was sent recently. You can resend it after {time}.")).format(
+                time=format_organization_datetime(next_at, organization)
+            ),
         )
-    record.invite_token = _new_token()
-    record.invited_at = now
-    record.save(update_fields=["invite_token", "invited_at", "updated_at"])
+    try:
+        record.invite_token = _new_token()
+        record.invited_at = timezone.now()
+        record.save(update_fields=["invite_token", "invited_at", "updated_at"])
+    except Exception:
+        _release_invite_slot(organization, record.email)
+        raise
     _dispatch_invite(record.pk)
     return record
 
@@ -285,11 +319,12 @@ def send_invite(record: MembershipRecord) -> MembershipRecord:
 def send_bulk_invites(organization: Organization) -> int:
     """Invite every open STANDARD, unlinked, never-invited record that has an email. Returns the count.
 
-    Closed records and already-invited ones are skipped; a resend is per record.
+    Closed records and already-invited ones are skipped; a resend is per record. An address that was
+    invited within the resend interval (or appears on an earlier record of the same batch) is skipped too.
     """
     now = timezone.now()
     with transaction.atomic():
-        records = list(
+        candidates = list(
             MembershipRecord.objects.open()
             .unlinked()
             .select_for_update(of=("self",))
@@ -301,6 +336,7 @@ def send_bulk_invites(organization: Organization) -> int:
             )
             .exclude(email="")
         )
+        records = [record for record in candidates if _claim_invite_slot(organization, record.email)]
         for record in records:
             record.invite_token = _new_token()
             record.invited_at = now
