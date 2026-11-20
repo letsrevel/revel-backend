@@ -195,7 +195,7 @@ def test_lock_set_after_the_first_read_still_refuses_unverified(totp_user: Revel
 
     def incr_after_a_concurrent_lock(key: str, *args: t.Any, **kwargs: t.Any) -> int:
         cache.add(totp_service._lock_key(totp_user), time.time() + totp_service.LOCK_SECONDS)
-        return t.cast(int, real_incr(key, *args, **kwargs))
+        return real_incr(key, *args, **kwargs)
 
     with (
         patch.object(cache, "incr", side_effect=incr_after_a_concurrent_lock),
