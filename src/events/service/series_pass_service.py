@@ -605,7 +605,9 @@ def cancel_held_pass(
     """Organizer-initiated cancellation of an entire series pass.
 
     Cancels every future, non-checked-in ticket materialized from ``held_pass``;
-    past-event and checked-in tickets are left untouched. Refunds any
+    past-event and checked-in tickets are left untouched. "Future" is decided when the
+    cancel starts: an event the organizer moves while the cancel runs keeps that first
+    answer (only the ticket status is re-checked later). Refunds any
     successfully-paid ticket (a pass paid online may be mapped to offline/free
     tiers — the Payment row, not the tier's payment method, is authoritative),
     decrements each cancelled ticket's tier ``quantity_sold`` and the pass's own
@@ -655,14 +657,10 @@ def cancel_held_pass(
         )
 
     with transaction.atomic():
-        # Decide the candidate tickets once. ``event__start`` can change meanwhile (no lock covers
-        # it), so later steps re-check only the status of these ids: every ticket this call cancels
-        # is one whose Payment was locked and considered for a refund.
+        # Decide the candidate tickets before the Payment lock. ``event__start`` can change
+        # meanwhile (no lock covers it), so later steps re-check only the status of these ids:
+        # every ticket this call cancels had its Payment locked and considered for a refund.
         candidate_ids = list(_cancellable_tickets().values_list("pk", flat=True))
-        # Lazy: each use below (values_list, select_related) runs a fresh query on these ids.
-        still_cancellable = Ticket.objects.filter(pk__in=candidate_ids).exclude(
-            status__in=[Ticket.TicketStatus.CANCELLED, Ticket.TicketStatus.CHECKED_IN]
-        )
 
         # Lock order: Payment -> HeldSeriesPass -> SeriesPass -> TicketTier -> Ticket
         # (docs/engineering-notes.md). Across the Stripe refunds only the Payment rows (pk
@@ -682,6 +680,20 @@ def cancel_held_pass(
         )
         if held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED:
             return held_pass
+        # An extension or activation backfill may have committed tickets while we waited on the
+        # HeldSeriesPass lock. They are free (no Payment), so cancelling them needs no refund, and
+        # nothing can add more while we hold the lock. Build the filter only now: ``pk__in`` copies
+        # the list when the filter is built.
+        candidate_ids += list(
+            _cancellable_tickets()
+            .exclude(pk__in=candidate_ids)
+            .filter(payment__isnull=True)
+            .values_list("pk", flat=True)
+        )
+        # Lazy: each use below (values_list, select_related) runs a fresh query on these ids.
+        still_cancellable = Ticket.objects.filter(pk__in=candidate_ids).exclude(
+            status__in=[Ticket.TicketStatus.CANCELLED, Ticket.TicketStatus.CHECKED_IN]
+        )
         was_pending = held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
         if was_pending and held_pass.stripe_session_id:
             # Only Payment and HeldSeriesPass are locked here, so the Stripe call is allowed.

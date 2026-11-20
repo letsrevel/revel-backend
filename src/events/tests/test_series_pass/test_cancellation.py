@@ -707,3 +707,45 @@ def test_event_moved_to_the_future_during_refunds_is_not_cancelled_without_refun
     has_refund = Refund.objects.filter(payment__ticket=past_ticket).exists()
     assert past_ticket.status != Ticket.TicketStatus.CANCELLED or has_refund
     assert past_ticket.status != Ticket.TicketStatus.CANCELLED
+
+
+def test_ticket_added_while_waiting_on_the_pass_lock_is_cancelled(
+    online_pass_setup: _PassSetup,
+    organization: Organization,
+    event_series: EventSeries,
+    organization_owner_user: RevelUser,
+) -> None:
+    """An extension can commit a free pass ticket after the candidate snapshot, before the pass lock.
+
+    The cancel must still cancel it and give the tier capacity back.
+    """
+    held_pass = online_pass_setup.held_pass
+    new_event = _make_event(organization, event_series, "Late link", "late-link", timezone.now() + timedelta(days=9))
+    new_tier = _make_tier(new_event, "Late Tier")
+    added: list[Ticket] = []
+
+    def _add_ticket_at_payment_lock(execute: t.Any, sql: str, params: t.Any, many: bool, context: t.Any) -> t.Any:
+        if not added and '"events_payment"' in sql and "FOR UPDATE" in sql:
+            added.append(
+                Ticket.objects.create(
+                    event=new_event,
+                    tier=new_tier,
+                    user=held_pass.user,
+                    held_pass=held_pass,
+                    status=Ticket.TicketStatus.ACTIVE,
+                    price_paid=Decimal("0"),
+                )
+            )
+            TicketTier.objects.filter(pk=new_tier.pk).update(quantity_sold=1)
+        return execute(sql, params, many, context)
+
+    with patch("stripe.Refund.create") as refund:
+        refund.return_value.id = "re_late"
+        with connection.execute_wrapper(_add_ticket_at_payment_lock):
+            cancel_held_pass(held_pass, cancelled_by=organization_owner_user, reason="x")
+
+    assert added, "the hook did not run"
+    added[0].refresh_from_db()
+    new_tier.refresh_from_db()
+    assert added[0].status == Ticket.TicketStatus.CANCELLED
+    assert new_tier.quantity_sold == 0
