@@ -77,6 +77,11 @@ Policy-level intended behaviour that reviewers must not report as a finding. Eac
 - boundary: a caller that feeds it unrestricted client input containing privileged fields is a bug; callers must pass a restricted schema dumped with `exclude_unset=True`.
 - reference: `docs/architecture/permissions.md`; maintainer decision.
 
+## Blacklist quick mode by user id
+- behaviour: staff can blacklist an account in quick mode by `user_id`. The ids staff see only come from rows created by that account's own interaction with the organization (membership, requests, tickets, RSVPs, invitations and so on), so the route is not an account lookup or enumeration oracle.
+- boundary: a route that accepts an arbitrary user id and returns account data (name, email, existence) for an account with no connection to the organization, or a blacklist response that reveals more about the account than staff could already see on those rows, is still a bug.
+- reference: issue #1453 (closed); maintainer decision.
+
 ## Review scope rules
 - Present-day only: a hypothetical future regression ("if someone removes this check") is not a finding.
 - Legitimate access: if the "attack" needs access the caller already has, or the impact is trivial or indistinguishable from normal use, it is not a vulnerability.
