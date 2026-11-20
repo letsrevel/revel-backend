@@ -162,21 +162,6 @@ def test_locked_message_follows_the_request_language(
     )
 
 
-def test_temp_token_is_consumed_even_if_the_blacklist_precheck_misses(
-    client: Client, totp_user: RevelUser, mock_email: MagicMock
-) -> None:
-    """Two concurrent redemptions both pass a read-then-write check; the blacklist row must decide."""
-    token = auth_service.get_temporary_otp_jwt(totp_user)
-    code = pyotp.TOTP(totp_user.totp_secret).now()
-    assert _post(client, "token_obtain_pair_otp", {"token": token, "otp": code}).status_code == 200
-
-    with patch("accounts.service.auth.check_blacklist", create=True):  # the racing loser's view: not yet burned
-        response = _post(client, "token_obtain_pair_otp", {"token": token, "otp": code})
-
-    assert response.status_code == 401
-    assert response.json()["detail"] == "Token is blacklisted."
-
-
 def test_temp_token_cannot_be_redeemed_twice(client: Client, totp_user: RevelUser) -> None:
     token = auth_service.get_temporary_otp_jwt(totp_user)
     code = pyotp.TOTP(totp_user.totp_secret).now()

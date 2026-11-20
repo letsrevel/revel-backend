@@ -187,3 +187,20 @@ def test_fifth_reserved_attempt_with_the_correct_code_succeeds_and_resets(
 
     assert cache.get(totp_service._fail_key(totp_user)) is None
     assert cache.get(totp_service._lock_key(totp_user)) is None
+
+
+def test_lock_set_after_the_first_read_still_refuses_unverified(totp_user: RevelUser, mock_email: MagicMock) -> None:
+    """A request that read "no lock" just before the 5th attempt locked (and reset the counter) is not verified."""
+    real_incr = cache.incr
+
+    def incr_after_a_concurrent_lock(key: str, *args: t.Any, **kwargs: t.Any) -> int:
+        cache.add(totp_service._lock_key(totp_user), time.time() + totp_service.LOCK_SECONDS)
+        return t.cast(int, real_incr(key, *args, **kwargs))
+
+    with (
+        patch.object(cache, "incr", side_effect=incr_after_a_concurrent_lock),
+        patch("accounts.service.totp.pyotp.TOTP") as totp_cls,
+        pytest.raises(TOTPLockedError),
+    ):
+        totp_service.verify_totp(totp_user, "123456", reason="login")
+    totp_cls.assert_not_called()

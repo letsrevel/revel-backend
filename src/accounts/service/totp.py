@@ -77,6 +77,9 @@ def verify_totp(user: RevelUser, code: str, *, reason: str) -> bool:
 
     if attempt > FAILURE_THRESHOLD:  # the budget went to concurrent requests: refuse unverified
         _raise_locked(_ensure_locked(user, reason))
+    # A lock set after our first read (by the 5th attempt, which then reset the counter) still applies.
+    if (unlock_at := cache.get(_lock_key(user))) is not None:
+        _raise_locked(unlock_at)
 
     if pyotp.TOTP(user.totp_secret).verify(code):
         cache.delete(fail_key)
