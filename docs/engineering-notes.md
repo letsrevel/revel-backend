@@ -322,7 +322,7 @@ The threaded regression test is `events/tests/test_plan_guard_1427.py`
 
 ## Backfills and rolling deploys
 
-A data migration that backfills a column runs once, but during a rolling deploy the old pods keep inserting rows with the column default. Put the UPDATE in a plain idempotent function that the migration calls, and re-run it after the rollout (for `Ticket.unconfirmed_guest`: `manage.py backfill_unconfirmed_guest`).
+A data migration that backfills a column runs once, but during a rolling deploy the old pods keep inserting rows with the column default. Put the UPDATE in a plain idempotent function that the migration calls, and run it once after the rollout (for `Ticket.unconfirmed_guest`: `manage.py backfill_unconfirmed_guest --before <rollout-finished ISO time with offset>`, `--dry-run` first). Give it a `--before` cutoff and never re-run it later: rows created after the deploy can match the same shape legitimately (email-confirmed zero-total guest tickets), so a later pass would flag them wrongly.
 
 ## Migration Squashing (one per app per PR, never hand-edit schema migrations)
 

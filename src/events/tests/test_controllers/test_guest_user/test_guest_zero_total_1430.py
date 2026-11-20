@@ -17,7 +17,7 @@ from ninja_jwt.token_blacklist.models import BlacklistedToken
 from accounts.models import RevelUser
 from events import schema
 from events.exceptions import GuestEmailConfirmationRequired
-from events.models import DiscountCode, Event, Payment, Ticket, TicketTier
+from events.models import DiscountCode, Event, EventRSVP, Payment, Ticket, TicketTier
 from events.service import guest as guest_service
 from events.service.batch_ticket_service import BatchTicketService, CartGroup
 
@@ -182,6 +182,13 @@ def test_mixed_cart_with_one_group_zeroed_still_requires_payment(
     assert tickets.count() == 2
     assert all(ticket.status == Ticket.TicketStatus.PENDING for ticket in tickets)
     assert all(ticket.unconfirmed_guest is True for ticket in tickets)
+    zeroed = tickets.get(tier=online_tier)
+    # price_paid is not stamped on a PENDING online ticket (set when the payment lands); the discount is.
+    assert zeroed.discount_code_id == code.pk
+    assert zeroed.discount_amount == online_tier.price
+    untouched = tickets.get(tier=other_tier)
+    assert untouched.discount_code_id is None
+    assert untouched.discount_amount is None
 
 
 def test_second_confirmation_of_the_same_token_is_refused_even_when_the_pre_check_is_raced(
@@ -237,3 +244,20 @@ def test_authenticated_zero_total_cart_is_unchanged(
     assert isinstance(result, list)
     assert result[0].status == Ticket.TicketStatus.ACTIVE
     assert result[0].unconfirmed_guest is False
+
+
+def test_second_confirmation_of_the_same_rsvp_token_is_refused_even_when_the_pre_check_is_raced(
+    guest_event: Event, existing_guest_user: RevelUser
+) -> None:
+    """The RSVP branch burns the token too: the loser of two concurrent clicks gets 401 and no second RSVP."""
+    token = guest_service.create_guest_rsvp_token(existing_guest_user, guest_event.id, "yes")
+    payload = guest_service.validate_and_decode_guest_token(token)
+    guest_service.confirm_guest_action(token)
+    EventRSVP.objects.all().delete()
+
+    with patch.object(guest_service, "validate_and_decode_guest_token", return_value=payload):
+        with pytest.raises(HttpError) as exc:
+            guest_service.confirm_guest_action(token)
+
+    assert exc.value.status_code == 401
+    assert not EventRSVP.objects.filter(event=guest_event).exists()
