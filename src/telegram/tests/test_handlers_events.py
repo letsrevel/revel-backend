@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from accounts.models import RevelUser
-from events.models import Event, EventInvitationRequest, EventWaitList, Organization, WhitelistRequest
+from events.models import Blacklist, Event, EventInvitationRequest, EventWaitList, Organization, WhitelistRequest
 from events.service.event_manager import EventUserEligibility, NextStep, UserIsIneligibleError
 from events.suppression import suppress_event_notifications
 from telegram.models import TelegramUser
@@ -47,6 +47,10 @@ async def _make_org_visible(organization: Organization) -> None:
     """Make the organization publicly visible so a plain user can resolve it."""
     organization.visibility = Organization.Visibility.PUBLIC
     await organization.asave(update_fields=["visibility"])
+
+
+async def _blacklist(organization: Organization, user: RevelUser) -> None:
+    await Blacklist.objects.acreate(organization=organization, user=user, created_by_id=organization.owner_id)
 
 
 # ── cb_handle_rsvp ──────────────────────────────────────────────────
@@ -291,6 +295,42 @@ class TestHandleRequestInvitation:
         assert not await EventInvitationRequest.objects.filter(event=private_event, user=django_user).aexists()
         mock_callback_query.answer.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_blacklisted_user_cannot_act_on_a_public_event(
+        self,
+        mock_callback_query: AsyncMock,
+        django_user: RevelUser,
+        private_event: Event,
+    ) -> None:
+        """Visible to everyone else, but the organization blacklisted this account: nothing is created."""
+        tg_user = await _get_tg_user(django_user)
+        await _make_event_visible(private_event, waitlist_open=False)
+        await _blacklist(private_event.organization, django_user)
+        mock_callback_query.data = f"request_invitation:{private_event.id}"
+
+        await cb_handle_request_invitation(mock_callback_query, user=django_user, tg_user=tg_user)
+
+        assert "not available" in mock_callback_query.message.answer.call_args.args[0].lower()
+        assert not await EventInvitationRequest.objects.filter(event=private_event, user=django_user).aexists()
+
+    @pytest.mark.asyncio
+    async def test_blacklisted_user_cannot_rsvp(
+        self,
+        mock_callback_query: AsyncMock,
+        django_user: RevelUser,
+        private_event: Event,
+    ) -> None:
+        tg_user = await _get_tg_user(django_user)
+        await _make_event_visible(private_event, waitlist_open=False)
+        await _blacklist(private_event.organization, django_user)
+        mock_callback_query.data = f"rsvp:{private_event.id}:yes"
+
+        with patch("telegram.routers.events.get_ticket_handler", new_callable=AsyncMock) as mock_get_handler:
+            await cb_handle_rsvp(mock_callback_query, user=django_user, tg_user=tg_user)
+
+        mock_get_handler.assert_not_awaited()
+        assert "not available" in mock_callback_query.message.answer.call_args.args[0].lower()
+
 
 # ── cb_handle_become_member ──────────────────────────────────────────
 
@@ -353,6 +393,24 @@ class TestHandleBecomeMember:
         text = mock_callback_query.message.answer.call_args.args[0]
         assert "not available" in text.lower()
         mock_callback_query.answer.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_blacklisted_user_cannot_request_membership(
+        self,
+        mock_callback_query: AsyncMock,
+        django_user: RevelUser,
+        organization: Organization,
+    ) -> None:
+        tg_user = await _get_tg_user(django_user)
+        await _make_org_visible(organization)
+        await _blacklist(organization, django_user)
+        mock_callback_query.data = f"become_member:{organization.id}"
+
+        with patch("telegram.routers.events.organization_service") as mock_svc:
+            await cb_handle_become_member(mock_callback_query, user=django_user, tg_user=tg_user)
+
+        mock_svc.create_membership_request.assert_not_called()
+        assert "not available" in mock_callback_query.message.answer.call_args.args[0].lower()
 
 
 # ── cb_handle_join_waitlist ──────────────────────────────────────────
