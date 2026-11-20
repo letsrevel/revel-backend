@@ -143,6 +143,9 @@ class ListingProvider(t.Protocol):
     def resolve_notification(self, token: TokenSet, notification: WebhookNotification) -> ResolvedNotification:
         """Resolve a parsed notification to the remote event it concerns, and what kind of change it is."""
 
+    def resolves_remotely(self, notification: WebhookNotification) -> bool:
+        """Whether ``resolve_notification`` will call the provider (a pure check; it makes no call itself)."""
+
     def remaining_budget(self) -> int | None:
         """Remaining calls in the shared rate-limit bucket, as last reported by the API (None = unknown)."""
 

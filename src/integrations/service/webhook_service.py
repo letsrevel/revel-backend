@@ -18,7 +18,7 @@ from integrations import registry
 from integrations.enums import IntegrationErrorCode
 from integrations.exceptions import IntegrationError, ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, WebhookDelivery
-from integrations.providers.base import NotificationKind, WebhookNotification
+from integrations.providers.base import ListingProvider, NotificationKind, WebhookNotification
 from integrations.service import connection_service, sync_service
 
 _STATUS_ON: dict[str, str] = {
@@ -103,6 +103,15 @@ def _refresh_counts_debounced(delivery: WebhookDelivery, link: EventLink) -> Web
     return _finish(delivery, WebhookDelivery.Outcome.PROCESSED)
 
 
+def _raise_if_fetch_would_overspend(provider: ListingProvider, key: str, notification: WebhookNotification) -> None:
+    """Gate only deliveries that call the provider; a status delivery makes no call and must not be deferred.
+
+    Deferring one would let an older transition land after a newer one.
+    """
+    if provider.resolves_remotely(notification):
+        sync_service.raise_if_budget_low(provider, key)
+
+
 def handle_delivery(delivery_id: UUID) -> WebhookDelivery:
     """Resolve the pointer with the connection's token, then refresh counts or move the status (spec §8)."""
     delivery = WebhookDelivery.objects.select_related("connection").get(id=delivery_id)
@@ -114,7 +123,7 @@ def handle_delivery(delivery_id: UUID) -> WebhookDelivery:
         action=delivery.action, resource_path=delivery.resource_path, raw=delivery.payload
     )
     try:
-        sync_service.raise_if_budget_low(provider, conn.provider)
+        _raise_if_fetch_would_overspend(provider, conn.provider, notification)
         resolved = provider.resolve_notification(conn.token(), notification)
         if resolved.kind == "ignored" or not resolved.remote_event_id:
             return _finish(delivery, WebhookDelivery.Outcome.IGNORED)
