@@ -9,6 +9,7 @@ and the verified-email match (:func:`auto_link_records_for_user`).
 """
 
 import enum
+import hashlib
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -238,11 +239,18 @@ def _new_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def _dispatch_invite(record_id: UUID) -> None:
+def invite_marker(token: str) -> str:
+    """Non-secret identifier of one invitation generation (a truncated digest, so the token cannot be recovered)."""
+    return hashlib.sha256(token.encode()).hexdigest()[:16]
+
+
+def _dispatch_invite(record: MembershipRecord) -> None:
     from events.tasks.member_register import send_member_register_invite  # lazy: the task imports this module
 
-    # Only the id travels through the broker: the task reads the current token itself.
-    transaction.on_commit(lambda: send_member_register_invite.delay(str(record_id)))
+    # The id and a generation marker travel through the broker, never the token: the task reads the
+    # current token itself and skips when a later invitation has superseded this one.
+    record_id, marker = str(record.pk), invite_marker(record.invite_token or "")
+    transaction.on_commit(lambda: send_member_register_invite.delay(record_id, marker))
 
 
 def invite_blocked_reason(record: MembershipRecord) -> str | None:
@@ -312,7 +320,7 @@ def send_invite(record: MembershipRecord) -> MembershipRecord:
     except Exception:
         _release_invite_slot(organization, record.email)
         raise
-    _dispatch_invite(record.pk)
+    _dispatch_invite(record)
     return record
 
 
@@ -336,14 +344,22 @@ def send_bulk_invites(organization: Organization) -> int:
             )
             .exclude(email="")
         )
-        records = [record for record in candidates if _claim_invite_slot(organization, record.email)]
+        records: list[MembershipRecord] = []
+        try:
+            for record in candidates:
+                if _claim_invite_slot(organization, record.email):
+                    records.append(record)
+                    record.invite_token = _new_token()
+                    record.invited_at = now
+                    record.updated_at = now
+            MembershipRecord.objects.bulk_update(records, ["invite_token", "invited_at", "updated_at"])
+        except Exception:
+            # Nothing committed: free the addresses so a retry is not locked out for the cooldown.
+            for record in records:
+                _release_invite_slot(organization, record.email)
+            raise
         for record in records:
-            record.invite_token = _new_token()
-            record.invited_at = now
-            record.updated_at = now
-        MembershipRecord.objects.bulk_update(records, ["invite_token", "invited_at", "updated_at"])
-        for record in records:
-            _dispatch_invite(record.pk)
+            _dispatch_invite(record)
     return len(records)
 
 

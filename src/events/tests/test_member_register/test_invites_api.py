@@ -6,7 +6,7 @@ each test in a rolled-back transaction); the email task is mocked at ``.delay`` 
 
 import typing as t
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 from django.core import mail
@@ -20,6 +20,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import Blacklist, MembershipRecord, Organization, OrganizationMember
+from events.service import member_register_linking as linking
 from events.tasks import send_member_register_invite
 
 from .conftest import RecordFactory, make_client
@@ -83,7 +84,7 @@ class TestSendInvite:
         assert "invite_token" not in body
         record.refresh_from_db()
         assert record.invite_token and record.invited_at is not None
-        delay.assert_called_once_with(str(record.pk))
+        delay.assert_called_once_with(str(record.pk), linking.invite_marker(record.invite_token))
 
     def test_resend_rotates_token(
         self,
@@ -166,7 +167,7 @@ class TestSendInvite:
         assert response.status_code == 200
         record.refresh_from_db()
         assert record.invite_token is not None
-        delay.assert_called_once_with(str(record.pk))
+        delay.assert_called_once_with(str(record.pk), ANY)
 
     def test_resend_to_invited_open_entry_still_works(
         self,
@@ -183,7 +184,7 @@ class TestSendInvite:
         assert response.status_code == 200
         record.refresh_from_db()
         assert record.invite_token != "old-token"
-        delay.assert_called_once_with(str(record.pk))
+        delay.assert_called_once_with(str(record.pk), ANY)
 
     def test_resend_within_cooldown_is_400(
         self,
@@ -205,7 +206,7 @@ class TestSendInvite:
         assert "sent recently" in response.json()["detail"]
         record.refresh_from_db()
         assert record.invite_token == first_token
-        delay.assert_called_once_with(str(record.pk))
+        delay.assert_called_once_with(str(record.pk), ANY)
 
     def test_resend_after_email_change_to_a_new_address_is_allowed(
         self,
@@ -224,7 +225,7 @@ class TestSendInvite:
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 200, response.content
-        delay.assert_called_once_with(str(record.pk))
+        delay.assert_called_once_with(str(record.pk), ANY)
 
     def test_email_changed_back_to_a_recent_address_is_still_refused(
         self,
@@ -258,7 +259,7 @@ class TestSendInvite:
         with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
             assert owner_client.post(_invite_url(organization, first)).status_code == 200
             assert owner_client.post(_invite_url(organization, second)).status_code == 400
-        delay.assert_called_once_with(str(first.pk))
+        delay.assert_called_once_with(str(first.pk), ANY)
 
     def test_resend_after_the_interval_is_allowed(
         self,
@@ -484,6 +485,28 @@ class TestInviteEmail:
         send_member_register_invite(str(record.pk))
         (message,) = mail.outbox
         assert "/member-invite/new" in message.body
+
+    def test_superseded_job_is_skipped_and_current_job_sends(self, make_record: RecordFactory) -> None:
+        """Invite A, retarget to B, invite B before the tasks run: only the job for B's invitation sends."""
+        record = make_record(email="a@example.com", invite_token="tok-a", invited_at=timezone.now())
+        stale_marker = linking.invite_marker("tok-a")
+        record.email, record.invite_token = "b@example.com", "tok-b"
+        record.save(update_fields=["email", "invite_token", "updated_at"])
+
+        send_member_register_invite(str(record.pk), stale_marker)
+        assert mail.outbox == []
+
+        send_member_register_invite(str(record.pk), linking.invite_marker("tok-b"))
+        (message,) = mail.outbox
+        assert message.to == ["b@example.com"]
+
+    def test_marker_is_optional_for_in_flight_messages(self, make_record: RecordFactory) -> None:
+        record = make_record(invite_token="tok", invited_at=timezone.now())
+        send_member_register_invite(str(record.pk))
+        assert len(mail.outbox) == 1
+
+    def test_marker_does_not_expose_the_token(self) -> None:
+        assert "tok-secret-value" not in linking.invite_marker("tok-secret-value")
 
     def test_skips_when_no_token(self, make_record: RecordFactory) -> None:
         record = make_record()

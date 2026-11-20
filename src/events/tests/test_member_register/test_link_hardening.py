@@ -10,6 +10,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from django.core.cache import cache
 from django.db import connection
 from django.test.client import Client
 from django.test.utils import CaptureQueriesContext
@@ -90,6 +91,43 @@ def test_bulk_invite_skips_future_records(
     assert response.json() == {"invited": 1}
     future.refresh_from_db()
     assert future.invite_token is None
+
+
+def test_bulk_invite_releases_claims_when_bulk_update_fails(
+    organization: Organization, make_record: RecordFactory
+) -> None:
+    """A failed batch must not leave its addresses locked out for the cooldown."""
+    cache.clear()
+    make_record(email="one@example.com")
+    make_record(email="two@example.com")
+
+    with patch.object(MembershipRecord.objects, "bulk_update", side_effect=RuntimeError("db down")):
+        with pytest.raises(RuntimeError):
+            linking.send_bulk_invites(organization)
+
+    for email in ("one@example.com", "two@example.com"):
+        assert cache.get(linking._invite_cooldown_key(organization.pk, email)) is None
+
+
+def test_bulk_invite_releases_earlier_claims_when_a_later_claim_raises(
+    organization: Organization, make_record: RecordFactory
+) -> None:
+    cache.clear()
+    make_record(email="one@example.com")
+    make_record(email="two@example.com")
+    real = linking._claim_invite_slot
+    calls: list[str] = []
+
+    def flaky(org: Organization, email: str) -> bool:
+        if calls:
+            raise RuntimeError("cache down")
+        calls.append(email)
+        return real(org, email)
+
+    with patch.object(linking, "_claim_invite_slot", side_effect=flaky), pytest.raises(RuntimeError):
+        linking.send_bulk_invites(organization)
+
+    assert cache.get(linking._invite_cooldown_key(organization.pk, calls[0])) is None
 
 
 def test_claim_not_started_is_409_and_leaves_the_link_usable(make_record: RecordFactory, claimant: RevelUser) -> None:
