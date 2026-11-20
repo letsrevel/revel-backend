@@ -8884,3 +8884,6 @@ msgstr "<b>%(org)s</b> ti ha invitato a diventare membro (%(tier)s). Diventi mem
 #, python-format
 msgid "<strong>%(org)s</strong> invited you to become a member (%(tier)s). You only become a member if you accept."
 msgstr "<strong>%(org)s</strong> ti ha invitato a diventare membro (%(tier)s). Diventi membro solo se accetti."
+
+msgid "An invitation was sent recently. You can resend it after {time}."
+msgstr "Un invito è stato inviato di recente. Puoi reinviarlo dopo {time}."
