@@ -27,7 +27,7 @@ from .conftest import RecordFactory, make_client
 
 pytestmark = pytest.mark.django_db
 
-DELAY = "events.tasks.member_register.send_member_register_invite.apply_async"
+APPLY_ASYNC = "events.tasks.member_register.send_member_register_invite.apply_async"
 
 
 def _invite_url(organization: Organization, record: MembershipRecord) -> str:
@@ -58,7 +58,7 @@ class TestSendInvite:
         survivor = make_record(email="survivor@example.com")
         absorbed = make_record(merged_into=survivor)
 
-        with patch(DELAY) as delay:
+        with patch(APPLY_ASYNC) as delay:
             response = owner_client.post(_invite_url(organization, absorbed))
 
         assert response.status_code == 400
@@ -75,7 +75,7 @@ class TestSendInvite:
     ) -> None:
         record = make_record()
 
-        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 200, response.content
@@ -97,13 +97,13 @@ class TestSendInvite:
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         record = make_record()
-        with patch(DELAY), django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC), django_capture_on_commit_callbacks(execute=True):
             owner_client.post(_invite_url(organization, record))
         record.refresh_from_db()
         old = t.cast(str, record.invite_token)
         cache.clear()  # the resend interval has passed
 
-        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
             assert owner_client.post(_invite_url(organization, record)).status_code == 200
 
         record.refresh_from_db()
@@ -132,7 +132,7 @@ class TestSendInvite:
     ) -> None:
         record = make_record(kind=MembershipRecord.Kind.TEMPORARY)
 
-        with patch(DELAY) as delay:
+        with patch(APPLY_ASYNC) as delay:
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 400
@@ -147,7 +147,7 @@ class TestSendInvite:
             valid_from=timezone.now() - timedelta(days=3), valid_until=timezone.now() - timedelta(days=1)
         )
 
-        with patch(DELAY) as delay:
+        with patch(APPLY_ASYNC) as delay:
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 400
@@ -164,7 +164,7 @@ class TestSendInvite:
     ) -> None:
         record = make_record()
 
-        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 200
@@ -181,7 +181,7 @@ class TestSendInvite:
     ) -> None:
         record = make_record(invited_at=timezone.now() - timedelta(hours=2), invite_token="old-token")
 
-        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 200
@@ -198,7 +198,7 @@ class TestSendInvite:
     ) -> None:
         """A second invite right after the first is refused: token unchanged, one dispatch in total."""
         record = make_record()
-        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
             assert owner_client.post(_invite_url(organization, record)).status_code == 200
             record.refresh_from_db()
             first_token = record.invite_token
@@ -220,11 +220,11 @@ class TestSendInvite:
     ) -> None:
         """The interval is per address: correcting the email lets the new address be invited at once."""
         record = make_record(email="a@example.com")
-        with patch(DELAY), django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC), django_capture_on_commit_callbacks(execute=True):
             assert owner_client.post(_invite_url(organization, record)).status_code == 200
         _patch_email(owner_client, organization, record, "b@example.com")
 
-        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 200, response.content
@@ -239,12 +239,12 @@ class TestSendInvite:
     ) -> None:
         """A -> B -> A does not reset the interval for A."""
         record = make_record(email="a@example.com")
-        with patch(DELAY), django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC), django_capture_on_commit_callbacks(execute=True):
             assert owner_client.post(_invite_url(organization, record)).status_code == 200
         _patch_email(owner_client, organization, record, "b@example.com")
         _patch_email(owner_client, organization, record, "A@Example.com")
 
-        with patch(DELAY) as delay:
+        with patch(APPLY_ASYNC) as delay:
             response = owner_client.post(_invite_url(organization, record))
 
         assert response.status_code == 400
@@ -259,7 +259,7 @@ class TestSendInvite:
     ) -> None:
         first = make_record(email="same@example.com")
         second = make_record(email="Same@Example.com")
-        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
             assert owner_client.post(_invite_url(organization, first)).status_code == 200
             assert owner_client.post(_invite_url(organization, second)).status_code == 400
         delay.assert_called_once_with(args=(str(first.pk),), headers=ANY)
@@ -272,10 +272,10 @@ class TestSendInvite:
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         record = make_record()
-        with patch(DELAY), django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC), django_capture_on_commit_callbacks(execute=True):
             assert owner_client.post(_invite_url(organization, record)).status_code == 200
         cache.clear()
-        with patch(DELAY), django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC), django_capture_on_commit_callbacks(execute=True):
             assert owner_client.post(_invite_url(organization, record)).status_code == 200
 
     def test_permissions(
@@ -287,7 +287,7 @@ class TestSendInvite:
     ) -> None:
         record = make_record()
         url = _invite_url(organization, record)
-        with patch(DELAY):
+        with patch(APPLY_ASYNC):
             assert staff_client.post(url).status_code == 200
         assert outsider_client.post(url).status_code in (403, 404)
         assert Client().post(url).status_code == 401
@@ -383,11 +383,11 @@ class TestBulkInvite:
         recent = make_record(email="recent@example.com")
         fresh = make_record(email="fresh@example.com")
         dup = make_record(email="Fresh@example.com")
-        with patch(DELAY), django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC), django_capture_on_commit_callbacks(execute=True):
             assert owner_client.post(_invite_url(organization, recent)).status_code == 200
         MembershipRecord.objects.filter(pk=recent.pk).update(invited_at=None, invite_token=None)
 
-        with patch(DELAY), django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC), django_capture_on_commit_callbacks(execute=True):
             body = owner_client.post(_bulk_url(organization)).json()
 
         assert body["invited"] == 1
@@ -396,7 +396,7 @@ class TestBulkInvite:
         assert MembershipRecord.objects.get(pk=recent.pk).invited_at is None
         # the address it just sent to is now inside the interval for a single invite too
         retry_target = sent[0]
-        with patch(DELAY):
+        with patch(APPLY_ASYNC):
             assert owner_client.post(_invite_url(organization, retry_target)).status_code == 400
 
     def test_invites_only_open_unlinked_never_invited_with_email(
@@ -415,7 +415,7 @@ class TestBulkInvite:
         make_record(email="z@example.com", valid_from=start, valid_until=start + timedelta(days=1))  # closed
         make_record(email="w@example.com", kind=MembershipRecord.Kind.TEMPORARY)  # not STANDARD
 
-        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+        with patch(APPLY_ASYNC) as delay, django_capture_on_commit_callbacks(execute=True):
             response = owner_client.post(_bulk_url(organization))
 
         assert response.status_code == 202, response.content

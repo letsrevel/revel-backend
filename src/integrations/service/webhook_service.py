@@ -96,7 +96,8 @@ def _refresh_counts_debounced(delivery: WebhookDelivery, link: EventLink) -> Web
     if not cache.add(key, 1, sync_service.COUNTS_DEBOUNCE_TTL_SECONDS):
         return _finish(delivery, WebhookDelivery.Outcome.PROCESSED)
     try:
-        # The event path never called the provider to resolve the notification, so gate the refresh itself.
+        # Gate the refresh call itself on either path: an event path never fetched, and an order path's fetch may
+        # have pushed the budget under the reserve.
         # The delivery already resolved; skipping is best-effort and the reconcile sweep restores the counts.
         sync_service.raise_if_budget_low(registry.get_provider(link.connection.provider), link.connection.provider)
     except BudgetDeferredError:
