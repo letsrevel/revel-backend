@@ -749,3 +749,46 @@ def test_ticket_added_while_waiting_on_the_pass_lock_is_cancelled(
     new_tier.refresh_from_db()
     assert added[0].status == Ticket.TicketStatus.CANCELLED
     assert new_tier.quantity_sold == 0
+
+
+def test_paid_ticket_added_while_waiting_on_the_pass_lock_is_left_alone(
+    online_pass_setup: _PassSetup,
+    organization: Organization,
+    event_series: EventSeries,
+    organization_owner_user: RevelUser,
+) -> None:
+    """A ticket with a Payment that appears after the snapshot keeps the normal refund flow: not cancelled here."""
+    held_pass = online_pass_setup.held_pass
+    new_event = _make_event(organization, event_series, "Late paid", "late-paid", timezone.now() + timedelta(days=9))
+    new_tier = _make_tier(new_event, "Late Paid Tier")
+    added: list[Ticket] = []
+
+    def _add_paid_ticket_at_payment_lock(execute: t.Any, sql: str, params: t.Any, many: bool, context: t.Any) -> t.Any:
+        if not added and '"events_payment"' in sql and "FOR UPDATE" in sql:
+            ticket = Ticket.objects.create(
+                event=new_event,
+                tier=new_tier,
+                user=held_pass.user,
+                held_pass=held_pass,
+                status=Ticket.TicketStatus.ACTIVE,
+            )
+            added.append(ticket)
+            _make_payment(ticket, Decimal("5.00"))
+        return execute(sql, params, many, context)
+
+    with (
+        patch("stripe.Refund.create") as refund,
+        patch("events.service.series_pass_service.logger") as log,
+    ):
+        refund.return_value.id = "re_late_paid"
+        with connection.execute_wrapper(_add_paid_ticket_at_payment_lock):
+            cancel_held_pass(held_pass, cancelled_by=organization_owner_user, reason="x")
+
+    assert added, "the hook did not run"
+    added[0].refresh_from_db()
+    assert added[0].status == Ticket.TicketStatus.ACTIVE
+    assert not Refund.objects.filter(payment__ticket=added[0]).exists()
+    assert refund.call_count == len(online_pass_setup.future_tickets)
+    log.warning.assert_any_call(
+        "series_pass_cancel_skipped_late_paid_ticket", ticket_id=str(added[0].pk), held_pass_id=str(held_pass.pk)
+    )

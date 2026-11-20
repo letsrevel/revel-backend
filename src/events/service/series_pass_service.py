@@ -597,6 +597,21 @@ def _cancel_locked_tickets(tickets: list[Ticket], cancelled_by: RevelUser, reaso
     return len(tickets)
 
 
+def _late_free_ticket_ids(late: QuerySet[Ticket], held_pass_pk: t.Any) -> list[t.Any]:
+    """Return the ids of ``late`` tickets that have no Payment; log any that have one.
+
+    Only free tickets are expected here (extension and activation backfill create no Payment).
+    A ticket with a Payment is left to the normal refund flow and is not cancelled by this call.
+    """
+    rows = list(late.values_list("pk", "payment"))
+    for ticket_id, payment_id in rows:
+        if payment_id is not None:
+            logger.warning(
+                "series_pass_cancel_skipped_late_paid_ticket", ticket_id=str(ticket_id), held_pass_id=str(held_pass_pk)
+            )
+    return [ticket_id for ticket_id, payment_id in rows if payment_id is None]
+
+
 def cancel_held_pass(
     held_pass: HeldSeriesPass,
     cancelled_by: RevelUser,
@@ -606,8 +621,9 @@ def cancel_held_pass(
 
     Cancels every future, non-checked-in ticket materialized from ``held_pass``;
     past-event and checked-in tickets are left untouched. "Future" is decided when the
-    cancel starts: an event the organizer moves while the cancel runs keeps that first
-    answer (only the ticket status is re-checked later). Refunds any
+    cancel starts for the tickets it already holds; free tickets added while it waits on
+    the pass lock are checked when it gets the lock. Later steps re-check only the ticket
+    status. Refunds any
     successfully-paid ticket (a pass paid online may be mapped to offline/free
     tiers — the Payment row, not the tier's payment method, is authoritative),
     decrements each cancelled ticket's tier ``quantity_sold`` and the pass's own
@@ -681,15 +697,9 @@ def cancel_held_pass(
         if held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED:
             return held_pass
         # An extension or activation backfill may have committed tickets while we waited on the
-        # HeldSeriesPass lock. They are free (no Payment), so cancelling them needs no refund, and
-        # nothing can add more while we hold the lock. Build the filter only now: ``pk__in`` copies
-        # the list when the filter is built.
-        candidate_ids += list(
-            _cancellable_tickets()
-            .exclude(pk__in=candidate_ids)
-            .filter(payment__isnull=True)
-            .values_list("pk", flat=True)
-        )
+        # HeldSeriesPass lock. Free ones need no refund, so they join the set; nothing can add more
+        # while we hold the lock. Build the filter only now: ``pk__in`` copies the list when built.
+        candidate_ids += _late_free_ticket_ids(_cancellable_tickets().exclude(pk__in=candidate_ids), held_pass_pk)
         # Lazy: each use below (values_list, select_related) runs a fresh query on these ids.
         still_cancellable = Ticket.objects.filter(pk__in=candidate_ids).exclude(
             status__in=[Ticket.TicketStatus.CANCELLED, Ticket.TicketStatus.CHECKED_IN]
@@ -700,7 +710,8 @@ def cancel_held_pass(
             # Expire before the SeriesPass/tier/ticket locks: the buyer must not pay a cancelled pass.
             _expire_stripe_session(held_pass)
 
-        # Ticket statuses are stable under the Payment locks (check-in takes no lock).
+        # Statuses can still change before the tier/ticket lock (check-in takes no lock);
+        # lock_tier_then_ticket re-reads the set under the row locks, which makes the final set safe.
         cancellable_ids = set(still_cancellable.values_list("pk", flat=True))
         refunded_ticket_ids: set[t.Any] = set()
         for payment in payments:
