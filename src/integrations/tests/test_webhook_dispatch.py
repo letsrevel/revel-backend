@@ -368,3 +368,19 @@ def test_trailing_counts_refresh_respects_the_budget_reserve(
     # No provider call and no retry: the reconcile sweep restores counts once the budget recovers.
     tasks.refresh_link_counts.apply(args=(str(pushed.id),), throw=True)
     assert [c for c in fake_provider.calls if c[0] == "get_event"] == before
+
+
+def test_immediate_counts_refresh_respects_the_budget_reserve_on_the_event_path(
+    connected: PlatformConnection, pushed: EventLink, fake_provider: FakeProvider, settings: t.Any
+) -> None:
+    """An event-path order notification makes no resolving call, so only the refresh itself can overspend."""
+    _low_budget(fake_provider, settings)
+    d = _deliver(connected, "order.updated", f"/events/{pushed.remote_id}/")
+    before = [c for c in fake_provider.calls if c[0] == "get_event"]
+    with mock.patch.object(tasks.refresh_link_counts, "apply_async") as apply_async:
+        webhook_service.handle_delivery(d.id)
+    assert [c for c in fake_provider.calls if c[0] == "get_event"] == before
+    apply_async.assert_not_called()  # the reconcile sweep owns recovery
+    d.refresh_from_db()
+    assert d.outcome == WebhookDelivery.Outcome.PROCESSED
+    assert cache.get(sync_service.counts_debounce_key(pushed.id)) is None

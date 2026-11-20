@@ -8,6 +8,7 @@ or the remote-status transition matrix.
 
 from uuid import UUID
 
+import structlog
 from django.core.cache import cache
 from django.db import transaction
 from django.http import Http404, HttpRequest
@@ -16,10 +17,12 @@ from django.utils.translation import gettext_lazy as _
 
 from integrations import registry
 from integrations.enums import IntegrationErrorCode
-from integrations.exceptions import IntegrationError, ProviderError, RetryableProviderError
+from integrations.exceptions import BudgetDeferredError, IntegrationError, ProviderError, RetryableProviderError
 from integrations.models import EventLink, PlatformConnection, WebhookDelivery
 from integrations.providers.base import ListingProvider, NotificationKind, WebhookNotification
 from integrations.service import connection_service, sync_service
+
+logger = structlog.get_logger(__name__)
 
 _STATUS_ON: dict[str, str] = {
     "event_published": EventLink.RemoteStatus.LIVE,
@@ -91,6 +94,14 @@ def _refresh_counts_debounced(delivery: WebhookDelivery, link: EventLink) -> Web
 
     key = sync_service.counts_debounce_key(link.id)
     if not cache.add(key, 1, sync_service.COUNTS_DEBOUNCE_TTL_SECONDS):
+        return _finish(delivery, WebhookDelivery.Outcome.PROCESSED)
+    try:
+        # The event path never called the provider to resolve the notification, so gate the refresh itself.
+        # The delivery already resolved; skipping is best-effort and the reconcile sweep restores the counts.
+        sync_service.raise_if_budget_low(registry.get_provider(link.connection.provider), link.connection.provider)
+    except BudgetDeferredError:
+        cache.delete(key)
+        logger.info("integration_counts_skipped_budget_low", link_id=str(link.id))
         return _finish(delivery, WebhookDelivery.Outcome.PROCESSED)
     try:
         refreshed = sync_service.refresh_counts(link)
