@@ -3,7 +3,6 @@
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-import pyotp
 import structlog
 from django.conf import settings
 from django.db import transaction
@@ -16,9 +15,9 @@ from ninja_jwt.tokens import RefreshToken
 
 from accounts import schema
 from accounts.exceptions import EmailNotVerifiedError
-from accounts.jwt import TOTPJWTPayload, check_blacklist, create_token, validate_otp_jwt
-from accounts.jwt import blacklist as blacklist_token
+from accounts.jwt import TOTPJWTPayload, consume_one_shot_token, create_token, validate_otp_jwt
 from accounts.models import RevelUser
+from accounts.service import totp as totp_service
 from accounts.service.tenant_session import tenant_claims
 from common.keys import signing_key
 
@@ -43,23 +42,33 @@ def get_temporary_otp_jwt(user: RevelUser) -> str:
     return create_token(payload.model_dump(mode="json"), signing_key(), settings.JWT_ALGORITHM)
 
 
-@transaction.atomic
 def verify_otp_jwt(token: str, otp: str) -> tuple[RevelUser, bool]:
-    """Verify the OTP JWT token."""
-    validated_token = validate_otp_jwt(token)
-    check_blacklist(validated_token.jti)
-    if validated_token.type != "totp-access":
-        logger.warning("otp_verification_invalid_token_type", token_type=validated_token.type)  # type: ignore[unreachable]
-        raise HttpError(401, str(_("Invalid token type.")))
-    blacklist_token(token)
-    user = get_object_or_404(RevelUser, id=validated_token.user_id)
-    totp = pyotp.TOTP(user.totp_secret)
-    is_valid = totp.verify(otp)
+    """Verify the OTP JWT token and the TOTP code.
+
+    Raises:
+        TOTPLockedError: Too many wrong codes for this account (see ``accounts.service.totp``).
+    """
+    user = _burn_temporary_token(token)
+    is_valid = totp_service.verify_totp(user, otp, reason="login")
     logging_method, result = (
         (logger.info, "otp_verification_success") if is_valid else (logger.warning, "otp_verification_failure")
     )
     logging_method(result, user_id=str(user.id), email=user.email)
     return user, is_valid
+
+
+# The atomic block must end *before* the TOTP check: raising ``TOTPLockedError`` out of it would roll
+# back its savepoint (under ``ATOMIC_REQUESTS`` the 429 response itself still commits), un-burning the
+# temp token and discarding the ``on_commit`` lock email registered by ``verify_totp``.
+@transaction.atomic
+def _burn_temporary_token(token: str) -> RevelUser:
+    """Validate the temporary token, blacklist it (single use) and return its user."""
+    validated_token = validate_otp_jwt(token)
+    if validated_token.type != "totp-access":
+        logger.warning("otp_verification_invalid_token_type", token_type=validated_token.type)  # type: ignore[unreachable]
+        raise HttpError(401, str(_("Invalid token type.")))
+    consume_one_shot_token(token)
+    return get_object_or_404(RevelUser, id=validated_token.user_id)
 
 
 def is_session_allowed(user: RevelUser) -> bool:

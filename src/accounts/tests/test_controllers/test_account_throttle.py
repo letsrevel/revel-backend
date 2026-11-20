@@ -7,6 +7,7 @@ effectively unlimited, including TOTP verification.
 """
 
 import typing as t
+from unittest.mock import patch
 
 import pytest
 from django.test.client import Client
@@ -31,12 +32,17 @@ def test_account_me_is_throttled_per_user(auth_client: Client) -> None:
 
 
 def test_otp_verify_is_throttled_per_user(auth_client: Client) -> None:
-    """Brute-forcing a 6-digit TOTP code must hit the per-user limit."""
+    """Brute-forcing a 6-digit TOTP code must hit the per-user limit.
+
+    The per-account failure lock (#1429) would trip after five wrong codes, long before the rate
+    limit; it is stubbed out so this test keeps exercising the throttle.
+    """
     url = reverse("api:enable-otp")
 
-    for _ in range(100):  # OTPThrottle
-        response = auth_client.post(url, {"otp": "000000"}, content_type="application/json")
-        assert response.status_code == 403
+    with patch("accounts.service.totp.verify_totp", return_value=False):
+        for _ in range(100):  # OTPThrottle
+            response = auth_client.post(url, {"otp": "000000"}, content_type="application/json")
+            assert response.status_code == 403
 
-    response = auth_client.post(url, {"otp": "000000"}, content_type="application/json")
+        response = auth_client.post(url, {"otp": "000000"}, content_type="application/json")
     assert response.status_code == 429

@@ -104,6 +104,17 @@ Every verification email also carries a "didn't sign up? delete your account" li
 
 Referral invitations are enrolled by a single `post_save` receiver (`accounts/signals.py`) when a non-guest account becomes verified, whichever path does it.
 
+## 2FA failure lock
+
+`accounts/service/totp.py` (`verify_totp`) is the only place a TOTP code is checked: login step 2 (`verify_otp_jwt`), enabling 2FA and disabling it all call it, so they share one counter per account. Request throttles are per IP or per user and do not stop a distributed guesser; this one is per account.
+
+- Five consecutive wrong codes lock verification for 15 minutes (`FAILURE_THRESHOLD`, `LOCK_SECONDS`). A correct code resets the counter. While locked even the correct code is refused and the counter is untouched, so the lock is never extended.
+- The response is `429` with `{"detail", "code": "totp_locked"}` and a `Retry-After` header in seconds (`TOTPLockedError`, rendered in `accounts/exception_handlers.py`). Below the threshold a wrong code keeps its old answer (`401` at login, `403` on enable and disable). `POST /auth/token/pair` is unchanged: a locked account still gets its temporary token, so the lock reveals nothing before the password is proven.
+- When the lock starts, the owner gets one `totp_locked` email (`send_account_email`, dispatched `on_commit`) and a `totp_verification_locked` warning is logged with the user id and where it happened.
+- State is two cache keys (`totp:fail:<id>`, `totp:lock:<id>`), no migration. It is a security control, so `DISABLE_THROTTLING` does not turn it off; if the cache is unreachable the request fails with a 500 rather than letting guesses through. A cache flush also clears locks.
+- `verify_otp_jwt` blacklists the temporary token in its own short `transaction.atomic` and calls `verify_totp` *after* it. Raising `TOTPLockedError` out of a savepoint would otherwise roll back the blacklist row and the `on_commit` email.
+- Any future second factor (recovery codes, for instance) must go through `verify_totp` so it shares the counter.
+
 ## Bot protection (Cloudflare Turnstile)
 
 `accounts/service/turnstile.py`, configured in `revel/settings/turnstile.py`.

@@ -13,6 +13,7 @@ from ninja_extra import (
 
 from accounts import schema
 from accounts.models import RevelUser
+from accounts.service import totp as totp_service
 from common.authentication import I18nJWTAuth
 from common.controllers.base import UserAwareController
 from common.throttling import OTPThrottle
@@ -50,7 +51,7 @@ class OtpController(UserAwareController):
 
     @route.post(
         "/verify",
-        response=schema.RevelUserSchema,
+        response={200: schema.RevelUserSchema, 429: schema.LoginRateLimitSchema},
         url_name="enable-otp",
     )
     def enable_otp(self, payload: schema.OTPVerifySchema) -> RevelUser:
@@ -58,11 +59,11 @@ class OtpController(UserAwareController):
 
         Call this after GET /otp/setup with a code from your authenticator app to confirm
         it's configured correctly. On success, activates 2FA for the account. Future logins
-        will require the TOTP code via POST /auth/token/pair/otp. Returns 403 if code is invalid.
+        will require the TOTP code via POST /auth/token/pair/otp. Returns 403 if code is invalid, and 429
+        (code `totp_locked`, with a `Retry-After` header) after too many wrong codes.
         """
         user = self.user()
-        totp = pyotp.TOTP(user.totp_secret)
-        if not totp.verify(payload.otp):
+        if not totp_service.verify_totp(user, payload.otp, reason="enable"):
             raise HttpError(status.HTTP_403_FORBIDDEN, str(_("Invalid OTP")))
         user.totp_active = True
         user.save()
@@ -70,7 +71,7 @@ class OtpController(UserAwareController):
 
     @route.post(
         "/disable",
-        response=schema.RevelUserSchema,
+        response={200: schema.RevelUserSchema, 429: schema.LoginRateLimitSchema},
         url_name="disable-otp",
     )
     def disable_otp(self, request: HttpRequest, payload: schema.OTPVerifySchema) -> RevelUser:
@@ -78,11 +79,11 @@ class OtpController(UserAwareController):
 
         Requires the current TOTP code to prevent unauthorized disabling. After disabling,
         login will only require email and password via POST /auth/token/pair. Returns 403
-        if the TOTP code is invalid.
+        if the TOTP code is invalid, and 429 (code `totp_locked`, with a `Retry-After` header)
+        after too many wrong codes.
         """
         user = self.user()
-        totp = pyotp.TOTP(user.totp_secret)
-        if not totp.verify(payload.otp):
+        if not totp_service.verify_totp(user, payload.otp, reason="disable"):
             raise HttpError(status.HTTP_403_FORBIDDEN, str(_("Invalid OTP")))
         user.totp_active = False
         user.save()

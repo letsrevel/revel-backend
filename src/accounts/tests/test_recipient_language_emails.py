@@ -68,6 +68,7 @@ _ACCOUNT_CASES: list[tuple[AccountEmail, str, dict[str, str], str | None]] = [
         {"old_email": "a@example.com", "new_email": "b@example.com"},
         None,
     ),
+    (AccountEmail.TOTP_LOCKED, "totp_locked", {}, None),
     (AccountEmail.DELETION, "account_delete", {}, "/account/confirm-deletion?token=tok"),
     (AccountEmail.REFERRAL_APPLICATION_RECEIVED, "referral_application_received", {"code": "ABC"}, None),
     (

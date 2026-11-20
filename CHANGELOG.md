@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - Tightened access checks in the Telegram bot and on event links, added a one-hour resend interval per address for member register invitations, and protected the shared Eventbrite rate budget from webhook load.
+- Two-factor codes are now limited per account: after five wrong codes in a row, verification is paused for 15 minutes for that account, whichever IP they came from. The pause covers sign-in (`POST /auth/token/pair/otp`) and turning 2FA on or off (`POST /otp/verify`, `POST /otp/disable`), and all three share one counter. While paused even a correct code is refused, with `429`, code `totp_locked` and a `Retry-After` header (seconds). A correct code before the fifth wrong one resets the counter. The account owner gets one email when the pause starts. The password step (`POST /auth/token/pair`) is unchanged.
 
 ### Changed
 - A pending ticket from a registered account's own checkout (for example an offline payment awaiting confirmation) counts as a connection to the organization.

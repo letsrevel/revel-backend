@@ -41,6 +41,7 @@ class AccountEmail(enum.StrEnum):
     CHANGE_NOTICE = "change_notice"
     CHANGE_COMPLETED_OLD = "change_completed_old"
     CHANGE_COMPLETED_NEW = "change_completed_new"
+    TOTP_LOCKED = "totp_locked"
     DELETION = "deletion"
     REFERRAL_APPLICATION_RECEIVED = "referral_application_received"
     REFERRAL_INVITE = "referral_invite"
@@ -96,6 +97,7 @@ _CONFIGS: dict[AccountEmail, _Config] = {
         template_base="email_change_completed_new",
         required_context_keys=("old_email", "new_email"),
     ),
+    AccountEmail.TOTP_LOCKED: _Config(template_base="totp_locked"),
     AccountEmail.DELETION: _Config(
         template_base="account_delete",
         link_path="/account/confirm-deletion?token={token}",

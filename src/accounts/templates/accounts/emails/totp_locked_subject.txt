@@ -1,0 +1,1 @@
+{% load i18n %}{% trans "Two-factor sign-in is paused on your account" %}
