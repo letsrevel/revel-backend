@@ -23,7 +23,16 @@ REMINDER_DAYS = 3  # frozen copy of events.utils.subscription_periods.REMINDER_D
 REMINDER_TASK_NAME = "Send membership subscription renewal reminders"  # frozen copy from 0102
 
 
+REMINDER_RUN_TIME_UTC = datetime.time(5, 0)  # frozen copy of the 0102 crontab (daily 05:00 UTC)
+
+
 def _old_beat_ran_today(apps: "Apps") -> bool:
+    """True when the old daily run has (or must have) already reminded today's cohort.
+
+    ``last_run_at`` is synced to the database only every few minutes, so the run time itself also counts.
+    """
+    if timezone.now().astimezone(datetime.UTC).time() >= REMINDER_RUN_TIME_UTC:
+        return True
     PeriodicTask = apps.get_model("django_celery_beat", "PeriodicTask")
     last_run_at = PeriodicTask.objects.filter(name=REMINDER_TASK_NAME).values_list("last_run_at", flat=True).first()
     return last_run_at is not None and timezone.localdate(last_run_at) == timezone.localdate()

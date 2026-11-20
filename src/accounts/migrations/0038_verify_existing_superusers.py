@@ -1,8 +1,9 @@
 """Mark existing superuser accounts as having a verified email.
 
-Superusers are created by an operator (``createsuperuser``, ``bootstrap``, ``seed``). Older versions of
-those commands did not set ``email_verified``, and sign-in now needs a verified address. Only superusers
-are changed: staff and member accounts keep verifying their own address.
+Superusers are created by an operator (``createsuperuser``, ``bootstrap``, ``seed``). Before this release
+those paths did not set ``email_verified``, and sign-in now needs a verified address; new superusers get it
+from ``RevelUserManager.create_superuser``. Only superusers are changed: staff and member accounts keep
+verifying their own address.
 """
 
 import typing as t

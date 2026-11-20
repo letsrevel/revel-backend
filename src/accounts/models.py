@@ -58,6 +58,13 @@ class RevelUserManager(UserManager["RevelUser"]):
         """Get queryset for RevelUser."""
         return RevelUserQueryset(self.model)
 
+    def create_superuser(
+        self, username: str, email: str | None = None, password: str | None = None, **extra_fields: t.Any
+    ) -> "RevelUser":
+        """Create a superuser whose email counts as verified: only an operator can create one."""
+        extra_fields.setdefault("email_verified", True)
+        return super().create_superuser(username, email, password, **extra_fields)
+
 
 class RevelUser(ExifStripMixin, StripeConnectMixin, AbstractUser):
     IMAGE_FIELDS = ("profile_picture",)
