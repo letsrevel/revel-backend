@@ -11,6 +11,7 @@ and the verified-email match (:func:`auto_link_records_for_user`).
 import enum
 import secrets
 from dataclasses import dataclass
+from datetime import timedelta
 from uuid import UUID
 
 import structlog
@@ -25,6 +26,7 @@ from common.utils import get_or_create_with_race_protection
 from events.models import MembershipRecord, MembershipRecordLinkMethod, Organization, OrganizationMember
 from events.service import blacklist_service
 from events.service.user_note_transfer import transfer_record_note
+from events.utils import format_organization_datetime
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.membership_context_schemas import MembershipContext, StaffMemberRecordAutoLinkedContext
@@ -227,6 +229,10 @@ def adopt_unlinked_record(member: OrganizationMember) -> MembershipRecord | None
     return record
 
 
+# Minimum gap between two invitation emails to the same register entry.
+MEMBER_REGISTER_INVITE_RESEND_COOLDOWN = timedelta(hours=1)
+
+
 def _new_token() -> str:
     return secrets.token_urlsafe(32)
 
@@ -261,8 +267,16 @@ def send_invite(record: MembershipRecord) -> MembershipRecord:
     """Send (or resend) the claim link for one record. A resend invalidates the previous link."""
     if reason := invite_blocked_reason(record):
         raise HttpError(400, reason)
+    now = timezone.now()
+    if record.invited_at and now - record.invited_at < MEMBER_REGISTER_INVITE_RESEND_COOLDOWN:
+        next_at = format_organization_datetime(
+            record.invited_at + MEMBER_REGISTER_INVITE_RESEND_COOLDOWN, record.organization
+        )
+        raise HttpError(
+            400, str(_("An invitation was sent recently. You can resend it after {time}.")).format(time=next_at)
+        )
     record.invite_token = _new_token()
-    record.invited_at = timezone.now()
+    record.invited_at = now
     record.save(update_fields=["invite_token", "invited_at", "updated_at"])
     _dispatch_invite(record.pk)
     return record

@@ -91,6 +91,7 @@ class TestSendInvite:
             owner_client.post(_invite_url(organization, record))
         record.refresh_from_db()
         old = t.cast(str, record.invite_token)
+        MembershipRecord.objects.filter(pk=record.pk).update(invited_at=timezone.now() - timedelta(hours=2))
 
         with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
             assert owner_client.post(_invite_url(organization, record)).status_code == 200
@@ -168,7 +169,7 @@ class TestSendInvite:
         make_record: RecordFactory,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        record = make_record(invited_at=timezone.now(), invite_token="old-token")
+        record = make_record(invited_at=timezone.now() - timedelta(hours=2), invite_token="old-token")
 
         with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
             response = owner_client.post(_invite_url(organization, record))
@@ -176,6 +177,46 @@ class TestSendInvite:
         assert response.status_code == 200
         record.refresh_from_db()
         assert record.invite_token != "old-token"
+        delay.assert_called_once_with(str(record.pk))
+
+    def test_resend_within_cooldown_is_400(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """A second invite right after the first is refused: token unchanged, one dispatch in total."""
+        record = make_record()
+        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+            assert owner_client.post(_invite_url(organization, record)).status_code == 200
+            record.refresh_from_db()
+            first_token = record.invite_token
+
+            response = owner_client.post(_invite_url(organization, record))
+
+        assert response.status_code == 400
+        assert "sent recently" in response.json()["detail"]
+        record.refresh_from_db()
+        assert record.invite_token == first_token
+        delay.assert_called_once_with(str(record.pk))
+
+    def test_resend_after_email_change_is_allowed_within_cooldown(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        make_record: RecordFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """Correcting the address clears the invite, so the corrected address can be invited at once."""
+        record = make_record(invited_at=timezone.now(), invite_token="old-token")
+        url = reverse("api:update_member_register_record", kwargs={"slug": organization.slug, "record_id": record.pk})
+        owner_client.patch(url, {"email": "fixed@example.com"}, content_type="application/json")
+
+        with patch(DELAY) as delay, django_capture_on_commit_callbacks(execute=True):
+            response = owner_client.post(_invite_url(organization, record))
+
+        assert response.status_code == 200, response.content
         delay.assert_called_once_with(str(record.pk))
 
     def test_permissions(
