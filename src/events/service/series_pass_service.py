@@ -622,9 +622,10 @@ def cancel_held_pass(
 
     Cancels every future, non-checked-in ticket materialized from ``held_pass``;
     past-event and checked-in tickets are left untouched. "Future" is decided when the
-    cancel starts for the tickets it already holds; free tickets added while it waits on
-    the pass lock are checked when it gets the lock. Later steps re-check only the ticket
-    status. Refunds any
+    cancel starts for the tickets it already holds. Free tickets added while it waits on
+    the pass lock are cancelled with the rest. A ticket with a Payment added in that window
+    is not cancelled or refunded; it is logged (``series_pass_cancel_skipped_late_paid_ticket``)
+    for a manual decision. Later steps re-check only the ticket status. Refunds any
     successfully-paid ticket (a pass paid online may be mapped to offline/free
     tiers — the Payment row, not the tier's payment method, is authoritative),
     decrements each cancelled ticket's tier ``quantity_sold`` and the pass's own
@@ -713,7 +714,7 @@ def cancel_held_pass(
 
         # Statuses can still change before the tier/ticket lock (check-in takes no lock).
         # lock_tier_then_ticket re-reads the set under the row locks, so only tickets that are still
-        # cancellable get cancelled. A ticket checked in after its refund keeps both, and is logged.
+        # cancellable get cancelled. A ticket checked in after its refund keeps its status and its refund, and is logged.
         cancellable_ids = set(still_cancellable.values_list("pk", flat=True))
         refunded_ticket_ids: set[t.Any] = set()
         for payment in payments:
