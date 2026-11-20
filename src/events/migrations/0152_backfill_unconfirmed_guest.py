@@ -5,7 +5,8 @@ A ticket is such a checkout when its holder is still a guest account, it came fr
 ``sale_source``), and it carries a Payment row, the only evidence of a paid checkout. Free, offline and
 email-confirmed zero-total guest tickets have no Payment row, so they are left alone. Accepted gaps, which keep
 the flag False: accounts that already converted to a registered one (``guest`` is no longer set), and ONLINE
-guest tickets with no Payment row. The UPDATE lives in ``events.utils.unconfirmed_guest``. A rolling deploy's
+guest tickets with no Payment row. One residual is flagged although confirmed: a guest who clicked the email
+link after the tier became ONLINE was reserved with Payment rows (rare; it fails closed). The UPDATE lives in ``events.utils.unconfirmed_guest``. A rolling deploy's
 old code still inserts rows without the flag, so ops run ``manage.py backfill_unconfirmed_guest --before
 <moment the last old web container stopped>`` ONCE after the rollout (dry-run first).
 """
