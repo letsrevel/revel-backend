@@ -259,6 +259,7 @@ def test_series_pass_cancel_holds_only_payment_and_pass_across_stripe(
     assert tables[:2] == ["events_payment", "events_heldseriespass"]
     _assert_only_payment_locks_before_stripe(spy, ("events_payment", "events_heldseriespass"))
     assert len(spy.snapshots) == 2
+    _assert_payment_lock_of_self_pk_order(queries)
 
 
 def test_checkout_completed_webhook_locks_payment_then_ticket(

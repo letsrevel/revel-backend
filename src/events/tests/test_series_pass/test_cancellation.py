@@ -27,6 +27,7 @@ from events.models import (
     HeldSeriesPass,
     Organization,
     Payment,
+    Refund,
     SeriesPass,
     Ticket,
     TicketTier,
@@ -677,3 +678,32 @@ class TestCancelHeldPassNotifications:
             Notification.objects.filter(user=holder, notification_type=NotificationType.SERIES_PASS_CANCELLED).count()
             == 1
         )
+
+
+def test_event_moved_to_the_future_during_refunds_is_not_cancelled_without_refund(
+    online_pass_setup: _PassSetup, organization_owner_user: RevelUser
+) -> None:
+    """An organizer can move a past event into the future while the pass cancel calls Stripe.
+
+    The candidate tickets are fixed before the Payment lock: a ticket outside that set must not be
+    cancelled, because its Payment was never considered for a refund.
+    """
+    past_ticket = online_pass_setup.past_ticket
+    moved = False
+
+    def _refund_and_move_past_event(**_: t.Any) -> MagicMock:
+        nonlocal moved
+        if not moved:
+            Event.objects.filter(pk=past_ticket.event_id).update(start=timezone.now() + timedelta(days=3))
+            moved = True
+        refund = MagicMock()
+        refund.id = "re_moved"
+        return refund
+
+    with patch("stripe.Refund.create", side_effect=_refund_and_move_past_event):
+        cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user, reason="x")
+
+    past_ticket.refresh_from_db()
+    has_refund = Refund.objects.filter(payment__ticket=past_ticket).exists()
+    assert past_ticket.status != Ticket.TicketStatus.CANCELLED or has_refund
+    assert past_ticket.status != Ticket.TicketStatus.CANCELLED

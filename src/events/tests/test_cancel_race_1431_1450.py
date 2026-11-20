@@ -10,6 +10,7 @@ must see the other's real commits and lock waits, which the rollback-wrapped def
 """
 
 import threading
+import time
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
@@ -63,10 +64,25 @@ def _ticket_update(sql: str) -> bool:
     return sql.startswith('UPDATE "events_ticket"')
 
 
-def _assert_waits_on_lock(thread: threading.Thread) -> None:
-    """The second thread must still be running after a grace period: it waits on a row lock held by the first."""
-    thread.join(timeout=1.5)
-    assert thread.is_alive(), "the second path did not wait on the first path's lock"
+def _assert_waits_on_lock(thread: threading.Thread, timeout: float = 10.0) -> None:
+    """Block until another backend waits on a row lock (held by the paused first path).
+
+    A live thread is not proof: a late thread would run after the first path commits, and a serial
+    run passes with the old code. Only one backend can wait here, because the first path is paused
+    while it holds its locks, so no pid filter is needed.
+    """
+    deadline = time.monotonic() + timeout
+    with connection.cursor() as cursor:
+        while time.monotonic() < deadline:
+            cursor.execute(
+                "SELECT 1 FROM pg_stat_activity WHERE datname = current_database() "
+                "AND pid <> pg_backend_pid() AND wait_event_type = 'Lock'"
+            )
+            if cursor.fetchone():
+                return
+            assert thread.is_alive(), "the second path finished without waiting on a lock (it ran serially)"
+            time.sleep(0.05)
+    raise AssertionError("the second path never started to wait on a lock")
 
 
 class _Runner:

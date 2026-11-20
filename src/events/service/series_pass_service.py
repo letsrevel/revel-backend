@@ -655,14 +655,21 @@ def cancel_held_pass(
         )
 
     with transaction.atomic():
+        # Decide the candidate tickets once. ``event__start`` can change meanwhile (no lock covers
+        # it), so later steps re-check only the status of these ids: every ticket this call cancels
+        # is one whose Payment was locked and considered for a refund.
+        candidate_ids = list(_cancellable_tickets().values_list("pk", flat=True))
+        # Lazy: each use below (values_list, select_related) runs a fresh query on these ids.
+        still_cancellable = Ticket.objects.filter(pk__in=candidate_ids).exclude(
+            status__in=[Ticket.TicketStatus.CANCELLED, Ticket.TicketStatus.CHECKED_IN]
+        )
+
         # Lock order: Payment -> HeldSeriesPass -> SeriesPass -> TicketTier -> Ticket
         # (docs/engineering-notes.md). Across the Stripe refunds only the Payment rows (pk
         # order), their new Refund rows and the HeldSeriesPass row are locked. The SeriesPass,
         # tier and ticket rows are locked after the last Stripe call.
         payments = list(
-            Payment.objects.select_for_update(of=("self",))
-            .filter(ticket_id__in=_cancellable_tickets().values("pk"))
-            .order_by("pk")
+            Payment.objects.select_for_update(of=("self",)).filter(ticket_id__in=candidate_ids).order_by("pk")
         )
         # Re-read under a row lock and re-check the status: the caller's instance is
         # unlocked, so a concurrent cancel (or expiry route) may have committed
@@ -682,7 +689,7 @@ def cancel_held_pass(
             _expire_stripe_session(held_pass)
 
         # Ticket statuses are stable under the Payment locks (check-in takes no lock).
-        cancellable_ids = set(_cancellable_tickets().values_list("pk", flat=True))
+        cancellable_ids = set(still_cancellable.values_list("pk", flat=True))
         refunded_ticket_ids: set[t.Any] = set()
         for payment in payments:
             if payment.ticket_id not in cancellable_ids:
@@ -711,7 +718,7 @@ def cancel_held_pass(
             quantity_sold=F("quantity_sold") - 1
         )
 
-        locked_tickets = ticket_service.lock_tier_then_ticket(_cancellable_tickets().select_related("tier", "event"))
+        locked_tickets = ticket_service.lock_tier_then_ticket(still_cancellable.select_related("tier", "event"))
         locked_ids = {ticket.pk for ticket in locked_tickets}
         for ticket_id in refunded_ticket_ids - locked_ids:
             # Refunded at Stripe, but the ticket changed meanwhile (e.g. a check-in): leave it as it is.
