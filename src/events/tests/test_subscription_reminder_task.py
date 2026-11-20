@@ -159,6 +159,7 @@ class TestRenewalReminderTask:
         assert fresh.renewal_reminded_for is None
         assert send_subscription_renewal_reminders()["sent"] == 1
 
+    @freeze_time("2026-11-21 08:00:00")  # before local noon, so the period-start filter keeps the row
     def test_backfill_migration_leaves_the_exact_target_day_for_the_beat(
         self, make_sub: t.Callable[..., MembershipSubscription]
     ) -> None:
