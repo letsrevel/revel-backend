@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-11-20
+
 ### ⚠️ Upgrade notes: action required after you deploy
 
 **Every instance, including self-hosted ones, must run one command after upgrading to this release.** If you skip it, some guest tickets bought during the upgrade keep a wrong `unconfirmed_guest` value.
@@ -64,6 +66,8 @@ Optional: finish the upgrade, including stopping the old Celery containers, befo
 - Blacklist entries made for an account that has no other connection to the organization keep only the email and the names staff typed, and `user_display_name` shows only those names. Blacklisting someone who isn't a member no longer creates a membership row (an existing member is still marked banned). Their upcoming day memberships are revoked and new ones are not granted, and they no longer receive new-event notifications as followers. Active, checked-in and pending tickets count as a connection unless a guest bought them without confirming their email (see the guest-provenance entry). Creating an RSVP on someone's behalf or a box-office sale by `user_id` for a deactivated account is now a 404. Merging a note-bearing register entry into an account that has no other connection to the organization leaves the note on the merged entry.
 
 ### Fixed
+- The password-reset links in the two-factor pause email and the email-change notice now open the frontend's password-reset page.
+- Claiming an event invitation link as someone who is already invited now applies the waivers and ticket tiers the link grants (a waiver is never turned off). A claim that grants something counts toward the link's use limit; a claim that grants nothing returns the invitation unchanged. When a link is used up or expired, `POST /events/claim-invitation/{token}` names the reason in its 400 message.
 - Zero-total guest checkouts on an online tier are confirmed by email, like free guest checkouts. The API response keeps its shape (`message` set, no tickets, `requires_payment` false).
 - Simultaneous cancellations, refunds and payment confirmations of the same ticket no longer fail.
 - Discount code uses of checkouts that are cancelled or expire are given back.
