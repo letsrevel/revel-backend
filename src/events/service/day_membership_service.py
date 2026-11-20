@@ -132,8 +132,9 @@ def _record_kwargs(
 ) -> dict[str, t.Any]:
     valid_from, valid_until = _event_window(event)
     user = ticket.user
-    if ticket.sale_source in STAFF_SALE_SOURCES:
-        # Staff-issued: record only what staff supplied, never the account's own names.
+    if ticket.sale_source in STAFF_SALE_SOURCES or ticket.unconfirmed_guest:
+        # Staff-issued, or a guest checkout that never proved its email (#1430): record only what the
+        # ticket carries, never the account's own names.
         full_name = (ticket.guest_name or user.email)[:_FULL_NAME_MAX]
     else:
         full_name = _snapshot_full_name(user)

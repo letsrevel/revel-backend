@@ -16,8 +16,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from pydantic import TypeAdapter, ValidationError
 
-from accounts.jwt import blacklist as blacklist_token
-from accounts.jwt import check_blacklist, create_token
+from accounts.jwt import check_blacklist, consume_one_shot_token, create_token
 from accounts.models import RevelUser
 from common.keys import decode_jwt, signing_key, verification_keys
 from events import models, schema
@@ -452,7 +451,7 @@ def handle_guest_ticket_checkout(
 
     Returns:
         GuestCheckoutResponseSchema. Non-online carts, and online carts the buyer zeroed
-        (100% code, PWYC at 0; #1430): `message` (email confirmation sent, nothing is
+        (100% code, or PWYC plus a code; #1430): `message` (email confirmation sent, nothing is
         created until the link is clicked). Paid online carts: `requires_payment=True`
         and a `reservation_id` (#632) — the caller must then POST the guest
         `checkout-session` endpoint to obtain the Stripe `checkout_url`. Their PENDING
@@ -463,7 +462,8 @@ def handle_guest_ticket_checkout(
             cart is malformed, tier issues, or eligibility checks fail.
         GuestAccountExistsError: 400 with ``code`` if the email belongs to a non-guest account.
         GuestCartTooLargeError: 400 with ``code`` if (non-online carts) the confirmation
-            token would exceed ``_GUEST_TOKEN_MAX_CHARS``.
+            token would exceed ``_GUEST_TOKEN_MAX_CHARS``. Also raised for online carts the buyer
+            zeroed, which take the same email confirmation (#1430).
         InvalidZoneSelectionError: 400 if a requested zone is unusable on its tier.
     """
     from events.service import discount_code_service
@@ -565,7 +565,7 @@ def handle_guest_ticket_checkout(
     if payment_method == models.TicketTier.PaymentMethod.ONLINE:
         # Online payment: use BatchTicketService (Stripe provides security). The tickets are stamped
         # ``unconfirmed_guest`` (#1430): a paid guest checkout never proved the email. A cart the buyer
-        # zeroes (100% code, PWYC at 0) has no Stripe payment to vouch for them, so create_batch signals
+        # zeroes (100% code, or PWYC plus a code) has no Stripe payment to vouch for them, so create_batch signals
         # it BEFORE writing anything and the cart takes the free-guest email confirmation instead.
         service = BatchTicketService(
             event,
@@ -709,8 +709,8 @@ def confirm_guest_action(
         note = payload.note if event.accept_rsvp_notes else ""
         rsvp = manager.rsvp(answer_enum, note=note)
 
-        # Blacklist token
-        blacklist_token(token)
+        # Burn the token; refuses the loser of two concurrent confirmations (rolls the RSVP back)
+        consume_one_shot_token(token)
 
         return schema.EventRSVPSchema.from_orm(rsvp)
 
@@ -799,8 +799,9 @@ def confirm_guest_action(
         )
         result = service.create_batch()
 
-        # Blacklist token after successful creation
-        blacklist_token(token)
+        # Burn the token only after a successful creation (a failed confirm above leaves it usable); the
+        # loser of two concurrent clicks is refused here and the surrounding atomic rolls its tickets back.
+        consume_one_shot_token(token)
 
         # Branch on the returned SHAPE, as at the first call site (#740). The token
         # is only minted for non-online tiers, but the tier can be flipped to ONLINE

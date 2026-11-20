@@ -320,6 +320,10 @@ a transaction (Django admin, `update_plan`), so shell edits need an enclosing `t
 The threaded regression test is `events/tests/test_plan_guard_1427.py`
 (`transaction=True`, two real connections).
 
+## Backfills and rolling deploys
+
+A data migration that backfills a column runs once, but during a rolling deploy the old pods keep inserting rows with the column default. Put the UPDATE in a plain idempotent function that the migration calls, and re-run it after the rollout (for `Ticket.unconfirmed_guest`: `manage.py backfill_unconfirmed_guest`).
+
 ## Migration Squashing (one per app per PR, never hand-edit schema migrations)
 
 Branch policy: a PR introduces at most **one schema migration per app** — iterative work

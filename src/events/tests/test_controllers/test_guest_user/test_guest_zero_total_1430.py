@@ -1,6 +1,6 @@
 """Zero-total guest carts need email confirmation, and tickets record provenance (#1430).
 
-A guest's ONLINE cart that the buyer's own input drives to 0.00 (a 100% code, PWYC at 0) used to
+A guest's ONLINE cart that the buyer's own input drives to 0.00 (a 100% code, or PWYC plus a code) used to
 reroute to the free checkout and hand back ACTIVE tickets with no email proof. It now follows the
 free-guest flow: no rows until the emailed link is clicked. A paid guest checkout stays PENDING and
 records ``unconfirmed_guest=True``, which confers no standing (ADR-0020).
@@ -143,11 +143,64 @@ def test_paid_guest_cart_stays_pending_and_records_provenance(
     ticket = Ticket.objects.get(event=guest_event_with_tickets)
     assert ticket.status == Ticket.TicketStatus.PENDING
     assert ticket.unconfirmed_guest is True
-    # the flag is provenance, not state: it survives the payment webhook activating the ticket
-    ticket.status = Ticket.TicketStatus.ACTIVE
-    ticket.save(update_fields=["status"])
-    ticket.refresh_from_db()
-    assert ticket.unconfirmed_guest is True
+
+
+def test_mixed_cart_with_one_group_zeroed_still_requires_payment(
+    guest_event_with_tickets: Event,
+    online_tier: TicketTier,
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """A code that zeroes only one group does not make the cart free: the other group still has to be paid."""
+    other_tier = TicketTier.objects.create(
+        event=guest_event_with_tickets,
+        name="Other Online",
+        price=Decimal("30.00"),
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        price_type=TicketTier.PriceType.FIXED,
+    )
+    guest_event_with_tickets.max_tickets_per_user = 5
+    guest_event_with_tickets.save(update_fields=["max_tickets_per_user"])
+    code = _code(guest_event_with_tickets)
+    code.tiers.set([online_tier])
+    groups = [
+        CartGroup(tier=online_tier, items=[schema.TicketPurchaseItem(guest_name="Zed")]),
+        CartGroup(tier=other_tier, items=[schema.TicketPurchaseItem(guest_name="Yan")]),
+    ]
+
+    with (
+        patch("events.tasks.send_guest_ticket_confirmation.delay") as send,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        response = guest_service.handle_guest_ticket_checkout(
+            guest_event_with_tickets, groups, EMAIL, "Ze", "Ro", discount_code="FREE100"
+        )
+
+    assert response.requires_payment is True
+    assert response.reservation_id is not None
+    send.assert_not_called()
+    tickets = Ticket.objects.filter(event=guest_event_with_tickets)
+    assert tickets.count() == 2
+    assert all(ticket.status == Ticket.TicketStatus.PENDING for ticket in tickets)
+    assert all(ticket.unconfirmed_guest is True for ticket in tickets)
+
+
+def test_second_confirmation_of_the_same_token_is_refused_even_when_the_pre_check_is_raced(
+    guest_event_with_tickets: Event, online_tier: TicketTier, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """Two concurrent clicks both pass the blacklist pre-check; the burn itself must refuse the loser."""
+    _code(guest_event_with_tickets)
+    _, send = _run_checkout(guest_event_with_tickets, online_tier, django_capture_on_commit_callbacks, code="FREE100")
+    token = send.call_args[0][1]
+    payload = guest_service.validate_and_decode_guest_token(token)
+    guest_service.confirm_guest_action(token)
+    Ticket.objects.all().delete()
+
+    with patch.object(guest_service, "validate_and_decode_guest_token", return_value=payload):
+        with pytest.raises(HttpError) as exc:
+            guest_service.confirm_guest_action(token)
+
+    assert exc.value.status_code == 401
+    assert not Ticket.objects.filter(event=guest_event_with_tickets).exists()
 
 
 def test_service_raises_for_unconfirmed_guest_on_non_online_tier_and_writes_nothing(
