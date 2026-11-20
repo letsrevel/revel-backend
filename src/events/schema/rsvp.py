@@ -12,6 +12,7 @@ from events.models import EventRSVP, WaitlistOffer
 
 from .event import MinimalEventSchema
 from .organization import MinimalOrganizationMemberSchema
+from .staff_view_user import StaffViewUserSchema, resolve_staff_view_user
 from .ticket import GuestUserDataSchema, UserTicketSchema
 from .waitlist import WaitlistOfferSchema
 
@@ -47,7 +48,7 @@ class RSVPDetailSchema(ModelSchema):
 
     id: UUID
     event_id: UUID
-    user: MinimalRevelUserSchema
+    user: StaffViewUserSchema
     status: EventRSVP.RsvpStatus
     created_at: AwareDatetime
     updated_at: AwareDatetime
@@ -56,6 +57,11 @@ class RSVPDetailSchema(ModelSchema):
     class Meta:
         model = EventRSVP
         fields = ["id", "status", "note", "created_at", "updated_at"]
+
+    @staticmethod
+    def resolve_user(obj: EventRSVP) -> StaffViewUserSchema:
+        """Mask the account unless it acted toward the organization (``holder_known`` annotation)."""
+        return resolve_staff_view_user(obj, lambda o: o.event.organization_id)
 
     @staticmethod
     def resolve_membership(obj: EventRSVP) -> models.OrganizationMember | None:

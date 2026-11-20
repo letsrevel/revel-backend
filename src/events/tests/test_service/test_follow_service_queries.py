@@ -620,3 +620,70 @@ class TestGetFollowers:
         result = results.first()
         assert result is not None
         assert result.user == nonmember_user
+
+
+class TestBlacklistedFollowersGetNoNewEventNotification:
+    """A hard blacklist excludes a follower from new-event notifications, with or without a membership row."""
+
+    @pytest.fixture
+    def series(self, organization: Organization) -> EventSeries:
+        return EventSeries.objects.create(organization=organization, name="S", slug="s")
+
+    def _follow(self, user: RevelUser, organization: Organization, series: EventSeries) -> None:
+        OrganizationFollow.objects.create(user=user, organization=organization, notify_new_events=True)
+        EventSeriesFollow.objects.create(user=user, event_series=series, notify_new_events=True)
+
+    def test_user_linked_entry(
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        nonmember_user: RevelUser,
+        series: EventSeries,
+    ) -> None:
+        from events.service import blacklist_service
+
+        self._follow(nonmember_user, organization, series)
+        blacklist_service.add_to_blacklist(organization, organization_owner_user, user=nonmember_user)
+
+        assert list(follow_service.get_followers_for_new_event_notification(organization, series)) == []
+
+    @pytest.mark.parametrize("identifier", ["email", "phone_number", "telegram_username"])
+    def test_identifier_only_entry(
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        nonmember_user: RevelUser,
+        series: EventSeries,
+        identifier: str,
+    ) -> None:
+        from events.models import Blacklist
+        from telegram.models import TelegramUser
+
+        nonmember_user.phone_number = "+4915112345678"
+        nonmember_user.save(update_fields=["phone_number"])
+        TelegramUser.objects.create(telegram_id=7, telegram_username="Tg_Follower", user=nonmember_user)
+        value = {
+            "email": nonmember_user.email.upper(),
+            "phone_number": "+4915112345678",
+            "telegram_username": "tg_follower",
+        }[identifier]
+        self._follow(nonmember_user, organization, series)
+        Blacklist.objects.create(organization=organization, created_by=organization_owner_user, **{identifier: value})
+
+        assert list(follow_service.get_followers_for_new_event_notification(organization, series)) == []
+
+    def test_unrelated_entry_does_not_exclude(
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        nonmember_user: RevelUser,
+        series: EventSeries,
+    ) -> None:
+        from events.models import Blacklist
+
+        self._follow(nonmember_user, organization, series)
+        Blacklist.objects.create(
+            organization=organization, email="other@example.com", created_by=organization_owner_user
+        )
+
+        assert len(list(follow_service.get_followers_for_new_event_notification(organization, series))) == 1

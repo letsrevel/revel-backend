@@ -18,26 +18,37 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Event, EventSeatOverride, Ticket, TicketSaleSource, TicketTier, VenueSeat
+from events.models import Event, EventSeatOverride, Organization, Ticket, TicketSaleSource, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.batch_ticket_service.eligibility import assert_event_sells_tickets
 from events.service.guest import get_or_create_guest_user
+from events.service.holder_visibility import is_known_holder, require_known_holder
 from events.service.seating import holds as holds_service
 from events.service.seating.pricing import TicketPrice, build_batch_pricing, should_stamp_price_paid
 
+_GUEST_NAME_MAX = 255  # TicketPurchaseItem.guest_name
+
 
 def resolve_recipient(
-    email: str | None, user_id: uuid.UUID | None, first_name: str = "", last_name: str = ""
+    organization: Organization,
+    email: str | None,
+    user_id: uuid.UUID | None,
+    first_name: str = "",
+    last_name: str = "",
 ) -> RevelUser:
     """Resolve the ticket recipient for a box-office sale.
 
-    ``user_id`` wins when given. An email matching ANY existing account (guest or
-    not) reuses that account — unlike the self-service guest flow, a staff-driven
-    door sale attaching a ticket to a registered user's account is exactly right.
-    Unknown emails get a guest user via the existing helper.
+    ``user_id`` wins when given, and only for an account the organization knows through that
+    account's own acts (see ``holder_visibility``; box-office tickets and staff RSVPs do not
+    count). An email matching a registered account with a *verified* address reuses it — a
+    staff-driven door sale attaching
+    a ticket to that person's account is exactly right. Everything else goes through the guest
+    helper: an existing guest is reused, an unknown email gets a new guest, and an unverified
+    registered address is refused (it may not belong to whoever registered it).
 
     Args:
+        organization: The selling organization.
         email: Recipient email (guest checkout style).
         user_id: Existing RevelUser id.
         first_name: Used only when a new guest user is created.
@@ -45,13 +56,19 @@ def resolve_recipient(
 
     Returns:
         The RevelUser the ticket will belong to.
+
+    Raises:
+        InvitationRequiredError: ``user_id`` names an account with no standing (400 ``invitation_required``).
+        GuestAccountExistsError: the email belongs to an unverified registered account (400).
     """
     if user_id is not None:
-        return get_object_or_404(RevelUser, pk=user_id)
+        user = get_object_or_404(RevelUser, pk=user_id, is_active=True)
+        require_known_holder(organization, user)
+        return user
     assert email is not None  # schema enforces exactly one of email/user_id
-    existing = RevelUser.objects.filter(email__iexact=email).first()
-    if existing is not None:
-        return existing
+    verified = RevelUser.objects.filter(email__iexact=email, guest=False, email_verified=True, is_active=True).first()
+    if verified is not None:
+        return verified
     return get_or_create_guest_user(email, first_name, last_name)
 
 
@@ -93,6 +110,8 @@ def sell(
     payment_method: TicketTier.PaymentMethod,
     recipient: RevelUser,
     guest_name: str | None = None,
+    first_name: str = "",
+    last_name: str = "",
 ) -> Ticket:
     """Issue an ACTIVE ticket directly on a seat (door sale or comp).
 
@@ -121,7 +140,10 @@ def sell(
         seat_id: The seat to sell.
         payment_method: AT_THE_DOOR or FREE (schema-enforced).
         recipient: The user the ticket belongs to.
-        guest_name: Ticket-holder name; defaults to the recipient's display name.
+        guest_name: Ticket-holder name; defaults to the staff-typed first/last name, else the account's
+            display name for a holder known to the organization, else the email staff supplied.
+        first_name: Staff-typed first name, used only for the ``guest_name`` default.
+        last_name: Staff-typed last name, used only for the ``guest_name`` default.
 
     Returns:
         The created ACTIVE ticket.
@@ -139,7 +161,12 @@ def sell(
 
     seat = _lock_seat_for_sale(event, seat_id, recipient)
 
-    item = TicketPurchaseItem(guest_name=guest_name or recipient.get_display_name())
+    if not guest_name:
+        typed = f"{first_name} {last_name}".strip()
+        # A known holder keeps their own name; anyone else gets only what staff supplied (ADR-0020).
+        own = recipient.get_display_name() if is_known_holder(event.organization, recipient) else recipient.email
+        guest_name = (typed or own)[:_GUEST_NAME_MAX]
+    item = TicketPurchaseItem(guest_name=guest_name)
     is_comp = payment_method == TicketTier.PaymentMethod.FREE
     if is_comp:
         # A comp must not report tier-price revenue.

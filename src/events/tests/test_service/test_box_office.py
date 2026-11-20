@@ -5,15 +5,20 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from django.http import Http404
 from django.utils import timezone
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
+from events.exceptions import GuestAccountExistsError, InvitationRequiredError
 from events.models import (
     Event,
+    EventRSVP,
     EventSeatOverride,
     EventWaitList,
+    Organization,
+    OrganizationMember,
     PriceCategory,
     SeatHold,
     Ticket,
@@ -57,19 +62,61 @@ def _live_hold(event: Event, seat: VenueSeat, *, user: RevelUser | None = None, 
 # ---- resolve_recipient ----
 
 
-def test_resolve_recipient_creates_guest_for_new_email() -> None:
-    user = box_office.resolve_recipient("new-guest@example.com", None, first_name="Jane", last_name="Doe")
+def test_resolve_recipient_creates_guest_for_new_email(organization: Organization) -> None:
+    user = box_office.resolve_recipient(organization, "new-guest@example.com", None, first_name="Jane", last_name="Doe")
     assert user.guest is True
     assert user.email == "new-guest@example.com"
 
 
-def test_resolve_recipient_reuses_existing_non_guest_account(recipient: RevelUser) -> None:
-    user = box_office.resolve_recipient(recipient.email, None)
-    assert user == recipient
+def test_resolve_recipient_reuses_verified_account(organization: Organization, recipient: RevelUser) -> None:
+    recipient.email_verified = True
+    recipient.save(update_fields=["email_verified"])
+    assert box_office.resolve_recipient(organization, recipient.email.upper(), None) == recipient
 
 
-def test_resolve_recipient_by_user_id(recipient: RevelUser) -> None:
-    assert box_office.resolve_recipient(None, recipient.id) == recipient
+def test_resolve_recipient_refuses_unverified_account(organization: Organization, recipient: RevelUser) -> None:
+    """An unverified address may belong to someone else: never attach a ticket to that account."""
+    recipient.email_verified = False
+    recipient.save(update_fields=["email_verified"])
+    with pytest.raises(GuestAccountExistsError):
+        box_office.resolve_recipient(organization, recipient.email, None)
+
+
+def test_resolve_recipient_refuses_deactivated_verified_account(
+    organization: Organization, recipient: RevelUser
+) -> None:
+    """A deactivated (e.g. banned) account never receives a door-sale ticket."""
+    recipient.email_verified = True
+    recipient.is_active = False
+    recipient.save(update_fields=["email_verified", "is_active"])
+    with pytest.raises(GuestAccountExistsError):
+        box_office.resolve_recipient(organization, recipient.email, None)
+
+
+def test_resolve_recipient_reuses_existing_guest(organization: Organization) -> None:
+    guest = box_office.resolve_recipient(organization, "repeat@example.com", None)
+    assert box_office.resolve_recipient(organization, "repeat@example.com", None) == guest
+
+
+def test_resolve_recipient_by_user_id_refuses_stranger(organization: Organization, recipient: RevelUser) -> None:
+    with pytest.raises(InvitationRequiredError):
+        box_office.resolve_recipient(organization, None, recipient.id)
+
+
+def test_resolve_recipient_by_user_id_refuses_deactivated_account(
+    organization: Organization, recipient: RevelUser
+) -> None:
+    OrganizationMember.objects.create(organization=organization, user=recipient)
+    RevelUser.objects.filter(pk=recipient.pk).update(is_active=False)
+    with pytest.raises(Http404):
+        box_office.resolve_recipient(organization, None, recipient.id)
+
+
+def test_resolve_recipient_by_user_id_with_attendance(
+    organization: Organization, event: Event, recipient: RevelUser
+) -> None:
+    EventRSVP.objects.create(event=event, user=recipient, status=EventRSVP.RsvpStatus.MAYBE)
+    assert box_office.resolve_recipient(organization, None, recipient.id) == recipient
 
 
 # ---- sell ----
@@ -130,14 +177,37 @@ def test_sell_comp_records_zero_price_paid(
     assert ticket.sale_source == TicketSaleSource.BOX_OFFICE_COMP  # #1013: a comp is not a door sale
 
 
-def test_sell_guest_name_defaults_to_recipient_display_name(
-    seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, recipient: RevelUser
+def test_sell_guest_name_defaults_to_email_never_account_name(
+    seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, revel_user_factory: RevelUserFactory
 ) -> None:
     event, seats = seated_event
-    ticket = box_office.sell(
-        event, tier, seat_id=seats[0].id, payment_method=TicketTier.PaymentMethod.FREE, recipient=recipient
+    account = revel_user_factory(
+        username="legal@example.com", email="legal@example.com", first_name="Legal", last_name="Surname"
     )
-    assert ticket.guest_name == recipient.get_display_name()
+    ticket = box_office.sell(
+        event, tier, seat_id=seats[0].id, payment_method=TicketTier.PaymentMethod.FREE, recipient=account
+    )
+    assert ticket.guest_name == "legal@example.com"
+    assert "Legal" not in ticket.guest_name
+
+
+def test_sell_guest_name_uses_typed_first_last_name(
+    seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, revel_user_factory: RevelUserFactory
+) -> None:
+    event, seats = seated_event
+    account = revel_user_factory(
+        username="legal2@example.com", email="legal2@example.com", first_name="Legal", last_name="Surname"
+    )
+    ticket = box_office.sell(
+        event,
+        tier,
+        seat_id=seats[0].id,
+        payment_method=TicketTier.PaymentMethod.FREE,
+        recipient=account,
+        first_name="Typed",
+        last_name="Name",
+    )
+    assert ticket.guest_name == "Typed Name"
 
 
 def test_sell_on_held_seat_releases_override(
@@ -619,3 +689,32 @@ def test_reseat_target_in_other_venue_rejected(
     with pytest.raises(HttpError) as exc:
         box_office.reseat(event, ticket_id=seated_ticket.id, target_seat_id=foreign_seat.id)
     assert exc.value.status_code == 400
+
+
+def test_sell_guest_name_keeps_a_known_holders_own_name(
+    seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, revel_user_factory: RevelUserFactory
+) -> None:
+    event, seats = seated_event
+    member = revel_user_factory(first_name="Known", last_name="Member")
+    OrganizationMember.objects.create(organization=event.organization, user=member)
+    ticket = box_office.sell(
+        event, tier, seat_id=seats[0].id, payment_method=TicketTier.PaymentMethod.FREE, recipient=member
+    )
+    assert ticket.guest_name == member.get_display_name()
+
+
+def test_sell_guest_name_from_long_typed_names_is_capped(
+    seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, revel_user_factory: RevelUserFactory
+) -> None:
+    """Two 150-character names (the schema maximum) must not overflow the 255-character ticket name."""
+    event, seats = seated_event
+    ticket = box_office.sell(
+        event,
+        tier,
+        seat_id=seats[0].id,
+        payment_method=TicketTier.PaymentMethod.FREE,
+        recipient=revel_user_factory(),
+        first_name="F" * 150,
+        last_name="L" * 150,
+    )
+    assert len(ticket.guest_name) == 255

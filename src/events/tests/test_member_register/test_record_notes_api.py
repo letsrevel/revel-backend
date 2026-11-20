@@ -11,7 +11,16 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import MembershipRecord, Organization, OrganizationMember, OrganizationUserNote
+from events.models import (
+    Event,
+    MembershipRecord,
+    Organization,
+    OrganizationMember,
+    OrganizationUserNote,
+    Ticket,
+    TicketSaleSource,
+    TicketTier,
+)
 from events.models.user_note import USER_NOTE_MAX_LENGTH
 from events.service.member_register_reconciliation import merge_records
 
@@ -82,6 +91,31 @@ class TestLinkedRecord:
             == 204
         )
         assert not OrganizationUserNote.objects.exists()
+
+    def test_box_office_day_membership_gives_no_note_standing(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        claimant: RevelUser,
+        make_record: RecordFactory,
+    ) -> None:
+        """A day membership from a box-office ticket is staff-made: the note stays on the record, never the user."""
+        ticket = Ticket.objects.create(
+            event=event,
+            user=claimant,
+            tier=event_ticket_tier,
+            guest_name="G",
+            sale_source=TicketSaleSource.BOX_OFFICE_COMP,
+        )
+        record = make_record(
+            user=claimant, kind=MembershipRecord.Kind.TEMPORARY, source=MembershipRecord.Source.TICKET, ticket=ticket
+        )
+        assert _put(owner_client, organization, record, "About them").status_code == 200
+        note = OrganizationUserNote.objects.get()
+        assert (note.user_id, note.record_id) == (None, record.pk)
+        assert owner_client.get(_user_note_url(organization, claimant)).status_code == 404
 
 
 class TestGuards:
@@ -227,3 +261,230 @@ class TestHasNote:
         OrganizationMember.objects.filter(organization=organization, user=claimant).delete()
         url = reverse("api:get_member_register_record", kwargs={"slug": organization.slug, "record_id": record.pk})
         assert owner_client.get(url).json()["has_note"] is False
+
+
+class TestMergeNoteTransfer:
+    """A merge links the absorbed entry on staff's word alone: it must not move a note onto an account that has
+    no standing of its own (the note would then show up under that account's profile)."""
+
+    def _noted_temporary(self, make_record: RecordFactory, organization_owner_user: RevelUser) -> MembershipRecord:
+        absorbed = make_record(
+            email="walkin@example.com",
+            kind=MembershipRecord.Kind.TEMPORARY,
+            valid_until=timezone.now() + timedelta(days=1),
+        )
+        OrganizationUserNote.objects.create(
+            organization=absorbed.organization, record=absorbed, body="Staff only", updated_by=organization_owner_user
+        )
+        return absorbed
+
+    def test_stranger_survivor_does_not_receive_the_note(
+        self,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        claimant: RevelUser,
+        make_record: RecordFactory,
+        organization_owner_user: RevelUser,
+        owner_client: Client,
+    ) -> None:
+        ticket = Ticket.objects.create(
+            event=event,
+            user=claimant,
+            tier=event_ticket_tier,
+            guest_name="G",
+            sale_source=TicketSaleSource.BOX_OFFICE_COMP,
+        )
+        survivor = make_record(
+            user=claimant, kind=MembershipRecord.Kind.TEMPORARY, source=MembershipRecord.Source.TICKET, ticket=ticket
+        )
+        absorbed = self._noted_temporary(make_record, organization_owner_user)
+
+        merge_records(survivor, absorbed)
+
+        note = OrganizationUserNote.objects.get()
+        assert (note.user_id, note.record_id) == (None, absorbed.pk)
+        # The note stays readable on the (now linked) record, and is not on the account's own note.
+        absorbed.refresh_from_db()
+        assert absorbed.user_id == claimant.pk
+        assert owner_client.get(_url(organization, absorbed)).json()["body"] == "Staff only"
+        assert MembershipRecord.objects.filter(pk=absorbed.pk).with_note_flag().get().note_exists is True  # type: ignore[attr-defined]
+        assert owner_client.get(_user_note_url(organization, claimant)).status_code == 404
+
+    def test_stranded_note_can_be_edited_and_deleted_on_the_record(
+        self,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        claimant: RevelUser,
+        make_record: RecordFactory,
+        organization_owner_user: RevelUser,
+        owner_client: Client,
+    ) -> None:
+        ticket = Ticket.objects.create(
+            event=event,
+            user=claimant,
+            tier=event_ticket_tier,
+            guest_name="G",
+            sale_source=TicketSaleSource.BOX_OFFICE_COMP,
+        )
+        survivor = make_record(
+            user=claimant, kind=MembershipRecord.Kind.TEMPORARY, source=MembershipRecord.Source.TICKET, ticket=ticket
+        )
+        absorbed = self._noted_temporary(make_record, organization_owner_user)
+        merge_records(survivor, absorbed)
+
+        assert _put(owner_client, organization, absorbed, "Edited").status_code == 200
+
+        note = OrganizationUserNote.objects.get()
+        assert (note.user_id, note.record_id, note.body) == (None, absorbed.pk, "Edited")
+        assert owner_client.get(_user_note_url(organization, claimant)).status_code == 404
+        assert (
+            owner_client.delete(_url(organization, absorbed, "delete_member_register_record_note")).status_code == 204
+        )
+        assert not OrganizationUserNote.objects.exists()
+
+    def test_known_survivor_receives_the_note(
+        self,
+        organization: Organization,
+        claimant: RevelUser,
+        make_record: RecordFactory,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        OrganizationMember.objects.create(organization=organization, user=claimant)
+        survivor = MembershipRecord.objects.get(
+            organization=organization, user=claimant
+        )  # mirrored from the access row
+        absorbed = self._noted_temporary(make_record, organization_owner_user)
+
+        merge_records(survivor, absorbed)
+
+        assert OrganizationUserNote.objects.get().user_id == claimant.pk
+
+
+class TestNoteVisibilityFollowsKnownHolder:
+    """One rule for the flag and the read: a known holder's user note wins, else the record's own note; an unknown
+    holder's stale user note counts for neither."""
+
+    @pytest.fixture
+    def box_office_record(
+        self,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        claimant: RevelUser,
+        make_record: RecordFactory,
+    ) -> MembershipRecord:
+        ticket = Ticket.objects.create(
+            event=event,
+            user=claimant,
+            tier=event_ticket_tier,
+            guest_name="G",
+            sale_source=TicketSaleSource.BOX_OFFICE_COMP,
+        )
+        return make_record(
+            user=claimant, kind=MembershipRecord.Kind.TEMPORARY, source=MembershipRecord.Source.TICKET, ticket=ticket
+        )
+
+    @staticmethod
+    def _flag(record: MembershipRecord) -> bool:
+        return MembershipRecord.objects.filter(pk=record.pk).with_note_flag().get().note_exists  # type: ignore[attr-defined,no-any-return]
+
+    @staticmethod
+    def _become_known(event: Event, user: RevelUser) -> None:
+        from events.models import EventRSVP
+
+        EventRSVP.objects.create(event=event, user=user, status=EventRSVP.RsvpStatus.YES, source=EventRSVP.Source.SELF)
+
+    def test_stale_user_note_of_an_unknown_holder_is_not_a_note(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        claimant: RevelUser,
+        box_office_record: MembershipRecord,
+    ) -> None:
+        OrganizationUserNote.objects.create(organization=organization, user=claimant, body="stale")
+
+        assert self._flag(box_office_record) is False
+        assert owner_client.get(_url(organization, box_office_record)).status_code == 404
+
+    def test_record_note_stays_readable_when_the_holder_becomes_known(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        event: Event,
+        claimant: RevelUser,
+        box_office_record: MembershipRecord,
+    ) -> None:
+        OrganizationUserNote.objects.create(organization=organization, record=box_office_record, body="Staff only")
+        self._become_known(event, claimant)
+
+        response = owner_client.get(_url(organization, box_office_record))
+        assert response.status_code == 200, response.content
+        assert response.json()["body"] == "Staff only"
+        assert self._flag(box_office_record) is True
+
+    def test_user_note_wins_over_the_record_note_for_a_known_holder(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        event: Event,
+        claimant: RevelUser,
+        box_office_record: MembershipRecord,
+    ) -> None:
+        OrganizationUserNote.objects.create(organization=organization, record=box_office_record, body="record")
+        OrganizationUserNote.objects.create(organization=organization, user=claimant, body="user")
+        self._become_known(event, claimant)
+
+        assert owner_client.get(_url(organization, box_office_record)).json()["body"] == "user"
+        assert self._flag(box_office_record) is True
+
+    def test_known_holder_without_any_note_is_404(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        event: Event,
+        claimant: RevelUser,
+        box_office_record: MembershipRecord,
+    ) -> None:
+        self._become_known(event, claimant)
+
+        assert owner_client.get(_url(organization, box_office_record)).status_code == 404
+        assert self._flag(box_office_record) is False
+
+    def test_write_after_the_holder_becomes_known_converts_the_record_note(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        event: Event,
+        claimant: RevelUser,
+        box_office_record: MembershipRecord,
+    ) -> None:
+        """Edit and delete follow the read rule: one note survives the edit, and the delete hides nothing older."""
+        OrganizationUserNote.objects.create(organization=organization, record=box_office_record, body="old")
+        self._become_known(event, claimant)
+
+        assert _put(owner_client, organization, box_office_record, "new").status_code == 200
+        (note,) = OrganizationUserNote.objects.all()
+        assert (note.user_id, note.record_id, note.body) == (claimant.pk, None, "new")
+        assert owner_client.get(_url(organization, box_office_record)).json()["body"] == "new"
+
+        deleted = owner_client.delete(_url(organization, box_office_record, "delete_member_register_record_note"))
+        assert deleted.status_code == 204
+        assert owner_client.get(_url(organization, box_office_record)).status_code == 404
+        assert self._flag(box_office_record) is False
+
+    def test_delete_removes_both_notes_of_a_known_holder(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        event: Event,
+        claimant: RevelUser,
+        box_office_record: MembershipRecord,
+    ) -> None:
+        OrganizationUserNote.objects.create(organization=organization, record=box_office_record, body="record")
+        OrganizationUserNote.objects.create(organization=organization, user=claimant, body="user")
+        self._become_known(event, claimant)
+
+        deleted = owner_client.delete(_url(organization, box_office_record, "delete_member_register_record_note"))
+        assert deleted.status_code == 204
+        assert not OrganizationUserNote.objects.exists()

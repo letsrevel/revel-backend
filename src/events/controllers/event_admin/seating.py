@@ -9,6 +9,7 @@ from common.throttling import WriteThrottle
 from events import models, schema
 from events.controllers.permissions import EventPermission
 from events.service.batch_ticket_service.eligibility import assert_event_sells_tickets
+from events.service.holder_visibility import annotate_holder_known
 from events.service.seating import box_office
 from events.service.seating import overrides as overrides_service
 from oauth.permissions import RequireScope
@@ -48,19 +49,29 @@ class EventAdminSeatingController(EventAdminBaseController):
     @route.post(
         "/seating/sell",
         url_name="event_seating_sell",
-        response={200: schema.AdminTicketSchema, 400: ErrorDetail},
+        response={
+            200: schema.AdminTicketSchema,
+            400: schema.InvitationRequiredErrorSchema | schema.GuestActionErrorSchema | ErrorDetail,
+        },
     )
     def box_office_sell(self, event_id: UUID, payload: schema.BoxOfficeSellRequest) -> models.Ticket:
         """Door sale / comp: issue an ACTIVE ticket directly on a seat.
 
-        The recipient is an email (guest user get-or-create) or an existing
-        ``user_id``. A box-office HELD override on the seat is released as part
-        of the sale; a KILLED seat is rejected.
+        The recipient is an email or an existing ``user_id``. An email reuses a
+        registered account only when its address is verified, otherwise a guest
+        (400 ``guest_account_exists`` for an unverified registered address). A
+        ``user_id`` must already have standing with the organization (400
+        ``invitation_required``). The response shows the recipient as staff supplied
+        them (email and typed name) unless the account acted toward the organization
+        itself. A box-office HELD override on the seat is released as
+        part of the sale; a KILLED seat is rejected.
         """
         event = self.get_one(event_id)
         tier = get_object_or_404(models.TicketTier, pk=payload.tier_id, event=event)
         assert_event_sells_tickets(event)  # before resolve_recipient, so an RSVP-only request creates no user
-        recipient = box_office.resolve_recipient(payload.email, payload.user_id, payload.first_name, payload.last_name)
+        recipient = box_office.resolve_recipient(
+            event.organization, payload.email, payload.user_id, payload.first_name, payload.last_name
+        )
         ticket = box_office.sell(
             event,
             tier,
@@ -68,8 +79,12 @@ class EventAdminSeatingController(EventAdminBaseController):
             payment_method=payload.payment_method,
             recipient=recipient,
             guest_name=payload.guest_name,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
         )
-        return models.Ticket.objects.full().with_membership_record().get(pk=ticket.pk)
+        return annotate_holder_known(models.Ticket.objects.full().with_membership_record(), event.organization_id).get(
+            pk=ticket.pk
+        )
 
     @route.post(
         "/seating/reseat",
@@ -80,4 +95,6 @@ class EventAdminSeatingController(EventAdminBaseController):
         """Move a PENDING/ACTIVE ticket to another free seat in the same price category."""
         event = self.get_one(event_id)
         ticket = box_office.reseat(event, ticket_id=payload.ticket_id, target_seat_id=payload.target_seat_id)
-        return models.Ticket.objects.full().with_membership_record().get(pk=ticket.pk)
+        return annotate_holder_known(models.Ticket.objects.full().with_membership_record(), event.organization_id).get(
+            pk=ticket.pk
+        )

@@ -9,6 +9,7 @@ from django.dispatch import receiver
 
 from accounts.models import RevelUser
 from events.models import Event, Ticket, TicketTier
+from events.service.holder_visibility import is_known_holder
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
@@ -37,6 +38,21 @@ def _get_ticket_action_for_payment_method(payment_method: str) -> str | None:
         TicketTier.PaymentMethod.AT_THE_DOOR: "at_door_ticket_created",
     }
     return action_map.get(payment_method)
+
+
+def staff_holder_name(ticket: Ticket, *, known: bool | None = None) -> str:
+    """Name a staff notification shows for the ticket holder.
+
+    A holder known to the organization through their own acts is shown by their account name. For any
+    other holder, staff see only what staff supplied: the ticket's ``guest_name``, else the email.
+
+    Args:
+        ticket: The ticket (``event.organization`` and ``user`` are read).
+        known: Precomputed ``is_known_holder`` result, to avoid a query per ticket in a batch.
+    """
+    if known is None:
+        known = is_known_holder(ticket.event.organization, ticket.user)
+    return ticket.user.get_display_name() if known else (ticket.guest_name or ticket.user.email)
 
 
 def _staff_location_context(event: Event) -> dict[str, t.Any]:
@@ -184,7 +200,7 @@ def _send_ticket_created_notifications(ticket: Ticket) -> None:
     staff_context = {
         **base_context,
         **_staff_location_context(ticket.event),
-        "ticket_holder_name": ticket.user.get_display_name(),
+        "ticket_holder_name": staff_holder_name(ticket),
         "ticket_holder_email": ticket.user.email,
     }
     notify_org_staff(
@@ -246,6 +262,7 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
     staff_and_owners = list(get_staff_for_notification(event.organization_id, NotificationType.STAFF_TICKET_CREATED))
 
     # Send notifications for each ticket
+    holder_known = is_known_holder(event.organization, first_ticket.user)  # one user per batch
     for ticket in tickets:
         # What this ticket ACTUALLY cost, not the tier's list price: a PWYC amount,
         # a discounted unit or a price-category seat all diverge from ``tier.price``,
@@ -291,7 +308,7 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
         staff_context = {
             **shared_context,
             **_staff_location_context(event),
-            "ticket_holder_name": ticket.user.get_display_name(),
+            "ticket_holder_name": staff_holder_name(ticket, known=holder_known),
             "ticket_holder_email": ticket.user.email,
         }
         notify_org_staff(
@@ -360,7 +377,7 @@ def _send_ticket_cancelled_notifications(ticket: Ticket, old_status: str) -> Non
     staff_context = {
         **base_context,
         **_staff_location_context(ticket.event),
-        "ticket_holder_name": ticket.user.get_display_name(),
+        "ticket_holder_name": staff_holder_name(ticket),
         "ticket_holder_email": ticket.user.email,
     }
     notify_org_staff(
@@ -383,7 +400,7 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
         if old_status == Ticket.TicketStatus.PENDING:
             staff_context = {
                 **_build_ticket_created_context(ticket, for_staff=True),
-                "ticket_holder_name": ticket.user.get_display_name(),
+                "ticket_holder_name": staff_holder_name(ticket),
                 "ticket_holder_email": ticket.user.email,
             }
             notify_org_staff(

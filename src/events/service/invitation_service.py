@@ -12,6 +12,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from events.models import Event, EventInvitation, PendingEventInvitation, TicketTier
 from events.schema import DirectInvitationCreateSchema
+from events.service.holder_visibility import is_known_holder
 from events.utils import get_invitation_message
 
 
@@ -61,7 +62,10 @@ def create_direct_invitations(
 
         if user := RevelUser.objects.filter(email=email).first():
             # User exists - create EventInvitation
-            fields = _with_default_message(invitation_fields, user.get_display_name(), event)
+            # An account unknown to the org is greeted with the email staff typed, so the stored (and
+            # staff-visible) message never carries the account's own names.
+            greeting = user.get_display_name() if is_known_holder(event.organization, user) else email
+            fields = _with_default_message(invitation_fields, greeting, event)
             if _create_or_update_event_invitation(event, user, fields, tiers):
                 created_invitations += 1
         else:

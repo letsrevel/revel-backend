@@ -13,6 +13,7 @@ from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import OrganizationPermission
 from events.service import blacklist_service
+from events.service.holder_visibility import annotate_holder_known
 from oauth.permissions import RequireScope
 
 from .base import OrganizationAdminBaseController
@@ -55,7 +56,7 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
         """
         organization = self.get_one(slug)
         qs = models.Blacklist.objects.filter(organization=organization).select_related("user", "created_by")
-        return params.filter(qs).distinct()
+        return annotate_holder_known(params.filter(qs).distinct(), organization.pk)
 
     @route.post(
         "/blacklist",
@@ -103,7 +104,7 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
 
         # Refetch with user relationship (may have been auto-linked)
         # created_by is already available from current request
-        entry = models.Blacklist.objects.select_related("user").get(pk=entry.pk)
+        entry = models.Blacklist.objects.select_related("user", "organization").get(pk=entry.pk)
         entry.created_by = current_user
         return 201, entry
 
@@ -117,7 +118,7 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
         """Get details of a specific blacklist entry."""
         organization = self.get_one(slug)
         return get_object_or_404(
-            models.Blacklist.objects.select_related("user", "created_by"),
+            annotate_holder_known(models.Blacklist.objects.select_related("user", "created_by"), organization.pk),
             pk=entry_id,
             organization=organization,
         )
@@ -142,7 +143,9 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
         if update_data:
             entry = blacklist_service.update_blacklist_entry(entry, **update_data)
 
-        return models.Blacklist.objects.select_related("user", "created_by").get(pk=entry.pk)
+        return annotate_holder_known(
+            models.Blacklist.objects.select_related("user", "created_by"), organization.pk
+        ).get(pk=entry.pk)
 
     @route.delete(
         "/blacklist/{entry_id}",

@@ -682,18 +682,19 @@ class TestBlacklistUserLinkedSignal:
         membership.refresh_from_db()
         assert membership.status == OrganizationMember.MembershipStatus.BANNED
 
-    def test_creates_banned_membership_if_not_exists(
+    def test_creates_no_membership_for_a_non_member(
         self, organization: t.Any, django_user_model: type[RevelUser]
     ) -> None:
-        """Test that a BANNED membership is created if user wasn't a member."""
-        from events.models import Blacklist, OrganizationMember
+        """A non-member gets no membership row, but the ban consequences still run (staff row removed)."""
+        from events.models import Blacklist, OrganizationMember, OrganizationStaff
 
-        # Create a user who is NOT a member
+        # Create a user who is NOT a member (but holds a staff row)
         non_member = django_user_model.objects.create_user(
             username="non_member_to_ban",
             email="non_member_ban@example.com",
             password="pass",
         )
+        OrganizationStaff.objects.create(organization=organization, user=non_member)
         assert not OrganizationMember.objects.filter(organization=organization, user=non_member).exists()
 
         # Blacklist the user
@@ -704,9 +705,8 @@ class TestBlacklistUserLinkedSignal:
             created_by=organization.owner,
         )
 
-        # A BANNED membership should be created
-        membership = OrganizationMember.objects.get(organization=organization, user=non_member)
-        assert membership.status == OrganizationMember.MembershipStatus.BANNED
+        assert not OrganizationMember.objects.filter(organization=organization, user=non_member).exists()
+        assert not OrganizationStaff.objects.filter(organization=organization, user=non_member).exists()
 
     def test_owner_cannot_be_banned_from_own_org(self, organization: t.Any) -> None:
         """Test that the organization owner cannot be banned from their own org."""
@@ -732,6 +732,7 @@ class TestBlacklistUserLinkedSignal:
     def test_auto_linking_triggers_ban(self, organization: t.Any, django_user_model: type[RevelUser]) -> None:
         """Test that auto-linking a blacklist entry also triggers the ban."""
         from events.models import Blacklist, OrganizationMember
+        from events.service.blacklist_service import check_user_hard_blacklisted
 
         # Create blacklist entry WITHOUT user FK first
         entry = Blacklist.objects.create(
@@ -753,9 +754,9 @@ class TestBlacklistUserLinkedSignal:
         entry.refresh_from_db()
         assert entry.user == new_user
 
-        # User should have BANNED membership
-        membership = OrganizationMember.objects.get(organization=organization, user=new_user)
-        assert membership.status == OrganizationMember.MembershipStatus.BANNED
+        # Banned through the entry, with no membership row
+        assert not OrganizationMember.objects.filter(organization=organization, user=new_user).exists()
+        assert check_user_hard_blacklisted(new_user, organization)
 
     def test_blacklist_without_user_does_nothing(self, organization: t.Any) -> None:
         """Test that blacklist entries without user FK don't trigger banning."""

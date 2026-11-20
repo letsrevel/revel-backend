@@ -476,6 +476,18 @@ negative:
 - Construct the attack payload against the *vulnerable* code first and watch the test go RED. A
   negative test that has never been red is a test of nothing.
 
+## Admin responses that carry a person: `test_holder_profile_guard.py`
+
+A new admin route that nests `MemberUserSchema`, `MinimalRevelUserSchema` or `BlacklistEntrySchema`
+(directly or through any component that embeds them) fails `events/tests/test_controllers/test_holder_profile_guard.py`
+until it is classified. Add it to `HOLDER_PROFILE_OPERATIONS` only when its subject acted toward
+the organization (member, applicant, waitlist, pass holder...). When the row can be
+staff-originated (box office, staff RSVP, invitation), return `StaffViewUserSchema` instead and
+annotate the queryset with `annotate_holder_known` (one query for the list; see ADR-0020). The
+same predicate gates staff actions on an account (`require_known_holder`). A blacklist entry never
+creates an `OrganizationMember` row for a non-member, so code that must exclude banned people checks
+`get_hard_blacklisted_user_ids` / `check_user_hard_blacklisted` as well as `banned_memberships()`.
+
 ## Key rotation (`SECRET_KEY`, `SALT_KEY`)
 
 Sign with `common.keys.signing_key()` and verify with `common.keys.decode_jwt(..., verification_keys())`;

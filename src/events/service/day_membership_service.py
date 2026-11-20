@@ -29,8 +29,10 @@ from events.models import (
     Ticket,
     TicketTier,
 )
-from events.service.member_register_service import _snapshot_full_name
+from events.service.holder_visibility import STAFF_SALE_SOURCES
+from events.service.member_register_service import _FULL_NAME_MAX, _snapshot_full_name
 from events.utils import membership_access
+from events.utils.blacklist import get_hard_blacklisted_user_ids
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 _ATTENDING = tuple(Ticket.ATTENDING_STATUSES)
@@ -103,7 +105,26 @@ def _admission_evidence(user_id: UUID, event: Event, *, via_pass: bool = False) 
 
 
 def _is_banned(organization_id: UUID, user_id: UUID) -> bool:
-    return membership_access.banned_memberships().filter(organization_id=organization_id, user_id=user_id).exists()
+    """BANNED member or hard-blacklisted (a blacklist entry bans without creating a membership row)."""
+    return (
+        membership_access.banned_memberships().filter(organization_id=organization_id, user_id=user_id).exists()
+        or get_hard_blacklisted_user_ids(organization_id).filter(pk=user_id).exists()
+    )
+
+
+def _revoke_if_banned(organization_id: UUID, user_id: UUID) -> None:
+    """Revoke the user's upcoming records if a ban has committed (idempotent)."""
+    if _is_banned(organization_id, user_id):
+        revoke_upcoming_for_ban(organization_id, user_id)
+
+
+def _recheck_ban_after_commit(organization_id: UUID, user_id: UUID) -> None:
+    """After the surrounding transaction commits, revoke what a concurrently committed ban could not see.
+
+    A ban and a grant that overlap each miss the other: the grant checked before the ban committed, the ban's
+    revoke ran before the record committed. Each side re-reads after its own commit, so one of them sees both.
+    """
+    transaction.on_commit(lambda: _revoke_if_banned(organization_id, user_id))
 
 
 def _record_kwargs(
@@ -111,10 +132,15 @@ def _record_kwargs(
 ) -> dict[str, t.Any]:
     valid_from, valid_until = _event_window(event)
     user = ticket.user
+    if ticket.sale_source in STAFF_SALE_SOURCES:
+        # Staff-issued: record only what staff supplied, never the account's own names.
+        full_name = (ticket.guest_name or user.email)[:_FULL_NAME_MAX]
+    else:
+        full_name = _snapshot_full_name(user)
     return {
         "organization_id": event.organization_id,
         "user": user,
-        "full_name": _snapshot_full_name(user),
+        "full_name": full_name,
         "email": user.email,
         "kind": MembershipRecord.Kind.TEMPORARY,
         "tier": granted_tier,
@@ -146,7 +172,8 @@ def _grant(ticket: Ticket, granted_tier: MembershipTier, event: Event) -> None:
     """Create (or reopen) the ticket's day-membership record. Idempotent: one row per ticket.
 
     A banned person is granted nothing and a ban-revoked record is not reopened. The ban is checked inside
-    the transaction, right before the write, so a concurrent ban cannot slip between check and write.
+    the transaction, right before the write; a ban that commits concurrently is caught by the post-commit
+    recheck (see ``_recheck_ban_after_commit``).
     """
     with transaction.atomic():
         _sync_locked_windows([event])
@@ -160,6 +187,7 @@ def _grant(ticket: Ticket, granted_tier: MembershipTier, event: Event) -> None:
                 existing.valid_from = valid_from
                 existing.valid_until = valid_until
                 existing.save(update_fields=["ended_reason", "valid_from", "valid_until", "updated_at"])
+            _recheck_ban_after_commit(event.organization_id, ticket.user_id)
             return
         kwargs = _record_kwargs(
             ticket,
@@ -168,6 +196,7 @@ def _grant(ticket: Ticket, granted_tier: MembershipTier, event: Event) -> None:
             _admission_evidence(ticket.user_id, event, via_pass=ticket.held_pass_id is not None),
         )
         get_or_create_with_race_protection(MembershipRecord, Q(ticket=ticket), kwargs)
+        _recheck_ban_after_commit(event.organization_id, ticket.user_id)
 
 
 def _revoke(ticket: Ticket, *, ignore_start: bool = False) -> None:
@@ -257,16 +286,18 @@ def _write_records(
                     ticket_id__in=[ticket.pk for ticket in granting]
                 )
             }
+        org_ids = {e.organization_id for e in events.values()}
+        user_ids = {ticket.user_id for ticket in granting}
         banned = set(
             membership_access.banned_memberships()
-            .filter(
-                organization_id__in={e.organization_id for e in events.values()},
-                user_id__in={ticket.user_id for ticket in granting},
-            )
+            .filter(organization_id__in=org_ids, user_id__in=user_ids)
             .values_list("organization_id", "user_id")
         )
+        for org_id in org_ids:
+            banned.update((org_id, uid) for uid in get_hard_blacklisted_user_ids(org_id).filter(pk__in=user_ids))
         reopened: list[MembershipRecord] = []
         created: list[MembershipRecord] = []
+        written: set[tuple[UUID, UUID]] = set()
         for ticket in granting:
             event = events[ticket.event_id]
             if (event.organization_id, ticket.user_id) in banned:
@@ -276,11 +307,15 @@ def _write_records(
                 granted = t.cast(MembershipTier, tiers[ticket.tier_id].grants_membership_tier)
                 key = (ticket.user_id, ticket.event_id, ticket.held_pass_id is not None)
                 created.append(MembershipRecord(**_record_kwargs(ticket, granted, event, evidence[key])))
+                written.add((event.organization_id, ticket.user_id))
             elif _reopen(record, event):
                 reopened.append(record)
+                written.add((event.organization_id, ticket.user_id))
         if reopened:
             MembershipRecord.objects.bulk_update(reopened, ["ended_reason", "valid_from", "valid_until", "updated_at"])
         MembershipRecord.objects.bulk_create(created)
+        for org_id, user_id in written:
+            _recheck_ban_after_commit(org_id, user_id)
 
 
 def _reopen(record: MembershipRecord, event: Event) -> bool:

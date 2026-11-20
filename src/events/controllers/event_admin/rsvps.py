@@ -14,6 +14,7 @@ from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
 from events.service import update_db_instance
+from events.service.holder_visibility import annotate_holder_known, require_known_holder
 from events.service.waitlist_service import enqueue_waitlist_processing
 from oauth.permissions import RequireScope
 
@@ -30,6 +31,13 @@ from .base import EventAdminBaseController
 class EventAdminRSVPsController(EventAdminBaseController):
     """Event RSVP management endpoints."""
 
+    @staticmethod
+    def _rsvps(event: models.Event) -> QuerySet[models.EventRSVP]:
+        """The event's RSVPs with the user and the ``holder_known`` annotation the response masks on."""
+        return annotate_holder_known(
+            models.EventRSVP.objects.select_related("user").filter(event=event), event.organization_id
+        )
+
     @route.get(
         "/rsvps",
         url_name="list_rsvps",
@@ -37,7 +45,7 @@ class EventAdminRSVPsController(EventAdminBaseController):
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["user__email", "user__first_name", "user__last_name", "user__preferred_name"])
+    @searching(Searching, search_fields=["user__email"])
     def list_rsvps(
         self,
         event_id: UUID,
@@ -50,13 +58,13 @@ class EventAdminRSVPsController(EventAdminBaseController):
         Supports filtering by status and user_id.
         """
         event = self.get_one(event_id)
-        qs = (
-            models.EventRSVP.objects.with_user()
-            .with_org_membership(event.organization_id)
-            .filter(event=event)
-            .order_by("-created_at")
+        qs = annotate_holder_known(
+            models.EventRSVP.objects.with_user().with_org_membership(event.organization_id).filter(event=event),
+            event.organization_id,
         )
-        return params.filter(qs).distinct()
+        # "-id" is a stable tiebreaker so pagination stays deterministic across equal sort keys.
+        # No .distinct(): all joins are to-one (#880).
+        return params.filter(qs).order_by("-created_at", "-id")
 
     @route.get(
         "/rsvps/{rsvp_id}",
@@ -67,37 +75,44 @@ class EventAdminRSVPsController(EventAdminBaseController):
     def get_rsvp(self, event_id: UUID, rsvp_id: UUID) -> models.EventRSVP:
         """Get details of a specific RSVP."""
         event = self.get_one(event_id)
-        return get_object_or_404(models.EventRSVP.objects.select_related("user"), pk=rsvp_id, event=event)
+        return get_object_or_404(self._rsvps(event), pk=rsvp_id)
 
     @route.post(
         "/rsvps",
         url_name="create_rsvp",
-        response=schema.RSVPDetailSchema,
+        response={200: schema.RSVPDetailSchema, 400: schema.InvitationRequiredErrorSchema},
     )
     def create_rsvp(self, event_id: UUID, payload: schema.RSVPCreateSchema) -> models.EventRSVP:
         """Create an RSVP on behalf of a user.
 
         Use this when a user contacts the organization to RSVP outside the platform
-        (e.g., via text, email, or in person).
+        (e.g., via text, email, or in person). The account must already be known to the
+        organization through its own acts (member, staff, applicant, own ticket, RSVP,
+        pass, waitlist entry...; box-office tickets and staff RSVPs do not count);
+        otherwise 400 ``invitation_required``.
         """
         event = self.get_one(event_id)
 
-        # Verify user exists
-        user = get_object_or_404(RevelUser, pk=payload.user_id)
+        user = get_object_or_404(RevelUser, pk=payload.user_id, is_active=True)
+        require_known_holder(event.organization, user)
 
         # Capture prior status (if any) before the upsert so we can detect a
         # YES -> non-YES transition that frees a seat.
         prior_status = models.EventRSVP.objects.filter(event=event, user=user).values_list("status", flat=True).first()
 
         # Create or update RSVP (due to unique constraint on event+user)
+        # A new row is staff-made; an existing row keeps its origin.
         rsvp, created = models.EventRSVP.objects.update_or_create(
-            event=event, user=user, defaults={"status": payload.status, "note": payload.note}
+            event=event,
+            user=user,
+            defaults={"status": payload.status, "note": payload.note},
+            create_defaults={"status": payload.status, "note": payload.note, "source": models.EventRSVP.Source.STAFF},
         )
 
         if prior_status == models.EventRSVP.RsvpStatus.YES and payload.status != models.EventRSVP.RsvpStatus.YES:
             enqueue_waitlist_processing(event.id)
 
-        return rsvp
+        return get_object_or_404(self._rsvps(event), pk=rsvp.pk)
 
     @route.put(
         "/rsvps/{rsvp_id}",
@@ -115,7 +130,7 @@ class EventAdminRSVPsController(EventAdminBaseController):
         updated = update_db_instance(rsvp, payload)
         if prior_status == models.EventRSVP.RsvpStatus.YES and updated.status != models.EventRSVP.RsvpStatus.YES:
             enqueue_waitlist_processing(event.id)
-        return updated
+        return get_object_or_404(self._rsvps(event), pk=updated.pk)
 
     @route.delete(
         "/rsvps/{rsvp_id}",

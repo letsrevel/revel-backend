@@ -378,6 +378,7 @@ from .subscription import (
     SubscriptionCreateSchema,
     SubscriptionSchema,
 )
+from .staff_view_user import StaffViewUserSchema, resolve_staff_view_user, staff_view_user
 from .subscription_metrics import SubscriptionMetricsSchema, SubscriptionStatusBreakdownSchema
 
 # Ticket and payment schemas
@@ -788,9 +789,12 @@ __all__ = [
     "SubscribeResponseSchema",
     "SubscriptionActivationPendingSchema",
     "SubscriptionCreateSchema",
+    "StaffViewUserSchema",
     "SubscriptionMetricsSchema",
     "SubscriptionSchema",
     "SubscriptionStatusBreakdownSchema",
+    "resolve_staff_view_user",
+    "staff_view_user",
     "TagUpdateSchema",
     "TemplateEditSchema",
     "TenantOrganizationSchema",

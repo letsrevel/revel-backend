@@ -526,3 +526,37 @@ def test_grant_uses_the_committed_event_window_not_a_stale_instance(
     record = _only(ticket)
     assert record.valid_from == stale.start  # refreshed in place under the lock
     assert record.valid_from == Event.objects.get(pk=day_event.pk).start
+
+
+def test_blacklisting_a_non_member_revokes_upcoming_records(
+    organization: Organization,
+    organization_owner_user: RevelUser,
+    day_tier_factory: t.Callable[..., TicketTier],
+    make_ticket: t.Callable[..., Ticket],
+    holder: RevelUser,
+) -> None:
+    from events.service import blacklist_service
+
+    ticket = make_ticket(day_tier_factory())
+    assert _only(ticket).ended_reason is None
+
+    blacklist_service.add_to_blacklist(organization, organization_owner_user, user=holder)
+
+    assert not OrganizationMember.objects.filter(organization=organization, user=holder).exists()
+    assert _only(ticket).ended_reason == Reason.REVOKED
+
+
+def test_active_ticket_of_a_blacklisted_non_member_grants_no_record(
+    organization: Organization,
+    organization_owner_user: RevelUser,
+    day_tier_factory: t.Callable[..., TicketTier],
+    make_ticket: t.Callable[..., Ticket],
+    holder: RevelUser,
+) -> None:
+    from events.models import Blacklist
+
+    Blacklist.objects.create(organization=organization, email=holder.email, created_by=organization_owner_user)
+
+    ticket = make_ticket(day_tier_factory())
+
+    assert records_for(ticket) == []

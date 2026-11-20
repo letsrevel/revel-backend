@@ -12,6 +12,11 @@ Policy-level intended behaviour that reviewers must not report as a finding. Eac
 - boundary: a claim by anyone other than the invitee, any route that edits or lists personal invitations as shareable links (`/tokens`), a preview or response that exposes the invitee, or creating a membership before the invitee accepts are still bugs.
 - reference: `docs/architecture/member-register.md` (member invitations); maintainer decision 2026-11-18.
 
+## Staff-originated rows are masked
+- behaviour: a box-office ticket, a staff-recorded RSVP or a staff-made event invitation shows staff only what staff supplied (the email they typed, the name they typed) unless the account is known to the organization through its own acts (`events/service/holder_visibility.py`); `StaffViewUserSchema` then returns `known: false` with profile fields `null`. Such rows also give no standing for RSVP on behalf, box-office sale by `user_id` or private notes. A holder who later acts becomes known, and their earlier rows unmask.
+- boundary: any admin surface, export or staff notification that shows an unknown holder's phone, legal or preferred name, pronouns, bio or picture is a bug, as is a staff-made row counting as standing, or a new operation projecting `MemberUserSchema`/`MinimalRevelUserSchema` without an entry in `test_holder_profile_guard.py`. Members are never masked. A blacklist entry never creates a membership row for a non-member (legacy banned rows from earlier bans still count as known), and a waitlist entry consumed by a staff sale stops conferring standing (accepted, fails closed).
+- reference: ADR-0020; maintainer decision 2026-11-19.
+
 ## Staff permissions do what they say
 - behaviour: a staff member holding a permission (for example `manage_members` or `invite_to_event`) can perform exactly that action in their organization. The organization owner implicitly passes organization permission checks.
 - boundary: a staff member without the permission, or acting on another organization's objects, is a bug. Staff must not be able to escalate to owner, grant themselves or others more than they hold, or edit owner-only fields. An OAuth app token must never exceed its granted scopes: the scope gate runs before any owner or staff shortcut.

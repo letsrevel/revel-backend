@@ -147,10 +147,16 @@ POST /event-admin/{event_id}/seating/sell
 ```
 
 `price_paid` comes back as `0.00` — the revenue report will never inflate takings
-with comp seats. If `critic@thepaper.example` already has an account (e.g. they
-bought a ticket to a previous show), the ticket attaches to that account instead of
-minting a duplicate guest — worth calling out, since it's the one place a door sale
-deliberately behaves differently from self-service guest checkout.
+with comp seats. If `critic@thepaper.example` already has an account with a verified
+email, the ticket attaches to that account instead of minting a duplicate guest —
+worth calling out, since it's the one place a door sale deliberately behaves
+differently from self-service guest checkout. If the address belongs to an account
+whose email isn't verified yet, the sale is refused (`guest_account_exists`): ask the
+person to verify their email, or use another address. Unless the critic has dealt
+with your organization themselves (bought a ticket, joined, applied...), the response
+and your ticket list show `user.known: false` with only the email and the name you
+typed (`guest_name`, defaulting to the account's own name if it is known to your
+organization, else the email): their phone, names and picture stay `null`.
 
 ### 5. Sell a held seat — release the hold as part of the sale
 
@@ -279,8 +285,13 @@ unless noted):
   (`"ticketed"` / `"unknown_seat"`), never whole-batch. Release wins if a seat
   appears in both `set` and `release_seat_ids`.
 - `POST /seating/sell` — door sale/comp. `payment_method` is `at_the_door` or
-  `free` only. Recipient is exactly one of `email` (existing account reused, or new
-  guest minted) or `user_id`. `free` always records `price_paid = 0.00`;
+  `free` only. Recipient is exactly one of `email` (a registered account reused only
+  when its email is verified, an existing guest reused, a new guest minted; an unverified
+  registered address is a 400 `guest_account_exists`) or `user_id` (only for an account
+  known to the organization through its own acts — member, staff, applicant, register
+  entry, or its own ticket/RSVP/pass/waitlist entry; box-office tickets and staff RSVPs
+  don't count — else 400 `invitation_required`). The response `user` is masked
+  (`known: false`, profile fields `null`) for a holder not known that way. `free` always records `price_paid = 0.00`;
   `at_the_door` stamps the seat's resolved zone price on a tier with a zone price map,
   and leaves `price_paid` null on a flat tier (where the tier price reconstructs it
   exactly). A seat in a zone the tier's map doesn't price is a 400 — never a fallback to

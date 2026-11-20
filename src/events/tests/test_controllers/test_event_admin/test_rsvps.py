@@ -85,21 +85,101 @@ def test_list_rsvps_membership_present_for_member(
 # --- Tests for admin RSVP note CRUD ---
 
 
+@pytest.mark.usefixtures("organization_membership")
 def test_admin_create_rsvp_with_note_ignores_flag(
     organization_owner_client: Client,
     event: Event,
-    nonmember_user: RevelUser,
+    member_user: RevelUser,
 ) -> None:
     """Admin can record a note even when accept_rsvp_notes is False."""
     assert event.accept_rsvp_notes is False
 
     url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
-    payload = {"user_id": str(nonmember_user.id), "status": EventRSVP.RsvpStatus.YES, "note": "phoned in"}
+    payload = {"user_id": str(member_user.id), "status": EventRSVP.RsvpStatus.YES, "note": "phoned in"}
     response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 200
-    rsvp = EventRSVP.objects.get(event=event, user=nonmember_user)
+    rsvp = EventRSVP.objects.get(event=event, user=member_user)
     assert rsvp.note == "phoned in"
+
+
+def test_admin_create_rsvp_refuses_account_without_relationship(
+    organization_owner_client: Client,
+    event: Event,
+    nonmember_user: RevelUser,
+) -> None:
+    """Staff cannot put an account with no connection to the organization on the attendee list."""
+    url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
+    payload = {"user_id": str(nonmember_user.id), "status": EventRSVP.RsvpStatus.YES}
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "invitation_required"
+    assert not EventRSVP.objects.filter(event=event, user=nonmember_user).exists()
+
+
+def test_admin_create_rsvp_allows_attendee_of_another_org_event(
+    organization_owner_client: Client,
+    event: Event,
+    nonmember_user: RevelUser,
+) -> None:
+    """A past RSVP to any of the organization's events is standing enough."""
+    other_event = Event.objects.create(organization=event.organization, name="Earlier", start=event.start)
+    EventRSVP.objects.create(event=other_event, user=nonmember_user, status=EventRSVP.RsvpStatus.NO)
+
+    url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
+    payload = {"user_id": str(nonmember_user.id), "status": EventRSVP.RsvpStatus.YES}
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    assert EventRSVP.objects.filter(event=event, user=nonmember_user).exists()
+
+
+def test_admin_create_rsvp_staff_rsvp_elsewhere_is_no_standing(
+    organization_owner_client: Client,
+    event: Event,
+    nonmember_user: RevelUser,
+) -> None:
+    """An RSVP staff recorded on another event does not let staff add more on the account's behalf."""
+    other_event = Event.objects.create(organization=event.organization, name="Earlier", start=event.start)
+    EventRSVP.objects.create(
+        event=other_event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES, source=EventRSVP.Source.STAFF
+    )
+
+    url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
+    payload = {"user_id": str(nonmember_user.id), "status": EventRSVP.RsvpStatus.YES}
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "invitation_required"
+
+
+@pytest.mark.usefixtures("organization_membership")
+def test_admin_create_rsvp_marks_new_row_as_staff_made(
+    organization_owner_client: Client, event: Event, member_user: RevelUser
+) -> None:
+    url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
+    payload = {"user_id": str(member_user.id), "status": EventRSVP.RsvpStatus.YES}
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    assert EventRSVP.objects.get(event=event, user=member_user).source == EventRSVP.Source.STAFF
+
+
+@pytest.mark.usefixtures("organization_membership")
+def test_admin_create_rsvp_keeps_origin_of_existing_row(
+    organization_owner_client: Client, event: Event, member_user: RevelUser
+) -> None:
+    """Staff overwriting the holder's own answer does not turn it into a staff row."""
+    EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.MAYBE)
+
+    url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
+    payload = {"user_id": str(member_user.id), "status": EventRSVP.RsvpStatus.YES}
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    rsvp = EventRSVP.objects.get(event=event, user=member_user)
+    assert (rsvp.status, rsvp.source) == (EventRSVP.RsvpStatus.YES, EventRSVP.Source.SELF)
 
 
 def test_admin_update_rsvp_note(
@@ -134,3 +214,18 @@ def test_admin_update_omitting_note_keeps_existing(
     assert response.status_code == 200
     rsvp.refresh_from_db()
     assert rsvp.note == "keep me"
+
+
+@pytest.mark.usefixtures("organization_membership")
+def test_admin_create_rsvp_refuses_deactivated_account(
+    organization_owner_client: Client, event: Event, member_user: RevelUser
+) -> None:
+    """A deactivated account is not addressable by id, however well known it is."""
+    RevelUser.objects.filter(pk=member_user.pk).update(is_active=False)
+
+    url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
+    payload = {"user_id": str(member_user.id), "status": EventRSVP.RsvpStatus.YES}
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 404
+    assert not EventRSVP.objects.filter(event=event, user=member_user).exists()

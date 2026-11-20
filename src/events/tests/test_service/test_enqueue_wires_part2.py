@@ -131,6 +131,7 @@ def test_admin_create_rsvp_yes_to_no_enqueues(
     mocked.assert_called_once_with(event.id)
 
 
+@pytest.mark.usefixtures("organization_membership")
 def test_admin_create_rsvp_no_prior_does_not_enqueue(
     owner_jwt_client: Client,
     event: Event,

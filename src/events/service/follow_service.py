@@ -12,6 +12,7 @@ from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import EventSeries, Organization
 from events.models.follow import EventSeriesFollow, OrganizationFollow
+from events.utils.blacklist import get_hard_blacklisted_user_ids
 from events.utils.membership_access import banned_memberships, visible_memberships
 from notifications.enums import NotificationType
 from notifications.models import NotificationPreference
@@ -415,6 +416,22 @@ def get_followers_for_new_event_notification(
     Yields:
         Tuples of (user, notification_type) to notify
     """
+    org_followers = OrganizationFollow.objects.filter(
+        organization=organization,
+        is_archived=False,
+        notify_new_events=True,
+    ).select_related("user")
+    series_followers = (
+        EventSeriesFollow.objects.filter(
+            event_series=event_series, is_archived=False, notify_new_events=True
+        ).select_related("user")
+        if event_series
+        else None
+    )
+    candidate_user_ids: set[UUID] = set(org_followers.values_list("user_id", flat=True))
+    if series_followers is not None:
+        candidate_user_ids.update(series_followers.values_list("user_id", flat=True))
+
     # Build exclusion set: users who already get EVENT_OPEN or are banned.
     # 1. ACTIVE/PAUSED/BANNED members (ACTIVE/PAUSED get EVENT_OPEN, BANNED get nothing)
     #    CANCELLED and AWAITING_PAYMENT members are NOT excluded: they get no EVENT_OPEN as members,
@@ -423,6 +440,8 @@ def get_followers_for_new_event_notification(
         visible_memberships().filter(organization=organization).values_list("user_id", flat=True)
     )
     excluded_user_ids.update(banned_memberships().filter(organization=organization).values_list("user_id", flat=True))
+    # A blacklist bans without creating a membership row, so read it directly, narrowed to the candidates.
+    excluded_user_ids.update(get_hard_blacklisted_user_ids(organization.pk, candidate_user_ids))
 
     # 2. Staff members (get EVENT_OPEN via staff path)
     excluded_user_ids.update(organization.staff_members.values_list("id", flat=True))
@@ -433,13 +452,7 @@ def get_followers_for_new_event_notification(
     notified_user_ids: set[UUID] = set()
 
     # First, notify series followers (if event is in a series)
-    if event_series:
-        series_followers = EventSeriesFollow.objects.filter(
-            event_series=event_series,
-            is_archived=False,
-            notify_new_events=True,
-        ).select_related("user")
-
+    if series_followers is not None:
         for follow in series_followers:
             # Skip staff/owner/active/paused/banned members — they already
             # get EVENT_OPEN or should not receive any org notifications.
@@ -450,12 +463,6 @@ def get_followers_for_new_event_notification(
                 yield follow.user, NotificationType.NEW_EVENT_FROM_FOLLOWED_SERIES
 
     # Then, notify org followers (excluding those already notified via series)
-    org_followers = OrganizationFollow.objects.filter(
-        organization=organization,
-        is_archived=False,
-        notify_new_events=True,
-    ).select_related("user")
-
     for org_follow in org_followers:
         # Skip staff/owner/active/paused/banned members
         if org_follow.user_id in excluded_user_ids:

@@ -82,16 +82,26 @@ class MembershipRecordQuerySet(models.QuerySet["MembershipRecord"]):
         return self.unmerged().filter(over if ended else ~over)
 
     def with_note_flag(self) -> t.Self:
-        """Annotate ``note_exists``: a linked entry shows its user's note, an unlinked one its own."""
+        """Annotate ``note_exists``: a known holder's user note, else (or if only it has one) the entry's own."""
         from events.models.user_note import OrganizationUserNote  # lazy: user_note references this model by label
+        from events.utils.holder_visibility import known_holder_q  # lazy: it imports the models
 
         user_note = OrganizationUserNote.objects.filter(
             organization_id=models.OuterRef("organization_id"), user_id=models.OuterRef("user_id")
         )
         record_note = OrganizationUserNote.objects.filter(record_id=models.OuterRef("pk"))
+        known = known_holder_q(models.OuterRef("organization_id"), models.OuterRef("user_id"))
         return self.annotate(
+            # Same rule as ``get_record_note``: a known holder's user note wins, else the record's own note; a
+            # linked non-holder's user note does not count (staff never see it through the register).
             note_exists=models.Case(
-                models.When(user__isnull=False, then=models.Exists(user_note)),
+                models.When(
+                    user__isnull=False,
+                    then=models.ExpressionWrapper(
+                        models.Q(models.Exists(record_note)) | (models.Q(models.Exists(user_note)) & known),
+                        output_field=models.BooleanField(),
+                    ),
+                ),
                 default=models.Exists(record_note),
                 output_field=models.BooleanField(),
             )

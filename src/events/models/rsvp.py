@@ -58,12 +58,21 @@ class EventRSVP(TimeStampedModel):
         NO = "no", "No"
         MAYBE = "maybe", "Maybe"
 
+    class Source(models.TextChoices):
+        """Who created the row: the account holder, or staff on their behalf (staff rows confer no standing)."""
+
+        SELF = "self", "Self"
+        STAFF = "staff", "Staff"
+
     event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="rsvps")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="rsvps")
     status = models.CharField(
         max_length=20, choices=RsvpStatus.choices, default=None, null=True, blank=True, db_index=True
     )
     note = models.CharField(max_length=500, blank=True, default="")
+    source = models.CharField(
+        max_length=10, choices=Source.choices, default=Source.SELF, db_default=Source.SELF, editable=False
+    )
 
     objects = EventRSVPManager()
 

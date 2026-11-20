@@ -144,6 +144,16 @@ class TestManageMembersAndStaff:
         assert response.status_code == 201, response.content
         assert OrganizationStaff.objects.filter(organization=organization, user=nonmember_user).exists()
 
+    def test_add_staff_deactivated_account_is_404(
+        self, organization_owner_client: Client, organization: Organization, nonmember_user: RevelUser
+    ) -> None:
+        OrganizationMember.objects.create(organization=organization, user=nonmember_user)
+        RevelUser.objects.filter(pk=nonmember_user.pk).update(is_active=False)
+        url = reverse("api:create_organization_staff", kwargs={"slug": organization.slug, "user_id": nonmember_user.id})
+        response = organization_owner_client.post(url, content_type="application/json")
+        assert response.status_code == 404
+        assert not OrganizationStaff.objects.filter(organization=organization, user=nonmember_user).exists()
+
     def test_remove_staff(
         self, organization_owner_client: Client, organization: Organization, staff_member: OrganizationStaff
     ) -> None:

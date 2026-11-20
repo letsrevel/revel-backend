@@ -16,7 +16,7 @@ from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth, OptionalAuth
 from common.utils import serve_image_or_placeholder
 from events import filters, models, schema
-from events.service import announcement_service, event_service
+from events.service import announcement_service, attendee_list, event_service
 
 from .base import EventPublicBaseController
 
@@ -71,7 +71,7 @@ class EventPublicDetailsController(EventPublicBaseController):
         and event creators always have access.
         """
         event = self.get_one(event_id)
-        return event.attendees(self.user()).distinct()
+        return attendee_list.get_event_attendee_list(event, self.user())
 
     @route.get(
         "/{uuid:event_id}/resources",

@@ -23,6 +23,7 @@ from events.models import (
     OrganizationMembershipRequest,
     RegisterMatchReason,
 )
+from events.service.holder_visibility import is_known_holder_id
 from events.service.user_note_transfer import transfer_record_note
 from events.utils.membership_access import visible_memberships
 from events.utils.name_matching import normalize_name_for_matching
@@ -160,6 +161,17 @@ def _lock_records(*pks: UUID | None) -> dict[UUID, MembershipRecord]:
     return {r.pk: r for r in locked}
 
 
+def _transfer_note_to_known_account(absorbed: MembershipRecord, survivor: MembershipRecord) -> None:
+    """Move the absorbed entry's note onto the survivor's account, only when that account is a known holder.
+
+    A merge links on staff's word alone: for an account with no standing of its own the note stays on the
+    absorbed entry rather than surfacing under that account's profile (ADR-0020).
+    """
+    assert survivor.user_id is not None
+    if is_known_holder_id(survivor.organization_id, survivor.user_id):
+        transfer_record_note(absorbed, to_user_id=survivor.user_id)
+
+
 def merge_records(survivor: MembershipRecord, absorbed: MembershipRecord) -> MembershipRecord:
     """Merge the account-less ``absorbed`` entry into ``survivor`` (same org, distinct, neither merged).
 
@@ -195,7 +207,7 @@ def merge_records(survivor: MembershipRecord, absorbed: MembershipRecord) -> Mem
             # The survivor is untouched: it keeps its own start, and its own duplicate claim (if any) concerns
             # another claimant, so it stays for staff.
             if survivor.user_id is not None:
-                transfer_record_note(absorbed, to_user_id=survivor.user_id)
+                _transfer_note_to_known_account(absorbed, survivor)
             else:
                 transfer_record_note(absorbed, to_record=survivor)
         else:
@@ -209,7 +221,7 @@ def merge_records(survivor: MembershipRecord, absorbed: MembershipRecord) -> Mem
             absorbed.save(
                 update_fields=["user", "invite_token", "duplicate_claimant", "linked_via", "linked_at", "updated_at"]
             )
-            transfer_record_note(absorbed, to_user_id=survivor.user_id)
+            _transfer_note_to_known_account(absorbed, survivor)
         logger.info("member_register_merged", survivor_id=str(survivor.pk), absorbed_id=str(absorbed.pk))
         return survivor
 

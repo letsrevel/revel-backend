@@ -27,6 +27,7 @@ from events.models import (
     OrganizationToken,
 )
 from events.service import blacklist_service
+from events.service.holder_visibility import self_linked_record_q
 from events.utils import format_organization_datetime
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
@@ -135,7 +136,9 @@ def revoke_invitation(organization: Organization, invitation_id: str) -> None:
 def has_relationship(organization: Organization, user: RevelUser) -> bool:
     """Whether ``user`` already has any standing with ``organization``.
 
-    Owner, member (any status), staff, membership applicant (any status) or register record holder.
+    Owner, member (any status), staff, membership applicant (any
+    status) or register record holder. A register record created by a box-office ticket, or linked by a
+    staff merge, is no standing (ADR-0020).
     """
     if organization.owner_id == user.pk:
         return True
@@ -143,7 +146,7 @@ def has_relationship(organization: Organization, user: RevelUser) -> bool:
         OrganizationMember.objects.filter(organization=organization, user=user).exists()
         or OrganizationStaff.objects.filter(organization=organization, user=user).exists()
         or OrganizationMembershipRequest.objects.filter(organization=organization, user=user).exists()
-        or MembershipRecord.objects.filter(organization=organization, user=user).exists()
+        or MembershipRecord.objects.filter(organization=organization, user=user).filter(self_linked_record_q()).exists()
     )
 
 

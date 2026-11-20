@@ -22,6 +22,7 @@ from events.models import (
     OrganizationUserNote,
     SeriesPass,
     Ticket,
+    TicketSaleSource,
     TicketTier,
 )
 from events.service import organization_service
@@ -232,6 +233,24 @@ class TestRelationshipRestriction:
     ) -> None:
         Ticket.objects.create(event=event, user=nonmember_user, tier=event_ticket_tier, guest_name="G")
         assert _put(organization_owner_client, organization, nonmember_user, "ok").status_code == 200
+
+    def test_box_office_ticket_not_enough(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        nonmember_user: RevelUser,
+    ) -> None:
+        """A ticket staff issued at the box office is no act of the holder: no note about them."""
+        Ticket.objects.create(
+            event=event,
+            user=nonmember_user,
+            tier=event_ticket_tier,
+            guest_name="G",
+            sale_source=TicketSaleSource.BOX_OFFICE_COMP,
+        )
+        assert _put(organization_owner_client, organization, nonmember_user, "x").status_code == 404
 
     def test_ticket_for_other_org_not_enough(
         self,
