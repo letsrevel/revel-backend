@@ -21,7 +21,7 @@ from accounts.jwt import check_blacklist, create_token
 from accounts.models import RevelUser
 from common.keys import decode_jwt, signing_key, verification_keys
 from events import models, schema
-from events.exceptions import GuestAccountExistsError, GuestCartTooLargeError
+from events.exceptions import GuestAccountExistsError, GuestCartTooLargeError, GuestEmailConfirmationRequired
 from events.service.event_manager import EventManager
 
 if t.TYPE_CHECKING:
@@ -451,10 +451,12 @@ def handle_guest_ticket_checkout(
             (ONLINE) or carried in the confirmation token until they are created.
 
     Returns:
-        GuestCheckoutResponseSchema. Non-online carts: `message` (email confirmation
-        sent). Online carts: `requires_payment=True` and a `reservation_id` (#632) —
-        the caller must then POST the guest `checkout-session` endpoint to obtain the
-        Stripe `checkout_url`.
+        GuestCheckoutResponseSchema. Non-online carts, and online carts the buyer zeroed
+        (100% code, PWYC at 0; #1430): `message` (email confirmation sent, nothing is
+        created until the link is clicked). Paid online carts: `requires_payment=True`
+        and a `reservation_id` (#632) — the caller must then POST the guest
+        `checkout-session` endpoint to obtain the Stripe `checkout_url`. Their PENDING
+        tickets record `unconfirmed_guest=True`.
 
     Raises:
         HttpError: If event doesn't allow guest access, the event is RSVP-only (400), the
@@ -473,7 +475,6 @@ def handle_guest_ticket_checkout(
         assert_sale_window,
     )
     from events.service.seating.pick import resolve_requested_zone
-    from events.tasks import send_guest_ticket_confirmation
 
     # RSVP-only first: such an event sells nothing to anyone, logged in or not.
     assert_event_sells_tickets(event)
@@ -562,7 +563,10 @@ def handle_guest_ticket_checkout(
 
     # Branch by payment method
     if payment_method == models.TicketTier.PaymentMethod.ONLINE:
-        # Online payment: use BatchTicketService (Stripe provides security)
+        # Online payment: use BatchTicketService (Stripe provides security). The tickets are stamped
+        # ``unconfirmed_guest`` (#1430): a paid guest checkout never proved the email. A cart the buyer
+        # zeroes (100% code, PWYC at 0) has no Stripe payment to vouch for them, so create_batch signals
+        # it BEFORE writing anything and the cart takes the free-guest email confirmation instead.
         service = BatchTicketService(
             event,
             user=user,
@@ -571,62 +575,96 @@ def handle_guest_ticket_checkout(
             discount_valid_tier_ids=valid_tier_ids,
             guest_session=guest_session,
             attribution=attribution,
+            unconfirmed_guest=True,
         )
-        result = service.create_batch(billing_info=billing_info, buyer_vat_context=buyer_vat_context)
-
-        # Branch on the returned SHAPE, never on the tier's payment method (#740):
-        # a PWYC/discount input that zeroes every unit reroutes an ONLINE cart to
-        # the free checkout, which returns a bare list of ACTIVE tickets.
-        # ponytail: create_batch's dual return type is what invites this at every
-        # call site; a single result object carrying an optional reservation_id
-        # would make it unrepresentable (~104 call sites, mostly tests — see #740).
-        if isinstance(result, tuple):
-            _tickets, reservation_id = result
-            return schema.GuestCheckoutResponseSchema(
-                message=None,
-                checkout_url=None,
-                tickets=[],
-                reservation_id=reservation_id,
-                requires_payment=True,
+        try:
+            result = service.create_batch(billing_info=billing_info, buyer_vat_context=buyer_vat_context)
+        except GuestEmailConfirmationRequired:
+            return _email_confirmation_response(
+                user, event, groups, discount_code=discount_code, guest_session=guest_session, attribution=attribution
             )
 
+        # With unconfirmed_guest, create_batch returns only the reservation tuple (a free reroute raises
+        # above); the narrowing keeps that explicit instead of leaving a dead list branch (#740).
+        # ponytail: create_batch's dual return type is what invites this at every call site; a single
+        # result object carrying an optional reservation_id would make it unrepresentable (~104 call
+        # sites, mostly tests — see #740).
+        if not isinstance(result, tuple):
+            raise TypeError("an unconfirmed guest's ONLINE cart must reserve or signal, never issue tickets")
+        _tickets, reservation_id = result
         return schema.GuestCheckoutResponseSchema(
             message=None,
             checkout_url=None,
-            tickets=[schema.UserTicketSchema.from_orm(ticket) for ticket in result],
-            requires_payment=False,
-        )
-    else:
-        # Non-online payment: require email confirmation
-        # Store the cart in the JWT token for later creation
-        token = create_guest_ticket_token(
-            user,
-            event.id,
-            groups=groups,
-            discount_code=discount_code,
-            guest_session=guest_session,
-            attribution=attribution,
-        )
-        # A multi-tier cart is serialized WHOLE into this token (every group, every
-        # item's guest_name and seat_id), so a wide cart with long holder names mints
-        # a JWT of tens of KB. The confirmation link carries it as a query parameter,
-        # and mail clients, link scanners and proxies truncate long URLs — the buyer
-        # would get a 200 here and a dead link in their inbox, with no ticket and no
-        # way back. Refuse up front instead. The ceiling is the token alone; the rest
-        # of the URL (frontend origin + path) is comfortably inside the ~8 KB that the
-        # most restrictive mainstream handlers accept.
-        # ponytail: the real fix is to persist the cart and put an opaque handle in the
-        # link (as the ONLINE branch's reservation_id already does) — see #632.
-        if len(token) > _GUEST_TOKEN_MAX_CHARS:
-            raise GuestCartTooLargeError()
-
-        tier_name = _cart_tier_name_summary(groups)
-        transaction.on_commit(lambda: send_guest_ticket_confirmation.delay(user.email, token, event.name, tier_name))
-        return schema.GuestCheckoutResponseSchema(
-            message=str(_("Please check your email to confirm your ticket purchase")),
-            checkout_url=None,
             tickets=[],
+            reservation_id=reservation_id,
+            requires_payment=True,
         )
+
+    # Non-online payment: require email confirmation
+    return _email_confirmation_response(
+        user, event, groups, discount_code=discount_code, guest_session=guest_session, attribution=attribution
+    )
+
+
+def _email_confirmation_response(
+    user: RevelUser,
+    event: models.Event,
+    groups: list["CartGroup"],
+    *,
+    discount_code: str | None,
+    guest_session: str | None,
+    attribution: "TicketAttribution | None",
+) -> schema.GuestCheckoutResponseSchema:
+    """Park a guest cart behind the emailed confirmation link and say so.
+
+    Stores the cart in a JWT and queues the email on commit; no ticket, payment or code use exists
+    until :func:`confirm_guest_action` runs. Shared by the non-online branch and by an ONLINE cart
+    the buyer zeroed (#1430).
+
+    Args:
+        user: The guest account.
+        event: The event.
+        groups: The validated cart.
+        discount_code: The code string typed by the buyer, re-validated at confirmation.
+        guest_session: Guest-hold session id, carried in the token.
+        attribution: Sanitised campaign tags, carried in the token.
+
+    Returns:
+        The "check your email" response (no tickets, no payment).
+
+    Raises:
+        GuestCartTooLargeError: If the token would exceed ``_GUEST_TOKEN_MAX_CHARS``.
+    """
+    from events.tasks import send_guest_ticket_confirmation
+
+    token = create_guest_ticket_token(
+        user,
+        event.id,
+        groups=groups,
+        discount_code=discount_code,
+        guest_session=guest_session,
+        attribution=attribution,
+    )
+    # A multi-tier cart is serialized WHOLE into this token (every group, every
+    # item's guest_name and seat_id), so a wide cart with long holder names mints
+    # a JWT of tens of KB. The confirmation link carries it as a query parameter,
+    # and mail clients, link scanners and proxies truncate long URLs — the buyer
+    # would get a 200 here and a dead link in their inbox, with no ticket and no
+    # way back. Refuse up front instead. The ceiling is the token alone; the rest
+    # of the URL (frontend origin + path) is comfortably inside the ~8 KB that the
+    # most restrictive mainstream handlers accept.
+    # ponytail: the real fix is to persist the cart and put an opaque handle in the
+    # link (as the ONLINE branch's reservation_id already does) — see #632.
+    if len(token) > _GUEST_TOKEN_MAX_CHARS:
+        raise GuestCartTooLargeError()
+
+    tier_name = _cart_tier_name_summary(groups)
+    transaction.on_commit(lambda: send_guest_ticket_confirmation.delay(user.email, token, event.name, tier_name))
+    return schema.GuestCheckoutResponseSchema(
+        message=str(_("Please check your email to confirm your ticket purchase")),
+        checkout_url=None,
+        tickets=[],
+    )
 
 
 @transaction.atomic
@@ -745,7 +783,8 @@ def confirm_guest_action(
                 payload.discount_code, event, groups, user
             )
 
-        # Use BatchTicketService for proper seat handling
+        # Use BatchTicketService for proper seat handling. Deliberately NOT ``unconfirmed_guest``: reaching
+        # this point means the buyer clicked the emailed link, which IS the email confirmation (#1430).
         service = BatchTicketService(
             event,
             user=user,

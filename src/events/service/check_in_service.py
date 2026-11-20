@@ -114,9 +114,14 @@ def _pending_check_in_allowed(ticket: Ticket) -> bool:
 def _unmask_if_now_attending(ticket: Ticket) -> None:
     """A PENDING ticket (not attending when ``holder_known`` was read) is attending now.
 
-    A self-made one confers standing, so the response must not mask its holder; staff-made tickets stay masked.
+    A self-made one confers standing, so the response must not mask its holder; staff-made and unconfirmed-guest (#1430)
+    tickets stay masked.
     """
-    if not ticket.holder_known and ticket.sale_source not in STAFF_SALE_SOURCES:  # type: ignore[attr-defined]
+    if (
+        not ticket.holder_known  # type: ignore[attr-defined]
+        and ticket.sale_source not in STAFF_SALE_SOURCES
+        and not ticket.unconfirmed_guest
+    ):
         ticket.holder_known = True  # type: ignore[attr-defined]
 
 

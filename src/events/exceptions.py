@@ -12,6 +12,14 @@ class InvalidResourceStateError(DjangoValidationError):
     """Raised when an EventResource has an invalid combination of fields for its type."""
 
 
+class GuestEmailConfirmationRequired(Exception):
+    """Signal from ``BatchTicketService.create_batch``: this guest cart must be confirmed by email first (#1430).
+
+    Raised inside the checkout's atomic block, so every write the attempt made rolls back. Internal: the guest
+    checkout turns it into the ordinary "check your email" response; it never reaches a client.
+    """
+
+
 class AlreadyMemberError(Exception):
     """Raised when a user is already a member of an organization."""
 

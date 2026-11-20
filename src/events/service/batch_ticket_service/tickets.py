@@ -84,6 +84,7 @@ class TicketWriterMixin(BatchTicketContext):
                 refund_policy_snapshot=(copy.deepcopy(tier.refund_policy) if tier.refund_policy else None),
                 attribution=self.attribution,
                 sale_source=sale_source,
+                unconfirmed_guest=self.unconfirmed_guest,
             )
             if seat:
                 ticket.seat = seat

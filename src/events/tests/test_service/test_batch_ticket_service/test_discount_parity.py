@@ -36,6 +36,7 @@ import typing as t
 from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
+from unittest.mock import patch
 
 import pytest
 from django.test.client import Client
@@ -439,34 +440,43 @@ class TestGuestOnlineParity:
         )
 
     def test_guest_online_full_discount_completes_without_payment(
-        self, parity_event: Event, online_tier: TicketTier, fix_full: DiscountCode
+        self,
+        parity_event: Event,
+        online_tier: TicketTier,
+        fix_full: DiscountCode,
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        """A whole-ticket code makes an ONLINE guest batch free — and that must be a 200 (#740).
+        """A whole-ticket code makes an ONLINE guest batch free — it must ask for email confirmation (#1430).
 
-        ``create_batch`` reroutes a zeroed ONLINE cart to the free checkout and
-        returns a bare *list*. The guest ONLINE branch used to treat that as
-        impossible and raise 500 — **after** the ACTIVE tickets were created and
-        the code's usage counter incremented, so the buyer saw an error for a
-        purchase that had succeeded and burned another ``times_used`` on retry.
-        It now branches on the returned shape, exactly like ``multi_tier_checkout``.
-
-        ``price_paid`` is ``0.00`` for the same reason as the authenticated case above:
-        no ``Payment`` row exists on this path, so the free checkout must record the
-        amount itself. Previously NULL.
+        ``create_batch`` reroutes a zeroed ONLINE cart to the free checkout (#740), but a guest has paid
+        nothing, so there is no Stripe payment to vouch for the email. The cart takes the free-guest flow:
+        a 200 asking to check the email, with nothing written until the link is clicked. Confirming it then
+        issues ACTIVE tickets at ``0.00`` (no ``Payment`` row exists, so the free checkout records the
+        amount itself) and counts the code's uses.
         """
         group = CartGroup(tier=online_tier, items=_guest_items())
-        response = handle_guest_ticket_checkout(
-            parity_event,
-            [group],
-            email="guest-free@example.com",
-            first_name="Gina",
-            last_name="Guest",
-            discount_code=fix_full.code,
-        )
+        with (
+            patch("events.tasks.send_guest_ticket_confirmation.delay") as send,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            response = handle_guest_ticket_checkout(
+                parity_event,
+                [group],
+                email="guest-free@example.com",
+                first_name="Gina",
+                last_name="Guest",
+                discount_code=fix_full.code,
+            )
 
+        assert response.message is not None
         assert response.requires_payment is False
         assert response.reservation_id is None
-        assert len(response.tickets) == 2
+        assert response.tickets == []
+        assert not Ticket.objects.filter(tier=online_tier).exists()
+        fix_full.refresh_from_db()
+        assert fix_full.times_used == 0
+
+        confirm_guest_action(send.call_args[0][1])
 
         tickets = list(Ticket.objects.filter(tier=online_tier))
         assert len(tickets) == 2
@@ -476,6 +486,7 @@ class TestGuestOnlineParity:
             price_paid=Decimal("0.00"),
             discount_amount=Decimal("25.00"),
         )
+        assert not any(ticket.unconfirmed_guest for ticket in tickets)
         assert not Payment.objects.filter(ticket__tier=online_tier).exists()
         fix_full.refresh_from_db()
         assert fix_full.times_used == 2

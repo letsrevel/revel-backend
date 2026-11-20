@@ -11,6 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from events.compliance import enforcement as compliance
+from events.exceptions import GuestEmailConfirmationRequired
 from events.models import Ticket, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service.capacity import CapacityMixin
@@ -219,6 +220,22 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         all_lines = [line for rg in resolved for line in rg.pricing.lines]
         return buyer_reduced_price and bool(all_lines) and all(line.unit_price <= 0 for line in all_lines)
 
+    def _assert_guest_cart_is_paid_online(self, payment_method: str, reroutes_to_free: bool) -> None:
+        """An unconfirmed guest (#1430) may only reach a genuinely paid ONLINE cart, where Stripe vouches for them.
+
+        Anything else (a zero-total reroute, or a tier flipped to a non-online method since the caller
+        checked) needs the emailed link first.
+
+        Args:
+            payment_method: The cart's (uniform, locked) payment method.
+            reroutes_to_free: Whether the buyer's input zeroed an ONLINE cart.
+
+        Raises:
+            GuestEmailConfirmationRequired: The cart is not a paid ONLINE one.
+        """
+        if self.unconfirmed_guest and (reroutes_to_free or payment_method != TicketTier.PaymentMethod.ONLINE):
+            raise GuestEmailConfirmationRequired
+
     @transaction.atomic
     def create_batch(
         self,
@@ -261,6 +278,8 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
                 does not hold.
             CountryComplianceError: If the cart costs anything and the organizer's
                 country blocks paid ticketing.
+            GuestEmailConfirmationRequired: ``unconfirmed_guest`` is set and the cart is not a
+                paid ONLINE one (nothing is written).
         """
         self._resolve_single_group(items, pwyc_amount)
         assert_event_sells_tickets(self.event)
@@ -389,8 +408,13 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
         # rather than forced True across the cart: the reroute is a cart-level decision, but
         # the flag is a per-tier fact, and a group with no PWYC/discount input on a genuinely
         # 0.00 tier correctly keeps its NULL.
+        reroutes_to_free = self._reroutes_to_free(locked_payment_method, resolved)
+        # Raised HERE: still inside this atomic block, so the seat/lock writes above roll back, and before
+        # apply_discount / claim_waitlist_offer_if_any below so an unconfirmed attempt consumes neither.
+        self._assert_guest_cart_is_paid_online(locked_payment_method, reroutes_to_free)
+
         result: list[Ticket] | tuple[list[Ticket], UUID]
-        if self._reroutes_to_free(locked_payment_method, resolved):
+        if reroutes_to_free:
             result = self._free_checkout(resolved)
         else:
             # Delegate to payment-specific method
