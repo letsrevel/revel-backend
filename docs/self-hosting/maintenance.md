@@ -52,6 +52,10 @@ This pulls the latest application images from the registry and recreates the aff
 with them (the `web` container runs any pending database migrations on startup). Read the changelog
 before updating a production instance, and take a backup first.
 
+Some releases need a command after the upgrade. The release notes list it under
+**"⚠️ Upgrade notes: action required after you deploy"**. Run those commands in the order given, once,
+and note when the upgrade finished: some of them take that time as a cutoff.
+
 ## Refreshing geo data
 
 Geolocation uses two datasets: the **cities** dataset (for city/region lookups) and the

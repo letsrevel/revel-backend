@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ⚠️ Upgrade notes: action required after you deploy
+
+**Every instance, including self-hosted ones, must run one command after upgrading to this release.** If you skip it, some guest tickets bought during the upgrade keep counting as a connection to the organization although the guest never confirmed their email.
+
+1. Upgrade as usual (`./deploy.sh update`, or your own rolling deploy). Migration `events` 0152 flags the existing tickets automatically.
+2. Write down the time, in UTC, when the **last container that ran the previous version stopped**. In a rolling deploy this is when the rollout finished; with `./deploy.sh update` it is when the old `web` container was replaced.
+3. Preview the change: `python manage.py backfill_unconfirmed_guest --before <that time, ISO 8601 with offset, e.g. 2026-11-21T09:30:00+00:00> --dry-run`. It prints a count only. A count of 0 is normal when the old and new containers did not overlap.
+4. Run the same command without `--dry-run`.
+
+Run it **once per instance**. If you upgrade past this release later, or skip it in a multi-version upgrade, set `--before` to the time your upgrade to this release finished. Do not use the current time.
+
 ### Added
 - **Calendar-aligned membership plans**: a plan can now bill on calendar boundaries (the 1st of each month, or the 1st of a chosen month each year, at 00:00 UTC) instead of a fixed duration after the member joins.
   - New plan fields `period_alignment`, `calendar_start_month` and `first_period_pricing`; alignment and start month are set at creation and cannot be changed, and the billing period of a calendar plan is locked.
