@@ -187,7 +187,11 @@ and their accessible-seating preference are baked directly into the signed confi
 itself. So opening the email on another device still honors the seats that were held earlier,
 rather than treating them as a stranger's holds. **Online (card) guest checkout skips this
 entirely** — it goes straight to Stripe, no email round-trip, so there's no cross-device
-question for paid tiers.
+question for paid tiers. The exception is a cart whose total the buyer brings to zero (for
+example a 100% discount code): nothing is left to pay, so it takes the email-confirm flow above
+and the seats are assigned when the link is clicked. A paid guest ticket is recorded as
+`unconfirmed_guest` (the email was never confirmed) and does not make the guest known to the
+organization.
 
 ### Accessible seating for buyers
 
@@ -246,8 +250,8 @@ buyer's screen would show at each step:
      to get the Stripe checkout URL and hands the buyer off to pay.
    - **Free / offline / at-the-door tier, logged in**: the ticket is issued immediately in this
      same call — no extra step.
-   - **Free / offline / at-the-door tier, guest**: the buyer instead sees "check your email to
-     confirm" — clicking that link calls `POST /events/guest-actions/confirm`, which is the
+   - **Free / offline / at-the-door tier, guest** (or an online tier whose cart the buyer brought to
+     a zero total): the buyer instead sees "check your email to confirm" — clicking that link calls `POST /events/guest-actions/confirm`, which is the
      moment the seats are actually assigned/consumed and the ticket is created.
 
 Good demo beats: show a 409 on the same seat from two browser tabs (the "no double-sell"
