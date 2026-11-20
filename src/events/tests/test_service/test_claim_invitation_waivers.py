@@ -153,3 +153,66 @@ class TestTokenClaimWaivers:
         invitation.refresh_from_db()
         assert invitation.waives_purchase is True
         assert invitation.waives_questionnaire is True
+
+    def test_adding_a_tier_to_an_existing_invitation_uses_up_a_use(
+        self,
+        private_event: Event,
+        owner: RevelUser,
+        invited_user: RevelUser,
+        django_user_model: t.Type[RevelUser],
+    ) -> None:
+        """A single-use tier token adds its tier to one existing invitation only."""
+        tier = private_event.ticket_tiers.create(name="VIP")
+        other = django_user_model.objects.create_user(username="tier-other@example.com", email="tier-other@example.com")
+        first = EventInvitation.objects.create(event=private_event, user=invited_user)
+        second = EventInvitation.objects.create(event=private_event, user=other)
+        token = create_event_token(
+            event=private_event,
+            issuer=owner,
+            duration=60,
+            grants_invitation=True,
+            max_uses=1,
+            ticket_tier_ids=[tier.pk],
+        )
+
+        assert claim_invitation(invited_user, token.pk) is not None
+        assert claim_invitation(other, token.pk) is None
+
+        assert tier in first.tiers.all()
+        assert tier not in second.tiers.all()
+
+    def test_reopening_a_used_up_link_returns_the_unchanged_invitation(
+        self,
+        private_event: Event,
+        owner: RevelUser,
+        invited_user: RevelUser,
+    ) -> None:
+        token = create_event_token(event=private_event, issuer=owner, duration=60, grants_invitation=True, max_uses=1)
+        token.invitation_payload = {"waives_questionnaire": True}
+        token.save()
+
+        first = claim_invitation(invited_user, token.pk)
+        again = claim_invitation(invited_user, token.pk)
+
+        assert first is not None and again is not None
+        assert again.pk == first.pk
+        token.refresh_from_db()
+        assert token.uses == 1
+
+    def test_only_a_true_payload_value_turns_a_waiver_on(
+        self,
+        private_event: Event,
+        owner: RevelUser,
+        invited_user: RevelUser,
+    ) -> None:
+        invitation = EventInvitation.objects.create(event=private_event, user=invited_user)
+        token = create_event_token(event=private_event, issuer=owner, duration=60, grants_invitation=True)
+        token.invitation_payload = {"waives_purchase": "false"}
+        token.save()
+
+        claim_invitation(invited_user, token.pk)
+
+        invitation.refresh_from_db()
+        token.refresh_from_db()
+        assert invitation.waives_purchase is False
+        assert token.uses == 0

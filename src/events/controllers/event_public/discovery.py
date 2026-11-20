@@ -221,6 +221,8 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         """
         if invitation := event_service.claim_invitation(self.user(), token):
             return 200, invitation.event
+        if rejection := event_service.get_token_rejection_reason(token):
+            return 400, ResponseMessage(message=str(TOKEN_GONE_MESSAGES[rejection.reason]))
         return 400, ResponseMessage(message=str(_("The token is invalid or expired.")))
 
     @route.delete(
