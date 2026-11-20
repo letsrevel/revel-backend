@@ -1,9 +1,10 @@
 """Post-rollout pass of the ``Ticket.unconfirmed_guest`` backfill (#1430).
 
 During a rolling deploy the old pods keep inserting guest tickets with the column default (False), after
-migration 0152 already ran. Run this ONCE after the rollout completes, with ``--before`` set to the time it
-finished (dry-run first). Never re-run it later: an email-confirmed zero-total guest ticket created after the
-deploy has the same shape as a legacy unconfirmed one, and would be flagged wrongly. Prints counts only.
+migration 0152 already ran. Run this ONCE after the rollout completes (dry-run first), with ``--before`` set to
+the moment the last old web container stopped: old containers are the ones that still create guest tickets
+without the flag. Only tickets with a Payment row match, so new pods' email-confirmed zero-total tickets
+never do. Prints counts only.
 """
 
 import datetime
@@ -36,7 +37,9 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Register ``--before`` and ``--dry-run``."""
-        parser.add_argument("--before", help="Rollout-finished time, ISO 8601 with UTC offset (required).")
+        parser.add_argument(
+            "--before", help="When the last old web container stopped, ISO 8601 with UTC offset (required)."
+        )
         parser.add_argument("--dry-run", action="store_true", help="Report the count without writing.")
 
     def handle(self, *args: t.Any, **options: t.Any) -> None:

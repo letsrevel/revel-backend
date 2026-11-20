@@ -15,10 +15,12 @@ def backfill_unconfirmed_guest(
     the flag, and skips rows that already have it. ``created_before`` limits the update to tickets created
     before that instant (the management command requires it, see there).
     """
-    # migration 0152 calls this; keep the base predicate frozen
+    # migration 0152 calls this; keep the base predicate frozen. A Payment row is the only proof of a paid
+    # checkout: the tier's payment method can change after issue (FREE/OFFLINE -> ONLINE), and an
+    # email-confirmed zero-total ticket on an ONLINE tier has no Payment row.
     qs = ticket_model.objects.filter(
         Q(sale_source__isnull=True) | Q(sale_source="checkout"),
-        Q(tier__payment_method="online") | Exists(payment_model.objects.filter(ticket_id=OuterRef("pk"))),
+        Exists(payment_model.objects.filter(ticket_id=OuterRef("pk"))),
         user__guest=True,
         unconfirmed_guest=False,
     )

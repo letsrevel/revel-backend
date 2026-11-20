@@ -53,24 +53,32 @@ def test_backfill_flags_only_paid_guest_checkouts(
     legacy_source = _ticket(event, nonmember_user, online, source=None)
     active_online = _ticket(event, nonmember_user, online, status=Ticket.TicketStatus.ACTIVE)
     with_payment = _ticket(event, nonmember_user, TicketTier.PaymentMethod.OFFLINE)
-    payment_factory(with_payment)
     free_guest = _ticket(event, nonmember_user, TicketTier.PaymentMethod.FREE)
     offline_guest = _ticket(event, nonmember_user, TicketTier.PaymentMethod.OFFLINE)
+    # An ONLINE tier with no Payment row: either an email-confirmed zero-total cart, or a tier that was
+    # switched from FREE/OFFLINE to ONLINE after issue. Neither is a paid checkout.
+    online_no_payment = _ticket(event, nonmember_user, online)
     box_office = _ticket(event, nonmember_user, online, source=TicketSaleSource.BOX_OFFICE_SALE)
     registered = _ticket(event, member_user, online)
+    for tk in (online_ticket, legacy_source, active_online, with_payment, box_office, registered):
+        payment_factory(tk)
 
     backfill(django_apps, None)
 
     assert all(_flag(tk) for tk in (online_ticket, legacy_source, active_online, with_payment))
-    assert not any(_flag(tk) for tk in (free_guest, offline_guest, box_office, registered))
+    assert not any(_flag(tk) for tk in (free_guest, offline_guest, online_no_payment, box_office, registered))
 
     backfill(django_apps, None)  # idempotent
     assert _flag(online_ticket)
     assert not _flag(registered)
 
 
-def _guest_ticket_created_at(event: Event, user: RevelUser, created: t.Any) -> Ticket:
+def _guest_ticket_created_at(
+    event: Event, user: RevelUser, created: t.Any, payment_factory: t.Callable[..., Payment] | None = None
+) -> Ticket:
     ticket = _ticket(event, user, TicketTier.PaymentMethod.ONLINE)
+    if payment_factory is not None:
+        payment_factory(ticket)
     Ticket.objects.filter(pk=ticket.pk).update(created_at=created)
     return ticket
 
@@ -81,13 +89,14 @@ def _command(*args: str) -> str:
     return out.getvalue()
 
 
-def test_command_flips_only_tickets_created_before_the_cutoff(event: Event, nonmember_user: RevelUser) -> None:
+def test_command_flips_only_tickets_created_before_the_cutoff(
+    event: Event, nonmember_user: RevelUser, payment_factory: t.Callable[..., Payment]
+) -> None:
     RevelUser.objects.filter(pk=nonmember_user.pk).update(guest=True)
     nonmember_user.refresh_from_db()
     cutoff = timezone.now()
-    before = _guest_ticket_created_at(event, nonmember_user, cutoff - timedelta(hours=1))
-    # An email-confirmed zero-total ticket made after the rollout has the same shape: it must stay False.
-    after = _guest_ticket_created_at(event, nonmember_user, cutoff + timedelta(hours=1))
+    before = _guest_ticket_created_at(event, nonmember_user, cutoff - timedelta(hours=1), payment_factory)
+    after = _guest_ticket_created_at(event, nonmember_user, cutoff + timedelta(hours=1), payment_factory)
 
     output = _command("--before", cutoff.isoformat())
 
@@ -96,11 +105,38 @@ def test_command_flips_only_tickets_created_before_the_cutoff(event: Event, nonm
     assert "1" in output
 
 
-def test_command_dry_run_writes_nothing(event: Event, nonmember_user: RevelUser) -> None:
+def test_command_skips_confirmed_zero_total_ticket_from_the_rollout_window(
+    event: Event, nonmember_user: RevelUser
+) -> None:
+    """A new pod's email-confirmed zero-total ticket (ONLINE tier, no Payment) made before the cutoff stays False."""
     RevelUser.objects.filter(pk=nonmember_user.pk).update(guest=True)
     nonmember_user.refresh_from_db()
     cutoff = timezone.now()
-    before = _guest_ticket_created_at(event, nonmember_user, cutoff - timedelta(hours=1))
+    confirmed = _guest_ticket_created_at(event, nonmember_user, cutoff - timedelta(minutes=1))
+
+    _command("--before", cutoff.isoformat())
+
+    assert _flag(confirmed) is False
+
+
+def test_backfill_skips_ticket_whose_tier_became_online_after_issue(event: Event, nonmember_user: RevelUser) -> None:
+    RevelUser.objects.filter(pk=nonmember_user.pk).update(guest=True)
+    nonmember_user.refresh_from_db()
+    ticket = _ticket(event, nonmember_user, TicketTier.PaymentMethod.FREE)
+    TicketTier.objects.filter(pk=ticket.tier_id).update(payment_method=TicketTier.PaymentMethod.ONLINE)
+
+    backfill(django_apps, None)
+
+    assert _flag(ticket) is False
+
+
+def test_command_dry_run_writes_nothing(
+    event: Event, nonmember_user: RevelUser, payment_factory: t.Callable[..., Payment]
+) -> None:
+    RevelUser.objects.filter(pk=nonmember_user.pk).update(guest=True)
+    nonmember_user.refresh_from_db()
+    cutoff = timezone.now()
+    before = _guest_ticket_created_at(event, nonmember_user, cutoff - timedelta(hours=1), payment_factory)
 
     output = _command("--before", cutoff.isoformat(), "--dry-run")
 
