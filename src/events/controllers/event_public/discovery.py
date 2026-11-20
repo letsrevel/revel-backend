@@ -214,9 +214,10 @@ class EventPublicDiscoveryController(EventPublicBaseController):
     def claim_invitation(self, token: str) -> tuple[int, models.Event | ResponseMessage]:
         """Accept an event invitation using a token from an invitation link or email.
 
-        Creates an EventInvitation record for the user, granting access to the event.
+        Creates an EventInvitation record for the user, granting access to the event. If the user already
+        has an invitation, the token's ticket tiers are added and its waivers are turned on (never off).
         Invitations can bypass certain eligibility requirements like membership, capacity limits,
-        and RSVP deadlines. Returns the event on success, or 400 if the token is invalid/expired.
+        and RSVP deadlines. Returns the event on success, or 400 if the token is invalid, expired or used up.
         """
         if invitation := event_service.claim_invitation(self.user(), token):
             return 200, invitation.event

@@ -114,8 +114,9 @@ def claim_invitation_link(user: RevelUser, event: models.Event, event_token: mod
     The guest counterpart of the join page's ``POST /events/claim-invitation/{token}``,
     which requires a login: a guest sends the same token as ``X-Event-Token`` and gets
     the same ``EventInvitation``. All token rules are ``tokens.claim_invitation``'s —
-    read-only tokens, expiry and ``max_uses`` are enforced there, and it is idempotent
-    for a returning guest. A token for another event is ignored. Must run AFTER the
+    read-only tokens, expiry and ``max_uses`` are enforced there. For a returning guest
+    it adds the token's tiers and turns on its waivers; a repeat claim that changes
+    nothing is a no-op. A token for another event is ignored. Must run AFTER the
     guest user row exists and BEFORE any eligibility or tier-access check, which is
     where the resulting invitation is consulted.
 

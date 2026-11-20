@@ -208,6 +208,10 @@ def claim_invitation(user: RevelUser, token: str, greeting: str | None = None) -
             organization knows the account through its own acts, else its email, so staff never see a name the
             organization was not given. The anonymous guest path passes the email explicitly.
 
+    A claim on an existing invitation turns on the waivers the token grants and never turns one off. Each
+    claim that creates an invitation or turns on at least one waiver uses up one token use; a repeat claim
+    that changes nothing is free.
+
     Returns:
         The EventInvitation if successfully claimed, None if token is invalid,
         doesn't grant invitations, or has reached max uses.
@@ -243,12 +247,15 @@ def claim_invitation(user: RevelUser, token: str, greeting: str | None = None) -
     if created:
         EventToken.objects.filter(pk=event_token.pk).update(uses=F("uses") + 1)
     else:
-        # Existing invitation: turn on the waivers the token grants. Never turn one off. Uses stay unchanged.
+        # Existing invitation: turn on the waivers the token grants, never turn one off. Granting counts as a
+        # use (the max_uses check above already covers it); a repeat claim that grants nothing stays free.
+        invitation = EventInvitation.objects.select_for_update().get(pk=invitation.pk)
         granted = [f for f in INVITATION_WAIVER_FIELDS if defaults.get(f) and not getattr(invitation, f)]
         if granted:
             for field in granted:
                 setattr(invitation, field, True)
-            invitation.save(update_fields=granted)
+            invitation.save(update_fields=[*granted, "updated_at"])
+            EventToken.objects.filter(pk=event_token.pk).update(uses=F("uses") + 1)
     # Add tier links from token to invitation (additive — works for both new and existing invitations)
     token_tiers = event_token.ticket_tiers.all()
     if token_tiers:

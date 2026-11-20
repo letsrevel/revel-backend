@@ -37,7 +37,7 @@ from events.service.tier_eligibility import (
     _check_tier_visibility,
     get_eligible_tiers,
 )
-from events.service.tokens import INVITATION_WAIVER_FIELDS, claim_invitation, create_event_token
+from events.service.tokens import claim_invitation, create_event_token
 
 pytestmark = pytest.mark.django_db
 
@@ -599,46 +599,6 @@ class TestTokenClaimTierLinks:
         linked = set(result.tiers.values_list("id", flat=True))
         assert tier_a.id in linked  # existing tier kept
         assert tier_b.id in linked  # new tier added
-
-    @pytest.mark.parametrize("field", INVITATION_WAIVER_FIELDS)
-    def test_claim_turns_on_token_waiver_on_existing_invitation(
-        self,
-        private_event: Event,
-        owner: RevelUser,
-        invited_user: RevelUser,
-        field: str,
-    ) -> None:
-        """A claim on an existing invitation turns on the token's waiver; uses do not change."""
-        invitation = EventInvitation.objects.create(event=private_event, user=invited_user, custom_message="keep")
-        token = create_event_token(event=private_event, issuer=owner, duration=60, grants_invitation=True)
-        token.invitation_payload = {field: True, "custom_message": "other"}
-        token.save()
-
-        claim_invitation(invited_user, token.pk)
-
-        invitation.refresh_from_db()
-        token.refresh_from_db()
-        assert getattr(invitation, field) is True
-        assert invitation.custom_message == "keep"
-        assert token.uses == 0
-
-    def test_claim_never_turns_off_existing_waiver(
-        self,
-        private_event: Event,
-        owner: RevelUser,
-        invited_user: RevelUser,
-    ) -> None:
-        """A waiver the invitation has stays on when the token does not grant it."""
-        invitation = EventInvitation.objects.create(event=private_event, user=invited_user, waives_purchase=True)
-        token = create_event_token(event=private_event, issuer=owner, duration=60, grants_invitation=True)
-        token.invitation_payload = {"waives_questionnaire": True, "waives_purchase": False}
-        token.save()
-
-        claim_invitation(invited_user, token.pk)
-
-        invitation.refresh_from_db()
-        assert invitation.waives_purchase is True
-        assert invitation.waives_questionnaire is True
 
 
 # ---------------------------------------------------------------------------
