@@ -714,7 +714,8 @@ def cancel_held_pass(
 
         # Statuses can still change before the tier/ticket lock (check-in takes no lock).
         # lock_tier_then_ticket re-reads the set under the row locks, so only tickets that are still
-        # cancellable get cancelled. A ticket checked in after its refund keeps its status and its refund, and is logged.
+        # cancellable get cancelled. A ticket checked in after its refund keeps its status and its
+        # refund, and is logged.
         cancellable_ids = set(still_cancellable.values_list("pk", flat=True))
         refunded_ticket_ids: set[t.Any] = set()
         for payment in payments:
