@@ -11,6 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from common.utils import get_or_create_with_race_protection
 from events.models import Event, EventInvitation, EventToken, TicketTier
 from events.schema import EventTokenUpdateSchema
 from events.service.holder_visibility import is_known_holder_id
@@ -182,6 +183,16 @@ def get_token_rejection_reason(token: str) -> TokenRejection | None:
     return None
 
 
+INVITATION_WAIVER_FIELDS = (
+    "waives_questionnaire",
+    "waives_purchase",
+    "overrides_max_attendees",
+    "waives_membership_required",
+    "waives_rsvp_deadline",
+    "waives_apply_deadline",
+)
+
+
 def _default_greeting(user: RevelUser, organization_id: UUID) -> str:
     """Display name for a known holder of the organization, else the email."""
     return user.get_display_name() if is_known_holder_id(organization_id, user.pk) else user.email
@@ -198,13 +209,17 @@ def claim_invitation(user: RevelUser, token: str, greeting: str | None = None) -
             organization knows the account through its own acts, else its email, so staff never see a name the
             organization was not given. The anonymous guest path passes the email explicitly.
 
+    A claim on an existing invitation turns on the waivers the token grants (never off) and adds its tiers.
+    Each claim that creates an invitation, turns on a waiver or adds a tier uses up one token use; a repeat
+    claim that changes nothing returns the existing invitation unchanged, also when the token is used up.
+
     Returns:
-        The EventInvitation if successfully claimed, None if token is invalid,
-        doesn't grant invitations, or has reached max uses.
+        The EventInvitation (new, updated or unchanged), or None if the token is invalid, does not grant
+        invitations, or has reached max uses for a claim that would grant something.
     """
-    # Lock the token row to prevent concurrent requests from exceeding max_uses.
+    # Lock the token row (only that row) so concurrent claims cannot exceed max_uses.
     event_token = (
-        EventToken.objects.select_for_update()
+        EventToken.objects.select_for_update(of=("self",))
         .select_related("event")
         .prefetch_related("ticket_tiers")
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()), pk=token)
@@ -214,26 +229,62 @@ def claim_invitation(user: RevelUser, token: str, greeting: str | None = None) -
         return None
     if not event_token.grants_invitation:
         return None
-    if event_token.max_uses and event_token.uses >= event_token.max_uses:
-        return None
-    # Warning: do not save the event_token object directly here.
-    # Use update() after get_or_create to avoid race conditions.
-    defaults = {
-        **(event_token.invitation_payload or {}),
+    used_up = bool(event_token.max_uses) and event_token.uses >= event_token.max_uses
+    # A waiver is granted only by a literal True, on the create and the merge path alike.
+    payload = {
+        key: value
+        for key, value in (event_token.invitation_payload or {}).items()
+        if key not in INVITATION_WAIVER_FIELDS or value is True
     }
+    token_tiers = list(event_token.ticket_tiers.all())
+
+    existing = EventInvitation.objects.select_for_update().filter(event=event_token.event, user=user).first()
+    if existing is not None:
+        return _merge_into_existing(existing, event_token, payload, token_tiers, used_up)
+    if used_up:
+        return None
+    # Warning: do not save the event_token object directly here; use update() to avoid races.
+    defaults = {**payload}
     if not defaults.get("custom_message"):
         defaults["custom_message"] = get_invitation_message(
             greeting or _default_greeting(user, event_token.event.organization_id), event_token.event
         )
-    invitation, created = EventInvitation.objects.get_or_create(
-        event=event_token.event,
-        user=user,
-        defaults=defaults,
+    invitation, created = get_or_create_with_race_protection(
+        EventInvitation, Q(event=event_token.event, user=user), {**defaults, "event": event_token.event, "user": user}
     )
-    if created:
-        EventToken.objects.filter(pk=event_token.pk).update(uses=F("uses") + 1)
-    # Add tier links from token to invitation (additive — works for both new and existing invitations)
-    token_tiers = event_token.ticket_tiers.all()
+    if not created:  # another request created it after our lookup
+        locked = EventInvitation.objects.select_for_update().get(pk=invitation.pk)
+        return _merge_into_existing(locked, event_token, payload, token_tiers, used_up)
+    EventToken.objects.filter(pk=event_token.pk).update(uses=F("uses") + 1)
     if token_tiers:
         invitation.tiers.add(*token_tiers)
+    return invitation
+
+
+def _merge_into_existing(
+    invitation: EventInvitation,
+    event_token: EventToken,
+    payload: dict[str, t.Any],
+    token_tiers: list[TicketTier],
+    used_up: bool,
+) -> EventInvitation | None:
+    """Add the token's waivers and tiers to an invitation the user already holds (caller holds the row locks).
+
+    Turns waivers on, never off. A claim that grants something uses up one token use, and is refused (None) when
+    the token is used up. A claim that grants nothing returns the invitation unchanged and uses nothing.
+    """
+    granted = [f for f in INVITATION_WAIVER_FIELDS if payload.get(f) is True and not getattr(invitation, f)]
+    linked = set(invitation.tiers.values_list("pk", flat=True))
+    new_tiers = [tier for tier in token_tiers if tier.pk not in linked]
+    if not granted and not new_tiers:
+        return invitation
+    if used_up:
+        return None
+    if granted:
+        for field in granted:
+            setattr(invitation, field, True)
+        invitation.save(update_fields=[*granted, "updated_at"])
+    if new_tiers:
+        invitation.tiers.add(*new_tiers)
+    EventToken.objects.filter(pk=event_token.pk).update(uses=F("uses") + 1)
     return invitation

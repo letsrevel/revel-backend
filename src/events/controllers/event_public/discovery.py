@@ -214,12 +214,16 @@ class EventPublicDiscoveryController(EventPublicBaseController):
     def claim_invitation(self, token: str) -> tuple[int, models.Event | ResponseMessage]:
         """Accept an event invitation using a token from an invitation link or email.
 
-        Creates an EventInvitation record for the user, granting access to the event.
+        Creates an EventInvitation record for the user, granting access to the event. If the user already
+        has an invitation, the token's ticket tiers are added and its waivers are turned on (never off).
         Invitations can bypass certain eligibility requirements like membership, capacity limits,
-        and RSVP deadlines. Returns the event on success, or 400 if the token is invalid/expired.
+        and RSVP deadlines. Returns the event on success (also when a user who already holds the invitation reopens a
+        used-up link that grants nothing new), or 400 if the token is invalid, expired, or used up.
         """
         if invitation := event_service.claim_invitation(self.user(), token):
             return 200, invitation.event
+        if rejection := event_service.get_token_rejection_reason(token):
+            return 400, ResponseMessage(message=str(TOKEN_GONE_MESSAGES[rejection.reason]))
         return 400, ResponseMessage(message=str(_("The token is invalid or expired.")))
 
     @route.delete(
