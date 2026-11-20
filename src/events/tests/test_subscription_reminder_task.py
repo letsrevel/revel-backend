@@ -175,6 +175,31 @@ class TestRenewalReminderTask:
         assert due_today.renewal_reminded_for is None
         assert send_subscription_renewal_reminders()["sent"] == 1
 
+    def test_backfill_migration_marks_the_target_day_when_the_old_beat_already_ran_today(
+        self, make_sub: t.Callable[..., MembershipSubscription]
+    ) -> None:
+        """0148 deployed after the daily beat: that cohort was reminded this morning and must not get a second one."""
+        import importlib
+
+        from django.apps import apps as django_apps
+        from django_celery_beat.models import PeriodicTask
+
+        backfill = importlib.import_module("events.migrations.0148_backfill_renewal_reminded_for").backfill
+        due_today = make_sub(
+            period_end_offset_days=REMINDER_DAYS, status=MembershipSubscription.SubscriptionStatus.ACTIVE
+        )
+        assert due_today.current_period_end is not None
+        MembershipSubscription.objects.filter(pk=due_today.pk).update(
+            current_period_start=due_today.current_period_end - timedelta(days=30)
+        )
+        PeriodicTask.objects.filter(name="Send membership subscription renewal reminders").update(
+            last_run_at=timezone.now()
+        )
+        backfill(django_apps, None)
+        due_today.refresh_from_db()
+        assert due_today.renewal_reminded_for == due_today.current_period_end
+        assert send_subscription_renewal_reminders()["sent"] == 0
+
     def test_skipped_four_days_before(self, make_sub: t.Callable[..., MembershipSubscription]) -> None:
         make_sub(
             period_end_offset_days=REMINDER_DAYS + 1,
