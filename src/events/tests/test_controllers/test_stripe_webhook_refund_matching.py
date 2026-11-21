@@ -87,6 +87,21 @@ class TestChargeRefundedMatching:
             other.refresh_from_db()
             assert other.status == Payment.PaymentStatus.SUCCEEDED
 
+    def test_a_success_clears_an_earlier_failure_reason(self, batch_of_4_online_payments: list[Payment]) -> None:
+        payments = batch_of_4_online_payments
+        _batch(payments, "pi_batch")
+        target = payments[0]
+        Payment.objects.filter(pk=target.pk).update(
+            refund_status=Payment.RefundStatus.FAILED, refund_failure_reason="earlier attempt failed"
+        )
+        refund: dict[str, t.Any] = {"id": "re_later", "amount": 4000, "metadata": {"ticket_id": str(target.ticket_id)}}
+        event = _charge_event("pi_batch", [refund])
+        StripeEventHandler(event).handle_charge_refunded(event)
+
+        target.refresh_from_db()
+        assert target.refund_status == Payment.RefundStatus.SUCCEEDED
+        assert target.refund_failure_reason == ""
+
     def test_branch_3_exact_amount_unambiguous(self, batch_of_4_online_payments: list[Payment]) -> None:
         """Uniform batch, one unrefunded row left: the amount match is the only reading."""
         payments = batch_of_4_online_payments

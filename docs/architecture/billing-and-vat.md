@@ -643,7 +643,7 @@ by a second partial refund on the same `Payment` produces two rows, never an upd
 | `payment` | The `Payment` being refunded (FK, `CASCADE` — mirrors `Payment`→`Ticket`→`User`) |
 | `amount` / `currency` | Amount of this specific attempt |
 | `status` | `pending` → `succeeded` / `failed` |
-| `source` | `organizer_api`, `user_cancellation`, `event_cancellation`, or `stripe_dashboard` |
+| `source` | `organizer_api`, `user_cancellation`, `event_cancellation`, `stripe_dashboard`, or `late_payment` |
 | `stripe_refund_id` | Stripe's refund object id — the anchor the webhook matcher uses |
 | `initiated_by` / `reason` | Audit fields |
 

@@ -25,6 +25,7 @@ class Refund(TimeStampedModel):
         USER_CANCELLATION = "user_cancellation", "User self-service cancellation"
         EVENT_CANCELLATION = "event_cancellation", "Bulk event cancellation"
         STRIPE_DASHBOARD = "stripe_dashboard", "Stripe dashboard"
+        LATE_PAYMENT = "late_payment", "Late payment"
 
     # CASCADE mirrors Payment→Ticket→User (GDPR cascade; Stripe keeps the financial record).
     payment = models.ForeignKey("events.Payment", on_delete=models.CASCADE, related_name="refunds")
