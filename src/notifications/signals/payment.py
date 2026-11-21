@@ -79,6 +79,8 @@ def _send_payment_confirmation(payment: Payment) -> None:
     ticket = payment.ticket
     if ticket.held_pass_id is not None:
         return  # Series pass tickets get one pass-level notification (see notifications/signals/series_pass.py)
+    if ticket.status == Ticket.TicketStatus.CANCELLED:
+        return  # a late payment on a cancelled ticket is refunded, not confirmed (#1459)
 
     event = ticket.event
 

@@ -20,6 +20,57 @@ _SUMMARY_MAX_ATTEMPTS = 30
 _SUMMARY_RETRY_COUNTDOWN = 120
 
 
+@shared_task(name="events.refund_late_payment")
+def refund_late_payment(payment_id: str) -> None:
+    """Refund a payment that completed after its ticket was cancelled (#1459).
+
+    Idempotent: it acts only on the webhook's "refund due" marker (SUCCEEDED, ``refund_status`` PENDING,
+    no live ``Refund`` row) for a ticket that is still CANCELLED, all read under the Payment lock. The full
+    amount is refunded and the platform fee is kept, as for every refund. A Stripe failure leaves a FAILED
+    ``Refund`` row, sets ``refund_status`` FAILED and logs ``late_payment_refund_failed`` for the alert.
+    """
+    try:
+        with transaction.atomic():
+            payment = (
+                Payment.objects.select_for_update(of=("self",))
+                .filter(
+                    pk=payment_id, status=Payment.PaymentStatus.SUCCEEDED, refund_status=Payment.RefundStatus.PENDING
+                )
+                .first()
+            )
+            if payment is None or payment.refunds.exclude(status=Refund.RefundStatus.FAILED).exists():
+                return  # not due: refunded, in flight, or not a late payment
+            if not Ticket.objects.filter(pk=payment.ticket_id, status=Ticket.TicketStatus.CANCELLED).exists():
+                logger.warning("late_payment_refund_skipped_ticket_not_cancelled", payment_id=payment_id)
+                return
+            refund_service.issue_refund(
+                payment,
+                amount=None,
+                initiated_by=None,
+                reason="late_payment",
+                source=Refund.Source.LATE_PAYMENT,
+            )
+    except NothingToRefundError:
+        logger.info("late_payment_refund_nothing_to_refund", payment_id=payment_id)
+    except (RefundInsufficientBalanceError, StripeRefundFailed) as exc:
+        reason = str(exc) or exc.__class__.__name__
+        with transaction.atomic():
+            payment = Payment.objects.select_for_update(of=("self",)).get(pk=payment_id)
+            Refund.objects.create(
+                payment=payment,
+                amount=refund_service.remaining_refundable(payment),
+                currency=payment.currency,
+                status=Refund.RefundStatus.FAILED,
+                failure_reason=reason,
+                reason="late_payment",
+                source=Refund.Source.LATE_PAYMENT,
+            )
+            Payment.objects.filter(pk=payment.pk).update(
+                refund_status=Payment.RefundStatus.FAILED, refund_failure_reason=reason
+            )
+        logger.error("late_payment_refund_failed", payment_id=payment_id, error=reason)
+
+
 @shared_task(name="events.refund_cancelled_event_tickets")
 def refund_cancelled_event_tickets(event_id: str, initiated_by_id: str | None = None) -> dict[str, int]:
     """Fan out one ``refund_one_cancelled_event_ticket`` subtask per non-cancelled ticket.

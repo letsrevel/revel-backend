@@ -8,11 +8,11 @@ from uuid import UUID
 import structlog
 from celery import shared_task
 from django.db import transaction
-from django.db.models import F, Max, Q, Value
+from django.db.models import Exists, F, Max, OuterRef, Q, Value
 from django.db.models.functions import Greatest
 from django.utils import timezone
 
-from events.models import HeldSeriesPass, Payment, Ticket, TicketTier
+from events.models import HeldSeriesPass, Payment, Refund, Ticket, TicketTier
 from events.service import discount_code_service
 
 logger = structlog.get_logger(__name__)
@@ -54,6 +54,36 @@ def hold_mismatch_payments(payment_ids: list[str]) -> int:
     return held
 
 
+# A late payment's refund is queued after the webhook commits; one still due after this long lost its dispatch.
+LATE_PAYMENT_REQUEUE_AFTER = timedelta(minutes=10)
+
+
+def requeue_late_payment_refunds() -> int:
+    """Queue the refund of every late payment whose refund is still due (#1459), and return the count.
+
+    "Due" is the webhook's marker: SUCCEEDED, ``refund_status`` PENDING, ticket CANCELLED, and no live
+    ``Refund`` row. A refund in flight always has a PENDING or SUCCEEDED row, so it is not matched. The
+    task re-checks everything under a lock, so a second dispatch is harmless.
+    """
+    from events.tasks.refunds import refund_late_payment
+
+    live_refund = Refund.objects.filter(payment=OuterRef("pk")).exclude(status=Refund.RefundStatus.FAILED)
+    due_ids = list(
+        Payment.objects.filter(
+            ~Exists(live_refund),
+            status=Payment.PaymentStatus.SUCCEEDED,
+            refund_status=Payment.RefundStatus.PENDING,
+            ticket__status=Ticket.TicketStatus.CANCELLED,
+            updated_at__lt=timezone.now() - LATE_PAYMENT_REQUEUE_AFTER,
+        ).values_list("pk", flat=True)
+    )
+    for payment_id in due_ids:
+        refund_late_payment.delay(str(payment_id))
+    if due_ids:
+        logger.warning("late_payment_refunds_requeued", count=len(due_ids))
+    return len(due_ids)
+
+
 @shared_task(name="events.cleanup_expired_payments")
 def cleanup_expired_payments() -> int:
     """Finds and deletes expired payments that are still in a 'pending' state.
@@ -74,6 +104,7 @@ def cleanup_expired_payments() -> int:
     # series_pass_service itself imports events.tasks (materialization task).
     from events.service.series_pass_service import expire_held_passes_for_tickets
 
+    requeue_late_payment_refunds()
     now = timezone.now()
     # Index-friendly: the first branch is the existing expires_at index scan
     # (incident_hold_at IS NULL merely filters it); the second is a range scan on

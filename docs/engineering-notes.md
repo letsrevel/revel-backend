@@ -344,10 +344,15 @@ across that outbound call "would block concurrent user-initiated cancels
 preview (`build_event_refund_preview`, which calls `stripe.Balance.retrieve`) takes no row
 locks at all — it is read-only and racy by design.
 
-**Known follow-up.** A payment that completes after its ticket was cancelled keeps the ticket
-`CANCELLED` (the `checkout.session.completed` handler skips the activation and logs
-`stripe_session_completed_cancelled_ticket_skipped`). The captured money is not refunded
-automatically yet.
+**Late payments (#1459).** A payment that completes after its ticket was cancelled keeps the ticket
+`CANCELLED`. The `checkout.session.completed` handler marks the payment "refund due" (`SUCCEEDED`,
+`refund_status` `PENDING`, no live `Refund` row) with a queryset update, so no payment confirmation is
+sent, and logs `stripe_session_completed_cancelled_ticket_refund_due`. After commit it queues
+`events.refund_late_payment`, which re-checks the marker and the cancelled ticket under the Payment
+lock and refunds the full amount with `source=late_payment` (the platform fee is kept). The credit note
+follows from the `charge.refunded` webhook, also for series passes. `cleanup_expired_payments`
+re-queues a marker older than 10 minutes. A Stripe failure leaves a `FAILED` `Refund` row,
+`refund_status` `FAILED` and the error log `late_payment_refund_failed`, which needs an alert.
 
 **Mitigation:** `STRIPE_HTTP_TIMEOUT_SECONDS` (`revel/settings/stripe.py`, default 15,
 configured on `stripe.default_http_client` by

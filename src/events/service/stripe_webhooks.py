@@ -11,6 +11,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import F
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from common.models import StripeConnectMixin
@@ -116,6 +117,24 @@ def handle_event(event: stripe.Event) -> None:
     handled = StripeEventHandler(event).handle()
     record.outcome = StripeWebhookEvent.Outcome.HANDLED if handled else StripeWebhookEvent.Outcome.UNHANDLED
     record.save(update_fields=["outcome", "updated_at"])
+
+
+def _late_payment_refund_dispatch(payment_ids: list[str]) -> t.Callable[[], None]:
+    """An on-commit callback that queues one late-payment refund per payment (#1459).
+
+    A failed dispatch is logged; ``cleanup_expired_payments`` re-queues the payment later.
+    """
+
+    def dispatch_late_payment_refunds() -> None:
+        from events.tasks.refunds import refund_late_payment
+
+        for payment_id in payment_ids:
+            try:
+                refund_late_payment.delay(payment_id)
+            except Exception:
+                logger.error("late_payment_refund_dispatch_failed", payment_id=payment_id, exc_info=True)
+
+    return dispatch_late_payment_refunds
 
 
 class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersMixin, DisputeHandlersMixin):
@@ -346,29 +365,43 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
         }
 
         # Update all payments and tickets
+        late_payment_ids: list[str] = []
         for payment in payments:
             if payment.status == Payment.PaymentStatus.SUCCEEDED:
                 continue  # Already processed
+
+            ticket = tickets_by_id[payment.ticket_id]
+            if ticket.status == Ticket.TicketStatus.CANCELLED:
+                # A late payment on a checkout whose ticket was cancelled in the meantime (a user cancel,
+                # or an organizer cancelling a pending series pass) must not resurrect the ticket. The
+                # money was captured: record it with a durable "refund due" marker (SUCCEEDED + refund
+                # PENDING with no Refund row yet). A queryset update, so no payment confirmation is sent.
+                # The refund runs after commit; cleanup_expired_payments re-queues a lost dispatch.
+                Payment.objects.filter(pk=payment.pk).update(
+                    status=Payment.PaymentStatus.SUCCEEDED,
+                    stripe_payment_intent_id=payment_intent_id,
+                    raw_response=raw_response,
+                    refund_status=Payment.RefundStatus.PENDING,
+                    updated_at=timezone.now(),
+                )
+                late_payment_ids.append(str(payment.pk))
+                logger.warning(
+                    "stripe_session_completed_cancelled_ticket_refund_due",
+                    session_id=session_id,
+                    ticket_id=str(ticket.id),
+                    payment_id=str(payment.pk),
+                )
+                continue
 
             payment.status = Payment.PaymentStatus.SUCCEEDED
             payment.stripe_payment_intent_id = payment_intent_id
             payment.raw_response = raw_response
             payment.save(update_fields=["status", "stripe_payment_intent_id", "raw_response"])
-
-            ticket = tickets_by_id[payment.ticket_id]
-            if ticket.status == Ticket.TicketStatus.CANCELLED:
-                # A late payment on a checkout whose ticket was cancelled in the meantime
-                # (a user cancel, or an organizer cancelling a pending series pass) must not
-                # resurrect the ticket. Payment bookkeeping above still runs: the money was
-                # captured. Refunding it automatically is a follow-up.
-                logger.warning(
-                    "stripe_session_completed_cancelled_ticket_skipped",
-                    session_id=session_id,
-                    ticket_id=str(ticket.id),
-                )
-                continue
             ticket.status = Ticket.TicketStatus.ACTIVE
             ticket.save(update_fields=["status"])
+
+        if late_payment_ids:
+            transaction.on_commit(_late_payment_refund_dispatch(late_payment_ids))
 
         # Notifications are now handled by Payment post_save signal in notifications/signals/payment.py
         logger.info(
