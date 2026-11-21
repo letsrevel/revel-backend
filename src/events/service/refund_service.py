@@ -485,3 +485,29 @@ def admin_cancel_ticket(
             locked_ticket._refund_currency = refund_row.currency  # type: ignore[attr-defined]
         ticket_service._cancel_offline_ticket_core(locked_ticket, cancelled_by=cancelled_by, reason=reason or "")
     return Ticket.objects.full().get(pk=locked_ticket.pk)
+
+
+def queue_late_payment_refund_if_captured(payment: Payment | None) -> bool:
+    """Mark a captured payment of a just-cancelled ticket "refund due" and queue its refund (#1459).
+
+    For a caller that holds the Payment lock and has cancelled the ticket in the same transaction. Only a
+    charged payment (SUCCEEDED, an amount, a payment intent) with no ``Refund`` row at all qualifies: a
+    payment whose earlier refund failed keeps that failure for the organizer.
+    """
+    if (
+        payment is None
+        or payment.status != Payment.PaymentStatus.SUCCEEDED
+        or payment.amount <= 0
+        or not payment.stripe_payment_intent_id
+        or payment.refunds.exists()
+    ):
+        return False
+    from django.db import transaction
+    from django.utils import timezone
+
+    from events.tasks.refunds import refund_late_payment
+
+    Payment.objects.filter(pk=payment.pk).update(refund_status=Payment.RefundStatus.PENDING, updated_at=timezone.now())
+    payment_id = str(payment.pk)
+    transaction.on_commit(lambda: refund_late_payment.delay(payment_id))
+    return True

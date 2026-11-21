@@ -77,14 +77,16 @@ def requeue_late_payment_refunds() -> int:
             updated_at__lt=timezone.now() - LATE_PAYMENT_REQUEUE_AFTER,
         ).values_list("pk", flat=True)
     )
+    queued = 0
     for payment_id in due_ids:
         try:
             refund_late_payment.delay(str(payment_id))
-        except Exception:
+            queued += 1
+        except Exception:  # one failed publish must not skip the other due payments
             logger.error("late_payment_refund_requeue_failed", payment_id=str(payment_id), exc_info=True)
     if due_ids:
-        logger.warning("late_payment_refunds_requeued", count=len(due_ids))
-    return len(due_ids)
+        logger.warning("late_payment_refunds_requeued", count=queued, due=len(due_ids))
+    return queued
 
 
 @shared_task(name="events.cleanup_expired_payments")

@@ -1,5 +1,7 @@
 """Bulk cancel-and-refund sweep for cancelled events."""
 
+from datetime import timedelta
+
 import stripe
 import structlog
 from celery import shared_task
@@ -21,7 +23,9 @@ _SUMMARY_MAX_ATTEMPTS = 30
 _SUMMARY_RETRY_COUNTDOWN = 120
 
 
-_TRANSIENT_STRIPE_ERRORS = (stripe.error.APIConnectionError, stripe.error.RateLimitError)
+_TRANSIENT_STRIPE_ERRORS = (stripe.error.APIConnectionError, stripe.error.RateLimitError, stripe.error.APIError)
+# After this long of transient failures, the refund is recorded as FAILED so the alert fires.
+LATE_PAYMENT_TRANSIENT_GIVE_UP = timedelta(hours=6)
 
 
 def _clear_late_payment_marker(payment_id: str) -> None:
@@ -30,27 +34,6 @@ def _clear_late_payment_marker(payment_id: str) -> None:
     Payment.objects.filter(~Exists(live_refund), pk=payment_id, refund_status=Payment.RefundStatus.PENDING).update(
         refund_status=None
     )
-
-
-def queue_late_payment_refund_if_captured(payment: Payment | None) -> bool:
-    """Mark a captured payment of a just-cancelled ticket "refund due" and queue its refund.
-
-    For a caller that holds the Payment lock and has cancelled the ticket in the same transaction. Only a
-    charged payment (SUCCEEDED, an amount, a payment intent) with no ``Refund`` row at all qualifies: a
-    payment whose earlier refund failed keeps that failure for the organizer.
-    """
-    if (
-        payment is None
-        or payment.status != Payment.PaymentStatus.SUCCEEDED
-        or payment.amount <= 0
-        or not payment.stripe_payment_intent_id
-        or payment.refunds.exists()
-    ):
-        return False
-    Payment.objects.filter(pk=payment.pk).update(refund_status=Payment.RefundStatus.PENDING, updated_at=timezone.now())
-    payment_id = str(payment.pk)
-    transaction.on_commit(lambda: refund_late_payment.delay(payment_id))
-    return True
 
 
 @shared_task(name="events.refund_late_payment")
@@ -63,7 +46,8 @@ def refund_late_payment(payment_id: str) -> None:
     on purpose:
 
     - nothing to refund, or the ticket is no longer cancelled: the marker is cleared;
-    - a transient Stripe error: the marker stays, and ``cleanup_expired_payments`` retries later;
+    - a transient Stripe error: the marker stays, and ``cleanup_expired_payments`` retries later, for up to
+      ``LATE_PAYMENT_TRANSIENT_GIVE_UP`` after the marker was set;
     - any other Stripe failure: a FAILED ``Refund`` row, ``refund_status`` FAILED, and the error log
       ``late_payment_refund_failed`` for the alert.
     """
@@ -93,7 +77,9 @@ def refund_late_payment(payment_id: str) -> None:
         _clear_late_payment_marker(payment_id)
         logger.info("late_payment_refund_nothing_to_refund", payment_id=payment_id)
     except (RefundInsufficientBalanceError, StripeRefundFailed) as exc:
-        if isinstance(exc.__cause__, _TRANSIENT_STRIPE_ERRORS):
+        marked_at = Payment.objects.filter(pk=payment_id).values_list("updated_at", flat=True).first()
+        still_retrying = marked_at is not None and timezone.now() - marked_at < LATE_PAYMENT_TRANSIENT_GIVE_UP
+        if isinstance(exc.__cause__, _TRANSIENT_STRIPE_ERRORS) and still_retrying:
             logger.warning("late_payment_refund_retry_later", payment_id=payment_id, error=str(exc))
             return
         reason = str(exc) or exc.__class__.__name__
@@ -245,7 +231,7 @@ def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | Non
         locked_ticket.status = Ticket.TicketStatus.CANCELLED
         # A checkout that completed between the refund step above and this lock was confirmed as a normal
         # sale; its ticket is now cancelled, so its money is refunded like any late payment (#1459).
-        queue_late_payment_refund_if_captured(locked_payment)
+        refund_service.queue_late_payment_refund_if_captured(locked_payment)
         # A queued subtask may run after the event started; what counts is whether the event was cancelled
         # (the refund sweep started, ``tickets_refund_started_at``) before it started.
         event = locked_ticket.event

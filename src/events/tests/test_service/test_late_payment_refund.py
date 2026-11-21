@@ -176,6 +176,18 @@ class TestRefundLatePaymentTask:
         assert not Refund.objects.filter(payment=cancelled_ticket_payment).exists()
         assert Payment.objects.get(pk=cancelled_ticket_payment.pk).refund_status == Payment.RefundStatus.PENDING
 
+    def test_a_transient_error_past_the_retry_window_is_recorded_as_failed(
+        self, cancelled_ticket_payment: Payment, stripe_refund: MagicMock
+    ) -> None:
+        _mark_due(cancelled_ticket_payment, minutes_ago=7 * 60)
+        stripe_refund.side_effect = stripe.error.APIConnectionError("still down")
+
+        with patch("events.tasks.refunds.logger") as log:
+            refund_late_payment(str(cancelled_ticket_payment.pk))
+
+        assert Payment.objects.get(pk=cancelled_ticket_payment.pk).refund_status == Payment.RefundStatus.FAILED
+        assert log.error.call_args.args[0] == "late_payment_refund_failed"
+
     def test_a_stripe_failure_is_recorded_as_failed(
         self, cancelled_ticket_payment: Payment, stripe_refund: MagicMock
     ) -> None:

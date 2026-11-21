@@ -339,13 +339,15 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             refund_status=Payment.RefundStatus.PENDING if refund_due else None,
             updated_at=timezone.now(),
         )
-        if refund_due:
-            logger.warning(
-                "stripe_session_completed_cancelled_ticket_refund_due",
-                session_id=session_id,
-                ticket_id=str(ticket.id),
-                payment_id=str(payment.pk),
-            )
+        logger.warning(
+            "stripe_session_completed_cancelled_ticket_refund_due"
+            if refund_due
+            else "stripe_session_completed_cancelled_ticket_nothing_charged",
+            session_id=session_id,
+            ticket_id=str(ticket.id),
+            payment_id=str(payment.pk),
+            has_payment_intent=bool(payment_intent_id),
+        )
         return refund_due
 
     @transaction.atomic
@@ -397,7 +399,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
         transaction.on_commit(_trigger_invoice)
 
         # Check if already processed (idempotency for payment/ticket updates)
-        if all(p.status == Payment.PaymentStatus.SUCCEEDED for p in payments):
+        if all(p.status in (Payment.PaymentStatus.SUCCEEDED, Payment.PaymentStatus.REFUNDED) for p in payments):
             logger.info(
                 "stripe_webhook_duplicate_payment_success",
                 session_id=session_id,
