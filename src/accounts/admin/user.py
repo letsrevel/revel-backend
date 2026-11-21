@@ -6,6 +6,7 @@ including user management, authentication, and security features.
 
 import typing as t
 
+import structlog
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
 from django.db import transaction
@@ -46,6 +47,8 @@ from accounts.utils.email_normalization import normalize_email_for_matching
 from common.client_ip import get_client_ip
 from common.models import SiteSettings
 from events.models import GeneralUserPreferences
+
+logger = structlog.get_logger(__name__)
 
 # Monkey patch the missing attribute
 GoogleSSOInlineAdmin.ordering_field = "google_id"
@@ -126,10 +129,18 @@ class UserBillingProfileInline(TabularInline):  # type: ignore[misc]
 
 
 def _erasure_dispatch(user_id: str) -> t.Callable[[], None]:
-    """A named on-commit callback: Django logs a failed robust callback by its ``__qualname__``."""
+    """A named on-commit callback that queues one account erasure.
+
+    The request has already answered when it runs, so a failed dispatch cannot reach the admin page. It is
+    logged as an error with the account id instead: the account stays deactivated, and an operator re-queues
+    its erasure. (A named function, not a ``partial``: Django logs a failed robust callback by ``__qualname__``.)
+    """
 
     def dispatch_account_erasure() -> None:
-        delete_user_account.delay(user_id)
+        try:
+            delete_user_account.delay(user_id)
+        except Exception:
+            logger.error("account_erasure_dispatch_failed", user_id=user_id, exc_info=True)
 
     return dispatch_account_erasure
 
@@ -138,7 +149,7 @@ def _queue_account_erasure(user_ids: list[t.Any]) -> None:
     """Deactivate the accounts in this transaction, then queue their erasure for after commit."""
     RevelUser.objects.filter(pk__in=user_ids).update(is_active=False)
     for user_id in user_ids:
-        # robust: a failed dispatch is logged, and the other accounts are still queued.
+        # robust: the other accounts are still queued if one callback fails.
         transaction.on_commit(_erasure_dispatch(str(user_id)), robust=True)
 
 
