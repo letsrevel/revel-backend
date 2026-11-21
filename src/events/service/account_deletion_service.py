@@ -45,7 +45,9 @@ def release_capacity_of_account(user: "RevelUser") -> None:
         .order_by("pk")
         .values_list("pk", flat=True)
     )
-    locked_passes = list(HeldSeriesPass.objects.select_for_update(of=("self",)).filter(pk__in=held_ids).order_by("pk"))
+    locked_passes = list(
+        HeldSeriesPass.objects.select_for_update(of=("self",)).filter(pk__in=held_ids, user=user).order_by("pk")
+    )
     pass_ids = sorted({held.series_pass_id for held in locked_passes})
     list(
         SeriesPass.objects.select_for_update(of=("self",))
@@ -55,7 +57,7 @@ def release_capacity_of_account(user: "RevelUser") -> None:
     )
     pending = [
         ticket
-        for ticket in lock_tier_then_ticket(Ticket.objects.filter(pk__in=ticket_ids))
+        for ticket in lock_tier_then_ticket(Ticket.objects.filter(pk__in=ticket_ids, user=user))
         if ticket.status == Ticket.TicketStatus.PENDING
     ]
 

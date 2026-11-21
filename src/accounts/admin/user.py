@@ -5,7 +5,6 @@ including user management, authentication, and security features.
 """
 
 import typing as t
-from functools import partial
 
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
@@ -126,11 +125,21 @@ class UserBillingProfileInline(TabularInline):  # type: ignore[misc]
     fields = readonly_fields
 
 
+def _erasure_dispatch(user_id: str) -> t.Callable[[], None]:
+    """A named on-commit callback: Django logs a failed robust callback by its ``__qualname__``."""
+
+    def dispatch_account_erasure() -> None:
+        delete_user_account.delay(user_id)
+
+    return dispatch_account_erasure
+
+
 def _queue_account_erasure(user_ids: list[t.Any]) -> None:
     """Deactivate the accounts in this transaction, then queue their erasure for after commit."""
     RevelUser.objects.filter(pk__in=user_ids).update(is_active=False)
     for user_id in user_ids:
-        transaction.on_commit(partial(delete_user_account.delay, str(user_id)))
+        # robust: a failed dispatch is logged, and the other accounts are still queued.
+        transaction.on_commit(_erasure_dispatch(str(user_id)), robust=True)
 
 
 @admin.register(RevelUser)

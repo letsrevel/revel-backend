@@ -106,10 +106,13 @@ class TestAccountDeletionCapacity:
     def test_other_accounts_keep_their_slots(
         self, revel_user: RevelUser, member_user: RevelUser, event: Event, ticket_tier: TicketTier
     ) -> None:
-        _ticket(member_user, event, ticket_tier, Ticket.TicketStatus.PENDING)
-        TicketTier.objects.filter(pk=ticket_tier.pk).update(quantity_sold=1)
+        _ticket(revel_user, event, ticket_tier, Ticket.TicketStatus.PENDING)
+        other = _ticket(member_user, event, ticket_tier, Ticket.TicketStatus.PENDING)
+        TicketTier.objects.filter(pk=ticket_tier.pk).update(quantity_sold=2)
 
         delete_user_account(str(revel_user.pk))
+
+        assert Ticket.objects.filter(pk=other.pk).exists()
 
         assert _sold(TicketTier, ticket_tier.pk) == 1
 
@@ -203,6 +206,7 @@ class TestOtherAccountDeletionPaths:
         with patch("accounts.admin.user.delete_user_account") as task:
             with django_capture_on_commit_callbacks(execute=True):
                 RevelUserAdmin(RevelUser, site).delete_model(RequestFactory().post("/"), revel_user)
+                task.delay.assert_not_called()  # only after commit
 
         task.delay.assert_called_once_with(str(revel_user.pk))
         # Removed by the task, not the request; signing in stops at once.
@@ -216,9 +220,22 @@ class TestOtherAccountDeletionPaths:
                 RevelUserAdmin(RevelUser, site).delete_queryset(
                     RequestFactory().post("/"), RevelUser.objects.filter(pk__in=[revel_user.pk, member_user.pk])
                 )
+                task.delay.assert_not_called()  # only after commit
 
         assert sorted(c.args[0] for c in task.delay.call_args_list) == sorted([str(revel_user.pk), str(member_user.pk)])
         assert not RevelUser.objects.filter(pk__in=[revel_user.pk, member_user.pk], is_active=True).exists()
+
+    def test_one_failed_admin_dispatch_does_not_skip_the_other_accounts(
+        self, revel_user: RevelUser, member_user: RevelUser, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        with patch("accounts.admin.user.delete_user_account") as task:
+            task.delay.side_effect = [RuntimeError("broker down"), None]
+            with django_capture_on_commit_callbacks(execute=True):
+                RevelUserAdmin(RevelUser, site).delete_queryset(
+                    RequestFactory().post("/"), RevelUser.objects.filter(pk__in=[revel_user.pk, member_user.pk])
+                )
+
+        assert task.delay.call_count == 2
 
     def test_an_already_erased_account_is_skipped(self) -> None:
         delete_user_account(str(uuid.uuid4()))  # a second queued run must not raise
