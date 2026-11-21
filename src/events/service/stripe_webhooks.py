@@ -289,6 +289,65 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
 
         transaction.on_commit(_retry_credit_note)
 
+    def _apply_session_payments(
+        self,
+        payments: list[Payment],
+        tickets_by_id: dict[t.Any, Ticket],
+        payment_intent_id: str | None,
+        raw_response: t.Any,
+        session_id: str,
+    ) -> list[str]:
+        """Mark the session's payments SUCCEEDED and activate their tickets; return the late payment ids.
+
+        Only PENDING or FAILED payments change: a replayed event must not undo a SUCCEEDED or REFUNDED one.
+        """
+        late_payment_ids: list[str] = []
+        for payment in payments:
+            if payment.status not in (Payment.PaymentStatus.PENDING, Payment.PaymentStatus.FAILED):
+                continue  # Already processed (SUCCEEDED) or refunded: a replayed event must not undo either
+
+            ticket = tickets_by_id[payment.ticket_id]
+            if ticket.status == Ticket.TicketStatus.CANCELLED:
+                if self._record_late_payment(payment, ticket, payment_intent_id, raw_response, session_id):
+                    late_payment_ids.append(str(payment.pk))
+                continue
+
+            payment.status = Payment.PaymentStatus.SUCCEEDED
+            payment.stripe_payment_intent_id = payment_intent_id
+            payment.raw_response = raw_response
+            payment.save(update_fields=["status", "stripe_payment_intent_id", "raw_response"])
+            ticket.status = Ticket.TicketStatus.ACTIVE
+            ticket.save(update_fields=["status"])
+        return late_payment_ids
+
+    @staticmethod
+    def _record_late_payment(
+        payment: Payment, ticket: Ticket, payment_intent_id: str | None, raw_response: t.Any, session_id: str
+    ) -> bool:
+        """Record a payment that completed for a cancelled ticket; return whether its refund is due.
+
+        A late payment must not resurrect the ticket (a user cancel, or an organizer cancelling a pending
+        series pass). The money was captured: a charged row gets a durable "refund due" marker (SUCCEEDED +
+        refund PENDING with no Refund row yet), set with a queryset update so no payment confirmation is
+        sent. The refund runs after commit; cleanup_expired_payments re-queues a lost dispatch (#1459).
+        """
+        refund_due = payment.amount > 0 and bool(payment_intent_id)
+        Payment.objects.filter(pk=payment.pk).update(
+            status=Payment.PaymentStatus.SUCCEEDED,
+            stripe_payment_intent_id=payment_intent_id,
+            raw_response=raw_response,
+            refund_status=Payment.RefundStatus.PENDING if refund_due else None,
+            updated_at=timezone.now(),
+        )
+        if refund_due:
+            logger.warning(
+                "stripe_session_completed_cancelled_ticket_refund_due",
+                session_id=session_id,
+                ticket_id=str(ticket.id),
+                payment_id=str(payment.pk),
+            )
+        return refund_due
+
     @transaction.atomic
     def handle_checkout_session_completed(self, event: stripe.Event) -> None:
         """Handles the successful completion of a checkout session.
@@ -364,42 +423,9 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             .order_by("pk")
         }
 
-        # Update all payments and tickets
-        late_payment_ids: list[str] = []
-        for payment in payments:
-            if payment.status == Payment.PaymentStatus.SUCCEEDED:
-                continue  # Already processed
-
-            ticket = tickets_by_id[payment.ticket_id]
-            if ticket.status == Ticket.TicketStatus.CANCELLED:
-                # A late payment on a checkout whose ticket was cancelled in the meantime (a user cancel,
-                # or an organizer cancelling a pending series pass) must not resurrect the ticket. The
-                # money was captured: record it with a durable "refund due" marker (SUCCEEDED + refund
-                # PENDING with no Refund row yet). A queryset update, so no payment confirmation is sent.
-                # The refund runs after commit; cleanup_expired_payments re-queues a lost dispatch.
-                Payment.objects.filter(pk=payment.pk).update(
-                    status=Payment.PaymentStatus.SUCCEEDED,
-                    stripe_payment_intent_id=payment_intent_id,
-                    raw_response=raw_response,
-                    refund_status=Payment.RefundStatus.PENDING,
-                    updated_at=timezone.now(),
-                )
-                late_payment_ids.append(str(payment.pk))
-                logger.warning(
-                    "stripe_session_completed_cancelled_ticket_refund_due",
-                    session_id=session_id,
-                    ticket_id=str(ticket.id),
-                    payment_id=str(payment.pk),
-                )
-                continue
-
-            payment.status = Payment.PaymentStatus.SUCCEEDED
-            payment.stripe_payment_intent_id = payment_intent_id
-            payment.raw_response = raw_response
-            payment.save(update_fields=["status", "stripe_payment_intent_id", "raw_response"])
-            ticket.status = Ticket.TicketStatus.ACTIVE
-            ticket.save(update_fields=["status"])
-
+        late_payment_ids = self._apply_session_payments(
+            payments, tickets_by_id, payment_intent_id, raw_response, session_id
+        )
         if late_payment_ids:
             transaction.on_commit(_late_payment_refund_dispatch(late_payment_ids))
 

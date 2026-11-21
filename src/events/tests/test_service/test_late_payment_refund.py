@@ -8,10 +8,11 @@ import pytest
 import stripe
 from django.utils import timezone
 
-from events.models import Payment, Refund, Ticket, TicketTier
+from events.exceptions import NothingToRefundError
+from events.models import Event, Payment, Refund, Ticket, TicketTier
 from events.service.stripe_webhooks import StripeEventHandler
 from events.tasks.payments import requeue_late_payment_refunds
-from events.tasks.refunds import refund_late_payment
+from events.tasks.refunds import refund_late_payment, refund_one_cancelled_event_ticket
 from events.tests.test_series_pass.test_backfill import _completed_checkout_event
 from notifications.enums import NotificationType
 
@@ -69,6 +70,36 @@ class TestWebhookMarksTheLatePayment:
         dispatch.assert_called_once_with(str(payment.pk))
         confirmation.assert_not_called()
 
+    def test_a_zero_amount_row_is_recorded_without_a_refund(
+        self, cancelled_ticket_payment: Payment, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        Payment.objects.filter(pk=cancelled_ticket_payment.pk).update(amount=0)
+        event = _completed_checkout_event(_SESSION)
+        with patch("events.tasks.refunds.refund_late_payment.delay") as dispatch:
+            with django_capture_on_commit_callbacks(execute=True):
+                StripeEventHandler(event).handle_checkout_session_completed(event)
+
+        payment = Payment.objects.get(pk=cancelled_ticket_payment.pk)
+        assert payment.status == Payment.PaymentStatus.SUCCEEDED
+        assert payment.refund_status is None
+        dispatch.assert_not_called()
+
+    def test_a_replayed_event_does_not_undo_a_refund(
+        self, cancelled_ticket_payment: Payment, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        Payment.objects.filter(pk=cancelled_ticket_payment.pk).update(
+            status=Payment.PaymentStatus.REFUNDED, refund_status=Payment.RefundStatus.SUCCEEDED
+        )
+        event = _completed_checkout_event(_SESSION)
+        with patch("events.tasks.refunds.refund_late_payment.delay") as dispatch:
+            with django_capture_on_commit_callbacks(execute=True):
+                StripeEventHandler(event).handle_checkout_session_completed(event)
+
+        payment = Payment.objects.get(pk=cancelled_ticket_payment.pk)
+        assert payment.status == Payment.PaymentStatus.REFUNDED
+        assert payment.refund_status == Payment.RefundStatus.SUCCEEDED
+        dispatch.assert_not_called()
+
 
 class TestRefundLatePaymentTask:
     def test_refunds_the_full_amount_as_a_late_payment(
@@ -95,6 +126,34 @@ class TestRefundLatePaymentTask:
         assert stripe_refund.call_count == 1
         assert Refund.objects.filter(payment=cancelled_ticket_payment).count() == 1
 
+    def test_a_partial_refund_in_flight_stops_the_task(
+        self, cancelled_ticket_payment: Payment, stripe_refund: MagicMock
+    ) -> None:
+        _mark_due(cancelled_ticket_payment)
+        Refund.objects.create(
+            payment=cancelled_ticket_payment,
+            amount=cancelled_ticket_payment.amount / 2,
+            currency=cancelled_ticket_payment.currency,
+            status=Refund.RefundStatus.PENDING,
+            source=Refund.Source.ORGANIZER_API,
+        )
+
+        refund_late_payment(str(cancelled_ticket_payment.pk))
+
+        stripe_refund.assert_not_called()
+        assert Refund.objects.filter(payment=cancelled_ticket_payment).count() == 1
+
+    def test_nothing_to_refund_clears_the_marker(
+        self, cancelled_ticket_payment: Payment, stripe_refund: MagicMock
+    ) -> None:
+        _mark_due(cancelled_ticket_payment)
+        Payment.objects.filter(pk=cancelled_ticket_payment.pk).update(amount=0)
+
+        refund_late_payment(str(cancelled_ticket_payment.pk))
+
+        stripe_refund.assert_not_called()
+        assert Payment.objects.get(pk=cancelled_ticket_payment.pk).refund_status is None
+
     def test_a_ticket_that_is_not_cancelled_is_not_refunded(
         self, cancelled_ticket_payment: Payment, stripe_refund: MagicMock
     ) -> None:
@@ -104,6 +163,18 @@ class TestRefundLatePaymentTask:
         refund_late_payment(str(cancelled_ticket_payment.pk))
 
         stripe_refund.assert_not_called()
+        assert Payment.objects.get(pk=cancelled_ticket_payment.pk).refund_status is None  # marker ended
+
+    def test_a_transient_stripe_error_keeps_the_marker_for_a_retry(
+        self, cancelled_ticket_payment: Payment, stripe_refund: MagicMock
+    ) -> None:
+        _mark_due(cancelled_ticket_payment)
+        stripe_refund.side_effect = stripe.error.APIConnectionError("network blip")
+
+        refund_late_payment(str(cancelled_ticket_payment.pk))
+
+        assert not Refund.objects.filter(payment=cancelled_ticket_payment).exists()
+        assert Payment.objects.get(pk=cancelled_ticket_payment.pk).refund_status == Payment.RefundStatus.PENDING
 
     def test_a_stripe_failure_is_recorded_as_failed(
         self, cancelled_ticket_payment: Payment, stripe_refund: MagicMock
@@ -153,6 +224,55 @@ class TestSweepRequeuesLostDispatches:
             assert requeue_late_payment_refunds() == 0
 
         dispatch.assert_not_called()
+
+
+class TestSweepFilters:
+    def test_a_payment_on_an_active_ticket_is_not_requeued(self, cancelled_ticket_payment: Payment) -> None:
+        _mark_due(cancelled_ticket_payment, minutes_ago=11)
+        Ticket.objects.filter(pk=cancelled_ticket_payment.ticket_id).update(status=Ticket.TicketStatus.ACTIVE)
+
+        with patch("events.tasks.refunds.refund_late_payment.delay") as dispatch:
+            assert requeue_late_payment_refunds() == 0
+
+        dispatch.assert_not_called()
+
+    def test_a_failed_late_refund_is_not_requeued(self, cancelled_ticket_payment: Payment) -> None:
+        _mark_due(cancelled_ticket_payment, minutes_ago=11)
+        Payment.objects.filter(pk=cancelled_ticket_payment.pk).update(refund_status=Payment.RefundStatus.FAILED)
+        Refund.objects.create(
+            payment=cancelled_ticket_payment,
+            amount=cancelled_ticket_payment.amount,
+            currency=cancelled_ticket_payment.currency,
+            status=Refund.RefundStatus.FAILED,
+            source=Refund.Source.LATE_PAYMENT,
+        )
+
+        with patch("events.tasks.refunds.refund_late_payment.delay") as dispatch:
+            assert requeue_late_payment_refunds() == 0
+
+        dispatch.assert_not_called()
+
+
+def test_the_event_cancel_sweep_refunds_a_checkout_that_completed_between_its_steps(
+    ticket_factory: t.Callable[..., Ticket],
+    payment_factory: t.Callable[..., Payment],
+    tier_factory: t.Callable[..., TicketTier],
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    ticket = ticket_factory(tier=tier_factory(), status=Ticket.TicketStatus.ACTIVE)
+    payment = payment_factory(ticket)  # SUCCEEDED with an intent: confirmed after the refund step looked
+    Event.objects.filter(pk=ticket.event_id).update(status=Event.EventStatus.CANCELLED)
+
+    with (
+        patch("events.service.refund_service.issue_refund", side_effect=NothingToRefundError("still pending")),
+        patch("events.tasks.refunds.refund_late_payment.delay") as dispatch,
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            refund_one_cancelled_event_ticket(str(ticket.pk))
+
+    assert Ticket.objects.get(pk=ticket.pk).status == Ticket.TicketStatus.CANCELLED
+    assert Payment.objects.get(pk=payment.pk).refund_status == Payment.RefundStatus.PENDING
+    dispatch.assert_called_once_with(str(payment.pk))
 
 
 def test_no_payment_confirmation_for_a_cancelled_ticket(

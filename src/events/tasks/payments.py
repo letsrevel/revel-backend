@@ -78,7 +78,10 @@ def requeue_late_payment_refunds() -> int:
         ).values_list("pk", flat=True)
     )
     for payment_id in due_ids:
-        refund_late_payment.delay(str(payment_id))
+        try:
+            refund_late_payment.delay(str(payment_id))
+        except Exception:
+            logger.error("late_payment_refund_requeue_failed", payment_id=str(payment_id), exc_info=True)
     if due_ids:
         logger.warning("late_payment_refunds_requeued", count=len(due_ids))
     return len(due_ids)
@@ -104,7 +107,10 @@ def cleanup_expired_payments() -> int:
     # series_pass_service itself imports events.tasks (materialization task).
     from events.service.series_pass_service import expire_held_passes_for_tickets
 
-    requeue_late_payment_refunds()
+    try:
+        requeue_late_payment_refunds()
+    except Exception:  # never let the safety net stop the reclaim below
+        logger.error("late_payment_refund_requeue_failed", exc_info=True)
     now = timezone.now()
     # Index-friendly: the first branch is the existing expires_at index scan
     # (incident_hold_at IS NULL merely filters it); the second is a range scan on
