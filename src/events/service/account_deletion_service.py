@@ -27,9 +27,10 @@ def release_capacity_of_account(user: "RevelUser") -> None:
     SeriesPass -> TicketTier -> Ticket, each in pk order, then the DiscountCode rows), with statuses read
     only under those locks. Decrements are floored at zero, and the freed events get waitlist processing.
     """
-    # ponytail: a checkout or pass purchase that inserts a new PENDING row for this account after the snapshot
-    # below is cascaded by ``user.delete()`` without giving its slot back. The account is being erased, so the
-    # window is tiny; closing it would need a lock on the user row in every checkout path.
+    # ponytail: a checkout, pass purchase or waitlist offer that inserts a new PENDING row for this account
+    # after the snapshot below is cascaded by ``user.delete()`` without giving its slot back or starting the
+    # waitlist. The account is being erased, so the window is tiny; closing it would need a lock on the user
+    # row in every checkout path.
     ticket_ids = list(Ticket.objects.filter(user=user).values_list("pk", flat=True))
     held_ids = list(HeldSeriesPass.objects.filter(user=user).values_list("pk", flat=True))
     # The account's PENDING waitlist offers hold places too, and they cascade with it.

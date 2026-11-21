@@ -200,7 +200,10 @@ def delete_user_account(user_id: str) -> None:
     Args:
         user_id: The UUID of the user to delete.
     """
-    user = RevelUser.objects.get(id=user_id)
+    user = RevelUser.objects.filter(id=user_id).first()
+    if user is None:  # already erased, for example by an earlier queued run
+        logger.info("account_deletion_skipped_missing", user_id=user_id)
+        return
     # Deliberately no email here: this log outlives the erasure it records.
     logger.info("account_deletion_started", user_id=str(user.id))
     from events.service.account_deletion_service import release_capacity_of_account

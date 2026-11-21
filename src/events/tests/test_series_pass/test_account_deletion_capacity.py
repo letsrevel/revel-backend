@@ -205,7 +205,8 @@ class TestOtherAccountDeletionPaths:
                 RevelUserAdmin(RevelUser, site).delete_model(RequestFactory().post("/"), revel_user)
 
         task.delay.assert_called_once_with(str(revel_user.pk))
-        assert RevelUser.objects.filter(pk=revel_user.pk).exists()  # removed by the task, not the request
+        # Removed by the task, not the request; signing in stops at once.
+        assert RevelUser.objects.get(pk=revel_user.pk).is_active is False
 
     def test_the_admin_bulk_delete_queues_the_erasure_for_each_account(
         self, revel_user: RevelUser, member_user: RevelUser, django_capture_on_commit_callbacks: t.Any
@@ -217,6 +218,10 @@ class TestOtherAccountDeletionPaths:
                 )
 
         assert sorted(c.args[0] for c in task.delay.call_args_list) == sorted([str(revel_user.pk), str(member_user.pk)])
+        assert not RevelUser.objects.filter(pk__in=[revel_user.pk, member_user.pk], is_active=True).exists()
+
+    def test_an_already_erased_account_is_skipped(self) -> None:
+        delete_user_account(str(uuid.uuid4()))  # a second queued run must not raise
 
     def test_a_pending_waitlist_offer_starts_waitlist_processing_for_its_event(
         self, revel_user: RevelUser, event: Event

@@ -126,6 +126,13 @@ class UserBillingProfileInline(TabularInline):  # type: ignore[misc]
     fields = readonly_fields
 
 
+def _queue_account_erasure(user_ids: list[t.Any]) -> None:
+    """Deactivate the accounts in this transaction, then queue their erasure for after commit."""
+    RevelUser.objects.filter(pk__in=user_ids).update(is_active=False)
+    for user_id in user_ids:
+        transaction.on_commit(partial(delete_user_account.delay, str(user_id)))
+
+
 @admin.register(RevelUser)
 class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     """Enhanced admin for RevelUser with comprehensive user management."""
@@ -266,19 +273,18 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
 
     # Actions
     def delete_model(self, request: HttpRequest, obj: RevelUser) -> None:
-        """Queue the account erasure after commit, like the user's own account deletion.
+        """Deactivate the account now and queue its erasure after commit, like the user's own account deletion.
 
         The erasure gives back unfinished checkouts, cancels live subscriptions and purges history, and it must
-        run outside a transaction. The account is gone once the task has run. Accounts with referral rows are
-        still refused by the delete confirmation (``PROTECT``); delete those through the account deletion flow.
+        run outside a transaction. The deactivation stops sign-in until the task has removed the account.
+        Accounts with referral rows are still refused by the delete confirmation (``PROTECT``); delete those
+        through the account deletion flow.
         """
-        user_id = str(obj.pk)
-        transaction.on_commit(lambda: delete_user_account.delay(user_id))
+        _queue_account_erasure([obj.pk])
 
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
-        """Bulk delete: queue the account erasure for each selected account (see :meth:`delete_model`)."""
-        for pk in queryset.values_list("pk", flat=True):
-            transaction.on_commit(partial(delete_user_account.delay, str(pk)))
+        """Bulk delete: deactivate and queue the erasure of each selected account (see :meth:`delete_model`)."""
+        _queue_account_erasure(list(queryset.values_list("pk", flat=True)))
 
     actions = [
         "send_verification_email",
