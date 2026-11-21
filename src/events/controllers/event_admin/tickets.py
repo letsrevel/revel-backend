@@ -321,7 +321,7 @@ class EventAdminTicketsController(EventAdminBaseController):
     @route.post(
         "/tickets/{ticket_id}/confirm-payment",
         url_name="confirm_ticket_payment",
-        response={200: schema.UserTicketSchema},
+        response={200: schema.UserTicketSchema, 400: ErrorDetail, 409: ErrorDetail},
     )
     def confirm_ticket_payment(
         self,
@@ -346,7 +346,7 @@ class EventAdminTicketsController(EventAdminBaseController):
     @route.post(
         "/tickets/{ticket_id}/unconfirm-payment",
         url_name="unconfirm_ticket_payment",
-        response={200: schema.UserTicketSchema},
+        response={200: schema.UserTicketSchema, 400: ErrorDetail, 409: ErrorDetail},
     )
     def unconfirm_ticket_payment(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
         """Revert a confirmed ticket back to pending status.
@@ -356,7 +356,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         """
         event = self.get_one(event_id)
         ticket = get_object_or_404(
-            models.Ticket,
+            models.Ticket.objects.select_related("tier"),
             pk=ticket_id,
             event=event,
             status=models.Ticket.TicketStatus.ACTIVE,

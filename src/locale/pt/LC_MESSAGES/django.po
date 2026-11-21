@@ -8617,3 +8617,6 @@ msgstr "Recebemos vários códigos de dois fatores incorretos para a sua conta R
 
 msgid "If it was you, no action is needed — just try again after the pause."
 msgstr "Se foi você, não precisa de fazer nada: tente novamente quando a pausa terminar."
+
+msgid "This ticket has changed. Reload the page and try again."
+msgstr "Este bilhete mudou. Recarrega a página e tenta novamente."

@@ -8847,3 +8847,6 @@ msgstr "Hemos recibido varios códigos de dos factores incorrectos para tu cuent
 
 msgid "If it was you, no action is needed — just try again after the pause."
 msgstr "Si fuiste tú, no tienes que hacer nada: vuelve a intentarlo cuando termine la pausa."
+
+msgid "This ticket has changed. Reload the page and try again."
+msgstr "Esta entrada ha cambiado. Vuelve a cargar la página e inténtalo de nuevo."

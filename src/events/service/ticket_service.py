@@ -198,6 +198,32 @@ def _reject_series_pass_ticket(ticket: Ticket) -> None:
         raise HttpError(400, str(_("This ticket is part of a series pass. Manage it through the series pass instead.")))
 
 
+def _lock_with_status(
+    ticket: Ticket, expected: Ticket.TicketStatus, payment_methods: t.Collection[TicketTier.PaymentMethod]
+) -> Ticket:
+    """Lock ``ticket`` in the global lock order and check that it still has the ``expected`` status.
+
+    The caller's instance was loaded without a lock, so its status (and its tier's payment method) may be
+    stale. Any ``Payment`` of the ticket is locked first, then the tier and the ticket
+    (``lock_tier_then_ticket`` reads it again with these filters).
+
+    Raises:
+        HttpError 409: If the ticket changed since the caller loaded it.
+    """
+    list(
+        Payment.objects.select_for_update(of=("self",))
+        .filter(ticket_id=ticket.pk)
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+    # Lock by pk only, so the tier is always locked; then check the locked row (fresh, under both locks).
+    locked = lock_tier_then_ticket(Ticket.objects.select_related("tier").filter(pk=ticket.pk))
+    current = locked[0] if locked else None
+    if current is None or current.status != expected or current.tier.payment_method not in payment_methods:
+        raise HttpError(409, str(_("This ticket has changed. Reload the page and try again.")))
+    return current
+
+
 @transaction.atomic
 def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) -> Ticket:
     """Confirm payment for a pending offline/at-the-door ticket and activate it.
@@ -219,8 +245,14 @@ def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) ->
     Raises:
         HttpError 400: If the ticket belongs to a series pass, price_paid is missing
             for PWYC without existing price, or provided for fixed-price.
+        HttpError 409: If the ticket is no longer pending, or its tier is no longer offline or at the door.
     """
     _reject_series_pass_ticket(ticket)
+    ticket = _lock_with_status(
+        ticket,
+        Ticket.TicketStatus.PENDING,
+        (TicketTier.PaymentMethod.OFFLINE, TicketTier.PaymentMethod.AT_THE_DOOR),
+    )
 
     # Only an admin-entered price (PWYC) may be supplied or overwritten here; a resolved
     # one belongs to the sale (spec §5.5).
@@ -266,8 +298,11 @@ def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
 
     Raises:
         HttpError 400: If the ticket belongs to a series pass.
+        HttpError 409: If the ticket is no longer active (for example, it was checked in or cancelled), or its
+            tier is no longer offline.
     """
     _reject_series_pass_ticket(ticket)
+    ticket = _lock_with_status(ticket, Ticket.TicketStatus.ACTIVE, (TicketTier.PaymentMethod.OFFLINE,))
 
     ticket.status = Ticket.TicketStatus.PENDING
     update_fields = ["status"]
