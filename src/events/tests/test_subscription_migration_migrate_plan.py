@@ -1,0 +1,498 @@
+"""Tests for force-migrating plan subscribers."""
+
+import typing as t
+from datetime import timedelta
+from decimal import Decimal
+from unittest import mock
+from unittest.mock import patch
+
+import pytest
+from django.utils import timezone
+
+from accounts.models import RevelUser
+from events.models import (
+    MembershipPayment,
+    MembershipSubscription,
+    MembershipSubscriptionPlan,
+    MembershipTier,
+    Organization,
+)
+from events.service.subscription import plans as subscription_plans
+
+
+@pytest.fixture
+def tier(organization: Organization) -> MembershipTier:
+    return MembershipTier.objects.create(organization=organization, name="Pro")
+
+
+@pytest.fixture
+def offline_plan(tier: MembershipTier) -> MembershipSubscriptionPlan:
+    return MembershipSubscriptionPlan.objects.create(
+        tier=tier,
+        name="Monthly",
+        price=Decimal("10"),
+        currency="EUR",
+        period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+        payment_method=MembershipSubscriptionPlan.PaymentMethod.OFFLINE,
+    )
+
+
+@pytest.fixture
+def subscriber(django_user_model: t.Type[RevelUser]) -> RevelUser:
+    return django_user_model.objects.create_user(username="mig_user", email="mig_user@example.com", password="pass")
+
+
+MONTHLY: dict[str, t.Any] = {"interval": "month", "interval_count": 1}
+
+
+@pytest.fixture(autouse=True)
+def target_price_retrieve() -> t.Iterator[mock.MagicMock]:
+    """The plan's target Stripe Price recurs monthly unless a test overrides it."""
+    with patch(
+        "events.service.subscription.stripe.checkout.stripe.Price.retrieve",
+        return_value={"id": "price_new", "recurring": MONTHLY},
+    ) as mocked:
+        yield mocked
+
+
+@pytest.fixture
+def online_plan_g2(tier: MembershipTier) -> MembershipSubscriptionPlan:
+    """An ONLINE plan with pre-populated Stripe IDs for G2 tests."""
+    return MembershipSubscriptionPlan.objects.create(
+        tier=tier,
+        name="OnlineMonthly",
+        price=Decimal("10"),
+        currency="EUR",
+        period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+        payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+        stripe_product_id="prod_x",
+        stripe_price_id="price_new",
+    )
+
+
+@pytest.mark.django_db
+class TestMigratePlanSubscribers:
+    def test_migrates_offline_subscriber_and_dispatches_notification(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        # Anchor the prior price via a SUCCEEDED payment, then bump the plan
+        # price so the migration has a real X → Y delta to announce.
+        old_price = offline_plan.price
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=old_price,
+            currency=offline_plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now() - timedelta(days=30),
+            period_end=timezone.now() + timedelta(days=1),
+        )
+        offline_plan.price = old_price + Decimal("5")
+        offline_plan.save(update_fields=["price"])
+        result = subscription_plans.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        assert result["migrated"] == 1
+        assert result["skipped"] == 0
+        assert result["failed"] == 0
+        assert (
+            Notification.objects.filter(
+                user=subscriber,
+                notification_type=NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE,
+            ).count()
+            == 1
+        )
+
+    def test_offline_rerun_does_not_renotify(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """Re-running the migration must not re-spam OFFLINE subscribers.
+
+        Nothing on an OFFLINE row records the migration (the last-paid-price
+        anchor stays stale until the next renewal), so the already-sent notice
+        is the idempotency anchor: the second run counts the subscriber as
+        ``skipped`` and creates no duplicate notification.
+        """
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        old_price = offline_plan.price
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=old_price,
+            currency=offline_plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now() - timedelta(days=30),
+            period_end=timezone.now() + timedelta(days=1),
+        )
+        offline_plan.price = old_price + Decimal("5")
+        offline_plan.save(update_fields=["price"])
+
+        first = subscription_plans.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        assert first["migrated"] == 1
+
+        second = subscription_plans.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        assert second["migrated"] == 0
+        assert second["skipped"] == 1
+        assert (
+            Notification.objects.filter(
+                user=subscriber,
+                notification_type=NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE,
+            ).count()
+            == 1
+        )
+
+    def test_proration_invoice_is_not_quoted_as_the_old_price(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """A mid-cycle upgrade's proration delta must not anchor the notice.
+
+        The subscriber pays a full period, then a proration invoice lands for a
+        mid-cycle upgrade. The price-migration notice must quote the full-period
+        amount as "your old price", not the (much smaller) proration delta.
+        """
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        old_price = offline_plan.price
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=old_price,
+            currency=offline_plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now() - timedelta(days=30),
+            period_end=timezone.now() + timedelta(days=1),
+            raw_response={"billing_reason": "subscription_cycle"},
+        )
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=Decimal("2"),
+            currency=offline_plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now(),
+            period_end=timezone.now() + timedelta(days=1),
+            raw_response={"billing_reason": "subscription_update"},
+        )
+        offline_plan.price = old_price + Decimal("5")
+        offline_plan.save(update_fields=["price"])
+
+        result = subscription_plans.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        assert result["migrated"] == 1
+
+        notification = Notification.objects.get(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE,
+        )
+        # The full-period amount, not the 2.00 proration delta.
+        assert Decimal(notification.context["old_amount"].split()[0]) == old_price
+        assert Decimal(notification.context["new_amount"].split()[0]) == offline_plan.price
+
+    def test_skips_price_migration_notification_when_no_prior_payment(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """A subscription with no SUCCEEDED payments has no anchor old price, so
+        the migration runs but no X→X notification is sent."""
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+        )
+        result = subscription_plans.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        assert result["migrated"] == 1
+        assert result["skipped"] == 0
+        assert result["failed"] == 0
+        assert not Notification.objects.filter(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE,
+        ).exists()
+
+    def test_skips_already_on_current_price_online_sub(
+        self,
+        online_plan_g2: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        from events.models import CustomerProfile
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        organization.stripe_account_id = "acct_test_xyz"
+        organization.save(update_fields=["stripe_account_id"])
+
+        CustomerProfile.objects.create(user=subscriber, organization=organization, stripe_customer_id="cus_x")
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan_g2,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_test_xyz",
+        )
+        # Stripe says sub is already on the plan's stripe_price_id → no-op
+        with patch("events.service.subscription.stripe.checkout.stripe.Subscription.retrieve") as mock_ret:
+            mock_ret.return_value = {
+                "id": "sub_test_xyz",
+                "items": {"data": [{"id": "si_test", "price": {"id": online_plan_g2.stripe_price_id}}]},
+            }
+            result = subscription_plans.migrate_plan_subscribers(online_plan_g2, initiated_by=organization_owner_user)
+        assert result["skipped"] == 1
+        assert result["migrated"] == 0
+        # No notification fired for skipped subs
+        assert not Notification.objects.filter(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE,
+        ).exists()
+
+    def test_terminal_subs_are_excluded_from_query(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        from notifications.models import Notification
+
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.CANCELLED,
+            cancelled_at=timezone.now() - timedelta(days=1),
+        )
+        result = subscription_plans.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        assert result["migrated"] == 0
+        assert result["skipped"] == 0
+        assert Notification.objects.count() == 0
+
+    def test_per_sub_failure_does_not_abort_others(
+        self,
+        online_plan_g2: MembershipSubscriptionPlan,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        django_user_model: t.Type[RevelUser],
+    ) -> None:
+        """If one sub's Stripe call fails, others still process."""
+        from events.models import CustomerProfile
+
+        organization.stripe_account_id = "acct_test_xyz"
+        organization.save(update_fields=["stripe_account_id"])
+
+        # Create two ONLINE subs with distinct users
+        for username in ["sub_a", "sub_b"]:
+            user = django_user_model.objects.create_user(username=username, email=f"{username}@ex.com", password="pass")
+            CustomerProfile.objects.create(user=user, organization=organization, stripe_customer_id=f"cus_{username}")
+            MembershipSubscription.objects.create(
+                user=user,
+                plan=online_plan_g2,
+                organization=organization,
+                status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+                stripe_subscription_id=f"sub_test_{username}",
+            )
+
+        call_count: dict[str, int] = {"n": 0}
+
+        def fake_retrieve(stripe_id: str, **kw: t.Any) -> dict[str, t.Any]:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise Exception("simulated Stripe failure")
+            return {
+                "id": stripe_id,
+                "items": {
+                    "data": [
+                        {
+                            "id": "si_test",
+                            "price": {"id": "price_old", "recurring": {"interval": "month", "interval_count": 1}},
+                        }
+                    ]
+                },
+            }
+
+        with (
+            patch(
+                "events.service.subscription.stripe.checkout.stripe.Subscription.retrieve",
+                side_effect=fake_retrieve,
+            ),
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify,
+        ):
+            mock_modify.return_value = {"id": "sub_test_x", "status": "active"}
+            result = subscription_plans.migrate_plan_subscribers(online_plan_g2, initiated_by=organization_owner_user)
+
+        assert result["failed"] == 1
+        assert result["migrated"] == 1
+        assert len(result["errors"]) == 1
+
+    def test_cross_interval_subscriber_reported_as_failed_not_swapped(
+        self,
+        online_plan_g2: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+        target_price_retrieve: mock.MagicMock,
+    ) -> None:
+        """#1423: a plan whose Price moved to another interval (pre-fix PATCH) must not stretch old subscribers."""
+        organization.stripe_account_id = "acct_test_xyz"
+        organization.save(update_fields=["stripe_account_id"])
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan_g2,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_test_xyz",
+        )
+        target_price_retrieve.return_value = {"id": "price_new", "recurring": {"interval": "year", "interval_count": 1}}
+
+        with (
+            patch(
+                "events.service.subscription.stripe.checkout.stripe.Subscription.retrieve",
+                return_value={
+                    "id": "sub_test_xyz",
+                    "items": {
+                        "data": [
+                            {
+                                "id": "si_test",
+                                "price": {"id": "price_old", "recurring": {"interval": "month", "interval_count": 1}},
+                            }
+                        ]
+                    },
+                },
+            ),
+            patch("events.service.subscription.stripe.checkout.stripe.Subscription.modify") as mock_modify,
+        ):
+            result = subscription_plans.migrate_plan_subscribers(online_plan_g2, initiated_by=organization_owner_user)
+
+        mock_modify.assert_not_called()
+        assert result["failed"] == 1
+        assert result["migrated"] == 0
+        assert result["errors"] == [{"sub_id": str(sub.id), "reason": mock.ANY}]
+        assert "not migrated" in result["errors"][0]["reason"]
+
+    def test_old_price_resolved_from_last_succeeded_payment(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """_resolve_subscriber_old_price uses the last SUCCEEDED payment amount."""
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        # Record a historical payment at a different amount
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=Decimal("8.00"),
+            currency="EUR",
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now() - timedelta(days=30),
+            period_end=timezone.now(),
+        )
+        result = subscription_plans.migrate_plan_subscribers(offline_plan, initiated_by=organization_owner_user)
+        assert result["migrated"] == 1
+        # Notification should have been dispatched with old_amount reflecting 8.00
+        notif = Notification.objects.get(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE,
+        )
+        assert "8.00" in notif.context["old_amount"]
+
+
+@pytest.mark.django_db
+class TestMigratePlanSubscribersTask:
+    """The async wrapper task loads plan + user by id and delegates to the service."""
+
+    def test_task_runs_service_and_dispatches_notification(
+        self,
+        offline_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        from events.tasks.subscriptions import migrate_plan_subscribers as migrate_task
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        sub = MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=offline_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        )
+        MembershipPayment.objects.create(
+            subscription=sub,
+            amount=offline_plan.price,
+            currency=offline_plan.currency,
+            status=MembershipPayment.PaymentStatus.SUCCEEDED,
+            period_start=timezone.now() - timedelta(days=30),
+            period_end=timezone.now() + timedelta(days=1),
+        )
+        offline_plan.price = offline_plan.price + Decimal("5")
+        offline_plan.save(update_fields=["price"])
+
+        result = migrate_task.run(str(offline_plan.pk), str(organization_owner_user.pk))
+
+        assert result["migrated"] == 1
+        assert result["failed"] == 0
+        assert Notification.objects.filter(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_PRICE_MIGRATION_NOTICE,
+        ).exists()
+
+    def test_task_no_ops_when_plan_missing(self, organization_owner_user: RevelUser) -> None:
+        import uuid
+
+        from events.tasks.subscriptions import migrate_plan_subscribers as migrate_task
+
+        result = migrate_task.run(str(uuid.uuid4()), str(organization_owner_user.pk))
+        assert result == {"migrated": 0, "skipped": 0, "skipped_schedule_managed": 0, "failed": 0, "errors": []}
+
+    def test_task_no_ops_when_user_missing(self, offline_plan: MembershipSubscriptionPlan) -> None:
+        import uuid
+
+        from events.tasks.subscriptions import migrate_plan_subscribers as migrate_task
+
+        result = migrate_task.run(str(offline_plan.pk), str(uuid.uuid4()))
+        assert result == {"migrated": 0, "skipped": 0, "skipped_schedule_managed": 0, "failed": 0, "errors": []}
