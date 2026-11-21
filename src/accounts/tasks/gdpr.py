@@ -190,7 +190,7 @@ def delete_user_account(user_id: str) -> None:
     Celery worker runs in autocommit (``ATOMIC_REQUESTS`` only covers HTTP), so
     without this ``user.delete()`` would commit on its own and a crash before
     the purge would strand history rows carrying the user's pk with no retry
-    path — the retry would die on ``RevelUser.DoesNotExist``. The purge runs
+    path — a retry finds no account and skips it. The purge runs
     after the delete, because the cascade itself writes one deletion row per
     removed live row (see :func:`~accounts.service.gdpr.purge_user_history`).
 
@@ -200,10 +200,13 @@ def delete_user_account(user_id: str) -> None:
     Args:
         user_id: The UUID of the user to delete.
     """
-    user = RevelUser.objects.get(id=user_id)
+    user = RevelUser.objects.filter(id=user_id).first()
+    if user is None:  # already erased, for example by an earlier queued run
+        logger.info("account_deletion_skipped_missing", user_id=user_id)
+        return
     # Deliberately no email here: this log outlives the erasure it records.
     logger.info("account_deletion_started", user_id=str(user.id))
-    from events.service import discount_code_service
+    from events.service.account_deletion_service import release_capacity_of_account
     from events.service.member_register_service import suppress_mirror
 
     # The cancel flips the member to CANCELLED, which would close the register record;
@@ -215,8 +218,8 @@ def delete_user_account(user_id: str) -> None:
     try:
         cleanup_referral_data(user)
         with transaction.atomic():
-            # PENDING tickets cascade with the user: give their discount code uses back first.
-            discount_code_service.release_uses_of_pending_tickets(user=user)
+            # Unfinished (PENDING) checkouts cascade with the account: give back their places and discount uses.
+            release_capacity_of_account(user)
             user.delete()
             gdpr.purge_user_history(pk)
         logger.info("account_deletion_completed", user_id=user_id)

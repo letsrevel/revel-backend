@@ -443,6 +443,23 @@ def test_delete_user_account_task_defers_on_pending_payout(referrer: RevelUser, 
     assert RevelUser.objects.filter(id=referrer.id).exists()
 
 
+def test_sweep_defers_an_account_with_a_payout_in_flight(referrer: RevelUser, referral: Referral) -> None:
+    """The sweep keeps the account and logs a deferral, not an error, while a transfer is in flight."""
+    _payout(referral, _Status.PENDING, "10.00")
+    RevelUser.objects.filter(pk=referrer.pk).update(is_active=False, email_verified=False)
+    EmailVerificationReminderTracking.objects.create(
+        user=referrer, deactivation_email_sent_at=timezone.now() - timedelta(days=61)
+    )
+
+    with patch("accounts.tasks.verification_reminders.logger") as log:
+        result = delete_old_inactive_accounts()
+
+    assert result["count"] == 0
+    assert RevelUser.objects.filter(id=referrer.id).exists()
+    assert "old_inactive_account_deletion_failed" not in [c.args[0] for c in log.error.call_args_list]
+    assert "old_inactive_account_deletion_deferred_pending_payout" in [c.args[0] for c in log.info.call_args_list]
+
+
 def test_cleanup_is_idempotent(referrer: RevelUser, referral: Referral) -> None:
     _payout(referral, _Status.CALCULATED, "10.00")
 
@@ -518,7 +535,7 @@ def test_sweep_isolates_per_user_failures(django_user_model: type[RevelUser]) ->
             raise RuntimeError("boom")
         return original(user)
 
-    with patch("accounts.tasks.verification_reminders.cleanup_referral_data", side_effect=_boom):
+    with patch("accounts.tasks.gdpr.cleanup_referral_data", side_effect=_boom):
         result = delete_old_inactive_accounts()
 
     assert result["count"] == 1

@@ -671,10 +671,10 @@ def release_discount_uses(discount_code_ids: t.Iterable[UUID | None]) -> None:
     logger.info("discount_uses_released", released=sum(per_code.values()), codes=len(per_code))
 
 
-def release_uses_of_pending_tickets(*, event: Event | None = None, user: RevelUser | None = None) -> None:
-    """Give back the uses of the PENDING tickets a cascade delete of ``event`` / ``user`` is about to remove.
+def release_uses_of_pending_tickets(*, event: Event) -> None:
+    """Give back the uses of the PENDING tickets a cascade delete of ``event`` is about to remove.
 
-    Deleting an event or an account cascade-deletes its tickets, and a PENDING one is an
+    Deleting an event cascade-deletes its tickets, and a PENDING one is an
     unfinished checkout, so its use goes back (confirmed tickets keep theirs). Call it inside
     the same transaction, before the delete.
 
@@ -682,16 +682,12 @@ def release_uses_of_pending_tickets(*, event: Event | None = None, user: RevelUs
     none), then their TicketTier rows, then the Ticket rows themselves (serializing with user and
     organizer cancels, which lock the ticket row), each in pk order. Candidates are every coded ticket in
     scope regardless of status; only then are those that are still PENDING re-queried and passed to
-    :func:`release_discount_uses`, which locks the DiscountCode rows last.
-
-    Exactly one of ``event`` / ``user`` must be given.
+    :func:`release_discount_uses`, which locks the DiscountCode rows last. Account deletion releases its
+    uses in :func:`events.service.account_deletion_service.release_capacity_of_account`.
     """
-    if (event is None) == (user is None):
-        raise ValueError("Pass exactly one of event or user.")
     # Status is deliberately not filtered here: a coded ticket may be moved back to PENDING (organizer
     # unconfirm) before we hold its lock, so the PENDING check happens only under the locks below.
-    candidates = Ticket.objects.filter(discount_code_id__isnull=False)
-    candidates = candidates.filter(event=event) if event is not None else candidates.filter(user=user)
+    candidates = Ticket.objects.filter(discount_code_id__isnull=False, event=event)
     ticket_ids = list(candidates.values_list("pk", flat=True))
     if not ticket_ids:
         return

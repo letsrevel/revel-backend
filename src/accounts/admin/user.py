@@ -6,8 +6,10 @@ including user management, authentication, and security features.
 
 import typing as t
 
+import structlog
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
+from django.db import transaction
 from django.db.models import Count, Exists, IntegerField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
@@ -40,10 +42,13 @@ from accounts.models import (
 from accounts.service.account import convert_guest, request_password_reset, send_verification_email_for_user
 from accounts.service.global_ban_service import is_email_globally_banned
 from accounts.service.impersonation import can_impersonate, create_impersonation_request
+from accounts.tasks.gdpr import delete_user_account
 from accounts.utils.email_normalization import normalize_email_for_matching
 from common.client_ip import get_client_ip
 from common.models import SiteSettings
 from events.models import GeneralUserPreferences
+
+logger = structlog.get_logger(__name__)
 
 # Monkey patch the missing attribute
 GoogleSSOInlineAdmin.ordering_field = "google_id"
@@ -121,6 +126,31 @@ class UserBillingProfileInline(TabularInline):  # type: ignore[misc]
         "self_billing_agreed",
     ]
     fields = readonly_fields
+
+
+def _erasure_dispatch(user_id: str) -> t.Callable[[], None]:
+    """A named on-commit callback that queues one account erasure.
+
+    The request has already answered when it runs, so a failed dispatch cannot reach the admin page. It is
+    logged as an error with the account id instead: the account stays deactivated, and an operator re-queues
+    its erasure. It is a named function, not a ``partial``, so Django's robust handling can name it.
+    """
+
+    def dispatch_account_erasure() -> None:
+        try:
+            delete_user_account.delay(user_id)
+        except Exception:
+            logger.error("account_erasure_dispatch_failed", user_id=user_id, exc_info=True)
+
+    return dispatch_account_erasure
+
+
+def _queue_account_erasure(user_ids: list[t.Any]) -> None:
+    """Deactivate the accounts in this transaction, then queue their erasure for after commit."""
+    RevelUser.objects.filter(pk__in=user_ids).update(is_active=False)
+    for user_id in user_ids:
+        # The callback logs its own failure; robust is a backstop so one callback can never skip the others.
+        transaction.on_commit(_erasure_dispatch(str(user_id)), robust=True)
 
 
 @admin.register(RevelUser)
@@ -262,6 +292,20 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     autocomplete_fields = ["groups"]
 
     # Actions
+    def delete_model(self, request: HttpRequest, obj: RevelUser) -> None:
+        """Deactivate the account now and queue its erasure after commit, like the user's own account deletion.
+
+        The erasure gives back unfinished checkouts, cancels live subscriptions and purges history, and it must
+        run outside a transaction. The deactivation stops sign-in until the task has removed the account.
+        Accounts with referral rows are still refused by the delete confirmation (``PROTECT``); delete those
+        through the account deletion flow.
+        """
+        _queue_account_erasure([obj.pk])
+
+    def delete_queryset(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
+        """Bulk delete: deactivate and queue the erasure of each selected account (see :meth:`delete_model`)."""
+        _queue_account_erasure(list(queryset.values_list("pk", flat=True)))
+
     actions = [
         "send_verification_email",
         "send_password_reset_email",
