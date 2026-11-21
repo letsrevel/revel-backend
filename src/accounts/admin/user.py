@@ -133,7 +133,7 @@ def _erasure_dispatch(user_id: str) -> t.Callable[[], None]:
 
     The request has already answered when it runs, so a failed dispatch cannot reach the admin page. It is
     logged as an error with the account id instead: the account stays deactivated, and an operator re-queues
-    its erasure. (A named function, not a ``partial``: Django logs a failed robust callback by ``__qualname__``.)
+    its erasure. It is a named function, not a ``partial``, so Django's robust handling can name it.
     """
 
     def dispatch_account_erasure() -> None:
@@ -149,7 +149,7 @@ def _queue_account_erasure(user_ids: list[t.Any]) -> None:
     """Deactivate the accounts in this transaction, then queue their erasure for after commit."""
     RevelUser.objects.filter(pk__in=user_ids).update(is_active=False)
     for user_id in user_ids:
-        # robust: the other accounts are still queued if one callback fails.
+        # The callback logs its own failure; robust is a backstop so one callback can never skip the others.
         transaction.on_commit(_erasure_dispatch(str(user_id)), robust=True)
 
 

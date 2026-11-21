@@ -71,6 +71,30 @@ class TestAccountDeletionCapacity:
         assert Ticket.objects.filter(pk=ticket.pk, user=member_user).exists()
         assert _sold(TicketTier, ticket_tier.pk) == 1
 
+    def test_a_held_pass_moved_to_another_account_before_the_lock_keeps_its_slot(
+        self, revel_user: RevelUser, member_user: RevelUser, series_pass: SeriesPass
+    ) -> None:
+        held = HeldSeriesPass.objects.create(
+            series_pass=series_pass,
+            user=revel_user,
+            status=HeldSeriesPass.HeldSeriesPassStatus.PENDING,
+            price_paid=series_pass.price,
+        )
+        SeriesPass.objects.filter(pk=series_pass.pk).update(quantity_sold=1)
+
+        # Move the pass after the snapshot, at the first lock step (Payment), before the pass is locked.
+        real_filter = Payment.objects.select_for_update
+
+        def move_at_payment_lock(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            HeldSeriesPass.objects.filter(pk=held.pk).update(user=member_user)
+            return real_filter(*args, **kwargs)
+
+        with patch.object(Payment.objects, "select_for_update", side_effect=move_at_payment_lock):
+            delete_user_account(str(revel_user.pk))
+
+        assert HeldSeriesPass.objects.filter(pk=held.pk, user=member_user).exists()
+        assert _sold(SeriesPass, series_pass.pk) == 1
+
     def test_the_decrement_is_floored_at_zero(
         self, revel_user: RevelUser, event: Event, ticket_tier: TicketTier
     ) -> None:
