@@ -6,7 +6,7 @@ from collections import Counter
 from django.db.models import F, Value
 from django.db.models.functions import Greatest
 
-from events.models import HeldSeriesPass, Payment, SeriesPass, Ticket, TicketTier
+from events.models import HeldSeriesPass, Payment, SeriesPass, Ticket, TicketTier, WaitlistOffer
 from events.service.discount_code_service import release_discount_uses
 from events.service.ticket_service import lock_tier_then_ticket
 from events.service.waitlist_service import enqueue_waitlist_processing
@@ -32,8 +32,12 @@ def release_capacity_of_account(user: "RevelUser") -> None:
     # window is tiny; closing it would need a lock on the user row in every checkout path.
     ticket_ids = list(Ticket.objects.filter(user=user).values_list("pk", flat=True))
     held_ids = list(HeldSeriesPass.objects.filter(user=user).values_list("pk", flat=True))
-    if not ticket_ids and not held_ids:
-        return
+    # The account's PENDING waitlist offers hold places too, and they cascade with it.
+    offer_event_ids = set(
+        WaitlistOffer.objects.filter(user=user, status=WaitlistOffer.WaitlistOfferStatus.PENDING).values_list(
+            "event_id", flat=True
+        )
+    )
     list(
         Payment.objects.select_for_update(of=("self",))
         .filter(ticket_id__in=ticket_ids)
@@ -62,5 +66,5 @@ def release_capacity_of_account(user: "RevelUser") -> None:
     for pass_id, count in sorted(Counter(held.series_pass_id for held in pending_passes).items()):
         SeriesPass.objects.filter(pk=pass_id).update(quantity_sold=Greatest(F("quantity_sold") - count, Value(0)))
 
-    for event_id in sorted({ticket.event_id for ticket in pending}):
+    for event_id in sorted({ticket.event_id for ticket in pending} | offer_event_ids):
         enqueue_waitlist_processing(event_id)

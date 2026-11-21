@@ -5,9 +5,11 @@ including user management, authentication, and security features.
 """
 
 import typing as t
+from functools import partial
 
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
+from django.db import transaction
 from django.db.models import Count, Exists, IntegerField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
@@ -264,13 +266,19 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
 
     # Actions
     def delete_model(self, request: HttpRequest, obj: RevelUser) -> None:
-        """Delete through the account erasure, so unfinished checkouts, referrals and history are handled."""
-        delete_user_account(str(obj.pk))
+        """Queue the account erasure after commit, like the user's own account deletion.
+
+        The erasure gives back unfinished checkouts, cancels live subscriptions and purges history, and it must
+        run outside a transaction. The account is gone once the task has run. Accounts with referral rows are
+        still refused by the delete confirmation (``PROTECT``); delete those through the account deletion flow.
+        """
+        user_id = str(obj.pk)
+        transaction.on_commit(lambda: delete_user_account.delay(user_id))
 
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
-        """Bulk delete: run the account erasure for each selected account."""
-        for user_id in queryset.values_list("pk", flat=True):
-            delete_user_account(str(user_id))
+        """Bulk delete: queue the account erasure for each selected account (see :meth:`delete_model`)."""
+        for pk in queryset.values_list("pk", flat=True):
+            transaction.on_commit(partial(delete_user_account.delay, str(pk)))
 
     actions = [
         "send_verification_email",

@@ -1,8 +1,10 @@
 """Deleting an account gives back the slots of its unfinished checkouts only; issued tickets keep theirs (#1447)."""
 
+import typing as t
 import uuid
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 from uuid import UUID
 
 import pytest
@@ -13,7 +15,7 @@ from django.utils import timezone
 from accounts.admin.user import RevelUserAdmin
 from accounts.models import EmailVerificationReminderTracking, RevelUser
 from accounts.tasks import delete_old_inactive_accounts, delete_user_account
-from events.models import DiscountCode, Event, HeldSeriesPass, Payment, SeriesPass, Ticket, TicketTier
+from events.models import DiscountCode, Event, HeldSeriesPass, Payment, SeriesPass, Ticket, TicketTier, WaitlistOffer
 
 pytestmark = pytest.mark.django_db
 
@@ -195,27 +197,35 @@ class TestOtherAccountDeletionPaths:
         assert not RevelUser.objects.filter(pk=revel_user.pk).exists()
         assert _sold(TicketTier, ticket_tier.pk) == 1
 
-    def test_the_admin_delete_gives_back_pending_slots(
-        self, revel_user: RevelUser, event: Event, ticket_tier: TicketTier
+    def test_the_admin_delete_queues_the_account_erasure_after_commit(
+        self, revel_user: RevelUser, django_capture_on_commit_callbacks: t.Any
     ) -> None:
-        _ticket(revel_user, event, ticket_tier, Ticket.TicketStatus.PENDING)
-        TicketTier.objects.filter(pk=ticket_tier.pk).update(quantity_sold=2)
+        with patch("accounts.admin.user.delete_user_account") as task:
+            with django_capture_on_commit_callbacks(execute=True):
+                RevelUserAdmin(RevelUser, site).delete_model(RequestFactory().post("/"), revel_user)
 
-        RevelUserAdmin(RevelUser, site).delete_model(RequestFactory().post("/"), revel_user)
+        task.delay.assert_called_once_with(str(revel_user.pk))
+        assert RevelUser.objects.filter(pk=revel_user.pk).exists()  # removed by the task, not the request
 
-        assert not RevelUser.objects.filter(pk=revel_user.pk).exists()
-        assert _sold(TicketTier, ticket_tier.pk) == 1
-
-    def test_the_admin_bulk_delete_gives_back_pending_slots(
-        self, revel_user: RevelUser, member_user: RevelUser, event: Event, ticket_tier: TicketTier
+    def test_the_admin_bulk_delete_queues_the_erasure_for_each_account(
+        self, revel_user: RevelUser, member_user: RevelUser, django_capture_on_commit_callbacks: t.Any
     ) -> None:
-        _ticket(revel_user, event, ticket_tier, Ticket.TicketStatus.PENDING)
-        _ticket(member_user, event, ticket_tier, Ticket.TicketStatus.ACTIVE)
-        TicketTier.objects.filter(pk=ticket_tier.pk).update(quantity_sold=2)
+        with patch("accounts.admin.user.delete_user_account") as task:
+            with django_capture_on_commit_callbacks(execute=True):
+                RevelUserAdmin(RevelUser, site).delete_queryset(
+                    RequestFactory().post("/"), RevelUser.objects.filter(pk__in=[revel_user.pk, member_user.pk])
+                )
 
-        RevelUserAdmin(RevelUser, site).delete_queryset(
-            RequestFactory().post("/"), RevelUser.objects.filter(pk__in=[revel_user.pk, member_user.pk])
+        assert sorted(c.args[0] for c in task.delay.call_args_list) == sorted([str(revel_user.pk), str(member_user.pk)])
+
+    def test_a_pending_waitlist_offer_starts_waitlist_processing_for_its_event(
+        self, revel_user: RevelUser, event: Event
+    ) -> None:
+        WaitlistOffer.objects.create(
+            event=event, user=revel_user, expires_at=timezone.now() + timedelta(hours=1), batch_id=uuid.uuid4()
         )
 
-        assert not RevelUser.objects.filter(pk__in=[revel_user.pk, member_user.pk]).exists()
-        assert _sold(TicketTier, ticket_tier.pk) == 1  # the ACTIVE ticket keeps its place
+        with patch("events.service.account_deletion_service.enqueue_waitlist_processing") as enqueue:
+            delete_user_account(str(revel_user.pk))
+
+        enqueue.assert_called_once_with(event.pk)

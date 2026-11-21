@@ -8,6 +8,7 @@ from celery import shared_task
 from django.template.loader import render_to_string
 from django.utils import timezone, translation
 
+from accounts.exceptions import ReferralPayoutInFlightError
 from accounts.models import EmailVerificationReminderTracking, RevelUser
 from accounts.tasks.gdpr import delete_user_account
 from common.models import SiteSettings
@@ -338,6 +339,10 @@ def delete_old_inactive_accounts() -> dict[str, t.Any]:
                 logger.warning("deleting_old_inactive_account", **user_info)
                 # The full erasure (referrals, unfinished checkouts, history); cascades the tracking record too.
                 delete_user_account(str(user.id))
+            except ReferralPayoutInFlightError:
+                # Expected while a payout is mid-transfer; the next sweep retries this account.
+                logger.info("old_inactive_account_deletion_deferred_pending_payout", user_id=user_info["user_id"])
+                continue
             except Exception as exc:
                 logger.error("old_inactive_account_deletion_failed", error=str(exc), exc_info=True, **user_info)
                 continue
