@@ -40,6 +40,7 @@ from accounts.models import (
 from accounts.service.account import convert_guest, request_password_reset, send_verification_email_for_user
 from accounts.service.global_ban_service import is_email_globally_banned
 from accounts.service.impersonation import can_impersonate, create_impersonation_request
+from accounts.tasks.gdpr import delete_user_account
 from accounts.utils.email_normalization import normalize_email_for_matching
 from common.client_ip import get_client_ip
 from common.models import SiteSettings
@@ -262,6 +263,15 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     autocomplete_fields = ["groups"]
 
     # Actions
+    def delete_model(self, request: HttpRequest, obj: RevelUser) -> None:
+        """Delete through the account erasure, so unfinished checkouts, referrals and history are handled."""
+        delete_user_account(str(obj.pk))
+
+    def delete_queryset(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
+        """Bulk delete: run the account erasure for each selected account."""
+        for user_id in queryset.values_list("pk", flat=True):
+            delete_user_account(str(user_id))
+
     actions = [
         "send_verification_email",
         "send_password_reset_email",

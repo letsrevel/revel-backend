@@ -9,7 +9,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone, translation
 
 from accounts.models import EmailVerificationReminderTracking, RevelUser
-from accounts.service.referral_cleanup import cleanup_referral_data
+from accounts.tasks.gdpr import delete_user_account
 from common.models import SiteSettings
 from common.tasks import send_email
 from common.utils import render_plain_text
@@ -335,9 +335,9 @@ def delete_old_inactive_accounts() -> dict[str, t.Any]:
             # Per-user isolation: one undeletable account must not strand every
             # account behind it in the sweep (mirrors process_referral_payouts).
             try:
-                cleanup_referral_data(user)
                 logger.warning("deleting_old_inactive_account", **user_info)
-                user.delete()  # This will cascade delete the tracking record too
+                # The full erasure (referrals, unfinished checkouts, history); cascades the tracking record too.
+                delete_user_account(str(user.id))
             except Exception as exc:
                 logger.error("old_inactive_account_deletion_failed", error=str(exc), exc_info=True, **user_info)
                 continue

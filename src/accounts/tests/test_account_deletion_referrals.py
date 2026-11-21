@@ -518,7 +518,7 @@ def test_sweep_isolates_per_user_failures(django_user_model: type[RevelUser]) ->
             raise RuntimeError("boom")
         return original(user)
 
-    with patch("accounts.tasks.verification_reminders.cleanup_referral_data", side_effect=_boom):
+    with patch("accounts.tasks.gdpr.cleanup_referral_data", side_effect=_boom):
         result = delete_old_inactive_accounts()
 
     assert result["count"] == 1
