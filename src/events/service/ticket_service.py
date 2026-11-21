@@ -216,14 +216,12 @@ def _lock_with_status(
         .order_by("pk")
         .values_list("pk", flat=True)
     )
-    locked = lock_tier_then_ticket(
-        Ticket.objects.select_related("tier").filter(
-            pk=ticket.pk, status=expected, tier__payment_method__in=payment_methods
-        )
-    )
-    if not locked:
+    # Lock by pk only, so the tier is always locked; then check the locked row (fresh, under both locks).
+    locked = lock_tier_then_ticket(Ticket.objects.select_related("tier").filter(pk=ticket.pk))
+    current = locked[0] if locked else None
+    if current is None or current.status != expected or current.tier.payment_method not in payment_methods:
         raise HttpError(409, str(_("This ticket has changed. Reload the page and try again.")))
-    return locked[0]
+    return current
 
 
 @transaction.atomic
