@@ -238,7 +238,8 @@ after the ticket lock.
 
 Paths that follow the lemma: user cancel (`cancel_ticket_by_user`), organizer cancel
 (`admin_cancel_ticket`), offline cancel (`cancel_offline_ticket`), offline refund
-(`mark_offline_ticket_refunded`), the event-cancel sweep
+(`mark_offline_ticket_refunded`), offline payment confirm and unconfirm (`confirm_ticket_payment`,
+`unconfirm_ticket_payment`), the event-cancel sweep
 (`refund_one_cancelled_event_ticket`), series-pass cancel (`cancel_held_pass`), the
 `checkout.session.completed`, `payment_intent.canceled` and `charge.refunded` webhooks, and the
 reclaim routes (`cleanup_expired_payments`, `cancel_pending_checkout`, `release_uses_of_pending_tickets`).
