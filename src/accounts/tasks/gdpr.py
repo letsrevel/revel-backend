@@ -190,7 +190,7 @@ def delete_user_account(user_id: str) -> None:
     Celery worker runs in autocommit (``ATOMIC_REQUESTS`` only covers HTTP), so
     without this ``user.delete()`` would commit on its own and a crash before
     the purge would strand history rows carrying the user's pk with no retry
-    path — the retry would die on ``RevelUser.DoesNotExist``. The purge runs
+    path — a retry finds no account and skips it. The purge runs
     after the delete, because the cascade itself writes one deletion row per
     removed live row (see :func:`~accounts.service.gdpr.purge_user_history`).
 
