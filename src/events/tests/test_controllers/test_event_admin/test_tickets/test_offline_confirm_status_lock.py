@@ -1,10 +1,16 @@
 """Offline payment confirm and unconfirm re-check the ticket status under a lock (#1460)."""
 
+import typing as t
+from unittest.mock import patch
+
 import pytest
+from django.test.client import Client
+from django.urls import reverse
 from ninja.errors import HttpError
 
-from events.models import Ticket
+from events.models import Event, Ticket, TicketTier
 from events.service import ticket_service
+from events.service.ticket_service import lock_tier_then_ticket
 
 pytestmark = pytest.mark.django_db
 
@@ -47,3 +53,29 @@ def test_confirm_and_unconfirm_still_work_on_a_current_ticket(pending_offline_ti
     assert ticket_service.confirm_ticket_payment(ticket).status == Ticket.TicketStatus.ACTIVE
     ticket = Ticket.objects.select_related("tier").get(pk=pending_offline_ticket.pk)
     assert ticket_service.unconfirm_ticket_payment(ticket).status == Ticket.TicketStatus.PENDING
+
+
+def test_the_endpoint_answers_409_when_the_ticket_changes_during_the_request(
+    organization_owner_client: Client, event: Event, pending_offline_ticket: Ticket
+) -> None:
+    def cancel_then_lock(tickets: t.Any) -> list[Ticket]:
+        Ticket.objects.filter(pk=pending_offline_ticket.pk).update(status=Ticket.TicketStatus.CANCELLED)
+        return lock_tier_then_ticket(tickets)
+
+    url = reverse("api:confirm_ticket_payment", kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk})
+    with patch("events.service.ticket_service.lock_tier_then_ticket", side_effect=cancel_then_lock):
+        response = organization_owner_client.post(url, content_type="application/json")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "The ticket status has changed. Reload the page and try again."
+
+
+def test_unconfirm_refuses_a_ticket_whose_tier_is_no_longer_offline(pending_offline_ticket: Ticket) -> None:
+    Ticket.objects.filter(pk=pending_offline_ticket.pk).update(status=Ticket.TicketStatus.ACTIVE)
+    stale = Ticket.objects.select_related("tier").get(pk=pending_offline_ticket.pk)
+    TicketTier.objects.filter(pk=stale.tier_id).update(payment_method=TicketTier.PaymentMethod.AT_THE_DOOR)
+
+    with pytest.raises(HttpError) as exc:
+        ticket_service.unconfirm_ticket_payment(stale)
+
+    assert exc.value.status_code == 409

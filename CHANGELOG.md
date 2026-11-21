@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- Confirming or reverting an offline payment (`POST /event-admin/{event_id}/tickets/{ticket_id}/confirm-payment` and `.../unconfirm-payment`) answers 409 when the ticket's status changed since the page loaded, for example after a check-in or a cancellation.
+- Confirming or reverting an offline payment (`POST /event-admin/{event_id}/tickets/{ticket_id}/confirm-payment` and `.../unconfirm-payment`) answers 409 when the ticket changes while the request runs, for example by a cancellation. A ticket that is already in another status still gets 404, as before.
 - Deleting an account gives back the ticket-tier and series-pass places of its unfinished (pending) checkouts. Issued tickets and passes keep their places.
 
 ## [3.0.0] - 2026-11-20

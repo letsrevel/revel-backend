@@ -198,17 +198,29 @@ def _reject_series_pass_ticket(ticket: Ticket) -> None:
         raise HttpError(400, str(_("This ticket is part of a series pass. Manage it through the series pass instead.")))
 
 
-def _lock_with_status(ticket: Ticket, expected: Ticket.TicketStatus) -> Ticket:
+def _lock_with_status(
+    ticket: Ticket, expected: Ticket.TicketStatus, payment_methods: t.Collection[TicketTier.PaymentMethod]
+) -> Ticket:
     """Lock ``ticket`` in the global lock order and check that it still has the ``expected`` status.
 
-    The caller's instance was loaded without a lock, so its status may be stale. Any ``Payment`` of the
-    ticket is locked first, then the tier and the ticket (``lock_tier_then_ticket`` reads it again).
+    The caller's instance was loaded without a lock, so its status (and its tier's payment method) may be
+    stale. Any ``Payment`` of the ticket is locked first, then the tier and the ticket
+    (``lock_tier_then_ticket`` reads it again with these filters).
 
     Raises:
-        HttpError 409: If the ticket's status changed since the caller loaded it.
+        HttpError 409: If the ticket changed since the caller loaded it.
     """
-    list(Payment.objects.select_for_update(of=("self",)).filter(ticket_id=ticket.pk).values_list("pk", flat=True))
-    locked = lock_tier_then_ticket(Ticket.objects.select_related("tier").filter(pk=ticket.pk, status=expected))
+    list(
+        Payment.objects.select_for_update(of=("self",))
+        .filter(ticket_id=ticket.pk)
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+    locked = lock_tier_then_ticket(
+        Ticket.objects.select_related("tier").filter(
+            pk=ticket.pk, status=expected, tier__payment_method__in=payment_methods
+        )
+    )
     if not locked:
         raise HttpError(409, str(_("The ticket status has changed. Reload the page and try again.")))
     return locked[0]
@@ -238,7 +250,11 @@ def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) ->
         HttpError 409: If the ticket is no longer pending.
     """
     _reject_series_pass_ticket(ticket)
-    ticket = _lock_with_status(ticket, Ticket.TicketStatus.PENDING)
+    ticket = _lock_with_status(
+        ticket,
+        Ticket.TicketStatus.PENDING,
+        (TicketTier.PaymentMethod.OFFLINE, TicketTier.PaymentMethod.AT_THE_DOOR),
+    )
 
     # Only an admin-entered price (PWYC) may be supplied or overwritten here; a resolved
     # one belongs to the sale (spec §5.5).
@@ -287,7 +303,7 @@ def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
         HttpError 409: If the ticket is no longer active (for example, it was checked in or cancelled).
     """
     _reject_series_pass_ticket(ticket)
-    ticket = _lock_with_status(ticket, Ticket.TicketStatus.ACTIVE)
+    ticket = _lock_with_status(ticket, Ticket.TicketStatus.ACTIVE, (TicketTier.PaymentMethod.OFFLINE,))
 
     ticket.status = Ticket.TicketStatus.PENDING
     update_fields = ["status"]
