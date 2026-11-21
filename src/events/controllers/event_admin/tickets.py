@@ -356,7 +356,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         """
         event = self.get_one(event_id)
         ticket = get_object_or_404(
-            models.Ticket,
+            models.Ticket.objects.select_related("tier"),
             pk=ticket_id,
             event=event,
             status=models.Ticket.TicketStatus.ACTIVE,

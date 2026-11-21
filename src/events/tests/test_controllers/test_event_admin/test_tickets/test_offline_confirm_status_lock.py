@@ -67,7 +67,7 @@ def test_the_endpoint_answers_409_when_the_ticket_changes_during_the_request(
         response = organization_owner_client.post(url, content_type="application/json")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "The ticket status has changed. Reload the page and try again."
+    assert response.json()["detail"] == "This ticket has changed. Reload the page and try again."
 
 
 def test_unconfirm_refuses_a_ticket_whose_tier_is_no_longer_offline(pending_offline_ticket: Ticket) -> None:
@@ -79,3 +79,15 @@ def test_unconfirm_refuses_a_ticket_whose_tier_is_no_longer_offline(pending_offl
         ticket_service.unconfirm_ticket_payment(stale)
 
     assert exc.value.status_code == 409
+
+
+def test_confirm_refuses_a_ticket_whose_tier_is_now_paid_online(pending_offline_ticket: Ticket) -> None:
+    stale = Ticket.objects.select_related("tier").get(pk=pending_offline_ticket.pk)
+    TicketTier.objects.filter(pk=stale.tier_id).update(payment_method=TicketTier.PaymentMethod.ONLINE)
+
+    with pytest.raises(HttpError) as exc:
+        ticket_service.confirm_ticket_payment(stale)
+
+    assert exc.value.status_code == 409
+    pending_offline_ticket.refresh_from_db()
+    assert pending_offline_ticket.status == Ticket.TicketStatus.PENDING

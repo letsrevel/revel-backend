@@ -8902,5 +8902,5 @@ msgstr "Abbiamo ricevuto diversi codici a due fattori errati per il tuo account 
 msgid "If it was you, no action is needed — just try again after the pause."
 msgstr "Se eri tu, non devi fare nulla: riprova semplicemente al termine della pausa."
 
-msgid "The ticket status has changed. Reload the page and try again."
-msgstr "Lo stato del biglietto è cambiato. Ricarica la pagina e riprova."
+msgid "This ticket has changed. Reload the page and try again."
+msgstr "Questo biglietto è cambiato. Ricarica la pagina e riprova."

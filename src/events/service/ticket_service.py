@@ -222,7 +222,7 @@ def _lock_with_status(
         )
     )
     if not locked:
-        raise HttpError(409, str(_("The ticket status has changed. Reload the page and try again.")))
+        raise HttpError(409, str(_("This ticket has changed. Reload the page and try again.")))
     return locked[0]
 
 
@@ -247,7 +247,7 @@ def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) ->
     Raises:
         HttpError 400: If the ticket belongs to a series pass, price_paid is missing
             for PWYC without existing price, or provided for fixed-price.
-        HttpError 409: If the ticket is no longer pending.
+        HttpError 409: If the ticket is no longer pending, or its tier is no longer offline or at the door.
     """
     _reject_series_pass_ticket(ticket)
     ticket = _lock_with_status(
@@ -300,7 +300,8 @@ def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
 
     Raises:
         HttpError 400: If the ticket belongs to a series pass.
-        HttpError 409: If the ticket is no longer active (for example, it was checked in or cancelled).
+        HttpError 409: If the ticket is no longer active (for example, it was checked in or cancelled), or its
+            tier is no longer offline.
     """
     _reject_series_pass_ticket(ticket)
     ticket = _lock_with_status(ticket, Ticket.TicketStatus.ACTIVE, (TicketTier.PaymentMethod.OFFLINE,))

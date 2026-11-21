@@ -8919,5 +8919,5 @@ msgstr "Für dein Revel-Konto sind mehrere falsche Zwei-Faktor-Codes eingegangen
 msgid "If it was you, no action is needed — just try again after the pause."
 msgstr "Wenn du das warst, musst du nichts tun – versuche es einfach nach der Pause erneut."
 
-msgid "The ticket status has changed. Reload the page and try again."
-msgstr "Der Ticketstatus hat sich geändert. Lade die Seite neu und versuche es erneut."
+msgid "This ticket has changed. Reload the page and try again."
+msgstr "Dieses Ticket hat sich geändert. Lade die Seite neu und versuche es erneut."
