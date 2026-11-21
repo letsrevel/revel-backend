@@ -7,6 +7,7 @@ organizer API, bulk event cancellation) goes through ``issue_refund``. One
 """
 
 import typing as t
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -30,6 +31,8 @@ logger = structlog.get_logger(__name__)
 
 _ZERO = Decimal("0")
 _CENT = Decimal("0.01")
+# The Refund row id is derived from the idempotency key, so a retry after rollback sends the same metadata.
+_REFUND_ID_NAMESPACE = uuid.UUID("7b0e3f8a-5c1d-4e2b-9a6f-3d8c1e4b2a90")
 
 
 def remaining_refundable(payment: Payment) -> Decimal:
@@ -68,7 +71,9 @@ def issue_refund(
     idempotency key ``refund:{payment.pk}:{sequence}:{amount}`` is deterministic
     for a retry after rollback (same sequence, same amount → Stripe returns the
     same refund object), and the ``charge.refunded`` webhook self-heals a lost
-    response via the ``refund_id`` metadata.
+    response via the ``refund_id`` metadata. The row id is derived from the key,
+    so a retry sends the same metadata too: Stripe rejects a reused key whose
+    parameters differ.
 
     ``sequence`` counts ALL of the payment's refund rows, whatever their status.
     A rolled-back attempt leaves no row, so a crash-retry reuses the same key
@@ -124,7 +129,9 @@ def issue_refund(
         )
 
     sequence = locked.refunds.count()  # all statuses — FAILED rows advance the key (see docstring)
+    idempotency_key = f"refund:{locked.pk}:{sequence}:{resolved}"
     refund_row = Refund.objects.create(
+        id=uuid.uuid5(_REFUND_ID_NAMESPACE, idempotency_key),
         payment=locked,
         amount=resolved,
         currency=locked.currency,
@@ -141,7 +148,7 @@ def issue_refund(
         "payment_intent": locked.stripe_payment_intent_id,
         "amount": to_stripe_amount(resolved, locked.currency),
         "metadata": metadata,
-        "idempotency_key": f"refund:{locked.pk}:{sequence}:{resolved}",
+        "idempotency_key": idempotency_key,
     }
     org_stripe_account = locked.ticket.event.organization.stripe_account_id
     if org_stripe_account and org_stripe_account != settings.STRIPE_ACCOUNT:
@@ -505,9 +512,25 @@ def queue_late_payment_refund_if_captured(payment: Payment | None) -> bool:
     from django.db import transaction
     from django.utils import timezone
 
-    from events.tasks.refunds import refund_late_payment
-
     Payment.objects.filter(pk=payment.pk).update(refund_status=Payment.RefundStatus.PENDING, updated_at=timezone.now())
-    payment_id = str(payment.pk)
-    transaction.on_commit(lambda: refund_late_payment.delay(payment_id))
+    transaction.on_commit(late_payment_refund_dispatch([str(payment.pk)]))
     return True
+
+
+def late_payment_refund_dispatch(payment_ids: list[str]) -> t.Callable[[], None]:
+    """An on-commit callback that queues one late-payment refund per payment (#1459).
+
+    A failed dispatch is logged and does not stop the transaction's later callbacks;
+    ``cleanup_expired_payments`` re-queues the payment later.
+    """
+
+    def dispatch_late_payment_refunds() -> None:
+        from events.tasks.refunds import refund_late_payment
+
+        for payment_id in payment_ids:
+            try:
+                refund_late_payment.delay(payment_id)
+            except Exception:
+                logger.error("late_payment_refund_dispatch_failed", payment_id=payment_id, exc_info=True)
+
+    return dispatch_late_payment_refunds

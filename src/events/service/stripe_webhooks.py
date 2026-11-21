@@ -29,7 +29,7 @@ from events.models import (
     Ticket,
     TicketTier,
 )
-from events.service import discount_code_service
+from events.service import discount_code_service, refund_service
 from events.service.stripe_incidents import record_paid_session_without_payments, record_session_total_mismatch
 from events.service.stripe_webhook_disputes import DisputeHandlersMixin
 from events.service.stripe_webhook_refunds import TicketRefundHandlersMixin
@@ -117,24 +117,6 @@ def handle_event(event: stripe.Event) -> None:
     handled = StripeEventHandler(event).handle()
     record.outcome = StripeWebhookEvent.Outcome.HANDLED if handled else StripeWebhookEvent.Outcome.UNHANDLED
     record.save(update_fields=["outcome", "updated_at"])
-
-
-def _late_payment_refund_dispatch(payment_ids: list[str]) -> t.Callable[[], None]:
-    """An on-commit callback that queues one late-payment refund per payment (#1459).
-
-    A failed dispatch is logged; ``cleanup_expired_payments`` re-queues the payment later.
-    """
-
-    def dispatch_late_payment_refunds() -> None:
-        from events.tasks.refunds import refund_late_payment
-
-        for payment_id in payment_ids:
-            try:
-                refund_late_payment.delay(payment_id)
-            except Exception:
-                logger.error("late_payment_refund_dispatch_failed", payment_id=payment_id, exc_info=True)
-
-    return dispatch_late_payment_refunds
 
 
 class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersMixin, DisputeHandlersMixin):
@@ -429,7 +411,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             payments, tickets_by_id, payment_intent_id, raw_response, session_id
         )
         if late_payment_ids:
-            transaction.on_commit(_late_payment_refund_dispatch(late_payment_ids))
+            transaction.on_commit(refund_service.late_payment_refund_dispatch(late_payment_ids))
 
         # Notifications are now handled by Payment post_save signal in notifications/signals/payment.py
         logger.info(

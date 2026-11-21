@@ -48,8 +48,11 @@ def refund_late_payment(payment_id: str) -> None:
     - nothing to refund, or the ticket is no longer cancelled: the marker is cleared;
     - a transient Stripe error: the marker stays, and ``cleanup_expired_payments`` retries later, for up to
       ``LATE_PAYMENT_TRANSIENT_GIVE_UP`` after the marker was set;
-    - any other Stripe failure: a FAILED ``Refund`` row, ``refund_status`` FAILED, and the error log
-      ``late_payment_refund_failed`` for the alert.
+    - any other Stripe failure, or a transient one past that limit: a FAILED ``Refund`` row,
+      ``refund_status`` FAILED, and the error log ``late_payment_refund_failed`` for the alert.
+
+    A refund the organizer issued by hand (a live ``Refund`` row, also a partial one) ends the automatic
+    refund: the organizer took over the payment, and a second refund could double-refund the buyer.
     """
     try:
         with transaction.atomic():
@@ -82,22 +85,36 @@ def refund_late_payment(payment_id: str) -> None:
         if isinstance(exc.__cause__, _TRANSIENT_STRIPE_ERRORS) and still_retrying:
             logger.warning("late_payment_refund_retry_later", payment_id=payment_id, error=str(exc))
             return
-        reason = str(exc) or exc.__class__.__name__
-        with transaction.atomic():
-            payment = Payment.objects.select_for_update(of=("self",)).get(pk=payment_id)
-            Refund.objects.create(
-                payment=payment,
-                amount=refund_service.remaining_refundable(payment),
-                currency=payment.currency,
-                status=Refund.RefundStatus.FAILED,
-                failure_reason=reason,
-                reason="late_payment",
-                source=Refund.Source.LATE_PAYMENT,
-            )
-            Payment.objects.filter(pk=payment.pk).update(
-                refund_status=Payment.RefundStatus.FAILED, refund_failure_reason=reason
-            )
-        logger.error("late_payment_refund_failed", payment_id=payment_id, error=reason)
+        _record_late_payment_failure(payment_id, str(exc) or exc.__class__.__name__)
+
+
+def _record_late_payment_failure(payment_id: str, reason: str) -> None:
+    """Record a failed late-payment refund, unless another attempt moved the payment on meanwhile.
+
+    The failed attempt released the Payment lock, so the marker is read again under a new lock.
+    """
+    with transaction.atomic():
+        payment = (
+            Payment.objects.select_for_update(of=("self",))
+            .filter(pk=payment_id, status=Payment.PaymentStatus.SUCCEEDED, refund_status=Payment.RefundStatus.PENDING)
+            .first()
+        )
+        if payment is None or payment.refunds.exclude(status=Refund.RefundStatus.FAILED).exists():
+            logger.info("late_payment_refund_failure_superseded", payment_id=payment_id, error=reason)
+            return
+        Refund.objects.create(
+            payment=payment,
+            amount=refund_service.remaining_refundable(payment),
+            currency=payment.currency,
+            status=Refund.RefundStatus.FAILED,
+            failure_reason=reason,
+            reason="late_payment",
+            source=Refund.Source.LATE_PAYMENT,
+        )
+        Payment.objects.filter(pk=payment.pk).update(
+            refund_status=Payment.RefundStatus.FAILED, refund_failure_reason=reason
+        )
+    logger.error("late_payment_refund_failed", payment_id=payment_id, error=reason)
 
 
 @shared_task(name="events.refund_cancelled_event_tickets")
