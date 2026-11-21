@@ -487,6 +487,7 @@ class TicketRefundHandlersMixin:
         payment.refund_amount = total
         payment.refund_status = Payment.RefundStatus.SUCCEEDED
         payment.refunded_at = now
+        payment.refund_failure_reason = ""
         if total >= payment.amount:
             payment.status = Payment.PaymentStatus.REFUNDED
         payment.raw_response = raw_response
@@ -498,6 +499,7 @@ class TicketRefundHandlersMixin:
                 "refunded_at",
                 "status",
                 "raw_response",
+                "refund_failure_reason",
             ]
         )
         return row
