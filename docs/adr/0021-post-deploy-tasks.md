@@ -89,7 +89,7 @@ exits 1 when a task is `FAILED` or pending. Follow-ups:
 
 - A read-only admin page, with an entry in the curated Unfold sidebar.
 - A field in `/api/version` for pending or failed tasks.
-- The Loki alert on `post_deploy_task_failed`.
+- The Loki alert on `post_deploy_task_failed` (#1511).
 
 ### 7. Self-hosters
 
@@ -153,8 +153,8 @@ Lock: a session advisory lock. Rejected for PgBouncer, see section 4.
 
 ## Follow-ups
 
-1. Infra: add the `post_deploy` compose service and the `deploy-rollout.sh` call. Turn the flag on in production.
+1. Infra: add the `post_deploy` compose service and the `deploy-rollout.sh` call. Turn the flag on in production (#1510).
 2. Loki ruler alert on `post_deploy_task_failed`.
-3. Admin read-only page and the `/api/version` field.
-4. Self-hoster docs, and the release skill: prefer a registered task over an upgrade note.
-5. Move future one-time steps. Keep cutoff-type backfills manual.
+3. Admin read-only page and the `/api/version` field (#1512).
+4. Self-hoster docs, and the release skill: prefer a registered task over an upgrade note (#1513).
+5. Move future one-time steps. Keep cutoff-type backfills manual (#1513).
