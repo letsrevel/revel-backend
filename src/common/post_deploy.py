@@ -20,6 +20,8 @@ body runs in a savepoint, so its own database writes roll back when it fails.
 
 Releases must be written as ``X.Y.Z`` (integers) so that they order numerically.
 
+# ponytail: connection loss and BaseException are not caught. The outer transaction rolls back, the command
+# exits non-zero, and the next run retries. Tasks must be idempotent.
 # ponytail: no per-task timeout; tasks rely on their client timeouts (Stripe). Upgrade path:
 # statement_timeout or a subprocess with a deadline.
 """
@@ -108,21 +110,31 @@ def _truncate(text: str) -> str:
 
 def _execute(task: PostDeployTask, row: PostDeployTaskRun) -> PostDeployResult:
     """Run one task under the row lock and record the result on ``row``."""
-    reason = task.skip_reason()
-    if reason is not None:
-        row.status, row.output, row.finished_at = PostDeployTaskRun.Status.SKIPPED, _truncate(reason), timezone.now()
-        row.save()
-        return {"id": task.id, "outcome": "skipped", "detail": reason}
-
-    row.attempts += 1
-    row.started_at = timezone.now()
+    counted = False
     try:
+        reason = task.skip_reason()
+        if reason is not None:
+            row.status, row.output, row.started_at = PostDeployTaskRun.Status.SKIPPED, _truncate(reason), None
+            row.finished_at = timezone.now()
+            row.save()
+            return {"id": task.id, "outcome": "skipped", "detail": reason}
+        row.attempts += 1
+        counted = True
+        row.started_at = timezone.now()
         with transaction.atomic():  # savepoint: the body's own writes roll back on failure
             output = task.run()
     except Exception as exc:
+        if not counted:  # skip_reason raised: count the attempt
+            row.attempts += 1
         detail = f"{type(exc).__name__}: {exc}"
         row.status, row.output = PostDeployTaskRun.Status.FAILED, _truncate(detail)
-        logger.error("post_deploy_task_failed", task_id=task.id, release=task.release, error=type(exc).__name__)
+        logger.error(
+            "post_deploy_task_failed",
+            task_id=task.id,
+            release=task.release,
+            error=type(exc).__name__,
+            detail=_truncate(detail),
+        )
         outcome: Outcome = "failed"
     else:
         row.status, row.output = PostDeployTaskRun.Status.SUCCEEDED, _truncate(output)
@@ -161,7 +173,11 @@ def run_pending(dry_run: bool = False) -> list[PostDeployResult]:
         if PostDeployTaskRun.objects.filter(task_id=task.id, status=PostDeployTaskRun.Status.SUCCEEDED).exists():
             results.append({"id": task.id, "outcome": "already_done", "detail": ""})
         elif dry_run:
-            reason = task.skip_reason()
+            try:
+                reason = task.skip_reason()
+            except Exception as exc:
+                results.append({"id": task.id, "outcome": "failed", "detail": f"{type(exc).__name__}: {exc}"})
+                continue
             results.append(
                 {"id": task.id, "outcome": "skipped", "detail": reason}
                 if reason is not None

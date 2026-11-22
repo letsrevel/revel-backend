@@ -11,11 +11,13 @@ from common.post_deploy import registered
 class Command(BaseCommand):
     """Print the state of every registered post-deploy task."""
 
-    help = "Show post-deploy task status. With --check, exit 1 if a registered task is failed or pending."
+    help = "Show post-deploy task status. With --check, exit 1 if a registered task is failed, running or pending."
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Wire ``--check``."""
-        parser.add_argument("--check", action="store_true", help="Fail if a registered task is FAILED or pending.")
+        parser.add_argument(
+            "--check", action="store_true", help="Fail if a registered task is FAILED, running or pending."
+        )
 
     def handle(self, *args: t.Any, **options: t.Any) -> None:
         """Print one row per registered task, then rows whose task is no longer registered."""
@@ -25,7 +27,9 @@ class Command(BaseCommand):
         for task in registered():
             row = rows.pop(task.id, None)
             status = row.status if row else "pending"
-            if status in ("pending", PostDeployTaskRun.Status.FAILED):
+            if row and row.finished_at is None and row.status == PostDeployTaskRun.Status.FAILED:
+                status = "running"  # created by the runner, not finished (in progress or crashed)
+            if status in ("pending", "running", PostDeployTaskRun.Status.FAILED):
                 problems.append(f"{task.id} ({status})")
             finished = row.finished_at.isoformat() if row and row.finished_at else "-"
             self.stdout.write(

@@ -8,7 +8,6 @@ from django.core.management import call_command
 from common.post_deploy import PostDeployTask, register
 
 _PLACEHOLDER_SECRET_KEY = "sk_test_..."
-_PLACEHOLDER_WEBHOOK_SECRET = "whsec_..."
 
 
 def _webhook_url() -> str:
@@ -25,7 +24,10 @@ def _sync_webhooks() -> str:
 def _sync_webhooks_skip_reason() -> str | None:
     if not settings.STRIPE_SECRET_KEY or settings.STRIPE_SECRET_KEY == _PLACEHOLDER_SECRET_KEY:
         return "Stripe is not configured"
-    if not any(s and s != _PLACEHOLDER_WEBHOOK_SECRET for s in settings.STRIPE_WEBHOOK_SECRETS):
+    # Local import: stripe_webhooks configures Stripe and imports notifications at import time, too heavy for ready().
+    from events.service.stripe_webhooks import real_webhook_secrets
+
+    if not real_webhook_secrets():
         return "Stripe is not configured (no webhook secret; endpoints were never provisioned)"
     if not _webhook_url().startswith("https://"):
         return "BASE_URL is not https"

@@ -1,6 +1,8 @@
 """Tests for the ``stripe-webhook-sync-1505`` post-deploy task (#1508)."""
 
+import json
 import typing as t
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,6 +12,7 @@ from common import post_deploy
 from common.models import PostDeployTaskRun
 from common.post_deploy import PostDeployTask
 from events import post_deploy as events_post_deploy
+from events.management.commands.provision_stripe_webhooks import CONNECT_EVENTS, PLATFORM_EVENTS
 
 TASK_ID = "stripe-webhook-sync-1505"
 
@@ -39,6 +42,13 @@ def test_skips_without_stripe_key(configured: None, settings: t.Any, key: str) -
 
 def test_skips_without_webhook_secret(configured: None, settings: t.Any) -> None:
     settings.STRIPE_WEBHOOK_SECRETS = ["whsec_..."]
+    reason = events_post_deploy._sync_webhooks_skip_reason()
+    assert reason is not None
+    assert "no webhook secret" in reason
+
+
+def test_skips_with_only_the_placeholder_webhook_secret(configured: None, settings: t.Any) -> None:
+    settings.STRIPE_WEBHOOK_SECRETS = ["whsec_placeholder"]
     reason = events_post_deploy._sync_webhooks_skip_reason()
     assert reason is not None
     assert "no webhook secret" in reason
@@ -79,3 +89,32 @@ def test_command_error_is_recorded_as_failed(configured: None, monkeypatch: pyte
     row = PostDeployTaskRun.objects.get(task_id=TASK_ID)
     assert row.status == PostDeployTaskRun.Status.FAILED
     assert "CommandError: no endpoints" in row.output
+
+
+def test_real_sync_command_output_is_json(configured: None) -> None:
+    """Run the real command (Stripe patched at the API boundary) and parse what the runner would store."""
+    url = "https://api.example.com/api/stripe/webhook"
+    old_platform = [e for e in PLATFORM_EVENTS if not e.startswith("charge.dispute.")]
+    platform = SimpleNamespace(
+        id="we_p",
+        url=url,
+        enabled_events=[*old_platform, "customer.created"],
+        description="Revel platform events",
+        status="enabled",
+    )
+    connect = SimpleNamespace(
+        id="we_c", url=url, enabled_events=list(CONNECT_EVENTS), description="Revel Connect events", status="enabled"
+    )
+    with (
+        patch("events.management.commands.provision_stripe_webhooks.stripe") as stripe_mock,
+        patch("events.management.commands.provision_stripe_webhooks.configure_stripe"),
+    ):
+        stripe_mock.WebhookEndpoint.list.return_value.auto_paging_iter.return_value = iter([platform, connect])
+        output = events_post_deploy._sync_webhooks()
+    payload = json.loads(output)
+    assert payload["dry_run"] is False
+    assert payload["platform"]["id"] == "we_p"
+    assert payload["platform"]["added"] == sorted(set(PLATFORM_EVENTS) - set(old_platform))
+    assert payload["platform"]["removed"] == ["customer.created"]
+    assert payload["connect"]["added"] == []
+    assert payload["connect"]["removed"] == []

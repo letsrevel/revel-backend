@@ -65,6 +65,8 @@ the v3.0.0 cutoff backfill, stays manual. The release notes carry a warning. A t
   transaction pooling. The row lock belongs to the transaction, and Postgres releases it if the
   process dies.
 - The task body runs in a savepoint. Its database writes roll back on failure. The `FAILED` record stays.
+- The runner does not catch connection loss or `BaseException`. The outer transaction rolls back and the
+  command exits non-zero. The next run retries, so tasks must be idempotent.
 - The PoC has no timeout of its own. Tasks rely on client timeouts, for example the Stripe client.
   # ponytail: the upgrade is `statement_timeout` or a subprocess.
 

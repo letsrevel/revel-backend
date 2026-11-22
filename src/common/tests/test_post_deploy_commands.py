@@ -6,6 +6,7 @@ from io import StringIO
 
 import pytest
 from django.core.management import CommandError, call_command
+from django.utils import timezone
 
 from common import post_deploy
 from common.models import PostDeployTaskRun
@@ -85,8 +86,19 @@ def test_status_lists_pending_and_unregistered() -> None:
 def test_status_check_fails_on_failed_or_pending(status: str | None) -> None:
     _register("a")
     if status:
-        PostDeployTaskRun.objects.create(task_id="a", release="1.0.0", status=status)
+        PostDeployTaskRun.objects.create(task_id="a", release="1.0.0", status=status, finished_at=timezone.now())
     with pytest.raises(CommandError):
+        _call("post_deploy_status", "--check")
+
+
+@pytest.mark.django_db
+def test_status_shows_unfinished_row_as_running_and_check_fails() -> None:
+    _register("a")
+    PostDeployTaskRun.objects.create(task_id="a", release="1.0.0", status=Status.FAILED, attempts=1)
+    lines = {line.split()[0]: line for line in _call("post_deploy_status").splitlines()[1:]}
+    assert "running" in lines["a"]
+    assert "failed" not in lines["a"].lower()
+    with pytest.raises(CommandError, match=r"a \(running\)"):
         _call("post_deploy_status", "--check")
 
 

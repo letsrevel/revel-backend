@@ -72,7 +72,13 @@ def test_failure_is_recorded_logged_and_isolated() -> None:
     row = PostDeployTaskRun.objects.get(task_id="a")
     assert (row.status, row.attempts, row.output) == (Status.FAILED, 1, "ValueError: bad")
     assert row.finished_at is not None
-    assert any(log["event"] == "post_deploy_task_failed" and log["task_id"] == "a" for log in logs)
+    assert any(
+        log["event"] == "post_deploy_task_failed"
+        and log["task_id"] == "a"
+        and log["error"] == "ValueError"
+        and log["detail"] == "ValueError: bad"
+        for log in logs
+    )
     assert not PostDeployTaskRun.objects.filter(task_id="side-effect").exists()
 
 
@@ -163,3 +169,45 @@ def test_busy_when_row_locked_by_another_connection() -> None:
         release.set()
         thread.join(timeout=10)
     assert run_pending()[0]["outcome"] == "succeeded"
+
+
+def _raise() -> str | None:
+    raise RuntimeError("skip check broke")
+
+
+@pytest.mark.django_db
+def test_skip_reason_exception_is_recorded_as_failed_and_isolated() -> None:
+    register(_task("a", "1.0.0", skip_reason=_raise))
+    register(_task("b", "1.0.1"))
+    results = run_pending()
+    assert [r["outcome"] for r in results] == ["failed", "succeeded"]
+    row = PostDeployTaskRun.objects.get(task_id="a")
+    assert (row.status, row.attempts, row.output) == (Status.FAILED, 1, "RuntimeError: skip check broke")
+    assert row.finished_at is not None
+
+
+@pytest.mark.django_db
+def test_dry_run_skip_reason_exception_is_reported_and_writes_nothing() -> None:
+    register(_task("a", "1.0.0", skip_reason=_raise))
+    register(_task("b", "1.0.1"))
+    results = run_pending(dry_run=True)
+    assert results[0] == {"id": "a", "outcome": "failed", "detail": "RuntimeError: skip check broke"}
+    assert results[1]["outcome"] == "would_run"
+    assert PostDeployTaskRun.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_skip_clears_stale_started_at() -> None:
+    state: dict[str, str | None] = {"reason": None}
+
+    def body() -> str:
+        raise RuntimeError("x")
+
+    register(_task("a", run=body, skip_reason=lambda: state["reason"]))
+    run_pending()
+    assert PostDeployTaskRun.objects.get(task_id="a").started_at is not None
+    state["reason"] = "not now"
+    run_pending()
+    row = PostDeployTaskRun.objects.get(task_id="a")
+    assert row.status == Status.SKIPPED
+    assert row.started_at is None

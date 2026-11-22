@@ -48,6 +48,12 @@ configure_stripe()
 # Placeholder values that must never be treated as real signing secrets.
 _PLACEHOLDER_SECRETS = frozenset({"whsec_...", "whsec_placeholder", ""})
 
+
+def real_webhook_secrets() -> list[str]:
+    """Return ``settings.STRIPE_WEBHOOK_SECRETS`` without the placeholder values."""
+    return [s for s in settings.STRIPE_WEBHOOK_SECRETS if s not in _PLACEHOLDER_SECRETS]
+
+
 # The metadata keys Revel sets on its checkout sessions (stripe_service.py), used to refund only Revel sessions (#1489).
 _TICKET_CHECKOUT_METADATA = ("ticket_ids", "event_id", "user_id", "batch_size")
 _SERIES_PASS_CHECKOUT_METADATA = ("held_pass_id", "user_id", "ticket_ids")
@@ -64,7 +70,7 @@ def verify_webhook(payload: bytes, signature_header: str) -> stripe.Event:
     configured — we fail closed with ``InvalidStripeWebhookSignatureError``
     (rendered as 403 by the events exception handler).
     """
-    secrets = [s for s in settings.STRIPE_WEBHOOK_SECRETS if s not in _PLACEHOLDER_SECRETS]
+    secrets = real_webhook_secrets()
     if not secrets:
         logger.warning("stripe_webhook_secret_missing")
         raise InvalidStripeWebhookSignatureError()
