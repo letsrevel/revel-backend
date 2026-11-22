@@ -542,14 +542,16 @@ class TestRefundTaskFailures:
     def test_the_refund_status_decides_the_log_event(
         self, stripe_refund: MagicMock, status: str, log_event: str
     ) -> None:
+        failed = status in ("failed", "canceled")
         stripe_refund.return_value.status = status
+        stripe_refund.return_value.failure_reason = "insufficient_funds" if failed else None
 
         with capture_logs() as logs:
             refund_orphaned_checkout_session.apply(args=self._ARGS)
 
         assert not _lines(logs, "orphaned_checkout_refunded")
         (line,) = [line for line in logs if line["event"].startswith("orphaned_checkout_refund")]
-        assert line == {
+        expected = {
             "event": log_event,
             "log_level": "error",
             "refund_id": "re_orphan",
@@ -558,6 +560,9 @@ class TestRefundTaskFailures:
             "payment_intent_id": "pi_task",
             "organization_id": "org-id",
         }
+        if failed:  # a created refund that failed carries the same fields as the webhook line
+            expected["failure_reason"] = "insufficient_funds"
+        assert line == expected
 
     def test_a_failed_dispatch_is_logged_with_the_ids(
         self, connected_org: Organization, event: Event, django_capture_on_commit_callbacks: t.Any

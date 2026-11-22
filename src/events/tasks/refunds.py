@@ -164,12 +164,14 @@ def refund_orphaned_checkout_session(
         logger.error("orphaned_checkout_refund_failed", code=getattr(exc, "code", None), error=str(exc), **ids)
         return
     status = refund.status
-    if status == "succeeded":
-        log_event = "orphaned_checkout_refunded"
-    elif status in ("failed", "canceled"):
-        log_event = "orphaned_checkout_refund_failed"
-    else:
-        log_event = "orphaned_checkout_refund_pending"
+    if status in ("failed", "canceled"):
+        # Same fields as the webhook path, so one runbook rule covers both: a created refund that failed.
+        reason = getattr(refund, "failure_reason", None)
+        logger.error(
+            "orphaned_checkout_refund_failed", refund_id=refund.id, status=status, failure_reason=reason, **ids
+        )
+        return
+    log_event = "orphaned_checkout_refunded" if status == "succeeded" else "orphaned_checkout_refund_pending"
     logger.error(log_event, refund_id=refund.id, status=status, **ids)
 
 
