@@ -357,9 +357,10 @@ def cancel_ticket_by_user(
           rows are locked after Stripe returns (Payment -> TicketTier ->
           Ticket, see ``docs/engineering-notes.md``), so concurrent cancels of
           *other* tickets on the same tier do not wait for the network call.
-        * **A changed ticket rolls back only the final step.** If a check-in
-          lands during the Stripe call, the status change is rolled back, the
-          Refund row stays, and ``cancel_rolled_back_after_refund`` is logged.
+        * **A changed ticket rolls back only the final step.** If the ticket
+          changed before the tier and ticket locks (a ticket without a Payment is
+          serialized only by them), the status change is rolled back, any Refund
+          row stays, and ``cancel_rolled_back_after_refund`` is logged.
 
         The alternative — calling Stripe outside the transaction with a
         two-phase ``PENDING_CANCELLATION`` state and a janitor task — costs
@@ -379,7 +380,7 @@ def cancel_ticket_by_user(
     with transaction.atomic():
         # Lock order: Payment -> TicketTier -> Ticket (docs/engineering-notes.md). Every path
         # that changes a ticket with a Payment locks the Payment first, so the ticket status
-        # read below cannot change under us (check-in is the one writer that takes no lock).
+        # read below cannot change under us.
         payment: Payment | None = (
             Payment.objects.select_for_update(of=("self",)).filter(ticket_id=ticket.pk).order_by("pk").first()
         )
@@ -393,7 +394,7 @@ def cancel_ticket_by_user(
         refund_status, actual_refund_amount = _refund_if_required(ticket, payment, quote, user)
 
         # Now lock tier, then ticket, and re-check: two concurrent cancels must not both
-        # decrement quantity_sold, and check-in takes no Payment lock. The nested atomic is a
+        # decrement quantity_sold, and a ticket without a Payment has no other lock. The nested atomic is a
         # savepoint: if the re-check fails after a refund, only this step rolls back and the
         # Refund row stays, so the ``charge.refunded`` webhook can record the refund.
         block: CancellationBlocked | None = None

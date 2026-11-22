@@ -712,7 +712,7 @@ def cancel_held_pass(
             # Expire before the SeriesPass/tier/ticket locks: the buyer must not pay a cancelled pass.
             _expire_stripe_session(held_pass)
 
-        # Statuses can still change before the tier/ticket lock (check-in takes no lock).
+        # Statuses can still change before the tier/ticket lock (check-in locks only the tier and the ticket).
         # lock_tier_then_ticket re-reads the set under the row locks, so only tickets that are still
         # cancellable get cancelled. A ticket checked in after its refund keeps its status and its
         # refund, and is logged.

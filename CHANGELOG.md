@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A refund that is processed before its sale's attendee invoice exists now gets its credit note when the invoice is generated. A skipped invoice gets a skipped credit-note record, and a draft invoice is deleted, as for a refund that comes after the draft. Before, the invoice showed the full amount and no credit note was issued.
 - Deleting an account gives back the ticket-tier and series-pass places of its unfinished (pending) checkouts. Issued tickets and passes keep their places.
 - When one change frees places in several events, each event now starts its waitlist run, also when the start of the run for one of the events fails.
+- Check-in (`POST /event-admin/{event_id}/tickets/{code}/check-in`) reads the ticket status again under a lock before it checks the ticket in. A ticket that is cancelled or checked in by another request while the scan runs now gets the same 400 error as before, and its status stays as the other request set it.
 
 ## [3.0.0] - 2026-11-20
 
