@@ -14,7 +14,7 @@ from pydantic import BaseModel as PydanticBaseModel
 from pydantic import Field as PydanticField
 
 from common.fields import MarkdownField, ProtectedFileField, ProtectedImageField
-from common.file_types import extension_for_mime
+from common.file_types import extension_for_upload
 from common.models import TimeStampedModel
 from questionnaires.llms.llm_interfaces import EvaluationResponse
 
@@ -30,7 +30,8 @@ def questionnaire_file_upload_path(instance: "QuestionnaireFile", filename: str)
     Path structure: questionnaire_files/{user_id}/{uuid}{ext}
 
     The extension comes from the content type detected by ``file_service`` (set on
-    ``instance.mime_type`` before the file is saved), never from the client filename.
+    ``instance.mime_type`` before the file is saved). The client filename only refines a
+    generic detection, from the allowlist in ``common.file_types.extension_for_upload``.
 
     This structure:
     - Uses UUIDs to prevent enumeration attacks
@@ -40,7 +41,7 @@ def questionnaire_file_upload_path(instance: "QuestionnaireFile", filename: str)
     Note: The 'protected/' prefix is added by ProtectedFileField, so this
     function returns paths without it.
     """
-    ext = extension_for_mime(instance.mime_type)
+    ext = extension_for_upload(instance.mime_type, filename)
     return f"questionnaire_files/{instance.uploader_id}/{uuid.uuid4()}{ext}"
 
 

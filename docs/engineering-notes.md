@@ -642,3 +642,15 @@ triggers `common.W007` and must be re-encrypted under a comma-free salt before i
 
 `EncryptedFieldMixin.keys`/`.f` are `cached_property` on the shared field instance: tests that
 switch key settings must pop them from `field.__dict__`.
+
+## After-commit dispatch that must not fail the request (`robust=True`)
+
+An `on_commit` callback runs after the request transaction commits. If its `.delay()` raises (broker
+down), the data is already stored but the request answers 500, and the task is never queued. When that
+work must not fail the request, use a named callback that logs its own failure, register it with
+`transaction.on_commit(callback, robust=True)`, and add a sweep that finds the work again from the
+database. Examples: `_erasure_dispatch` in `accounts/admin/user.py`, and `_scan_dispatch` in
+`common/service/upload_service.py` with the `rescan_pending_uploads` sweep (#1446).
+
+Never pass a `functools.partial` with `robust=True`: Django logs a failing robust callback by its
+`__qualname__`, and a `partial` has none, so the error path itself raises `AttributeError`.

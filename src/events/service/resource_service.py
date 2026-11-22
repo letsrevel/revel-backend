@@ -14,7 +14,7 @@ from ninja.files import UploadedFile
 from PIL import Image
 
 from accounts.models import RevelUser
-from common.file_types import extension_for_mime
+from common.file_types import extension_for_upload
 from common.service.upload_service import create_file_audit_and_scan
 from common.utils import strip_exif
 from events import models, schema
@@ -98,7 +98,8 @@ def _prepare_resource_file(file: UploadedFile) -> tuple[UploadedFile, str]:
     """Validate an uploaded resource file and give it a server-chosen name.
 
     The type is detected from the content (the client header and name are not trusted)
-    and the stored extension comes from that detected type.
+    and the stored extension comes from that detected type. The client suffix only refines a
+    generic detection, from the allowlist in ``common.file_types.extension_for_upload``.
 
     Returns:
         The processed file and the SHA-256 of its stored content.
@@ -108,6 +109,7 @@ def _prepare_resource_file(file: UploadedFile) -> tuple[UploadedFile, str]:
             422, str(_("File exceeds maximum upload size of {}MB.").format(MAX_RESOURCE_FILE_SIZE // (1024 * 1024)))
         )
 
+    client_name = file.name
     content = file.read()
     file.seek(0)
     detected_mime_type = magic.from_buffer(content, mime=True)
@@ -137,7 +139,7 @@ def _prepare_resource_file(file: UploadedFile) -> tuple[UploadedFile, str]:
             raise HttpError(422, str(_("File is not a valid image.")))
         content = file.read()
         file.seek(0)
-    file.name = f"{uuid.uuid4()}{extension_for_mime(detected_mime_type)}"
+    file.name = f"{uuid.uuid4()}{extension_for_upload(detected_mime_type, client_name)}"
     return file, hashlib.sha256(content).hexdigest()
 
 

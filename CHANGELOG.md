@@ -29,6 +29,7 @@ Running the command again is harmless.
 - Check-in (`POST /event-admin/{event_id}/tickets/{code}/check-in`) reads the ticket status again under a lock before it checks the ticket in. A ticket that is cancelled or checked in by another request while the scan runs now gets the same 400 error as before, and its status stays as the other request set it.
 - Deleting an account expires the open Stripe checkout sessions of its unfinished (pending) checkouts, so they can no longer be paid.
 - A ticket or series-pass checkout that completes at Stripe after its payment records were removed (for example, with a deleted account) is refunded in full automatically (the platform fee is kept, as for every refund). A repeated Stripe notification does not refund the checkout again. When Stripe cannot complete such a refund, also later, staff get an alert to refund by hand.
+- An upload no longer fails when its malware scan cannot be queued, and a new task (every 15 minutes) queues the scan again for files that are still not scanned. A CSV, a Word, Excel or PowerPoint file and an M4A file keep their `.csv`, `.docx`, `.xlsx`, `.pptx` or `.m4a` extension in questionnaire and resource uploads. Before, they were stored as `.txt`, `.zip` or `.mp4`.
 
 ## [3.0.0] - 2026-11-20
 

@@ -45,6 +45,23 @@ def test_pdf_is_stored_with_pdf_extension(
     assert "evil" not in stored.name
 
 
+def test_csv_detected_as_plain_text_keeps_csv_extension(
+    organization: models.Organization, organization_owner_user: RevelUser
+) -> None:
+    # libmagic reports a semicolon-separated CSV as text/plain (a comma CSV can come back as text/csv).
+    resource = _create(organization, "members.csv", b"name;email\nAda;ada@example.com\n", organization_owner_user)
+
+    assert Path(str(resource.file.name)).suffix == ".csv"
+
+
+def test_plain_text_named_html_is_stored_as_txt(
+    organization: models.Organization, organization_owner_user: RevelUser
+) -> None:
+    resource = _create(organization, "notes.html", b"just some plain words\n", organization_owner_user)
+
+    assert Path(str(resource.file.name)).suffix == ".txt"
+
+
 def test_png_named_html_is_stored_as_png(
     organization: models.Organization, organization_owner_user: RevelUser, png_bytes: bytes
 ) -> None:

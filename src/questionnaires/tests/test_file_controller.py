@@ -131,6 +131,20 @@ class TestUploadFile:
         assert stored_name.endswith(".png")
         assert "x.html" not in stored_name
 
+    def test_csv_detected_as_plain_text_keeps_csv_extension(self, user_client: Client, user: RevelUser) -> None:
+        """libmagic reports a CSV as ``text/plain``; the allowlisted ``.csv`` suffix is kept (#1470)."""
+        url = reverse("api:upload_questionnaire_file")
+        uploaded_file = SimpleUploadedFile(
+            name="members.csv", content=b"name;email\nAda;ada@example.com\n", content_type="text/csv"
+        )
+
+        response = user_client.post(url, {"file": uploaded_file}, format="multipart")
+
+        assert response.status_code == 200
+        qf = QuestionnaireFile.objects.get(uploader=user)
+        assert qf.mime_type == "text/plain"
+        assert str(qf.file.name).endswith(".csv")
+
     def test_malformed_image_is_refused_with_422(self, user_client: Client, user: RevelUser) -> None:
         """Content libmagic calls webp but Pillow cannot decode is a 422, not a 500."""
         url = reverse("api:upload_questionnaire_file")

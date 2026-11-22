@@ -133,7 +133,8 @@ def upload_questionnaire_file(user: RevelUser, file: UploadedFile) -> Questionna
                 model="questionnairefile",
                 pk=str(questionnaire_file.pk),
                 field="file",
-            )
+            ),
+            robust=True,  # a broker failure must not fail the stored upload (#1446)
         )
 
     return questionnaire_file
