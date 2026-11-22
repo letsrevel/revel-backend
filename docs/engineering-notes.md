@@ -352,8 +352,10 @@ sent, and logs `stripe_session_completed_cancelled_ticket_refund_due`. After com
 lock and refunds the full amount with `source=late_payment` (the platform fee is kept). The credit note
 follows from the `charge.refunded` webhook, also for series passes. When the refund is processed
 before the invoice exists, the invoice task credits it if the invoice (or the skipped-invoice record)
-shows the payment (#1484). A late payment is refunded in full, so if the refund completes first the
-payment is `REFUNDED`, it is not invoiced, and it gets no invoice and no credit note. `cleanup_expired_payments`
+shows the payment (#1484). A late payment is refunded in full. The payment becomes `REFUNDED` only when the
+`charge.refunded` webhook processes the refund. If that happens before the invoice task reads the
+payments, the payment is not invoiced, and it gets no invoice and no credit note. Otherwise it is
+invoiced, and the credit note follows. `cleanup_expired_payments`
 re-queues a marker older than 10 minutes. A transient Stripe error (connection, rate limit, 5xx)
 keeps the marker, so the sweep retries, for up to 6 hours. Any other Stripe failure, or a transient
 one after 6 hours, leaves a `FAILED` `Refund` row, `refund_status` `FAILED` and the error log
