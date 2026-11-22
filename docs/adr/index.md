@@ -60,6 +60,7 @@ What becomes easier or harder because of this change?
 | [ADR-0018](0018-oauth-oidc-provider.md) | OAuth 2.1 / OIDC provider on django-oauth-toolkit | Accepted |
 | [ADR-0019](0019-calendar-aligned-membership-plans.md) | Calendar-aligned membership plans | Accepted |
 | [ADR-0020](0020-staff-originated-rows.md) | Staff-originated rows show only what staff supplied | Accepted |
+| [ADR-0021](0021-post-deploy-tasks.md) | Post-deploy tasks with a run record | Proposed |
 
 ---
 
