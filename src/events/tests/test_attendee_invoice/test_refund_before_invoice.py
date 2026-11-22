@@ -229,7 +229,6 @@ class TestRefundBeforeInvoice:
         )
         generate_attendee_credit_note_task(SID, [str(payment.id)], [str(row.id)])
         cn = AttendeeInvoiceCreditNote.objects.get(invoice=invoice)
-        cn.refresh_from_db()
         assert cn.email_sent_at is not None
 
         with patch("events.tasks.invoicing.deliver_attendee_credit_note_task.delay") as deliver:
@@ -237,3 +236,26 @@ class TestRefundBeforeInvoice:
 
         deliver.assert_not_called()
         assert AttendeeInvoiceCreditNote.objects.count() == 1
+
+    def test_a_repeated_credit_note_task_does_not_retry_an_undeliverable_note(
+        self, invoicing_org: Organization, pay: t.Callable[..., Payment]
+    ) -> None:
+        payment = pay()
+        invoice = generate_attendee_invoice(SID)
+        assert invoice is not None
+        row = Refund.objects.create(
+            payment=payment,
+            amount=Decimal("30.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.ORGANIZER_API,
+        )
+        with patch("events.tasks.invoicing.deliver_attendee_credit_note_task.delay"):
+            generate_attendee_credit_note_task(SID, [str(payment.id)], [str(row.id)])
+        cn = AttendeeInvoiceCreditNote.objects.get(invoice=invoice)
+        cn.mark_email_undeliverable(AttendeeInvoiceCreditNote.DeliveryFailureReason.NO_RECIPIENT)
+
+        with patch("events.tasks.invoicing.deliver_attendee_credit_note_task.delay") as deliver:
+            generate_attendee_credit_note_task(SID, [str(payment.id)], [str(row.id)])
+
+        deliver.assert_not_called()

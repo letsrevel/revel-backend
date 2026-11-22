@@ -96,8 +96,9 @@ def generate_attendee_credit_note_task(
     credit_note = generate_attendee_credit_note(
         stripe_session_id, [UUID(pid) for pid in refunded_payment_ids], resolved_refund_ids
     )
-    # ponytail: two tasks that run at the same moment can both see an unsent note and both
-    # queue it; an atomic claim on the delivery fields would close that window.
+    # ponytail: a repeat that comes while the first delivery is still queued or retrying (up to
+    # about 10 minutes of backoff) still sees an unsent note and queues it again; an atomic
+    # "delivery queued" claim would close that window.
     if credit_note and credit_note.email_sent_at is None and credit_note.email_delivery_failed_at is None:
         deliver_attendee_credit_note_task.delay(str(credit_note.id))
 
