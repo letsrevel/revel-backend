@@ -52,6 +52,10 @@ PLATFORM_EVENTS: tuple[str, ...] = (
     "charge.dispute.created",
     "charge.dispute.updated",
     "charge.dispute.closed",
+    # A refund that fails or is canceled after it was created: alerts for the automatic refund of a
+    # completed session with no Payment rows (#1489).
+    "refund.failed",
+    "refund.updated",
     "payment_intent.canceled",
     # Membership subscriptions live on connected accounts (direct charges,
     # ADR-0012), but a host-as-org binding (#495) routes the same events

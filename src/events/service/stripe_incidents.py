@@ -35,6 +35,7 @@ import typing as t
 import structlog
 
 from common.observability.metrics import (
+    ORPHANED_CHECKOUT_REFUND_DISPATCH_FAILED,
     STRIPE_SESSION_PAID_WITHOUT_PAYMENTS,
     STRIPE_SESSION_TOTAL_MISMATCH,
     SUBSCRIPTION_CHECKOUT_PAID_BUT_UNLINKED,
@@ -145,27 +146,60 @@ def record_paid_session_without_payments(
     amount_total: int,
     currency: str | None,
     payment_intent_id: str | None,
+    organization_id: str | None = None,
+    refund_eligible: bool = False,
 ) -> None:
     """Emit the counter and ERROR line for a paid session we hold no Payment rows for.
 
     Money was captured against a session that has no record on our side, and the
     handler can only return 200 — a redelivery would find exactly the same
-    nothing, so retrying cannot heal it. The alert is the only remaining thread:
-    the Stripe session and PaymentIntent are enough to refund the buyer.
+    nothing, so retrying cannot heal it. For a Revel ticket or series-pass session
+    the webhook queues the full refund after commit (#1489, ``refund_eligible``); for any other
+    session the alert is the only remaining thread, and the Stripe session and
+    PaymentIntent are enough to refund the buyer by hand. Ids only: no buyer data.
 
     Args:
         session_id: The Stripe checkout session.
         amount_total: What Stripe captured, in minor units (non-zero by caller contract).
         currency: Session currency, as reported by Stripe.
         payment_intent_id: The PaymentIntent to refund.
+        organization_id: The organization that owns the session's Stripe account, when known.
+        refund_eligible: Whether the session qualifies for the automatic refund. The refund is queued
+            after commit; ``orphaned_checkout_refund_queued`` logs that it was.
     """
     STRIPE_SESSION_PAID_WITHOUT_PAYMENTS.inc()
     logger.error(
         "stripe_session_paid_without_payments",
         session_id=session_id,
         payment_intent_id=payment_intent_id,
+        organization_id=organization_id,
         charged_minor_units=amount_total,
         currency=currency,
+        refund_eligible=refund_eligible,
+    )
+
+
+def record_orphaned_checkout_refund_dispatch_failed(
+    *, session_id: str, payment_intent_id: str, organization_id: str
+) -> None:
+    """Emit the counter and ERROR line when the automatic refund of a session with no Payment rows was not queued.
+
+    Runs in the webhook's on-commit callback, so the counter is scraped (a failure inside the Celery task is
+    not: it alerts through the Loki rule on ``orphaned_checkout_refund_failed``). There is no durable marker,
+    so the buyer must be refunded by hand in Stripe with these ids (#1489).
+
+    Args:
+        session_id: The completed Stripe Checkout Session.
+        payment_intent_id: The PaymentIntent to refund.
+        organization_id: The organization that owns the session's Stripe account.
+    """
+    ORPHANED_CHECKOUT_REFUND_DISPATCH_FAILED.inc()
+    logger.error(
+        "orphaned_checkout_refund_dispatch_failed",
+        session_id=session_id,
+        payment_intent_id=payment_intent_id,
+        organization_id=organization_id,
+        exc_info=True,
     )
 
 

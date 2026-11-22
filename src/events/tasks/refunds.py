@@ -1,5 +1,6 @@
 """Bulk cancel-and-refund sweep for cancelled events."""
 
+import typing as t
 from datetime import timedelta
 
 import stripe
@@ -115,6 +116,63 @@ def _record_late_payment_failure(payment_id: str, reason: str) -> None:
             refund_status=Payment.RefundStatus.FAILED, refund_failure_reason=reason
         )
     logger.error("late_payment_refund_failed", payment_id=payment_id, error=reason)
+
+
+# Bounded backoff for a transient Stripe error: 1, 2, 4, 8, 16 and 32 minutes (about one hour in total).
+ORPHANED_CHECKOUT_REFUND_MAX_RETRIES = 6
+_ORPHANED_CHECKOUT_REFUND_BACKOFF_SECONDS = 60
+
+
+@shared_task(
+    bind=True, name="events.refund_orphaned_checkout_session", max_retries=ORPHANED_CHECKOUT_REFUND_MAX_RETRIES
+)
+def refund_orphaned_checkout_session(
+    self: t.Any, session_id: str, payment_intent_id: str, stripe_account: str, organization_id: str
+) -> None:
+    """Refund in full a completed ticket or series-pass checkout session that has no Payment rows (#1489).
+
+    The webhook queues this after commit, so no row lock is held across the Stripe call. The idempotency key
+    is derived from the session id: a retry or a second dispatch never refunds twice, and after Stripe's 24-hour
+    key window a second full refund fails with ``charge_already_refunded``, which is a no-op here. A transient
+    Stripe error (connection, rate limit, 5xx) is retried with backoff. Any other Stripe error, or a transient
+    one after the last retry, logs ``orphaned_checkout_refund_failed`` at ERROR for a manual refund. The
+    created refund's status decides the log event, at ERROR so staff see each automatic refund:
+    ``succeeded`` logs ``orphaned_checkout_refunded``; ``failed`` or ``canceled`` logs
+    ``orphaned_checkout_refund_failed``; any other status (``pending``, ``requires_action``) logs
+    ``orphaned_checkout_refund_pending``, and a later failure arrives through the ``refund.failed`` /
+    ``refund.updated`` webhook. Ids only, no buyer data.
+
+    Args:
+        self: Celery task instance (automatically passed when bind=True).
+        session_id: The completed Stripe Checkout Session.
+        payment_intent_id: The PaymentIntent to refund.
+        stripe_account: The connected account of the session, or "" for the platform account.
+        organization_id: The organization that owns the Stripe account (for the log only).
+    """
+    ids = {"session_id": session_id, "payment_intent_id": payment_intent_id, "organization_id": organization_id}
+    try:
+        refund = refund_service.refund_orphaned_checkout_session(
+            session_id=session_id, payment_intent_id=payment_intent_id, stripe_account=stripe_account
+        )
+    except stripe.error.StripeError as exc:
+        if getattr(exc, "code", None) == "charge_already_refunded":
+            logger.info("orphaned_checkout_refund_already_refunded", **ids)
+            return
+        if isinstance(exc, _TRANSIENT_STRIPE_ERRORS) and self.request.retries < ORPHANED_CHECKOUT_REFUND_MAX_RETRIES:
+            logger.warning("orphaned_checkout_refund_retry", attempt=self.request.retries + 1, error=str(exc), **ids)
+            raise self.retry(exc=exc, countdown=_ORPHANED_CHECKOUT_REFUND_BACKOFF_SECONDS * 2**self.request.retries)
+        logger.error("orphaned_checkout_refund_failed", code=getattr(exc, "code", None), error=str(exc), **ids)
+        return
+    status = refund.status
+    if status in ("failed", "canceled"):
+        # Same fields as the webhook path, so one runbook rule covers both: a created refund that failed.
+        reason = getattr(refund, "failure_reason", None)
+        logger.error(
+            "orphaned_checkout_refund_failed", refund_id=refund.id, status=status, failure_reason=reason, **ids
+        )
+        return
+    log_event = "orphaned_checkout_refunded" if status == "succeeded" else "orphaned_checkout_refund_pending"
+    logger.error(log_event, refund_id=refund.id, status=status, **ids)
 
 
 @shared_task(name="events.refund_cancelled_event_tickets")

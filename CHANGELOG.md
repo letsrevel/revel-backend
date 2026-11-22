@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ⚠️ Upgrade notes: action required after you deploy
+
+**Every instance that uses Stripe, including self-hosted ones, must update its Stripe webhook subscriptions after upgrading to this release.** Revel now listens to two more Stripe events, `refund.failed` and `refund.updated`. Stripe sends an event only when the webhook endpoint subscribes to it, and a deploy does not change that. If you skip this step, Revel does not learn that an automatic refund failed later, so nobody is told to refund the buyer by hand.
+
+1. Upgrade as usual.
+2. Preview the change, inside the web container:
+   `docker compose exec web python manage.py provision_stripe_webhooks --url https://<your API domain>/api/stripe/webhook --sync --dry-run`
+   It lists the event types that each endpoint (platform and Connect) gains. It changes nothing.
+3. Run the same command without `--dry-run`. It updates the existing endpoints only: it creates no endpoint and does not change the signing secrets.
+
+Running the command again is harmless.
+
+
 ### Fixed
 - Confirming or reverting an offline payment (`POST /event-admin/{event_id}/tickets/{ticket_id}/confirm-payment` and `.../unconfirm-payment`) answers 409 when the ticket changes while the request runs, for example by a cancellation. A ticket that is already in another status still gets 404, as before.
 - A payment that completes after its ticket was cancelled is refunded automatically (the platform fee is kept, as for every refund), and no payment confirmation is sent. Refund rows can have the new source `late_payment`.
@@ -15,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - When one change frees places in several events, each event now starts its waitlist run, also when the start of the run for one of the events fails.
 - Check-in (`POST /event-admin/{event_id}/tickets/{code}/check-in`) reads the ticket status again under a lock before it checks the ticket in. A ticket that is cancelled or checked in by another request while the scan runs now gets the same 400 error as before, and its status stays as the other request set it.
 - Deleting an account expires the open Stripe checkout sessions of its unfinished (pending) checkouts, so they can no longer be paid.
+- A ticket or series-pass checkout that completes at Stripe after its payment records were removed (for example, with a deleted account) is refunded in full automatically (the platform fee is kept, as for every refund). A repeated Stripe notification does not refund the checkout again. When Stripe cannot complete such a refund, also later, staff get an alert to refund by hand.
 
 ## [3.0.0] - 2026-11-20
 

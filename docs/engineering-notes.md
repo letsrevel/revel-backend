@@ -362,6 +362,48 @@ one after 6 hours, leaves a `FAILED` `Refund` row, `refund_status` `FAILED` and 
 `late_payment_refund_failed`, which needs an alert. A refund that the organizer issues by hand, also a
 partial one, ends the automatic refund: the organizer took over the payment.
 
+**Completed sessions with no Payment rows (#1489).** A `checkout.session.completed` for a charged
+session with no `Payment` rows (deleted with the account or the event, or swept) still logs the ERROR
+`stripe_session_paid_without_payments`, now with `organization_id` and `refund_eligible`. When the
+session is a Revel ticket or series-pass checkout with a payment intent, the handler queues
+`events.refund_orphaned_checkout_session` after commit, and the on-commit callback logs
+`orphaned_checkout_refund_queued`. The task holds no lock and writes no row: it refunds the full payment
+intent with the idempotency key `orphaned-checkout-refund:{session_id}` (the platform fee is kept) and
+the refund metadata `revel_orphaned_checkout_session={session_id}`. A transient Stripe error is retried 6
+times with backoff (about one hour). A terminal error, or the last transient one, logs the ERROR
+`orphaned_checkout_refund_failed`. `charge_already_refunded` is a no-op. The status of the created refund
+decides the log event, at ERROR so staff see every automatic refund: `succeeded` logs
+`orphaned_checkout_refunded`, `failed` or `canceled` logs `orphaned_checkout_refund_failed`, and any other
+status (`pending`, `requires_action`) logs `orphaned_checkout_refund_pending`. A pending refund can fail
+later (for example, when the connected account has too small a balance). Then the `refund.failed` webhook
+(or `refund.updated` with status `canceled`) of a refund with that metadata, with no `Payment` row for its
+payment intent, on an account of an organization, logs the ERROR `orphaned_checkout_refund_failed` with
+the ids and the `failure_reason`. A refund that is already `failed` when the task gets it can log this
+event twice (task and webhook); there is no marker to stop that. Only `orphaned_checkout_refund_failed`
+needs an alert. After a deploy
+that adds these two event types, run `provision_stripe_webhooks --sync`.
+There is no durable marker (no row to hold it): a lost dispatch increments
+`revel_orphaned_checkout_refund_dispatch_failed` and logs the ERROR
+`orphaned_checkout_refund_dispatch_failed`, and staff refund by hand. The task runs in Celery, so its
+failure is not a Prometheus metric (Celery exports none); it alerts through the Loki rule on its log
+event. The replay path never refunds: a duplicate delivery can arrive after the rows of a confirmed sale
+were deleted with the account.
+
+Organizations use Standard Connect accounts, so the Connect webhook also gets sessions that other
+software created on those accounts. A session counts as Revel's only when all of these are true:
+
+- `mode=payment` and the full metadata shape that `stripe_service.py` sets, with UUID ids (also each
+  entry of the comma-separated `ticket_ids`): a ticket
+  checkout has `ticket_ids`, `event_id`, `user_id` and `batch_size`; a series-pass checkout has
+  `held_pass_id`, `user_id` and `ticket_ids`.
+- The Stripe account belongs to an organization (`stripe_account_id` is unique, also for the platform
+  account, so the account identifies at most one organization).
+- When the parent row still exists (the event, or the `HeldSeriesPass`), it belongs to that
+  organization. When it is gone, the account alone identifies the organization.
+- The `success_url` starts with `SiteSettings.frontend_base_url` (where Revel builds every checkout
+  return URL, #1153) or an active custom-domain origin of the organization. A session that fails this
+  check is not refunded and logs `orphaned_checkout_refund_skipped_foreign_return_url`.
+
 **Mitigation:** `STRIPE_HTTP_TIMEOUT_SECONDS` (`revel/settings/stripe.py`, default 15,
 configured on `stripe.default_http_client` by
 `common/service/stripe_config.py::configure_stripe`, which every module making an outbound

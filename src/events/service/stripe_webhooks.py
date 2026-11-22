@@ -14,15 +14,17 @@ from django.db.models import F
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from common.models import StripeConnectMixin
+from common.models import SiteSettings, StripeConnectMixin
 from common.service.stripe_config import configure_stripe
 from events.exceptions import InvalidStripeWebhookSignatureError, SessionTotalMismatchError
 from events.models import (
+    Event,
     HeldSeriesPass,
     MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     Organization,
+    OrganizationDomain,
     Payment,
     Refund,
     StripeWebhookEvent,
@@ -45,6 +47,10 @@ configure_stripe()
 
 # Placeholder values that must never be treated as real signing secrets.
 _PLACEHOLDER_SECRETS = frozenset({"whsec_...", "whsec_placeholder", ""})
+
+# The metadata keys Revel sets on its checkout sessions (stripe_service.py), used to refund only Revel sessions (#1489).
+_TICKET_CHECKOUT_METADATA = ("ticket_ids", "event_id", "user_id", "batch_size")
+_SERIES_PASS_CHECKOUT_METADATA = ("held_pass_id", "user_id", "ticket_ids")
 
 
 def verify_webhook(payload: bytes, signature_header: str) -> stripe.Event:
@@ -137,6 +143,9 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             "charge.dispute.created": self.handle_charge_dispute,
             "charge.dispute.updated": self.handle_charge_dispute,
             "charge.dispute.closed": self.handle_charge_dispute,
+            # A refund that fails or is canceled after it was created (#1489: automatic refunds only).
+            "refund.failed": self.handle_refund_failure,
+            "refund.updated": self.handle_refund_failure,
             # Membership subscriptions (Phases 2-4). Diff-based and idempotent:
             # the dedup gate skips true redeliveries, these also tolerate the
             # nightly reconciliation feeding them retrieved payloads.
@@ -423,30 +432,164 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             currency=payments[0].currency,
         )
 
-    @staticmethod
-    def _report_missing_payments(session: t.Any, session_id: str) -> None:
-        """Grade a session that has no Payment rows to confirm (#750).
+    def _report_missing_payments(self, session: t.Any, session_id: str) -> None:
+        """Grade a session that has no Payment rows to confirm (#750), and refund a charged Revel one (#1489).
 
         A zero-total session (a free ticket, a fully-discounted cart, a session
         Stripe expired and re-delivered) is benign noise and stays a warning.
 
         A session that captured *money* is not: whatever the cause — the expiry
         sweep having deleted the rows of a checkout whose confirmation kept
-        failing, a reservation reclaimed mid-flight — the buyer has been charged
-        and we hold no record to confirm, refund against, or re-issue from. The
-        handler still returns 200 because a redelivery would find exactly the same
-        nothing; the alert, not the retry, is what recovers the buyer.
+        failing, a reservation reclaimed mid-flight, an account deleted while its
+        checkout was open — the buyer has been charged and we hold no record to
+        confirm or re-issue from. The handler still returns 200 because a
+        redelivery would find exactly the same nothing. When the session is a
+        Revel ticket or series-pass checkout, the full amount is refunded after
+        commit by ``events.refund_orphaned_checkout_session`` (the platform fee is
+        kept, as for late payments). Any other session keeps the alert only.
+
+        Only this first-delivery path refunds, never :meth:`replay`: a duplicate
+        delivery can arrive after the Payment rows of a confirmed sale were
+        deleted with the account, and that sale must not be refunded.
         """
         amount_total = session.get("amount_total")
         if not amount_total:
             logger.warning("stripe_session_no_payments", session_id=session_id)
             return
+        payment_intent_id = session.get("payment_intent")
+        stripe_account = self._event_account()
+        organization_id = self._revel_checkout_organization_id(session, stripe_account)
+        refund_eligible = (
+            organization_id is not None
+            and bool(payment_intent_id)
+            and self._has_revel_return_url(session, session_id, organization_id)
+        )
         record_paid_session_without_payments(
             session_id=session_id,
             amount_total=int(amount_total),
             currency=session.get("currency"),
-            payment_intent_id=session.get("payment_intent"),
+            payment_intent_id=payment_intent_id,
+            organization_id=organization_id,
+            refund_eligible=refund_eligible,
         )
+        if refund_eligible:
+            transaction.on_commit(
+                refund_service.orphaned_checkout_refund_dispatch(
+                    session_id=session_id,
+                    payment_intent_id=t.cast(str, payment_intent_id),
+                    stripe_account=stripe_account,
+                    organization_id=t.cast(str, organization_id),
+                )
+            )
+
+    def handle_refund_failure(self, event: stripe.Event) -> None:
+        """Alert when an automatic refund of a session with no Payment rows fails after it was created (#1489).
+
+        ``refund.failed`` handles a ``failed`` refund; ``refund.updated`` handles only a ``canceled`` one, so
+        a failure is logged once. Only a refund with the metadata that
+        ``refund_service.refund_orphaned_checkout_session`` sets, with no Payment row for its payment intent,
+        on an account of an organization, logs the ERROR ``orphaned_checkout_refund_failed`` (ids only):
+        staff then refund by hand. Any other refund is left alone.
+        """
+        refund = event.data.object
+        status = refund.get("status")
+        wanted_status = "failed" if event.type == "refund.failed" else "canceled"
+        if status != wanted_status:
+            return
+        session_id = (refund.get("metadata") or {}).get(refund_service.ORPHANED_CHECKOUT_REFUND_METADATA_KEY)
+        payment_intent_id = refund.get("payment_intent")
+        if not session_id or not payment_intent_id:
+            return
+        if Payment.objects.filter(stripe_payment_intent_id=payment_intent_id).exists():
+            return
+        organization_id = (
+            Organization.objects.filter(stripe_account_id=self._event_account() or settings.STRIPE_ACCOUNT)
+            .values_list("pk", flat=True)
+            .first()
+        )
+        if organization_id is None:
+            return
+        logger.error(
+            "orphaned_checkout_refund_failed",
+            session_id=str(session_id),
+            payment_intent_id=str(payment_intent_id),
+            organization_id=str(organization_id),
+            refund_id=refund.get("id"),
+            status=status,
+            failure_reason=refund.get("failure_reason"),
+        )
+
+    def _event_account(self) -> str:
+        """Return the connected account of the event, or "" for the platform account."""
+        account = getattr(self.event, "account", None)
+        return account if isinstance(account, str) else ""
+
+    @staticmethod
+    def _revel_checkout_organization_id(session: t.Any, stripe_account: str) -> str | None:
+        """Return the organization of a Revel ticket or series-pass checkout session, else None (#1489).
+
+        Organizations use Standard Connect accounts, so the Connect webhook also gets sessions that other
+        software created on them. Only the full metadata shape that Revel sets counts, in ``mode=payment``:
+        a ticket checkout (``_create_stripe_session``) or a series-pass checkout
+        (``_create_series_pass_stripe_session``), with UUIDs where Revel writes them (also each entry of the
+        comma-separated ``ticket_ids``). The session's Stripe account must belong to an organization. When
+        the checkout's parent row still exists (the event of a ticket checkout, the ``HeldSeriesPass`` of a
+        series-pass checkout), it must belong to that organization. When it is gone (deleted with the account
+        or the event), the Stripe account alone identifies the organization (``stripe_account_id`` is unique,
+        also for the platform account). Subscription checkouts never get here: the handler sends them to the
+        subscription handler first.
+        """
+        metadata = session.get("metadata") or {}
+        if session.get("mode") != "payment":
+            return None
+        if all(metadata.get(key) for key in _TICKET_CHECKOUT_METADATA):
+            uuid_keys = ("event_id", "user_id")
+        elif all(metadata.get(key) for key in _SERIES_PASS_CHECKOUT_METADATA):
+            uuid_keys = ("held_pass_id", "user_id")
+        else:
+            return None
+        try:
+            parsed = {key: uuid.UUID(str(metadata[key])) for key in uuid_keys}
+            for ticket_id in str(metadata["ticket_ids"]).split(","):  # comma-separated, as stripe_service writes it
+                uuid.UUID(ticket_id)
+        except ValueError:
+            return None
+        organizations = Organization.objects.filter(stripe_account_id=stripe_account or settings.STRIPE_ACCOUNT)
+        if (event_id := parsed.get("event_id")) is not None:
+            parent_org_id = Event.objects.filter(pk=event_id).values_list("organization_id", flat=True).first()
+        else:
+            parent_org_id = (
+                HeldSeriesPass.objects.filter(pk=parsed["held_pass_id"])
+                .values_list("series_pass__event_series__organization_id", flat=True)
+                .first()
+            )
+        if parent_org_id is not None:
+            organizations = organizations.filter(pk=parent_org_id)
+        organization_id = organizations.values_list("pk", flat=True).first()
+        return str(organization_id) if organization_id is not None else None
+
+    @staticmethod
+    def _has_revel_return_url(session: t.Any, session_id: str, organization_id: str) -> bool:
+        """Return whether the session's ``success_url`` is on a Revel frontend origin (#1489).
+
+        Revel builds every ticket and series-pass ``success_url`` on ``SiteSettings.frontend_base_url``
+        (#1153). An active custom domain of the organization is accepted too. A session that fails the
+        check is not refunded, and the skip is logged with ids only.
+        """
+        origins = {str(SiteSettings.get_solo().frontend_base_url).rstrip("/")}
+        hostnames = OrganizationDomain.objects.filter(
+            organization_id=organization_id, status=OrganizationDomain.Status.ACTIVE
+        ).values_list("hostname", flat=True)
+        origins |= {str(settings.CUSTOM_DOMAIN_URL_TEMPLATE).format(hostname=h).rstrip("/") for h in hostnames}
+        success_url = str(session.get("success_url") or "")
+        if any(success_url.startswith(f"{origin}/") for origin in origins):
+            return True
+        logger.warning(
+            "orphaned_checkout_refund_skipped_foreign_return_url",
+            session_id=session_id,
+            organization_id=organization_id,
+        )
+        return False
 
     @staticmethod
     def _reconcile_session_total(session: t.Any, payments: list[Payment]) -> None:
