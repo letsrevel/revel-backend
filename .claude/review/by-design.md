@@ -93,3 +93,8 @@ Policy-level intended behaviour that reviewers must not report as a finding. Eac
 - behaviour: CHANGELOG entries and release notes state the user-facing effect and the API contract of a change (status codes, error codes, fields). They do not use a `### Security` heading for quiet fixes, and do not describe a weakness, its trigger or its mechanics.
 - boundary: a missing contract fact that clients or operators need (a new status code, a field change, a required operator step) is a docs finding; the absence of a security label or of exploit detail is not.
 - reference: owner decision 2026-11-20.
+
+## Check-in takes the tier lock
+- behaviour: check-in locks Payment, then the tier and the ticket with `ticket_service.lock_tier_then_ticket`, like every other ticket writer. Scans of tickets of the same tier therefore run one after another, a few milliseconds each.
+- boundary: a network call (Stripe, email, wallet) inside the check-in lock, or a lock held across more than the one short transaction, remains a valid finding.
+- reference: owner decision 2026-11-22 (#1482).
