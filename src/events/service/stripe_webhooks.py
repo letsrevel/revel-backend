@@ -18,6 +18,7 @@ from common.models import StripeConnectMixin
 from common.service.stripe_config import configure_stripe
 from events.exceptions import InvalidStripeWebhookSignatureError, SessionTotalMismatchError
 from events.models import (
+    Event,
     HeldSeriesPass,
     MembershipPayment,
     MembershipSubscription,
@@ -45,6 +46,10 @@ configure_stripe()
 
 # Placeholder values that must never be treated as real signing secrets.
 _PLACEHOLDER_SECRETS = frozenset({"whsec_...", "whsec_placeholder", ""})
+
+# The metadata keys Revel sets on its checkout sessions (stripe_service.py), used to refund only Revel sessions (#1489).
+_TICKET_CHECKOUT_METADATA = ("ticket_ids", "event_id", "user_id", "batch_size")
+_SERIES_PASS_CHECKOUT_METADATA = ("held_pass_id", "user_id", "ticket_ids")
 
 
 def verify_webhook(payload: bytes, signature_header: str) -> stripe.Event:
@@ -477,20 +482,32 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
     def _revel_checkout_organization_id(session: t.Any, stripe_account: str) -> str | None:
         """Return the organization of a Revel ticket or series-pass checkout session, else None (#1489).
 
-        Revel creates these sessions in ``mode=payment`` with ``ticket_ids`` in the metadata (a ticket
-        checkout also sets ``event_id``). The session's Stripe account must belong to an organization,
-        and for a ticket checkout to the organization of that event. Subscription checkouts never get
-        here: the handler sends them to the subscription handler first.
+        Organizations use Standard Connect accounts, so the Connect webhook also gets sessions that other
+        software created on them. Only the full metadata shape that Revel sets counts, in ``mode=payment``:
+        a ticket checkout (``_create_stripe_session``) or a series-pass checkout
+        (``_create_series_pass_stripe_session``), with UUIDs where Revel writes them. The session's Stripe
+        account must belong to an organization. A ticket checkout's event must belong to that
+        organization; when the event was deleted (its rows cascaded), the connected account alone
+        identifies the organization, but on the shared platform account the event is required.
+        Subscription checkouts never get here: the handler sends them to the subscription handler first.
         """
         metadata = session.get("metadata") or {}
-        if session.get("mode") != "payment" or not metadata.get("ticket_ids"):
+        if session.get("mode") != "payment":
+            return None
+        if all(metadata.get(key) for key in _TICKET_CHECKOUT_METADATA):
+            uuid_keys = ("event_id", "user_id")
+        elif all(metadata.get(key) for key in _SERIES_PASS_CHECKOUT_METADATA):
+            uuid_keys = ("held_pass_id", "user_id")
+        else:
+            return None
+        try:
+            parsed = {key: uuid.UUID(str(metadata[key])) for key in uuid_keys}
+        except ValueError:
             return None
         organizations = Organization.objects.filter(stripe_account_id=stripe_account or settings.STRIPE_ACCOUNT)
-        if event_id := metadata.get("event_id"):
-            try:
-                organizations = organizations.filter(events__pk=uuid.UUID(str(event_id)))
-            except ValueError:
-                return None
+        event_id = parsed.get("event_id")
+        if event_id is not None and (not stripe_account or Event.objects.filter(pk=event_id).exists()):
+            organizations = organizations.filter(events__pk=event_id)
         organization_id = organizations.order_by("pk").values_list("pk", flat=True).first()
         return str(organization_id) if organization_id is not None else None
 

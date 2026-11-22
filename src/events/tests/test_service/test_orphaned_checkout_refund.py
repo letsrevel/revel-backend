@@ -205,10 +205,91 @@ class TestOnlyRevelTicketAndPassSessionsAreRefunded:
     def test_a_malformed_event_id_is_not_refunded(
         self, connected_org: Organization, stripe_refund: MagicMock, django_capture_on_commit_callbacks: t.Any
     ) -> None:
-        metadata = {"ticket_ids": "x", "event_id": "not-a-uuid"}
+        metadata = {"ticket_ids": "x", "event_id": "not-a-uuid", "user_id": str(uuid.uuid4()), "batch_size": "1"}
         _deliver(_session_event(metadata=metadata), django_capture_on_commit_callbacks)
 
         stripe_refund.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "metadata",
+        [
+            {"ticket_ids": "A1,A2"},  # another app on the organizer's Standard account
+            {"ticket_ids": "x", "user_id": str(uuid.uuid4()), "held_pass_id": "not-a-uuid"},
+            {"ticket_ids": "x", "held_pass_id": str(uuid.uuid4())},  # no user_id
+        ],
+    )
+    def test_a_session_without_the_full_revel_metadata_is_not_refunded(
+        self,
+        connected_org: Organization,
+        metadata: dict[str, str],
+        stripe_refund: MagicMock,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        logs = _deliver(_session_event(metadata=metadata), django_capture_on_commit_callbacks)
+
+        stripe_refund.assert_not_called()
+        (alert,) = _lines(logs, "stripe_session_paid_without_payments")
+        assert alert["refund_queued"] is False
+
+    def test_a_ticket_session_of_a_deleted_event_is_refunded_on_its_connected_account(
+        self,
+        connected_org: Organization,
+        event: Event,
+        stripe_refund: MagicMock,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        metadata = _ticket_metadata(event)
+        event.delete()
+
+        _deliver(_session_event(metadata=metadata), django_capture_on_commit_callbacks)
+
+        stripe_refund.assert_called_once()
+
+    def test_a_ticket_session_of_a_deleted_event_on_the_platform_account_is_not_refunded(
+        self,
+        organization: Organization,
+        event: Event,
+        settings: t.Any,
+        stripe_refund: MagicMock,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        organization.stripe_account_id = settings.STRIPE_ACCOUNT
+        organization.save(update_fields=["stripe_account_id"])
+        metadata = _ticket_metadata(event)
+        event.delete()
+
+        _deliver(_session_event(metadata=metadata, account=None), django_capture_on_commit_callbacks)
+
+        stripe_refund.assert_not_called()
+
+    def test_a_session_in_another_mode_is_not_refunded(
+        self,
+        connected_org: Organization,
+        event: Event,
+        stripe_refund: MagicMock,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        stripe_event = _session_event(mode="setup", metadata=_ticket_metadata(event))
+        logs = _deliver(stripe_event, django_capture_on_commit_callbacks)
+
+        stripe_refund.assert_not_called()
+        (alert,) = _lines(logs, "stripe_session_paid_without_payments")
+        assert alert["refund_queued"] is False
+
+    def test_a_session_without_a_payment_intent_is_not_refunded(
+        self,
+        connected_org: Organization,
+        event: Event,
+        stripe_refund: MagicMock,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        stripe_event = _session_event(metadata=_ticket_metadata(event))
+        stripe_event.data.object["payment_intent"] = None
+        logs = _deliver(stripe_event, django_capture_on_commit_callbacks)
+
+        stripe_refund.assert_not_called()
+        (alert,) = _lines(logs, "stripe_session_paid_without_payments")
+        assert alert["refund_queued"] is False
 
     def test_a_session_with_payment_rows_is_not_refunded(
         self,
@@ -239,16 +320,19 @@ class TestRefundTaskFailures:
     _ARGS = ("cs_task", "pi_task", _ACCOUNT, "org-id")
 
     def test_a_transient_error_is_retried(self, stripe_refund: MagicMock) -> None:
-        stripe_refund.side_effect = [stripe.error.APIConnectionError("network"), MagicMock(id="re_retry")]
+        stripe_refund.side_effect = [stripe.error.APIConnectionError("network")] * 2 + [MagicMock(id="re_retry")]
 
         with capture_logs() as logs:
             with pytest.raises(Retry) as retry:
                 refund_orphaned_checkout_session.apply(args=self._ARGS)
             assert retry.value.when == 60
+            with pytest.raises(Retry) as later_retry:
+                refund_orphaned_checkout_session.apply(args=self._ARGS, retries=2)
+            assert later_retry.value.when == 240  # exponential backoff
             # The retry Celery schedules: the same task with retries=1.
             refund_orphaned_checkout_session.apply(args=self._ARGS, retries=1)
 
-        assert stripe_refund.call_count == 2
+        assert stripe_refund.call_count == 3
         keys = {call.kwargs["idempotency_key"] for call in stripe_refund.call_args_list}
         assert keys == {"orphaned-checkout-refund:cs_task"}  # the retry cannot refund twice
         assert _lines(logs, "orphaned_checkout_refund_retry")
