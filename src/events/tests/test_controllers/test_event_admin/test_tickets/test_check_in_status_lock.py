@@ -1,11 +1,14 @@
 """Check-in locks the ticket and re-checks its status before it writes CHECKED_IN (#1482)."""
 
+import re
 import typing as t
 from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from django.db import connection
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -133,3 +136,23 @@ def test_check_in_query_count(
         ticket = check_in_service.check_in_ticket(open_event, active_online_ticket.pk, organization_owner_user)
 
     assert ticket.status == Ticket.TicketStatus.CHECKED_IN
+
+
+def test_check_in_writes_the_ticket_while_it_holds_the_row_locks(
+    open_event: Event, active_online_ticket: Ticket, organization_owner_user: RevelUser
+) -> None:
+    """The status re-check and the write run under Payment, tier and ticket row locks, in that order.
+
+    The locks are taken with FOR UPDATE inside the same transaction as the UPDATE of the ticket, so a
+    competing writer of the same rows waits until check-in commits.
+    """
+    with CaptureQueriesContext(connection) as ctx:
+        check_in_service.check_in_ticket(open_event, active_online_ticket.pk, organization_owner_user)
+
+    sqls = [q["sql"] for q in ctx.captured_queries]
+    locked = [m.group(1) for sql in sqls if "FOR UPDATE" in sql and (m := re.search(r'FROM "(\w+)"', sql)) is not None]
+    assert locked[:3] == ["events_payment", "events_tickettier", "events_ticket"]
+    ticket_lock = next(i for i, sql in enumerate(sqls) if "FOR UPDATE" in sql and 'FROM "events_ticket"' in sql)
+    ticket_write = next(i for i, sql in enumerate(sqls) if sql.startswith('UPDATE "events_ticket"'))
+    assert ticket_lock < ticket_write
+    assert not any(sql.startswith("RELEASE SAVEPOINT") for sql in sqls[ticket_lock:ticket_write])
