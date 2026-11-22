@@ -15,6 +15,7 @@ from common.models.base import (
 from common.models.email import EmailLog
 from common.models.exchange import ExchangeRate
 from common.models.files import FileExport, FileUploadAudit, QuarantinedFile
+from common.models.post_deploy import PostDeployTaskRun
 from common.models.site import Legal, SiteSettings
 from common.models.tags import Tag, TagAssignment, TaggableMixin, TagManager
 
@@ -28,6 +29,7 @@ __all__ = [
     "FileExport",
     "FileUploadAudit",
     "Legal",
+    "PostDeployTaskRun",
     "QuarantinedFile",
     "SiteSettings",
     "StripeConnectMixin",
