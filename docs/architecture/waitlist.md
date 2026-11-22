@@ -253,7 +253,8 @@ Every code path that can **free capacity** explicitly calls `enqueue_waitlist_pr
 ### Trigger semantics
 
 - `enqueue_waitlist_processing(event_id)` uses `transaction.on_commit` — safe to call multiple times in one transaction; the broker still only sees one job per call but the underlying processor is idempotent.
-- `enqueue_waitlist_processing` is a **no-op** outside an atomic block (the `on_commit` hook fires immediately when there is no transaction) — every caller is in one in practice.
+- Outside an atomic block, the `on_commit` hook fires immediately, so the task is dispatched at once (the Telegram router and `nudge_open_waitlists_task` call it this way).
+- Each dispatch is independent: the helper registers a named callback with `on_commit(..., robust=True)`. A failed dispatch is logged as `waitlist_dispatch_failed` (ERROR, with `event_id`) and does not raise, so the commit callbacks after it (for example, the dispatches for other events) still run. The hourly `nudge_open_waitlists_task` recovers events with an active advanced waitlist.
 - The processor's Event row lock means concurrent enqueues for the same event are serialized server-side; only one batch can land at a time.
 
 ---
