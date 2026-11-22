@@ -294,8 +294,10 @@ def test_check_in_query_budget(
     tier->event->organization join actually pay off here; a seated/venue tier saves more.
     23 sat strictly between the two. #1316 added the ``excluded_membership_tiers`` prefetch (one
     more query), so the ceiling was 24; the door-scan ``membership`` block (#1320) adds one (25).
+    The check-in lock (#1482) adds six: SAVEPOINT, the Payment lock, the tier-id read, the tier
+    lock, the ticket lock and RELEASE SAVEPOINT (31).
     """
-    with django_assert_max_num_queries(25):
+    with django_assert_max_num_queries(31):
         response = organization_owner_client.post(
             _check_in_url(event, str(active_online_ticket.id)), content_type="application/json"
         )

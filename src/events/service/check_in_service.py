@@ -12,6 +12,7 @@ from decimal import Decimal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from django.db import transaction
 from django.db.models import OuterRef, QuerySet, Subquery
 from django.http import Http404
 from django.shortcuts import get_object_or_404
@@ -20,10 +21,11 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Event, HeldSeriesPass, OrganizationUserNote, Ticket, TicketTier
+from events.models import Event, HeldSeriesPass, OrganizationUserNote, Payment, Ticket, TicketTier
 from events.service import day_membership_service
 from events.service.holder_visibility import annotate_holder_known
 from events.service.seating.pricing import price_paid_is_admin_entered
+from events.service.ticket_service import lock_tier_then_ticket
 
 
 def _format_in_event_tz(dt: datetime, event: Event) -> str:
@@ -111,6 +113,28 @@ def _pending_check_in_allowed(ticket: Ticket) -> bool:
     return ticket.tier.payment_method == TicketTier.PaymentMethod.OFFLINE
 
 
+def _ensure_status_allows_check_in(ticket: Ticket) -> None:
+    """Refuse a ticket whose status does not allow check-in.
+
+    ACTIVE tickets can be checked in directly. PENDING tickets are only allowed when payment is
+    collected at the door (see ``_pending_check_in_allowed`` for the series-pass vs tier distinction).
+    AT_THE_DOOR tickets are created as ACTIVE, so they need no special handling.
+    """
+    if ticket.status == Ticket.TicketStatus.ACTIVE:
+        return
+    if ticket.status == Ticket.TicketStatus.PENDING and _pending_check_in_allowed(ticket):
+        return
+    if ticket.status == Ticket.TicketStatus.CHECKED_IN:
+        error_message = str(_("This ticket has already been checked in."))
+    elif ticket.status == Ticket.TicketStatus.CANCELLED:
+        error_message = str(_("This ticket has been cancelled."))
+    elif ticket.status == Ticket.TicketStatus.PENDING:
+        error_message = str(_("This ticket is pending payment confirmation."))
+    else:
+        error_message = str(_("Invalid ticket status: {status}")).format(status=ticket.status)
+    raise HttpError(400, error_message)
+
+
 def annotate_private_note(ticket_qs: QuerySet[Ticket], organization_id: UUID) -> QuerySet[Ticket]:
     """Annotate tickets with the organization's private note about the holder (``private_note``).
 
@@ -171,23 +195,7 @@ def check_in_ticket(
     # ``holder_known`` lets CheckInResponseSchema mask an account staff alone linked to the event.
     ticket = get_object_or_404(annotate_holder_known(ticket_qs, event.organization_id), pk=ticket_id, event=event)
 
-    # Check if ticket status is valid for check-in
-    # ACTIVE tickets can be checked in directly.
-    # PENDING tickets are only allowed when payment is collected at the door
-    # (see _pending_check_in_allowed for the series-pass vs tier distinction).
-    # AT_THE_DOOR tickets are now created as ACTIVE, so no special handling needed.
-    if ticket.status != Ticket.TicketStatus.ACTIVE:
-        if not (ticket.status == Ticket.TicketStatus.PENDING and _pending_check_in_allowed(ticket)):
-            # Determine appropriate error message based on ticket status
-            if ticket.status == Ticket.TicketStatus.CHECKED_IN:
-                error_message = str(_("This ticket has already been checked in."))
-            elif ticket.status == Ticket.TicketStatus.CANCELLED:
-                error_message = str(_("This ticket has been cancelled."))
-            elif ticket.status == Ticket.TicketStatus.PENDING:
-                error_message = str(_("This ticket is pending payment confirmation."))
-            else:
-                error_message = str(_("Invalid ticket status: {status}")).format(status=ticket.status)
-            raise HttpError(400, error_message)
+    _ensure_status_allows_check_in(ticket)
 
     _ensure_check_in_open(event, ticket.tier)
 
@@ -212,16 +220,30 @@ def check_in_ticket(
     if is_pwyc_offsite and price_paid is None and ticket.price_paid is None:
         raise HttpError(400, str(_("Price paid is required for Pay What You Can tickets without a recorded payment.")))
 
-    # Update ticket status
     update_fields = ["status", "checked_in_at", "checked_in_by"]
     if is_pwyc_offsite and price_paid is not None:
         ticket.price_paid = price_paid
         update_fields.append("price_paid")
 
-    ticket.status = Ticket.TicketStatus.CHECKED_IN
-    ticket.checked_in_at = timezone.now()
-    ticket.checked_in_by = checked_in_by
-    ticket.save(update_fields=update_fields)
+    # The status above was read without a lock. Lock in the global order (docs/engineering-notes.md,
+    # "Lock order"), read the status again and check it before the write. No network calls in here.
+    with transaction.atomic():
+        list(
+            Payment.objects.select_for_update(of=("self",))
+            .filter(ticket_id=ticket.pk)
+            .order_by("pk")
+            .values_list("pk", flat=True)
+        )
+        locked = lock_tier_then_ticket(Ticket.objects.filter(pk=ticket.pk).only("pk", "tier_id", "status"))
+        if not locked:  # a reclaim deleted the ticket while we waited on the lock
+            raise Http404("Ticket not found.")
+        ticket.status = locked[0].status
+        _ensure_status_allows_check_in(ticket)
+
+        ticket.status = Ticket.TicketStatus.CHECKED_IN
+        ticket.checked_in_at = timezone.now()
+        ticket.checked_in_by = checked_in_by
+        ticket.save(update_fields=update_fields)
 
     # After the transition, so a PENDING -> CHECKED_IN day-membership grant is already visible. Read by
     # ``CheckInResponseSchema.membership``.
