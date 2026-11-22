@@ -318,9 +318,12 @@ def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dic
         else:
             # Non-nullable field: full_clean() would reject a blank value and roll back the
             # quarantine, so remove the file and the row outright instead. The row goes only while it still
-            # names the scanned file: a replacement uploaded meanwhile keeps it.
+            # names the scanned file: a replacement uploaded meanwhile keeps it. Lock and reload the row, then use the
+            # instance's own delete(): some models clean up more there (QuestionnaireFile drops its thumbnails).
             file_field.delete(save=False)
-            model_class.objects.filter(pk=pk, **{field: filename}).delete()
+            current = model_class.objects.select_for_update().filter(pk=pk, **{field: filename}).first()
+            if current is not None:
+                current.delete()
     # Notify users about malware detection
     notify_malware_detected.delay(app=app, model=model, pk=pk, field=field, file_hash=file_hash, findings=findings)
     return t.cast(dict[str, t.Any], findings)

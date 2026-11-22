@@ -246,6 +246,35 @@ def test_duplicate_scan_keeps_a_file_uploaded_meanwhile_non_nullable(
     assert QuestionnaireFile.objects.get(pk=qf.pk).file.name == "questionnaire_files/b.txt"
 
 
+@mock.patch("common.tasks.notify_malware_detected.delay")
+@mock.patch("common.tasks.pyclamd.ClamdNetworkSocket")
+def test_malicious_non_nullable_file_is_deleted_with_its_thumbnails(
+    mock_clamd: MagicMock, mock_notify: MagicMock, revel_user_factory: RevelUserFactory, settings: t.Any
+) -> None:
+    """The row goes through the model's own delete(), so a QuestionnaireFile's thumbnail blob is removed too."""
+    settings.FEATURE_MALWARE_SCAN = True
+    qf = QuestionnaireFile(
+        uploader=revel_user_factory(), original_filename="a.txt", file_hash="h", mime_type="text/plain"
+    )
+    qf.file.save("a.txt", ContentFile(b"file a"), save=False)
+    qf.thumbnail.save("a_thumb.jpg", ContentFile(b"thumb"), save=False)
+    qf.file_size = 6
+    qf.save()
+    thumbnail_name = qf.thumbnail.name
+    assert thumbnail_name is not None
+    storage = qf.thumbnail.storage
+    assert storage.exists(thumbnail_name)
+
+    clamd = mock_clamd.return_value
+    clamd.ping.return_value = True
+    clamd.scan_stream.return_value = {"stream": ("FOUND", "Eicar-Test-Signature")}
+
+    scan_for_malware(app="questionnaires", model="QuestionnaireFile", pk=str(qf.pk), field="file")
+
+    assert not QuestionnaireFile.objects.filter(pk=qf.pk).exists()
+    assert not storage.exists(thumbnail_name)
+
+
 @mock.patch("common.tasks.send_email.delay")
 def test_notify_malware_detected_is_scoped_to_the_instance(
     mock_send_email: MagicMock, revel_user_factory: RevelUserFactory
