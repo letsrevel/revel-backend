@@ -145,27 +145,35 @@ def record_paid_session_without_payments(
     amount_total: int,
     currency: str | None,
     payment_intent_id: str | None,
+    organization_id: str | None = None,
+    refund_queued: bool = False,
 ) -> None:
     """Emit the counter and ERROR line for a paid session we hold no Payment rows for.
 
     Money was captured against a session that has no record on our side, and the
     handler can only return 200 — a redelivery would find exactly the same
-    nothing, so retrying cannot heal it. The alert is the only remaining thread:
-    the Stripe session and PaymentIntent are enough to refund the buyer.
+    nothing, so retrying cannot heal it. For a Revel ticket or series-pass session
+    the webhook queues the full refund (#1489, ``refund_queued``); for any other
+    session the alert is the only remaining thread, and the Stripe session and
+    PaymentIntent are enough to refund the buyer by hand. Ids only: no buyer data.
 
     Args:
         session_id: The Stripe checkout session.
         amount_total: What Stripe captured, in minor units (non-zero by caller contract).
         currency: Session currency, as reported by Stripe.
         payment_intent_id: The PaymentIntent to refund.
+        organization_id: The organization that owns the session's Stripe account, when known.
+        refund_queued: Whether the automatic refund was queued.
     """
     STRIPE_SESSION_PAID_WITHOUT_PAYMENTS.inc()
     logger.error(
         "stripe_session_paid_without_payments",
         session_id=session_id,
         payment_intent_id=payment_intent_id,
+        organization_id=organization_id,
         charged_minor_units=amount_total,
         currency=currency,
+        refund_queued=refund_queued,
     )
 
 

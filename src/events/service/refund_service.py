@@ -534,3 +534,50 @@ def late_payment_refund_dispatch(payment_ids: list[str]) -> t.Callable[[], None]
                 logger.error("late_payment_refund_dispatch_failed", payment_id=payment_id, exc_info=True)
 
     return dispatch_late_payment_refunds
+
+
+def refund_orphaned_checkout_session(*, session_id: str, payment_intent_id: str, stripe_account: str) -> str:
+    """Refund in full a completed checkout session that has no Payment rows; return the Stripe refund id (#1489).
+
+    No ``Refund`` row is written: there is no Payment to attach it to. The idempotency key is derived from
+    the session id, so a retry or a second dispatch gets back the same Stripe refund. The platform fee is
+    kept (no ``refund_application_fee``), as for every refund. The caller must not hold row locks.
+
+    Raises:
+        stripe.error.StripeError: The Stripe call failed.
+    """
+    import stripe
+
+    refund_kwargs: dict[str, t.Any] = {
+        "payment_intent": payment_intent_id,
+        "metadata": {"source": "orphaned_checkout"},
+        "idempotency_key": f"orphaned-checkout-refund:{session_id}",
+    }
+    if stripe_account:
+        refund_kwargs["stripe_account"] = stripe_account
+    return str(stripe.Refund.create(**refund_kwargs).id)
+
+
+def orphaned_checkout_refund_dispatch(
+    *, session_id: str, payment_intent_id: str, stripe_account: str, organization_id: str
+) -> t.Callable[[], None]:
+    """An on-commit callback that queues the refund of a completed session with no Payment rows (#1489).
+
+    A failed dispatch is logged at ERROR with the ids that a manual refund needs.
+    """
+
+    def dispatch_orphaned_checkout_refund() -> None:
+        from events.tasks.refunds import refund_orphaned_checkout_session as refund_task
+
+        try:
+            refund_task.delay(session_id, payment_intent_id, stripe_account, organization_id)
+        except Exception:
+            logger.error(
+                "orphaned_checkout_refund_dispatch_failed",
+                session_id=session_id,
+                payment_intent_id=payment_intent_id,
+                organization_id=organization_id,
+                exc_info=True,
+            )
+
+    return dispatch_orphaned_checkout_refund

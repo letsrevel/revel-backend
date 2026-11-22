@@ -362,6 +362,21 @@ one after 6 hours, leaves a `FAILED` `Refund` row, `refund_status` `FAILED` and 
 `late_payment_refund_failed`, which needs an alert. A refund that the organizer issues by hand, also a
 partial one, ends the automatic refund: the organizer took over the payment.
 
+**Completed sessions with no Payment rows (#1489).** A `checkout.session.completed` for a charged
+session with no `Payment` rows (deleted with the account, or swept) still logs the ERROR
+`stripe_session_paid_without_payments`, now with `organization_id` and `refund_queued`. When the
+session is a Revel ticket or series-pass checkout (`mode=payment`, `ticket_ids` in the metadata, a
+Stripe account of an organization, and for a ticket checkout the organization of the metadata
+`event_id`), the handler queues `events.refund_orphaned_checkout_session` after commit. The task
+holds no lock and writes no row: it refunds the full payment intent with the idempotency key
+`orphaned-checkout-refund:{session_id}` (the platform fee is kept). A transient Stripe error is
+retried 6 times with backoff (about one hour). A terminal error, or the last transient one, logs
+the ERROR `orphaned_checkout_refund_failed`; a success logs the ERROR `orphaned_checkout_refunded`, so
+staff see every automatic refund. `charge_already_refunded` is a no-op. There is no durable marker
+(no row to hold it): a lost dispatch logs `orphaned_checkout_refund_dispatch_failed`, and staff refund
+by hand. The replay path never refunds: a duplicate delivery can arrive after the rows of a confirmed
+sale were deleted with the account.
+
 **Mitigation:** `STRIPE_HTTP_TIMEOUT_SECONDS` (`revel/settings/stripe.py`, default 15,
 configured on `stripe.default_http_client` by
 `common/service/stripe_config.py::configure_stripe`, which every module making an outbound

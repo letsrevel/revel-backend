@@ -423,30 +423,76 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             currency=payments[0].currency,
         )
 
-    @staticmethod
-    def _report_missing_payments(session: t.Any, session_id: str) -> None:
-        """Grade a session that has no Payment rows to confirm (#750).
+    def _report_missing_payments(self, session: t.Any, session_id: str) -> None:
+        """Grade a session that has no Payment rows to confirm (#750), and refund a charged Revel one (#1489).
 
         A zero-total session (a free ticket, a fully-discounted cart, a session
         Stripe expired and re-delivered) is benign noise and stays a warning.
 
         A session that captured *money* is not: whatever the cause — the expiry
         sweep having deleted the rows of a checkout whose confirmation kept
-        failing, a reservation reclaimed mid-flight — the buyer has been charged
-        and we hold no record to confirm, refund against, or re-issue from. The
-        handler still returns 200 because a redelivery would find exactly the same
-        nothing; the alert, not the retry, is what recovers the buyer.
+        failing, a reservation reclaimed mid-flight, an account deleted while its
+        checkout was open — the buyer has been charged and we hold no record to
+        confirm or re-issue from. The handler still returns 200 because a
+        redelivery would find exactly the same nothing. When the session is a
+        Revel ticket or series-pass checkout, the full amount is refunded after
+        commit by ``events.refund_orphaned_checkout_session`` (the platform fee is
+        kept, as for late payments). Any other session keeps the alert only.
+
+        Only this first-delivery path refunds, never :meth:`replay`: a duplicate
+        delivery can arrive after the Payment rows of a confirmed sale were
+        deleted with the account, and that sale must not be refunded.
         """
         amount_total = session.get("amount_total")
         if not amount_total:
             logger.warning("stripe_session_no_payments", session_id=session_id)
             return
+        payment_intent_id = session.get("payment_intent")
+        stripe_account = self._event_account()
+        organization_id = self._revel_checkout_organization_id(session, stripe_account) if payment_intent_id else None
         record_paid_session_without_payments(
             session_id=session_id,
             amount_total=int(amount_total),
             currency=session.get("currency"),
-            payment_intent_id=session.get("payment_intent"),
+            payment_intent_id=payment_intent_id,
+            organization_id=organization_id,
+            refund_queued=organization_id is not None,
         )
+        if organization_id is not None:
+            transaction.on_commit(
+                refund_service.orphaned_checkout_refund_dispatch(
+                    session_id=session_id,
+                    payment_intent_id=t.cast(str, payment_intent_id),
+                    stripe_account=stripe_account,
+                    organization_id=organization_id,
+                )
+            )
+
+    def _event_account(self) -> str:
+        """Return the connected account of the event, or "" for the platform account."""
+        account = getattr(self.event, "account", None)
+        return account if isinstance(account, str) else ""
+
+    @staticmethod
+    def _revel_checkout_organization_id(session: t.Any, stripe_account: str) -> str | None:
+        """Return the organization of a Revel ticket or series-pass checkout session, else None (#1489).
+
+        Revel creates these sessions in ``mode=payment`` with ``ticket_ids`` in the metadata (a ticket
+        checkout also sets ``event_id``). The session's Stripe account must belong to an organization,
+        and for a ticket checkout to the organization of that event. Subscription checkouts never get
+        here: the handler sends them to the subscription handler first.
+        """
+        metadata = session.get("metadata") or {}
+        if session.get("mode") != "payment" or not metadata.get("ticket_ids"):
+            return None
+        organizations = Organization.objects.filter(stripe_account_id=stripe_account or settings.STRIPE_ACCOUNT)
+        if event_id := metadata.get("event_id"):
+            try:
+                organizations = organizations.filter(events__pk=uuid.UUID(str(event_id)))
+            except ValueError:
+                return None
+        organization_id = organizations.order_by("pk").values_list("pk", flat=True).first()
+        return str(organization_id) if organization_id is not None else None
 
     @staticmethod
     def _reconcile_session_total(session: t.Any, payments: list[Payment]) -> None:

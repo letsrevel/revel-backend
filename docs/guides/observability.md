@@ -203,7 +203,7 @@ low-cardinality (never a session id, user id, or event id — those belong on th
 | Metric | Meaning |
 |---|---|
 | `revel_stripe_session_total_mismatch_total{call_site}` | Stripe's session total disagreed with `sum(Payment.amount)`. `call_site="preflight"`: caught before the session existed, nobody charged. `call_site="webhook"`: **the buyer has been charged**. |
-| `revel_stripe_session_paid_without_payments_total` | A session that captured money was confirmed with no `Payment` rows to confirm — charged buyer, no record. |
+| `revel_stripe_session_paid_without_payments_total` | A session that captured money was confirmed with no `Payment` rows to confirm — charged buyer, no record. For a Revel ticket or series-pass session the full refund is automatic (`refund_queued=true` on the log line); refund by hand only when the line says `refund_queued=false` or a later `orphaned_checkout_refund_failed` / `orphaned_checkout_refund_dispatch_failed` error appears (#1489). |
 
 Both are **one-occurrence incidents**, so they alert with no `for:` delay:
 
