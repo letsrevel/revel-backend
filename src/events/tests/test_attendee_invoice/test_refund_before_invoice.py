@@ -14,7 +14,7 @@ from accounts.models import RevelUser
 from events.models import Event, Organization, Payment, Refund, SkippedFiscalDocument, TicketTier
 from events.models.attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote
 from events.service.attendee_invoice_service import generate_attendee_credit_note, generate_attendee_invoice
-from events.tasks import generate_attendee_invoice_task
+from events.tasks import generate_attendee_credit_note_task, generate_attendee_invoice_task
 from events.tests.test_attendee_invoice._helpers import (
     MOCK_RENDER_PDF,
     MOCK_SEND_EMAIL,
@@ -212,3 +212,28 @@ class TestRefundBeforeInvoice:
             generate_attendee_invoice_task(SID)
 
         deliver.assert_not_called()
+
+    def test_a_repeated_credit_note_task_does_not_email_the_note_again(
+        self, invoicing_org: Organization, pay: t.Callable[..., Payment]
+    ) -> None:
+        """The invoice task's check and a webhook replay can both run the task for one refund."""
+        payment = pay()
+        invoice = generate_attendee_invoice(SID)
+        assert invoice is not None
+        row = Refund.objects.create(
+            payment=payment,
+            amount=Decimal("30.00"),
+            currency="EUR",
+            status=Refund.RefundStatus.SUCCEEDED,
+            source=Refund.Source.ORGANIZER_API,
+        )
+        generate_attendee_credit_note_task(SID, [str(payment.id)], [str(row.id)])
+        cn = AttendeeInvoiceCreditNote.objects.get(invoice=invoice)
+        cn.refresh_from_db()
+        assert cn.email_sent_at is not None
+
+        with patch("events.tasks.invoicing.deliver_attendee_credit_note_task.delay") as deliver:
+            generate_attendee_credit_note_task(SID, [str(payment.id)], [str(row.id)])
+
+        deliver.assert_not_called()
+        assert AttendeeInvoiceCreditNote.objects.count() == 1

@@ -31,18 +31,18 @@ logger = structlog.get_logger(__name__)
 def generate_attendee_invoice_task(stripe_session_id: str) -> None:
     """Generate an attendee invoice PDF for a completed checkout session.
 
-    Runs asynchronously after payment success. On success, chains to the
-    delivery task for AUTO-mode invoices. Then it queues a credit note for any refund
-    that was processed before the invoice existed (#1484): that refund's own credit-note
-    task found no invoice and stopped.
+    Runs asynchronously after payment success. First it queues a credit note for any
+    refund that was processed before the invoice existed (#1484): that refund's own
+    credit-note task found no invoice and stopped. Then it chains to the delivery task
+    for AUTO-mode invoices. The delivery comes last because any error retries the whole
+    task, and a retry after the delivery was queued would email the invoice again. The
+    tasks run in no fixed order, so the credit-note email can arrive before the invoice.
     """
     from events.models.attendee_invoice import AttendeeInvoice
     from events.service.attendee_invoice_service import generate_attendee_invoice
     from events.service.uncovered_refund_service import uncovered_refunds
 
     invoice = generate_attendee_invoice(stripe_session_id)
-    # Before the delivery is queued: a failure here retries the task, and a retry after the
-    # delivery was queued would email the invoice again.
     payment_ids, refund_ids = uncovered_refunds(stripe_session_id)
     if refund_ids:
         generate_attendee_credit_note_task.delay(
@@ -85,7 +85,10 @@ def generate_attendee_credit_note_task(
     the credit note is keyed on those Refund rows (amount-aware, pro-rata VAT)
     instead of full payment amounts.
 
-    On success, chains to the delivery task.
+    On success, chains to the delivery task, unless the note was already emailed or
+    its delivery failed: a repeated task (a webhook replay, or the invoice task's
+    check for uncovered refunds) gets the existing note back and must not email it again.
+    The recovery sweep delivers a note whose first delivery was lost.
     """
     from events.service.attendee_invoice_service import generate_attendee_credit_note
 
@@ -93,7 +96,9 @@ def generate_attendee_credit_note_task(
     credit_note = generate_attendee_credit_note(
         stripe_session_id, [UUID(pid) for pid in refunded_payment_ids], resolved_refund_ids
     )
-    if credit_note:
+    # ponytail: two tasks that run at the same moment can both see an unsent note and both
+    # queue it; an atomic claim on the delivery fields would close that window.
+    if credit_note and credit_note.email_sent_at is None and credit_note.email_delivery_failed_at is None:
         deliver_attendee_credit_note_task.delay(str(credit_note.id))
 
 
