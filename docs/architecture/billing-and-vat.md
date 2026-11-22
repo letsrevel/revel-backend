@@ -566,6 +566,15 @@ payment each produce their own credit note:
 - If the invoice is `ISSUED` → create a credit note for `sum(refund.amount)`
 - If total credited across all credit notes ≥ invoice total → mark invoice as `CANCELLED`
 
+**A refund before the invoice (#1484).** The invoice task is queued when the checkout completes, so
+a refund can be processed first. Its credit-note task then finds no invoice and stops. When the
+invoice task runs, it calls `uncovered_refund_service.uncovered_refunds`: the `SUCCEEDED` refund
+rows on payments that the invoice (or the skipped-invoice record) has a line for, and that no credit
+note or skipped credit-note record covers yet. It queues the credit-note task for them, and the
+rules above apply (a draft is deleted). A payment that was fully refunded before the invoice is not
+on the invoice (only `SUCCEEDED` payments are invoiced), so it gets no credit note. Each run of
+the invoice task does this check, also a retry or a replayed `checkout.session.completed`.
+
 A credit note reverses what **the invoice shows**, not what the `Payment` rows say: an organizer may
 have edited a draft's rates, descriptions or reverse-charge flag before issuing it. So the lines are
 copied from the invoice's own lines, matched by the `payment_id` each line snapshots, with their
