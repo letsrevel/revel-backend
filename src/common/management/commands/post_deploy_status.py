@@ -3,6 +3,7 @@
 import typing as t
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
+from django.db import transaction
 
 from common.models import PostDeployTaskRun
 from common.post_deploy import registered
@@ -21,14 +22,19 @@ class Command(BaseCommand):
 
     def handle(self, *args: t.Any, **options: t.Any) -> None:
         """Print one row per registered task, then rows whose task is no longer registered."""
-        rows = {row.task_id: row for row in PostDeployTaskRun.objects.all()}
+        # A runner holds the row lock for the whole attempt, so a row we cannot lock is running now,
+        # whatever status its last committed state shows. The locks last only for this read.
+        with transaction.atomic():
+            rows = {row.task_id: row for row in PostDeployTaskRun.objects.all()}
+            free = set(PostDeployTaskRun.objects.select_for_update(skip_locked=True).values_list("task_id", flat=True))
+        busy = rows.keys() - free
         problems: list[str] = []
         self.stdout.write(f"{'TASK':<40} {'RELEASE':<10} {'STATUS':<12} {'ATTEMPTS':<9} FINISHED")
         for task in registered():
             row = rows.pop(task.id, None)
             status = row.status if row else "pending"
-            if row and row.finished_at is None and row.status == PostDeployTaskRun.Status.FAILED:
-                status = "running"  # created by the runner, not finished (in progress or crashed)
+            if row and (task.id in busy or (row.finished_at is None and row.status == PostDeployTaskRun.Status.FAILED)):
+                status = "running"  # locked by a runner, or created and not finished (in progress or crashed)
             if status in ("pending", "running", PostDeployTaskRun.Status.FAILED):
                 problems.append(f"{task.id} ({status})")
             finished = row.finished_at.isoformat() if row and row.finished_at else "-"

@@ -1,11 +1,13 @@
 """Tests for the ``run_post_deploy`` and ``post_deploy_status`` commands (#1508)."""
 
+import threading
 import typing as t
 from collections.abc import Iterator
 from io import StringIO
 
 import pytest
 from django.core.management import CommandError, call_command
+from django.db import connection, transaction
 from django.utils import timezone
 
 from common import post_deploy
@@ -108,4 +110,39 @@ def test_status_check_passes_on_succeeded_and_skipped() -> None:
     _register("b", "1.0.1")
     PostDeployTaskRun.objects.create(task_id="a", release="1.0.0", status=Status.SUCCEEDED)
     PostDeployTaskRun.objects.create(task_id="b", release="1.0.1", status=Status.SKIPPED)
+    _call("post_deploy_status", "--check")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_status_shows_row_locked_by_a_runner_as_running_and_check_fails() -> None:
+    """Use ``transaction=True``: a second, really committed connection must hold the row lock.
+
+    A retry of a SKIPPED row commits nothing until it ends, so the committed status still reads SKIPPED.
+    """
+    _register("a")
+    row = PostDeployTaskRun.objects.create(
+        task_id="a", release="1.0.0", status=Status.SKIPPED, finished_at=timezone.now()
+    )
+    locked, release = threading.Event(), threading.Event()
+
+    def hold_lock() -> None:
+        try:
+            with transaction.atomic():
+                PostDeployTaskRun.objects.select_for_update().get(pk=row.pk)
+                locked.set()
+                release.wait(timeout=10)
+        finally:
+            connection.close()
+
+    thread = threading.Thread(target=hold_lock)
+    thread.start()
+    try:
+        assert locked.wait(timeout=10)
+        lines = {line.split()[0]: line for line in _call("post_deploy_status").splitlines()[1:]}
+        assert "running" in lines["a"]
+        with pytest.raises(CommandError, match=r"a \(running\)"):
+            _call("post_deploy_status", "--check")
+    finally:
+        release.set()
+        thread.join(timeout=10)
     _call("post_deploy_status", "--check")

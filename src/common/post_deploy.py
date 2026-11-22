@@ -112,7 +112,8 @@ def _execute(task: PostDeployTask, row: PostDeployTaskRun) -> PostDeployResult:
     """Run one task under the row lock and record the result on ``row``."""
     counted = False
     try:
-        reason = task.skip_reason()
+        with transaction.atomic():  # savepoint: a database error here must not break the outer transaction
+            reason = task.skip_reason()
         if reason is not None:
             row.status, row.output, row.started_at = PostDeployTaskRun.Status.SKIPPED, _truncate(reason), None
             row.finished_at = timezone.now()

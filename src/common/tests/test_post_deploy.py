@@ -211,3 +211,19 @@ def test_skip_clears_stale_started_at() -> None:
     row = PostDeployTaskRun.objects.get(task_id="a")
     assert row.status == Status.SKIPPED
     assert row.started_at is None
+
+
+def _broken_sql() -> str | None:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT 1/0")
+    return None
+
+
+@pytest.mark.django_db
+def test_skip_reason_database_error_is_isolated_in_a_savepoint() -> None:
+    register(_task("a", "1.0.0", skip_reason=_broken_sql))
+    register(_task("b", "1.0.1"))
+    results = run_pending()
+    assert [r["outcome"] for r in results] == ["failed", "succeeded"]
+    assert PostDeployTaskRun.objects.get(task_id="a").status == Status.FAILED
+    assert PostDeployTaskRun.objects.get(task_id="b").status == Status.SUCCEEDED
