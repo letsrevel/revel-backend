@@ -91,6 +91,20 @@ def test_check_in_refuses_an_online_ticket_moved_back_to_pending_during_the_requ
     assert active_online_ticket.status == Ticket.TicketStatus.PENDING
 
 
+def test_check_in_answers_404_for_a_ticket_deleted_during_the_request(
+    organization_owner_client: Client, open_event: Event, pending_offline_ticket: Ticket
+) -> None:
+    def delete_then_continue(event: Event, tier: TicketTier) -> None:
+        Ticket.objects.filter(pk=pending_offline_ticket.pk).delete()
+        _ensure_check_in_open(event, tier)
+
+    with patch.object(check_in_service, "_ensure_check_in_open", side_effect=delete_then_continue):
+        response = _check_in(organization_owner_client, open_event, pending_offline_ticket)
+
+    assert response.status_code == 404
+    assert not Ticket.objects.filter(pk=pending_offline_ticket.pk).exists()
+
+
 def test_check_in_of_an_offline_ticket_unconfirmed_during_the_request_still_succeeds(
     organization_owner_client: Client, open_event: Event, pending_offline_ticket: Ticket
 ) -> None:
