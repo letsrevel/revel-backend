@@ -2,20 +2,34 @@
 
 import typing as t
 import uuid
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
 import stripe
 from celery.exceptions import Retry
+from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 
-from events.models import Event, Organization, Payment, Ticket, TicketTier
+from common.models import SiteSettings
+from events.models import (
+    Event,
+    EventSeries,
+    HeldSeriesPass,
+    Organization,
+    OrganizationDomain,
+    Payment,
+    SeriesPass,
+    Ticket,
+    TicketTier,
+)
 from events.service.stripe_webhooks import StripeEventHandler, handle_event
 from events.tasks.refunds import ORPHANED_CHECKOUT_REFUND_MAX_RETRIES, refund_orphaned_checkout_session
 
 pytestmark = pytest.mark.django_db
 
 _ACCOUNT = "acct_orphan_1489"
+_DISPATCH_FAILED_METRIC = "revel_orphaned_checkout_refund_dispatch_failed_total"
 
 
 @pytest.fixture
@@ -23,6 +37,21 @@ def connected_org(organization: Organization) -> Organization:
     organization.stripe_account_id = _ACCOUNT
     organization.save(update_fields=["stripe_account_id"])
     return organization
+
+
+@pytest.fixture
+def held_pass_of(revel_user_factory: t.Any) -> t.Callable[[Organization], HeldSeriesPass]:
+    """Create a PENDING held series pass whose series belongs to the given organization."""
+
+    def _make(org: Organization) -> HeldSeriesPass:
+        series = EventSeries.objects.create(organization=org, name=f"S {org.slug}", slug=f"s-{org.slug}")
+        series_pass = SeriesPass.objects.create(
+            event_series=series, name="Pass", price=Decimal("50.00"), pro_rata_discount=Decimal("0"), currency="EUR"
+        )
+        holder = revel_user_factory(username=f"holder-{org.slug}@example.com", email=f"holder-{org.slug}@example.com")
+        return HeldSeriesPass.objects.create(series_pass=series_pass, user=holder, price_paid=Decimal("50.00"))
+
+    return _make
 
 
 @pytest.fixture
@@ -39,7 +68,10 @@ def _session_event(
     mode: str = "payment",
     account: str | None = _ACCOUNT,
     event_id: str = "evt_orphan",
+    success_url: str | None = None,
 ) -> stripe.Event:
+    if success_url is None:
+        success_url = f"{SiteSettings.get_solo().frontend_base_url}/events/x/y?payment_success=true"
     session = {
         "object": "checkout.session",
         "id": session_id,
@@ -49,6 +81,7 @@ def _session_event(
         "currency": "eur",
         "payment_intent": f"pi_{session_id}",
         "metadata": metadata or {},
+        "success_url": success_url,
     }
     payload: dict[str, t.Any] = {
         "id": event_id,
@@ -105,7 +138,7 @@ class TestWebhookRefundsTheOrphanedSession:
         (alert,) = _lines(logs, "stripe_session_paid_without_payments")
         assert alert["log_level"] == "error"
         assert alert["organization_id"] == str(connected_org.pk)
-        assert alert["refund_queued"] is True
+        assert alert["refund_eligible"] is True
         (refunded,) = _lines(logs, "orphaned_checkout_refunded")
         assert refunded["log_level"] == "error"
         assert refunded == {
@@ -176,7 +209,7 @@ class TestOnlyRevelTicketAndPassSessionsAreRefunded:
 
         stripe_refund.assert_not_called()
         (alert,) = _lines(logs, "stripe_session_paid_without_payments")
-        assert alert["refund_queued"] is False
+        assert alert["refund_eligible"] is False
         assert alert["organization_id"] is None
 
     def test_a_session_on_an_account_of_no_organization_is_not_refunded(
@@ -229,7 +262,7 @@ class TestOnlyRevelTicketAndPassSessionsAreRefunded:
 
         stripe_refund.assert_not_called()
         (alert,) = _lines(logs, "stripe_session_paid_without_payments")
-        assert alert["refund_queued"] is False
+        assert alert["refund_eligible"] is False
 
     def test_a_ticket_session_of_a_deleted_event_is_refunded_on_its_connected_account(
         self,
@@ -245,7 +278,7 @@ class TestOnlyRevelTicketAndPassSessionsAreRefunded:
 
         stripe_refund.assert_called_once()
 
-    def test_a_ticket_session_of_a_deleted_event_on_the_platform_account_is_not_refunded(
+    def test_a_ticket_session_of_a_deleted_event_on_the_platform_account_is_refunded(
         self,
         organization: Organization,
         event: Event,
@@ -260,7 +293,88 @@ class TestOnlyRevelTicketAndPassSessionsAreRefunded:
 
         _deliver(_session_event(metadata=metadata, account=None), django_capture_on_commit_callbacks)
 
+        stripe_refund.assert_called_once()
+        assert "stripe_account" not in stripe_refund.call_args.kwargs
+
+    def test_a_series_pass_session_whose_pass_is_of_another_organization_is_not_refunded(
+        self,
+        connected_org: Organization,
+        held_pass_of: t.Callable[[Organization], HeldSeriesPass],
+        stripe_refund: MagicMock,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        other = Organization.objects.create(name="Other", slug="other-pass-1489", owner=connected_org.owner)
+        metadata = {**_pass_metadata(), "held_pass_id": str(held_pass_of(other).pk)}
+
+        logs = _deliver(_session_event(metadata=metadata), django_capture_on_commit_callbacks)
+
         stripe_refund.assert_not_called()
+        (alert,) = _lines(logs, "stripe_session_paid_without_payments")
+        assert alert["organization_id"] is None
+
+    def test_a_series_pass_session_whose_pass_is_of_the_account_organization_is_refunded(
+        self,
+        connected_org: Organization,
+        held_pass_of: t.Callable[[Organization], HeldSeriesPass],
+        stripe_refund: MagicMock,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        metadata = {**_pass_metadata(), "held_pass_id": str(held_pass_of(connected_org).pk)}
+
+        _deliver(_session_event(metadata=metadata), django_capture_on_commit_callbacks)
+
+        stripe_refund.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "success_url",
+        [
+            "https://shop.example.com/thanks",
+            "",
+            "{base}.evil.example/events/x",  # a prefix of the origin is not the origin
+        ],
+    )
+    def test_a_session_whose_return_url_is_not_revel_is_not_refunded(
+        self,
+        connected_org: Organization,
+        event: Event,
+        success_url: str,
+        stripe_refund: MagicMock,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        url = success_url.format(base=SiteSettings.get_solo().frontend_base_url.rstrip("/"))
+        logs = _deliver(
+            _session_event(metadata=_ticket_metadata(event), success_url=url), django_capture_on_commit_callbacks
+        )
+
+        stripe_refund.assert_not_called()
+        (skipped,) = _lines(logs, "orphaned_checkout_refund_skipped_foreign_return_url")
+        assert skipped == {
+            "event": "orphaned_checkout_refund_skipped_foreign_return_url",
+            "log_level": "warning",
+            "session_id": "cs_orphan",
+            "organization_id": str(connected_org.pk),
+        }
+        (alert,) = _lines(logs, "stripe_session_paid_without_payments")
+        assert alert["refund_eligible"] is False
+        assert alert["organization_id"] == str(connected_org.pk)
+
+    @pytest.mark.parametrize(("status", "refunded"), [("active", True), ("pending", False)])
+    def test_a_return_url_on_an_active_custom_domain_is_accepted(
+        self,
+        connected_org: Organization,
+        event: Event,
+        status: str,
+        refunded: bool,
+        settings: t.Any,
+        stripe_refund: MagicMock,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        OrganizationDomain.objects.create(organization=connected_org, hostname="tickets.example.org", status=status)
+        url = settings.CUSTOM_DOMAIN_URL_TEMPLATE.format(hostname="tickets.example.org") + "/events/x"
+
+        _deliver(_session_event(metadata=_ticket_metadata(event), success_url=url), django_capture_on_commit_callbacks)
+
+        assert stripe_refund.called is refunded
 
     def test_a_session_in_another_mode_is_not_refunded(
         self,
@@ -274,7 +388,7 @@ class TestOnlyRevelTicketAndPassSessionsAreRefunded:
 
         stripe_refund.assert_not_called()
         (alert,) = _lines(logs, "stripe_session_paid_without_payments")
-        assert alert["refund_queued"] is False
+        assert alert["refund_eligible"] is False
 
     def test_a_session_without_a_payment_intent_is_not_refunded(
         self,
@@ -289,7 +403,8 @@ class TestOnlyRevelTicketAndPassSessionsAreRefunded:
 
         stripe_refund.assert_not_called()
         (alert,) = _lines(logs, "stripe_session_paid_without_payments")
-        assert alert["refund_queued"] is False
+        assert alert["refund_eligible"] is False
+        assert alert["organization_id"] == str(connected_org.pk)  # resolved even with no payment intent
 
     def test_a_session_with_payment_rows_is_not_refunded(
         self,
@@ -388,6 +503,39 @@ class TestRefundTaskFailures:
         assert failed["log_level"] == "error"
         assert failed["session_id"] == "cs_orphan"
         assert failed["organization_id"] == str(connected_org.pk)
+        assert not _lines(logs, "orphaned_checkout_refund_queued")
+
+    def test_a_failed_dispatch_increments_the_alert_counter(
+        self, connected_org: Organization, event: Event, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        before = REGISTRY.get_sample_value(_DISPATCH_FAILED_METRIC) or 0.0
+        with patch("events.tasks.refunds.refund_orphaned_checkout_session.delay", side_effect=RuntimeError("broker")):
+            _deliver(_session_event(metadata=_ticket_metadata(event)), django_capture_on_commit_callbacks)
+
+        assert REGISTRY.get_sample_value(_DISPATCH_FAILED_METRIC) == before + 1
+
+    def test_the_queueing_is_logged_after_commit_only(
+        self,
+        connected_org: Organization,
+        event: Event,
+        stripe_refund: MagicMock,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        stripe_event = _session_event(metadata=_ticket_metadata(event))
+        with capture_logs() as logs:
+            with django_capture_on_commit_callbacks(execute=False) as callbacks:
+                handle_event(stripe_event)
+        (alert,) = _lines(logs, "stripe_session_paid_without_payments")
+        assert alert["refund_eligible"] is True
+        assert not _lines(logs, "orphaned_checkout_refund_queued")  # nothing is queued before commit
+
+        with patch("events.tasks.refunds.refund_orphaned_checkout_session.delay") as dispatch:
+            with capture_logs() as after_commit:
+                for callback in callbacks:
+                    callback()
+        dispatch.assert_called_once_with("cs_orphan", "pi_cs_orphan", _ACCOUNT, str(connected_org.pk))
+        (queued,) = _lines(after_commit, "orphaned_checkout_refund_queued")
+        assert queued["organization_id"] == str(connected_org.pk)
 
 
 def test_the_handler_does_not_refund_from_the_replay_path(

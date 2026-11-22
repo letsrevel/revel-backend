@@ -563,21 +563,20 @@ def orphaned_checkout_refund_dispatch(
 ) -> t.Callable[[], None]:
     """An on-commit callback that queues the refund of a completed session with no Payment rows (#1489).
 
-    A failed dispatch is logged at ERROR with the ids that a manual refund needs.
+    The queueing is logged (``orphaned_checkout_refund_queued``). A failed dispatch increments a counter and
+    logs at ERROR with the ids that a manual refund needs.
     """
 
     def dispatch_orphaned_checkout_refund() -> None:
+        from events.service.stripe_incidents import record_orphaned_checkout_refund_dispatch_failed
         from events.tasks.refunds import refund_orphaned_checkout_session as refund_task
 
+        ids = {"session_id": session_id, "payment_intent_id": payment_intent_id, "organization_id": organization_id}
         try:
             refund_task.delay(session_id, payment_intent_id, stripe_account, organization_id)
         except Exception:
-            logger.error(
-                "orphaned_checkout_refund_dispatch_failed",
-                session_id=session_id,
-                payment_intent_id=payment_intent_id,
-                organization_id=organization_id,
-                exc_info=True,
-            )
+            record_orphaned_checkout_refund_dispatch_failed(**ids)
+            return
+        logger.info("orphaned_checkout_refund_queued", **ids)
 
     return dispatch_orphaned_checkout_refund

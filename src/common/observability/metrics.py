@@ -36,6 +36,14 @@ STRIPE_SESSION_PAID_WITHOUT_PAYMENTS = Counter(
     "A Stripe session with a non-zero amount_total was confirmed with no matching Payment rows.",
 )
 
+# The automatic refund of such a session (#1489) could not be queued after commit: nothing else refunds the
+# buyer, so the refund must be issued by hand. Incremented in the web process, so it is scraped; a failure
+# inside the Celery refund task is not (it alerts through Loki on the ``orphaned_checkout_refund_failed`` log).
+ORPHANED_CHECKOUT_REFUND_DISPATCH_FAILED = Counter(
+    "revel_orphaned_checkout_refund_dispatch_failed",
+    "The automatic refund of a paid Stripe session with no Payment rows could not be queued.",
+)
+
 # A membership invoice was paid against a locally-terminal subscription: Stripe
 # billed a member whose access we already revoked, so the money needs refunding
 # by hand. The local row is deliberately frozen, so nothing self-heals.

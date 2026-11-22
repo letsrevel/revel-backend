@@ -14,7 +14,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from common.models import StripeConnectMixin
+from common.models import SiteSettings, StripeConnectMixin
 from common.service.stripe_config import configure_stripe
 from events.exceptions import InvalidStripeWebhookSignatureError, SessionTotalMismatchError
 from events.models import (
@@ -24,6 +24,7 @@ from events.models import (
     MembershipSubscription,
     MembershipSubscriptionPlan,
     Organization,
+    OrganizationDomain,
     Payment,
     Refund,
     StripeWebhookEvent,
@@ -454,22 +455,27 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             return
         payment_intent_id = session.get("payment_intent")
         stripe_account = self._event_account()
-        organization_id = self._revel_checkout_organization_id(session, stripe_account) if payment_intent_id else None
+        organization_id = self._revel_checkout_organization_id(session, stripe_account)
+        refund_eligible = (
+            organization_id is not None
+            and bool(payment_intent_id)
+            and self._has_revel_return_url(session, session_id, organization_id)
+        )
         record_paid_session_without_payments(
             session_id=session_id,
             amount_total=int(amount_total),
             currency=session.get("currency"),
             payment_intent_id=payment_intent_id,
             organization_id=organization_id,
-            refund_queued=organization_id is not None,
+            refund_eligible=refund_eligible,
         )
-        if organization_id is not None:
+        if refund_eligible:
             transaction.on_commit(
                 refund_service.orphaned_checkout_refund_dispatch(
                     session_id=session_id,
                     payment_intent_id=t.cast(str, payment_intent_id),
                     stripe_account=stripe_account,
-                    organization_id=organization_id,
+                    organization_id=t.cast(str, organization_id),
                 )
             )
 
@@ -486,9 +492,10 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
         software created on them. Only the full metadata shape that Revel sets counts, in ``mode=payment``:
         a ticket checkout (``_create_stripe_session``) or a series-pass checkout
         (``_create_series_pass_stripe_session``), with UUIDs where Revel writes them. The session's Stripe
-        account must belong to an organization. A ticket checkout's event must belong to that
-        organization; when the event was deleted (its rows cascaded), the connected account alone
-        identifies the organization, but on the shared platform account the event is required.
+        account must belong to an organization. When the checkout's parent row still exists (the event of a
+        ticket checkout, the ``HeldSeriesPass`` of a series-pass checkout), it must belong to that
+        organization. When it is gone (deleted with the account or the event), the Stripe account alone
+        identifies the organization (``stripe_account_id`` is unique, also for the platform account).
         Subscription checkouts never get here: the handler sends them to the subscription handler first.
         """
         metadata = session.get("metadata") or {}
@@ -505,11 +512,41 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
         except ValueError:
             return None
         organizations = Organization.objects.filter(stripe_account_id=stripe_account or settings.STRIPE_ACCOUNT)
-        event_id = parsed.get("event_id")
-        if event_id is not None and (not stripe_account or Event.objects.filter(pk=event_id).exists()):
-            organizations = organizations.filter(events__pk=event_id)
-        organization_id = organizations.order_by("pk").values_list("pk", flat=True).first()
+        if (event_id := parsed.get("event_id")) is not None:
+            parent_org_id = Event.objects.filter(pk=event_id).values_list("organization_id", flat=True).first()
+        else:
+            parent_org_id = (
+                HeldSeriesPass.objects.filter(pk=parsed["held_pass_id"])
+                .values_list("series_pass__event_series__organization_id", flat=True)
+                .first()
+            )
+        if parent_org_id is not None:
+            organizations = organizations.filter(pk=parent_org_id)
+        organization_id = organizations.values_list("pk", flat=True).first()
         return str(organization_id) if organization_id is not None else None
+
+    @staticmethod
+    def _has_revel_return_url(session: t.Any, session_id: str, organization_id: str) -> bool:
+        """Return whether the session's ``success_url`` is on a Revel frontend origin (#1489).
+
+        Revel builds every ticket and series-pass ``success_url`` on ``SiteSettings.frontend_base_url``
+        (#1153). An active custom domain of the organization is accepted too. A session that fails the
+        check is not refunded, and the skip is logged with ids only.
+        """
+        origins = {str(SiteSettings.get_solo().frontend_base_url).rstrip("/")}
+        hostnames = OrganizationDomain.objects.filter(
+            organization_id=organization_id, status=OrganizationDomain.Status.ACTIVE
+        ).values_list("hostname", flat=True)
+        origins |= {str(settings.CUSTOM_DOMAIN_URL_TEMPLATE).format(hostname=h).rstrip("/") for h in hostnames}
+        success_url = str(session.get("success_url") or "")
+        if any(success_url.startswith(f"{origin}/") for origin in origins):
+            return True
+        logger.warning(
+            "orphaned_checkout_refund_skipped_foreign_return_url",
+            session_id=session_id,
+            organization_id=organization_id,
+        )
+        return False
 
     @staticmethod
     def _reconcile_session_total(session: t.Any, payments: list[Payment]) -> None:
