@@ -1,13 +1,16 @@
-"""Give back the capacity of an account's unfinished checkouts, before deleting the account cascades them away."""
+"""Give back the capacity of a deleted account's unfinished checkouts, and expire their open Stripe sessions."""
 
 import typing as t
-from collections import Counter
+from collections import Counter, defaultdict
 
-from django.db.models import F, Value
+import structlog
+from django.db import transaction
+from django.db.models import F, Q, Value
 from django.db.models.functions import Greatest
 
 from events.models import HeldSeriesPass, Payment, SeriesPass, Ticket, TicketTier, WaitlistOffer
 from events.service.discount_code_service import release_discount_uses
+from events.service.pending_checkout import expire_stripe_sessions_best_effort
 from events.service.ticket_service import lock_tier_then_ticket
 from events.service.waitlist_service import enqueue_waitlist_processing
 
@@ -26,6 +29,7 @@ def release_capacity_of_account(user: "RevelUser") -> None:
     One locked snapshot drives every release: the canonical lock order (Payment -> HeldSeriesPass ->
     SeriesPass -> TicketTier -> Ticket, each in pk order, then the DiscountCode rows), with statuses read
     only under those locks. Decrements are floored at zero, and the freed events get waitlist processing.
+    After commit, the open Stripe Checkout sessions of the pending payments and passes are expired.
     """
     # ponytail: a checkout, pass purchase or waitlist offer that inserts a new PENDING row for this account
     # after the snapshot below is cascaded by ``user.delete()`` without giving its slot back or starting the
@@ -71,3 +75,38 @@ def release_capacity_of_account(user: "RevelUser") -> None:
 
     for event_id in sorted({ticket.event_id for ticket in pending} | offer_event_ids):
         enqueue_waitlist_processing(event_id)
+
+    _expire_open_sessions_after_commit(user, ticket_ids, [held.pk for held in locked_passes])
+
+
+def _expire_open_sessions_after_commit(user: "RevelUser", ticket_ids: list[t.Any], held_ids: list[t.Any]) -> None:
+    """After commit, expire the Stripe Checkout sessions of the PENDING payments and passes that cascade away.
+
+    Without its Payment rows, a later ``checkout.session.completed`` has nothing to reconcile, so the
+    session must not stay payable. Best effort, like the other paths that end a pending checkout: a
+    failed expire is logged with the session id and the user id, and the other sessions still go.
+    """
+    sessions_by_account: dict[str | None, set[str]] = defaultdict(set)
+    payment_sessions = (
+        Payment.objects.filter(Q(ticket_id__in=ticket_ids) | Q(user=user), status=Payment.PaymentStatus.PENDING)
+        .exclude(stripe_session_id="")
+        .values_list("stripe_session_id", "ticket__event__organization__stripe_account_id")
+    )
+    pass_sessions = (
+        HeldSeriesPass.objects.filter(pk__in=held_ids, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING)
+        .exclude(stripe_session_id="")
+        .values_list("stripe_session_id", "series_pass__event_series__organization__stripe_account_id")
+    )
+    for session_id, account_id in [*payment_sessions, *pass_sessions]:
+        sessions_by_account[account_id].add(session_id)
+    if not sessions_by_account:
+        return
+    user_id = str(user.pk)
+
+    # A named closure, not functools.partial: the robust on_commit path logs a failure by __qualname__.
+    def expire_account_sessions() -> None:
+        with structlog.contextvars.bound_contextvars(user_id=user_id):
+            for account_id, session_ids in sessions_by_account.items():
+                expire_stripe_sessions_best_effort(sorted(session_ids), account_id)
+
+    transaction.on_commit(expire_account_sessions, robust=True)
