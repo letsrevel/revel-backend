@@ -350,8 +350,8 @@ locks at all — it is read-only and racy by design.
 sent, and logs `stripe_session_completed_cancelled_ticket_refund_due`. After commit it queues
 `events.refund_late_payment`, which re-checks the marker and the cancelled ticket under the Payment
 lock and refunds the full amount with `source=late_payment` (the platform fee is kept). The credit note
-follows from the `charge.refunded` webhook, also for series passes, when the invoice already exists (a
-refund before the invoice gets no credit note yet: #1484). `cleanup_expired_payments`
+follows from the `charge.refunded` webhook, also for series passes. When the refund is processed
+before the invoice exists, the invoice task credits it (#1484). `cleanup_expired_payments`
 re-queues a marker older than 10 minutes. A transient Stripe error (connection, rate limit, 5xx)
 keeps the marker, so the sweep retries, for up to 6 hours. Any other Stripe failure, or a transient
 one after 6 hours, leaves a `FAILED` `Refund` row, `refund_status` `FAILED` and the error log

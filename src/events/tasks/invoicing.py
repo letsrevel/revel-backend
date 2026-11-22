@@ -32,14 +32,22 @@ def generate_attendee_invoice_task(stripe_session_id: str) -> None:
     """Generate an attendee invoice PDF for a completed checkout session.
 
     Runs asynchronously after payment success. On success, chains to the
-    delivery task for AUTO-mode invoices.
+    delivery task for AUTO-mode invoices. Then it queues a credit note for any refund
+    that was processed before the invoice existed (#1484): that refund's own credit-note
+    task found no invoice and stopped.
     """
     from events.models.attendee_invoice import AttendeeInvoice
     from events.service.attendee_invoice_service import generate_attendee_invoice
+    from events.service.uncovered_refund_service import uncovered_refunds
 
     invoice = generate_attendee_invoice(stripe_session_id)
     if invoice and invoice.status == AttendeeInvoice.InvoiceStatus.ISSUED:
         deliver_attendee_invoice_task.delay(str(invoice.id))
+    payment_ids, refund_ids = uncovered_refunds(stripe_session_id)
+    if refund_ids:
+        generate_attendee_credit_note_task.delay(
+            stripe_session_id, [str(pid) for pid in payment_ids], [str(rid) for rid in refund_ids]
+        )
 
 
 @shared_task(
