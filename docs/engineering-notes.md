@@ -378,7 +378,9 @@ status (`pending`, `requires_action`) logs `orphaned_checkout_refund_pending`. A
 later (for example, when the connected account has too small a balance). Then the `refund.failed` webhook
 (or `refund.updated` with status `canceled`) of a refund with that metadata, with no `Payment` row for its
 payment intent, on an account of an organization, logs the ERROR `orphaned_checkout_refund_failed` with
-the ids and the `failure_reason`. Only `orphaned_checkout_refund_failed` needs an alert. After a deploy
+the ids and the `failure_reason`. A refund that is already `failed` when the task gets it can log this
+event twice (task and webhook); there is no marker to stop that. Only `orphaned_checkout_refund_failed`
+needs an alert. After a deploy
 that adds these two event types, run `provision_stripe_webhooks --sync`.
 There is no durable marker (no row to hold it): a lost dispatch increments
 `revel_orphaned_checkout_refund_dispatch_failed` and logs the ERROR
