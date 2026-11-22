@@ -26,8 +26,11 @@ class Command(BaseCommand):
         # whatever status its last committed state shows. The locks last only for this read.
         with transaction.atomic():
             rows = {row.task_id: row for row in PostDeployTaskRun.objects.all()}
-            free = set(PostDeployTaskRun.objects.select_for_update(skip_locked=True).values_list("task_id", flat=True))
-        busy = rows.keys() - free
+            # Rows we can lock are read again here: a retry can commit between the two reads, so only
+            # the locking read is current. The plain read tells us which rows exist but are locked.
+            free = {row.task_id: row for row in PostDeployTaskRun.objects.select_for_update(skip_locked=True)}
+        busy = rows.keys() - free.keys()
+        rows.update(free)
         problems: list[str] = []
         self.stdout.write(f"{'TASK':<40} {'RELEASE':<10} {'STATUS':<12} {'ATTEMPTS':<9} FINISHED")
         for task in registered():

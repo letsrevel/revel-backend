@@ -8,6 +8,7 @@ from io import StringIO
 import pytest
 from django.core.management import CommandError, call_command
 from django.db import connection, transaction
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from common import post_deploy
@@ -146,3 +147,19 @@ def test_status_shows_row_locked_by_a_runner_as_running_and_check_fails() -> Non
         release.set()
         thread.join(timeout=10)
     _call("post_deploy_status", "--check")
+
+
+@pytest.mark.django_db
+def test_status_of_unlocked_row_comes_from_the_locking_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A retry that commits FAILED between the plain read and the locking read must show as failed."""
+    _register("a")
+    PostDeployTaskRun.objects.create(task_id="a", release="1.0.0", status=Status.SKIPPED, finished_at=timezone.now())
+    real = QuerySet.select_for_update
+
+    def commit_failed_then_lock(self: QuerySet[t.Any], *args: t.Any, **kwargs: t.Any) -> QuerySet[t.Any]:
+        PostDeployTaskRun.objects.filter(task_id="a").update(status=Status.FAILED, finished_at=timezone.now())
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(QuerySet, "select_for_update", commit_failed_then_lock)
+    with pytest.raises(CommandError, match=r"a \(failed\)"):
+        _call("post_deploy_status", "--check")

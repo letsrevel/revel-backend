@@ -16,7 +16,8 @@ Locking: the runner locks the task row with ``SELECT ... FOR UPDATE SKIP LOCKED`
 transaction, not with a session advisory lock. Production runs behind PgBouncer in transaction
 pooling, where session-level advisory locks are unsafe (the lock can stick to another client's server
 connection). A row lock is transaction-scoped, and Postgres releases it if the process dies. A task
-body runs in a savepoint, so its own database writes roll back when it fails.
+body runs in a savepoint, so its own database writes roll back when it fails. A task that is busy is
+retried once at the end of the pass, because a status read can hold the row lock for an instant.
 
 Releases must be written as ``X.Y.Z`` (integers) so that they order numerically.
 
@@ -186,4 +187,7 @@ def run_pending(dry_run: bool = False) -> list[PostDeployResult]:
             )
         else:
             results.append(_run_one(task))
+    for index, result in enumerate(results):
+        if result["outcome"] == "busy":  # a status read may have held the lock for an instant: retry once
+            results[index] = _run_one(next(task for task in registered() if task.id == result["id"]))
     return results

@@ -171,6 +171,42 @@ def test_busy_when_row_locked_by_another_connection() -> None:
     assert run_pending()[0]["outcome"] == "succeeded"
 
 
+@pytest.mark.django_db(transaction=True)
+def test_busy_task_is_retried_once_after_the_lock_is_released(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A lock held only during the first attempt (for example by a status read) must not skip the task."""
+    register(_task("a"))
+    row = PostDeployTaskRun.objects.create(task_id="a", release="1.0.0")
+    locked, release = threading.Event(), threading.Event()
+
+    def hold_lock() -> None:
+        try:
+            with transaction.atomic():
+                PostDeployTaskRun.objects.select_for_update().get(pk=row.pk)
+                locked.set()
+                release.wait(timeout=10)
+        finally:
+            connection.close()
+
+    real_run_one = post_deploy._run_one
+
+    def release_after_busy(task: PostDeployTask) -> post_deploy.PostDeployResult:
+        result = real_run_one(task)
+        if result["outcome"] == "busy":
+            release.set()
+            thread.join(timeout=10)
+        return result
+
+    monkeypatch.setattr(post_deploy, "_run_one", release_after_busy)
+    thread = threading.Thread(target=hold_lock)
+    thread.start()
+    try:
+        assert locked.wait(timeout=10)
+        assert run_pending()[0]["outcome"] == "succeeded"
+    finally:
+        release.set()
+        thread.join(timeout=10)
+
+
 def _raise() -> str | None:
     raise RuntimeError("skip check broke")
 
