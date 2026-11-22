@@ -368,10 +368,18 @@ session with no `Payment` rows (deleted with the account or the event, or swept)
 session is a Revel ticket or series-pass checkout with a payment intent, the handler queues
 `events.refund_orphaned_checkout_session` after commit, and the on-commit callback logs
 `orphaned_checkout_refund_queued`. The task holds no lock and writes no row: it refunds the full payment
-intent with the idempotency key `orphaned-checkout-refund:{session_id}` (the platform fee is kept). A
-transient Stripe error is retried 6 times with backoff (about one hour). A terminal error, or the last
-transient one, logs the ERROR `orphaned_checkout_refund_failed`; a success logs the ERROR
-`orphaned_checkout_refunded`, so staff see every automatic refund. `charge_already_refunded` is a no-op.
+intent with the idempotency key `orphaned-checkout-refund:{session_id}` (the platform fee is kept) and
+the refund metadata `revel_orphaned_checkout_session={session_id}`. A transient Stripe error is retried 6
+times with backoff (about one hour). A terminal error, or the last transient one, logs the ERROR
+`orphaned_checkout_refund_failed`. `charge_already_refunded` is a no-op. The status of the created refund
+decides the log event, at ERROR so staff see every automatic refund: `succeeded` logs
+`orphaned_checkout_refunded`, `failed` or `canceled` logs `orphaned_checkout_refund_failed`, and any other
+status (`pending`, `requires_action`) logs `orphaned_checkout_refund_pending`. A pending refund can fail
+later (for example, when the connected account has too small a balance). Then the `refund.failed` webhook
+(or `refund.updated` with status `canceled`) of a refund with that metadata, with no `Payment` row for its
+payment intent, on an account of an organization, logs the ERROR `orphaned_checkout_refund_failed` with
+the ids and the `failure_reason`. Only `orphaned_checkout_refund_failed` needs an alert. After a deploy
+that adds these two event types, run `provision_stripe_webhooks --sync`.
 There is no durable marker (no row to hold it): a lost dispatch increments
 `revel_orphaned_checkout_refund_dispatch_failed` and logs the ERROR
 `orphaned_checkout_refund_dispatch_failed`, and staff refund by hand. The task runs in Celery, so its
@@ -382,7 +390,8 @@ were deleted with the account.
 Organizations use Standard Connect accounts, so the Connect webhook also gets sessions that other
 software created on those accounts. A session counts as Revel's only when all of these are true:
 
-- `mode=payment` and the full metadata shape that `stripe_service.py` sets, with UUID ids: a ticket
+- `mode=payment` and the full metadata shape that `stripe_service.py` sets, with UUID ids (also each
+  entry of the comma-separated `ticket_ids`): a ticket
   checkout has `ticket_ids`, `event_id`, `user_id` and `batch_size`; a series-pass checkout has
   `held_pass_id`, `user_id` and `ticket_ids`.
 - The Stripe account belongs to an organization (`stripe_account_id` is unique, also for the platform

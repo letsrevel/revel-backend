@@ -203,7 +203,7 @@ low-cardinality (never a session id, user id, or event id — those belong on th
 | Metric | Meaning |
 |---|---|
 | `revel_stripe_session_total_mismatch_total{call_site}` | Stripe's session total disagreed with `sum(Payment.amount)`. `call_site="preflight"`: caught before the session existed, nobody charged. `call_site="webhook"`: **the buyer has been charged**. |
-| `revel_stripe_session_paid_without_payments_total` | A session that captured money was confirmed with no `Payment` rows to confirm — charged buyer, no record. For a Revel ticket or series-pass session the full refund is automatic (`refund_eligible=true` on the log line, then `orphaned_checkout_refund_queued` and `orphaned_checkout_refunded`). Refund by hand in Stripe only when the line says `refund_eligible=false`, or when a refund-failure alert below fires (#1489). |
+| `revel_stripe_session_paid_without_payments_total` | A session that captured money was confirmed with no `Payment` rows to confirm — charged buyer, no record. For a Revel ticket or series-pass session the full refund is automatic (`refund_eligible=true` on the log line, then `orphaned_checkout_refund_queued` and `orphaned_checkout_refunded`, or `orphaned_checkout_refund_pending` while Stripe has not finished the refund). Refund by hand in Stripe only when the line says `refund_eligible=false`, or when a refund-failure alert below fires (#1489). |
 | `revel_orphaned_checkout_refund_dispatch_failed_total` | The automatic refund of such a session could not be queued after commit. Nothing retries it: refund the payment intent by hand in Stripe, with the `session_id`, `payment_intent_id` and `organization_id` from the `orphaned_checkout_refund_dispatch_failed` ERROR line. |
 
 All are **one-occurrence incidents**, so they alert with no `for:` delay:
@@ -272,7 +272,7 @@ Grafana provides the alerting layer, replacing the previous database-based error
 | Stripe session total mismatch | `revel_stripe_session_total_mismatch_total` increases (see [runbook](#money-correctness-stripe-session-total-mismatch)) |
 | Paid session with no payments | `revel_stripe_session_paid_without_payments_total` increases |
 | Automatic refund not queued | `revel_orphaned_checkout_refund_dispatch_failed_total` increases: refund by hand in Stripe |
-| Automatic refund failed (Celery) | Loki rule on the ERROR log events `orphaned_checkout_refund_failed` and `late_payment_refund_failed` (Celery exports no metrics, so these are not Prometheus counters): refund by hand in Stripe with the ids on the line |
+| Automatic refund failed (Celery) | Loki rule on the ERROR log events `orphaned_checkout_refund_failed` and `late_payment_refund_failed` (Celery exports no metrics, so these are not Prometheus counters): refund by hand in Stripe with the ids on the line. `orphaned_checkout_refund_failed` also comes from the `refund.failed` / `refund.updated` webhook when a pending automatic refund fails later. `orphaned_checkout_refund_pending` is not an alert. |
 | High error rate | 5xx responses exceed threshold |
 | Auth failures | Repeated failed login attempts |
 | Database errors | Connection pool exhaustion, slow queries |

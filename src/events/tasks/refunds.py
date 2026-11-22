@@ -136,7 +136,11 @@ def refund_orphaned_checkout_session(
     key window a second full refund fails with ``charge_already_refunded``, which is a no-op here. A transient
     Stripe error (connection, rate limit, 5xx) is retried with backoff. Any other Stripe error, or a transient
     one after the last retry, logs ``orphaned_checkout_refund_failed`` at ERROR for a manual refund. The
-    success is also logged at ERROR, so staff see each automatic refund. Ids only, no buyer data.
+    created refund's status decides the log event, at ERROR so staff see each automatic refund:
+    ``succeeded`` logs ``orphaned_checkout_refunded``; ``failed`` or ``canceled`` logs
+    ``orphaned_checkout_refund_failed``; any other status (``pending``, ``requires_action``) logs
+    ``orphaned_checkout_refund_pending``, and a later failure arrives through the ``refund.failed`` /
+    ``refund.updated`` webhook. Ids only, no buyer data.
 
     Args:
         self: Celery task instance (automatically passed when bind=True).
@@ -147,7 +151,7 @@ def refund_orphaned_checkout_session(
     """
     ids = {"session_id": session_id, "payment_intent_id": payment_intent_id, "organization_id": organization_id}
     try:
-        refund_id = refund_service.refund_orphaned_checkout_session(
+        refund = refund_service.refund_orphaned_checkout_session(
             session_id=session_id, payment_intent_id=payment_intent_id, stripe_account=stripe_account
         )
     except stripe.error.StripeError as exc:
@@ -159,7 +163,14 @@ def refund_orphaned_checkout_session(
             raise self.retry(exc=exc, countdown=_ORPHANED_CHECKOUT_REFUND_BACKOFF_SECONDS * 2**self.request.retries)
         logger.error("orphaned_checkout_refund_failed", code=getattr(exc, "code", None), error=str(exc), **ids)
         return
-    logger.error("orphaned_checkout_refunded", refund_id=refund_id, **ids)
+    status = refund.status
+    if status == "succeeded":
+        log_event = "orphaned_checkout_refunded"
+    elif status in ("failed", "canceled"):
+        log_event = "orphaned_checkout_refund_failed"
+    else:
+        log_event = "orphaned_checkout_refund_pending"
+    logger.error(log_event, refund_id=refund.id, status=status, **ids)
 
 
 @shared_task(name="events.refund_cancelled_event_tickets")

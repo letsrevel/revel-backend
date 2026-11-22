@@ -12,6 +12,7 @@ from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 
 from common.models import SiteSettings
+from events.management.commands.provision_stripe_webhooks import CONNECT_EVENTS, PLATFORM_EVENTS
 from events.models import (
     Event,
     EventSeries,
@@ -20,6 +21,7 @@ from events.models import (
     OrganizationDomain,
     Payment,
     SeriesPass,
+    StripeWebhookEvent,
     Ticket,
     TicketTier,
 )
@@ -29,6 +31,7 @@ from events.tasks.refunds import ORPHANED_CHECKOUT_REFUND_MAX_RETRIES, refund_or
 pytestmark = pytest.mark.django_db
 
 _ACCOUNT = "acct_orphan_1489"
+_TICKET_ID = "8f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b"
 _DISPATCH_FAILED_METRIC = "revel_orphaned_checkout_refund_dispatch_failed_total"
 
 
@@ -58,6 +61,7 @@ def held_pass_of(revel_user_factory: t.Any) -> t.Callable[[Organization], HeldSe
 def stripe_refund() -> t.Iterator[MagicMock]:
     with patch("stripe.Refund.create") as mock_create:
         mock_create.return_value.id = "re_orphan"
+        mock_create.return_value.status = "succeeded"
         yield mock_create
 
 
@@ -95,8 +99,13 @@ def _session_event(
 
 
 def _ticket_metadata(event: Event) -> dict[str, str]:
-    """The metadata a ticket checkout session gets (``_create_stripe_session``)."""
-    return {"ticket_ids": str(uuid.uuid4()), "event_id": str(event.id), "user_id": str(uuid.uuid4()), "batch_size": "1"}
+    """The metadata a ticket checkout session gets (``_create_stripe_session``): comma-separated ticket ids."""
+    return {
+        "ticket_ids": f"{uuid.uuid4()},{uuid.uuid4()}",
+        "event_id": str(event.id),
+        "user_id": str(uuid.uuid4()),
+        "batch_size": "2",
+    }
 
 
 def _pass_metadata() -> dict[str, str]:
@@ -128,7 +137,7 @@ class TestWebhookRefundsTheOrphanedSession:
 
         stripe_refund.assert_called_once_with(
             payment_intent="pi_cs_orphan",
-            metadata={"source": "orphaned_checkout"},
+            metadata={"source": "orphaned_checkout", "revel_orphaned_checkout_session": "cs_orphan"},
             idempotency_key="orphaned-checkout-refund:cs_orphan",
             stripe_account=_ACCOUNT,
         )
@@ -145,6 +154,7 @@ class TestWebhookRefundsTheOrphanedSession:
             "event": "orphaned_checkout_refunded",
             "log_level": "error",
             "refund_id": "re_orphan",
+            "status": "succeeded",
             "session_id": "cs_orphan",
             "payment_intent_id": "pi_cs_orphan",
             "organization_id": str(connected_org.pk),
@@ -238,17 +248,42 @@ class TestOnlyRevelTicketAndPassSessionsAreRefunded:
     def test_a_malformed_event_id_is_not_refunded(
         self, connected_org: Organization, stripe_refund: MagicMock, django_capture_on_commit_callbacks: t.Any
     ) -> None:
-        metadata = {"ticket_ids": "x", "event_id": "not-a-uuid", "user_id": str(uuid.uuid4()), "batch_size": "1"}
+        metadata = {
+            "ticket_ids": str(uuid.uuid4()),
+            "event_id": "not-a-uuid",
+            "user_id": str(uuid.uuid4()),
+            "batch_size": "1",
+        }
         _deliver(_session_event(metadata=metadata), django_capture_on_commit_callbacks)
 
         stripe_refund.assert_not_called()
+
+    @pytest.mark.parametrize("ticket_ids", ["A1", f"{_TICKET_ID},A2", f"{_TICKET_ID},"])
+    @pytest.mark.parametrize("shape", ["ticket", "series_pass"])
+    def test_a_malformed_ticket_ids_entry_is_not_refunded(
+        self,
+        connected_org: Organization,
+        event: Event,
+        shape: str,
+        ticket_ids: str,
+        stripe_refund: MagicMock,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        metadata = _ticket_metadata(event) if shape == "ticket" else _pass_metadata()
+        metadata["ticket_ids"] = ticket_ids
+
+        logs = _deliver(_session_event(metadata=metadata), django_capture_on_commit_callbacks)
+
+        stripe_refund.assert_not_called()
+        (alert,) = _lines(logs, "stripe_session_paid_without_payments")
+        assert alert["refund_eligible"] is False
 
     @pytest.mark.parametrize(
         "metadata",
         [
             {"ticket_ids": "A1,A2"},  # another app on the organizer's Standard account
-            {"ticket_ids": "x", "user_id": str(uuid.uuid4()), "held_pass_id": "not-a-uuid"},
-            {"ticket_ids": "x", "held_pass_id": str(uuid.uuid4())},  # no user_id
+            {"ticket_ids": str(uuid.uuid4()), "user_id": str(uuid.uuid4()), "held_pass_id": "not-a-uuid"},
+            {"ticket_ids": str(uuid.uuid4()), "held_pass_id": str(uuid.uuid4())},  # no user_id
         ],
     )
     def test_a_session_without_the_full_revel_metadata_is_not_refunded(
@@ -435,7 +470,9 @@ class TestRefundTaskFailures:
     _ARGS = ("cs_task", "pi_task", _ACCOUNT, "org-id")
 
     def test_a_transient_error_is_retried(self, stripe_refund: MagicMock) -> None:
-        stripe_refund.side_effect = [stripe.error.APIConnectionError("network")] * 2 + [MagicMock(id="re_retry")]
+        stripe_refund.side_effect = [stripe.error.APIConnectionError("network")] * 2 + [
+            MagicMock(id="re_retry", status="succeeded")
+        ]
 
         with capture_logs() as logs:
             with pytest.raises(Retry) as retry:
@@ -493,6 +530,35 @@ class TestRefundTaskFailures:
         assert not _lines(logs, "orphaned_checkout_refund_failed")
         assert not _lines(logs, "orphaned_checkout_refunded")
 
+    @pytest.mark.parametrize(
+        ("status", "log_event"),
+        [
+            ("pending", "orphaned_checkout_refund_pending"),
+            ("requires_action", "orphaned_checkout_refund_pending"),
+            ("failed", "orphaned_checkout_refund_failed"),
+            ("canceled", "orphaned_checkout_refund_failed"),
+        ],
+    )
+    def test_the_refund_status_decides_the_log_event(
+        self, stripe_refund: MagicMock, status: str, log_event: str
+    ) -> None:
+        stripe_refund.return_value.status = status
+
+        with capture_logs() as logs:
+            refund_orphaned_checkout_session.apply(args=self._ARGS)
+
+        assert not _lines(logs, "orphaned_checkout_refunded")
+        (line,) = [line for line in logs if line["event"].startswith("orphaned_checkout_refund")]
+        assert line == {
+            "event": log_event,
+            "log_level": "error",
+            "refund_id": "re_orphan",
+            "status": status,
+            "session_id": "cs_task",
+            "payment_intent_id": "pi_task",
+            "organization_id": "org-id",
+        }
+
     def test_a_failed_dispatch_is_logged_with_the_ids(
         self, connected_org: Organization, event: Event, django_capture_on_commit_callbacks: t.Any
     ) -> None:
@@ -547,3 +613,115 @@ def test_the_handler_does_not_refund_from_the_replay_path(
         StripeEventHandler(stripe_event).replay()
 
     stripe_refund.assert_not_called()
+
+
+def _refund_event(
+    *,
+    event_type: str = "refund.failed",
+    status: str = "failed",
+    metadata: dict[str, str] | None = None,
+    account: str | None = _ACCOUNT,
+    payment_intent: str = "pi_cs_orphan",
+) -> stripe.Event:
+    if metadata is None:
+        metadata = {"source": "orphaned_checkout", "revel_orphaned_checkout_session": "cs_orphan"}
+    refund = {
+        "object": "refund",
+        "id": "re_orphan",
+        "status": status,
+        "failure_reason": "insufficient_funds" if status == "failed" else None,
+        "payment_intent": payment_intent,
+        "metadata": metadata,
+    }
+    payload: dict[str, t.Any] = {
+        "id": f"evt_{event_type}_{status}",
+        "type": event_type,
+        "livemode": False,
+        "data": {"object": refund},
+    }
+    if account is not None:
+        payload["account"] = account
+    return stripe.Event.construct_from(payload, "sk_test")
+
+
+class TestALaterRefundFailureAlerts:
+    """A refund can be created ``pending`` and fail later; the refund webhook then alerts (#1489)."""
+
+    @pytest.mark.parametrize(("event_type", "status"), [("refund.failed", "failed"), ("refund.updated", "canceled")])
+    def test_a_failed_or_canceled_automatic_refund_logs_the_alert(
+        self, connected_org: Organization, event_type: str, status: str
+    ) -> None:
+        stripe_event = _refund_event(event_type=event_type, status=status)
+        with capture_logs() as logs:
+            handle_event(stripe_event)
+
+        (alert,) = _lines(logs, "orphaned_checkout_refund_failed")
+        assert alert == {
+            "event": "orphaned_checkout_refund_failed",
+            "log_level": "error",
+            "session_id": "cs_orphan",
+            "payment_intent_id": "pi_cs_orphan",
+            "organization_id": str(connected_org.pk),
+            "refund_id": "re_orphan",
+            "status": status,
+            "failure_reason": "insufficient_funds" if status == "failed" else None,
+        }
+        record = StripeWebhookEvent.objects.get(event_id=stripe_event.id)
+        assert record.outcome == StripeWebhookEvent.Outcome.HANDLED
+
+    def test_a_platform_account_refund_failure_logs_the_alert(
+        self, organization: Organization, settings: t.Any
+    ) -> None:
+        organization.stripe_account_id = settings.STRIPE_ACCOUNT
+        organization.save(update_fields=["stripe_account_id"])
+
+        with capture_logs() as logs:
+            handle_event(_refund_event(account=None))
+
+        (alert,) = _lines(logs, "orphaned_checkout_refund_failed")
+        assert alert["organization_id"] == str(organization.pk)
+
+    @pytest.mark.parametrize(
+        ("event_type", "status"),
+        [
+            ("refund.updated", "failed"),  # refund.failed logs it: one alert per failure
+            ("refund.updated", "pending"),
+            ("refund.updated", "succeeded"),
+        ],
+    )
+    def test_other_refund_updates_do_not_alert(self, connected_org: Organization, event_type: str, status: str) -> None:
+        with capture_logs() as logs:
+            handle_event(_refund_event(event_type=event_type, status=status))
+
+        assert not _lines(logs, "orphaned_checkout_refund_failed")
+
+    def test_a_failure_on_an_account_of_no_organization_does_not_alert(self) -> None:
+        with capture_logs() as logs:
+            handle_event(_refund_event(account="acct_unknown"))
+
+        assert not _lines(logs, "orphaned_checkout_refund_failed")
+
+    def test_a_normal_refund_failure_is_unaffected(
+        self,
+        connected_org: Organization,
+        ticket_factory: t.Callable[..., Ticket],
+        payment_factory: t.Callable[..., Payment],
+        tier_factory: t.Callable[..., TicketTier],
+    ) -> None:
+        ticket = ticket_factory(tier=tier_factory(), status=Ticket.TicketStatus.ACTIVE)
+        payment = payment_factory(ticket, status=Payment.PaymentStatus.SUCCEEDED, stripe_payment_intent_id="pi_normal")
+
+        with capture_logs() as logs:
+            handle_event(_refund_event(metadata={}, payment_intent="pi_normal"))
+            handle_event(_refund_event(event_type="refund.updated", status="canceled", payment_intent="pi_normal"))
+
+        assert not _lines(logs, "orphaned_checkout_refund_failed")
+        payment.refresh_from_db()
+        assert payment.status == Payment.PaymentStatus.SUCCEEDED
+        assert not payment.refunds.exists()
+
+
+def test_provisioning_subscribes_the_refund_failure_events() -> None:
+    expected = {"refund.failed", "refund.updated"}
+    assert expected <= set(PLATFORM_EVENTS)
+    assert expected <= set(CONNECT_EVENTS)

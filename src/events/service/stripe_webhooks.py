@@ -143,6 +143,9 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             "charge.dispute.created": self.handle_charge_dispute,
             "charge.dispute.updated": self.handle_charge_dispute,
             "charge.dispute.closed": self.handle_charge_dispute,
+            # A refund that fails or is canceled after it was created (#1489: automatic refunds only).
+            "refund.failed": self.handle_refund_failure,
+            "refund.updated": self.handle_refund_failure,
             # Membership subscriptions (Phases 2-4). Diff-based and idempotent:
             # the dedup gate skips true redeliveries, these also tolerate the
             # nightly reconciliation feeding them retrieved payloads.
@@ -479,6 +482,43 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
                 )
             )
 
+    def handle_refund_failure(self, event: stripe.Event) -> None:
+        """Alert when an automatic refund of a session with no Payment rows fails after it was created (#1489).
+
+        ``refund.failed`` handles a ``failed`` refund; ``refund.updated`` handles only a ``canceled`` one, so
+        a failure is logged once. Only a refund with the metadata that
+        ``refund_service.refund_orphaned_checkout_session`` sets, with no Payment row for its payment intent,
+        on an account of an organization, logs the ERROR ``orphaned_checkout_refund_failed`` (ids only):
+        staff then refund by hand. Any other refund is left alone.
+        """
+        refund = event.data.object
+        status = refund.get("status")
+        wanted_status = "failed" if event.type == "refund.failed" else "canceled"
+        if status != wanted_status:
+            return
+        session_id = (refund.get("metadata") or {}).get(refund_service.ORPHANED_CHECKOUT_REFUND_METADATA_KEY)
+        payment_intent_id = refund.get("payment_intent")
+        if not session_id or not payment_intent_id:
+            return
+        if Payment.objects.filter(stripe_payment_intent_id=payment_intent_id).exists():
+            return
+        organization_id = (
+            Organization.objects.filter(stripe_account_id=self._event_account() or settings.STRIPE_ACCOUNT)
+            .values_list("pk", flat=True)
+            .first()
+        )
+        if organization_id is None:
+            return
+        logger.error(
+            "orphaned_checkout_refund_failed",
+            session_id=str(session_id),
+            payment_intent_id=str(payment_intent_id),
+            organization_id=str(organization_id),
+            refund_id=refund.get("id"),
+            status=status,
+            failure_reason=refund.get("failure_reason"),
+        )
+
     def _event_account(self) -> str:
         """Return the connected account of the event, or "" for the platform account."""
         account = getattr(self.event, "account", None)
@@ -491,12 +531,13 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
         Organizations use Standard Connect accounts, so the Connect webhook also gets sessions that other
         software created on them. Only the full metadata shape that Revel sets counts, in ``mode=payment``:
         a ticket checkout (``_create_stripe_session``) or a series-pass checkout
-        (``_create_series_pass_stripe_session``), with UUIDs where Revel writes them. The session's Stripe
-        account must belong to an organization. When the checkout's parent row still exists (the event of a
-        ticket checkout, the ``HeldSeriesPass`` of a series-pass checkout), it must belong to that
-        organization. When it is gone (deleted with the account or the event), the Stripe account alone
-        identifies the organization (``stripe_account_id`` is unique, also for the platform account).
-        Subscription checkouts never get here: the handler sends them to the subscription handler first.
+        (``_create_series_pass_stripe_session``), with UUIDs where Revel writes them (also each entry of the
+        comma-separated ``ticket_ids``). The session's Stripe account must belong to an organization. When
+        the checkout's parent row still exists (the event of a ticket checkout, the ``HeldSeriesPass`` of a
+        series-pass checkout), it must belong to that organization. When it is gone (deleted with the account
+        or the event), the Stripe account alone identifies the organization (``stripe_account_id`` is unique,
+        also for the platform account). Subscription checkouts never get here: the handler sends them to the
+        subscription handler first.
         """
         metadata = session.get("metadata") or {}
         if session.get("mode") != "payment":
@@ -509,6 +550,8 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             return None
         try:
             parsed = {key: uuid.UUID(str(metadata[key])) for key in uuid_keys}
+            for ticket_id in str(metadata["ticket_ids"]).split(","):  # comma-separated, as stripe_service writes it
+                uuid.UUID(ticket_id)
         except ValueError:
             return None
         organizations = Organization.objects.filter(stripe_account_id=stripe_account or settings.STRIPE_ACCOUNT)

@@ -27,6 +27,9 @@ from events.models import Event, Payment, Refund, Ticket, TicketTier
 from events.service.seating.pricing import recorded_or_resolved_price
 from events.utils.currency import to_stripe_amount
 
+if t.TYPE_CHECKING:
+    import stripe
+
 logger = structlog.get_logger(__name__)
 
 _ZERO = Decimal("0")
@@ -536,12 +539,21 @@ def late_payment_refund_dispatch(payment_ids: list[str]) -> t.Callable[[], None]
     return dispatch_late_payment_refunds
 
 
-def refund_orphaned_checkout_session(*, session_id: str, payment_intent_id: str, stripe_account: str) -> str:
-    """Refund in full a completed checkout session that has no Payment rows; return the Stripe refund id (#1489).
+# Stripe refund metadata key of an automatic refund of a session with no Payment rows (#1489). The
+# ``refund.failed`` / ``refund.updated`` webhook uses it to find a refund that failed after it was created.
+ORPHANED_CHECKOUT_REFUND_METADATA_KEY = "revel_orphaned_checkout_session"
+
+
+def refund_orphaned_checkout_session(
+    *, session_id: str, payment_intent_id: str, stripe_account: str
+) -> "stripe.Refund":
+    """Refund in full a completed checkout session that has no Payment rows; return the Stripe refund (#1489).
 
     No ``Refund`` row is written: there is no Payment to attach it to. The idempotency key is derived from
     the session id, so a retry or a second dispatch gets back the same Stripe refund. The platform fee is
-    kept (no ``refund_application_fee``), as for every refund. The caller must not hold row locks.
+    kept (no ``refund_application_fee``), as for every refund. The caller must not hold row locks. The
+    refund can be ``pending`` and fail later: its metadata carries the session id
+    (``ORPHANED_CHECKOUT_REFUND_METADATA_KEY``), so the refund-failure webhook can find it.
 
     Raises:
         stripe.error.StripeError: The Stripe call failed.
@@ -550,12 +562,12 @@ def refund_orphaned_checkout_session(*, session_id: str, payment_intent_id: str,
 
     refund_kwargs: dict[str, t.Any] = {
         "payment_intent": payment_intent_id,
-        "metadata": {"source": "orphaned_checkout"},
+        "metadata": {"source": "orphaned_checkout", ORPHANED_CHECKOUT_REFUND_METADATA_KEY: session_id},
         "idempotency_key": f"orphaned-checkout-refund:{session_id}",
     }
     if stripe_account:
         refund_kwargs["stripe_account"] = stripe_account
-    return str(stripe.Refund.create(**refund_kwargs).id)
+    return stripe.Refund.create(**refund_kwargs)
 
 
 def orphaned_checkout_refund_dispatch(
