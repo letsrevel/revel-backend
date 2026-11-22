@@ -41,13 +41,15 @@ def generate_attendee_invoice_task(stripe_session_id: str) -> None:
     from events.service.uncovered_refund_service import uncovered_refunds
 
     invoice = generate_attendee_invoice(stripe_session_id)
-    if invoice and invoice.status == AttendeeInvoice.InvoiceStatus.ISSUED:
-        deliver_attendee_invoice_task.delay(str(invoice.id))
+    # Before the delivery is queued: a failure here retries the task, and a retry after the
+    # delivery was queued would email the invoice again.
     payment_ids, refund_ids = uncovered_refunds(stripe_session_id)
     if refund_ids:
         generate_attendee_credit_note_task.delay(
             stripe_session_id, [str(pid) for pid in payment_ids], [str(rid) for rid in refund_ids]
         )
+    if invoice and invoice.status == AttendeeInvoice.InvoiceStatus.ISSUED:
+        deliver_attendee_invoice_task.delay(str(invoice.id))
 
 
 @shared_task(

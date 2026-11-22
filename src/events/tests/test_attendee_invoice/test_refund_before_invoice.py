@@ -195,3 +195,20 @@ class TestRefundBeforeInvoice:
             generate_attendee_invoice_task(SID)
 
         delay.assert_not_called()
+
+    def test_a_failed_credit_note_dispatch_does_not_email_the_invoice_first(
+        self, invoicing_org: Organization, pay: t.Callable[..., Payment]
+    ) -> None:
+        """The task retries on any error; the delivery is queued last, so a retry cannot email the invoice twice."""
+        _refund(pay(), "30.00")
+
+        with (
+            patch(
+                "events.tasks.invoicing.generate_attendee_credit_note_task.delay", side_effect=ConnectionError("broker")
+            ),
+            patch("events.tasks.invoicing.deliver_attendee_invoice_task.delay") as deliver,
+            pytest.raises(Exception),  # noqa: B017, PT011 - the autoretry wrapper may re-raise as Retry
+        ):
+            generate_attendee_invoice_task(SID)
+
+        deliver.assert_not_called()

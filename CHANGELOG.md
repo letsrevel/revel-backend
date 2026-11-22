@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Confirming or reverting an offline payment (`POST /event-admin/{event_id}/tickets/{ticket_id}/confirm-payment` and `.../unconfirm-payment`) answers 409 when the ticket changes while the request runs, for example by a cancellation. A ticket that is already in another status still gets 404, as before.
 - A payment that completes after its ticket was cancelled is refunded automatically (the platform fee is kept, as for every refund), and no payment confirmation is sent. Refund rows can have the new source `late_payment`.
-- A refund that is processed before its sale's attendee invoice exists now gets its credit note when the invoice is generated (or a skipped credit-note record when the invoice is skipped). Before, the invoice showed the full amount and no credit note was issued.
+- A refund that is processed before its sale's attendee invoice exists now gets its credit note when the invoice is generated. A skipped invoice gets a skipped credit-note record, and a draft invoice is deleted, as for a refund that comes after the draft. Before, the invoice showed the full amount and no credit note was issued.
 - Deleting an account gives back the ticket-tier and series-pass places of its unfinished (pending) checkouts. Issued tickets and passes keep their places.
 
 ## [3.0.0] - 2026-11-20
