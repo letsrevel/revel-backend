@@ -13,6 +13,7 @@ from common.service.upload_service import safe_save_uploaded_file
 from common.tasks import notify_malware_detected, scan_for_malware
 from conftest import RevelUserFactory
 from events.models import AdditionalResource, Organization
+from questionnaires.models import QuestionnaireFile
 
 pytestmark = pytest.mark.django_db
 
@@ -187,6 +188,62 @@ def test_quarantine_does_not_write_back_stale_fields_of_the_instance(
     assert not org.logo
     assert org.custom_domain == "live.example.com"
     mock_notify.assert_called_once()
+
+
+@mock.patch("common.tasks.notify_malware_detected.delay")
+@mock.patch("common.tasks.pyclamd.ClamdNetworkSocket")
+def test_duplicate_scan_keeps_a_file_uploaded_meanwhile_nullable(
+    mock_clamd: MagicMock, mock_notify: MagicMock, revel_user_factory: RevelUserFactory, settings: t.Any
+) -> None:
+    """A duplicate scan of file A must not blank the reference to file B uploaded during the scan."""
+    settings.FEATURE_MALWARE_SCAN = True
+    owner = revel_user_factory()
+    org = Organization.objects.create(name="Test Organization", owner=owner)
+    resource = AdditionalResource.objects.create(
+        organization=org,
+        resource_type=AdditionalResource.ResourceTypes.FILE,
+        file=ContentFile(b"file a", name="a.txt"),
+    )
+
+    def scan_while_file_is_replaced(_: bytes) -> dict[str, t.Any]:
+        AdditionalResource.objects.filter(pk=resource.pk).update(file="file/b.txt")
+        return {"stream": ("FOUND", "Eicar-Test-Signature")}
+
+    clamd = mock_clamd.return_value
+    clamd.ping.return_value = True
+    clamd.scan_stream.side_effect = scan_while_file_is_replaced
+
+    scan_for_malware(app="events", model="AdditionalResource", pk=str(resource.pk), field="file")
+
+    resource.refresh_from_db()
+    assert resource.file.name == "file/b.txt"
+
+
+@mock.patch("common.tasks.notify_malware_detected.delay")
+@mock.patch("common.tasks.pyclamd.ClamdNetworkSocket")
+def test_duplicate_scan_keeps_a_file_uploaded_meanwhile_non_nullable(
+    mock_clamd: MagicMock, mock_notify: MagicMock, revel_user_factory: RevelUserFactory, settings: t.Any
+) -> None:
+    """A duplicate scan of file A must not delete the row that now holds file B (non-nullable field)."""
+    settings.FEATURE_MALWARE_SCAN = True
+    qf = QuestionnaireFile(
+        uploader=revel_user_factory(), original_filename="a.txt", file_hash="h", mime_type="text/plain"
+    )
+    qf.file.save("a.txt", ContentFile(b"file a"), save=False)
+    qf.file_size = 6
+    qf.save()
+
+    def scan_while_file_is_replaced(_: bytes) -> dict[str, t.Any]:
+        QuestionnaireFile.objects.filter(pk=qf.pk).update(file="questionnaire_files/b.txt")
+        return {"stream": ("FOUND", "Eicar-Test-Signature")}
+
+    clamd = mock_clamd.return_value
+    clamd.ping.return_value = True
+    clamd.scan_stream.side_effect = scan_while_file_is_replaced
+
+    scan_for_malware(app="questionnaires", model="QuestionnaireFile", pk=str(qf.pk), field="file")
+
+    assert QuestionnaireFile.objects.get(pk=qf.pk).file.name == "questionnaire_files/b.txt"
 
 
 @mock.patch("common.tasks.send_email.delay")

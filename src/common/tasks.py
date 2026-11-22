@@ -310,15 +310,17 @@ def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dic
         QuarantinedFile.objects.bulk_create(quarantined, ignore_conflicts=True)
         if instance._meta.get_field(field).null:
             # Nullable field: blank the reference so the live file is dropped.
-            # Only that column: ``instance`` was loaded before the scan, so a full save would write every other
-            # field back as it was then, undoing writes made meanwhile (e.g. ``Organization.custom_domain``, #1199).
-            setattr(instance, field, None)
-            instance.save(update_fields=[field])
+            # Only that column, and only while it still names the scanned file: ``instance`` was loaded before the
+            # scan, so a full save would write every other field back as it was then, undoing writes made meanwhile
+            # (e.g. ``Organization.custom_domain``, #1199). A file uploaded meanwhile must stay.
+            # ``.update`` skips save()/full_clean, which is wanted here.
+            model_class.objects.filter(pk=pk, **{field: filename}).update(**{field: None})
         else:
             # Non-nullable field: full_clean() would reject a blank value and roll back the
-            # quarantine, so remove the file and the row outright instead.
-            getattr(instance, field).delete(save=False)
-            instance.delete()
+            # quarantine, so remove the file and the row outright instead. The row goes only while it still
+            # names the scanned file: a replacement uploaded meanwhile keeps it.
+            file_field.delete(save=False)
+            model_class.objects.filter(pk=pk, **{field: filename}).delete()
     # Notify users about malware detection
     notify_malware_detected.delay(app=app, model=model, pk=pk, field=field, file_hash=file_hash, findings=findings)
     return t.cast(dict[str, t.Any], findings)
