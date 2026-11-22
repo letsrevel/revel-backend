@@ -50,6 +50,7 @@ class TestAccountDeletionExpiresSessions:
     def test_pending_sessions_are_expired_after_commit(
         self,
         revel_user: RevelUser,
+        member_user: RevelUser,
         connected_org: Organization,
         event: Event,
         ticket_tier: TicketTier,
@@ -66,6 +67,9 @@ class TestAccountDeletionExpiresSessions:
             price_paid=series_pass.price,
             stripe_session_id="cs_pass",
         )
+        # Payment.user cascades too: a payment of this account for another holder's ticket also goes.
+        for_other = _payment(member_user, event, ticket_tier, "cs_for_other", Payment.PaymentStatus.PENDING)
+        Payment.objects.filter(pk=for_other.pk).update(user=revel_user)
         # Issued and not-yet-sessioned checkouts have no open session to expire.
         _payment(revel_user, event, ticket_tier, "cs_paid", Payment.PaymentStatus.SUCCEEDED)
         unsessioned = _payment(revel_user, event, ticket_tier, "cs_unset", Payment.PaymentStatus.PENDING)
@@ -78,6 +82,7 @@ class TestAccountDeletionExpiresSessions:
 
         assert sorted(expire.call_args_list, key=lambda c: c.args) == [
             call("cs_batch", stripe_account="acct_connected"),
+            call("cs_for_other", stripe_account="acct_connected"),
             call("cs_pass", stripe_account="acct_connected"),
         ]
 
