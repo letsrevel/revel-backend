@@ -14,10 +14,11 @@ from celery import shared_task
 from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import FieldDoesNotExist
 from django.core.files.base import ContentFile
 from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone, translation
@@ -309,18 +310,87 @@ def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dic
         QuarantinedFile.objects.bulk_create(quarantined, ignore_conflicts=True)
         if instance._meta.get_field(field).null:
             # Nullable field: blank the reference so the live file is dropped.
-            # Only that column: ``instance`` was loaded before the scan, so a full save would write every other
-            # field back as it was then, undoing writes made meanwhile (e.g. ``Organization.custom_domain``, #1199).
-            setattr(instance, field, None)
-            instance.save(update_fields=[field])
+            # Only that column, and only while it still names the scanned file: ``instance`` was loaded before the
+            # scan, so a full save would write every other field back as it was then, undoing writes made meanwhile
+            # (e.g. ``Organization.custom_domain``, #1199). A file uploaded meanwhile must stay.
+            # ``.update`` skips save()/full_clean, which is wanted here.
+            model_class.objects.filter(pk=pk, **{field: filename}).update(**{field: None})
         else:
             # Non-nullable field: full_clean() would reject a blank value and roll back the
-            # quarantine, so remove the file and the row outright instead.
-            getattr(instance, field).delete(save=False)
-            instance.delete()
+            # quarantine, so remove the file and the row outright instead. The row goes only while it still
+            # names the scanned file: a replacement uploaded meanwhile keeps it. Lock and reload the row, then use the
+            # instance's own delete(): some models clean up more there (QuestionnaireFile drops its thumbnails).
+            file_field.delete(save=False)
+            current = model_class.objects.select_for_update().filter(pk=pk, **{field: filename}).first()
+            if current is not None:
+                current.delete()
     # Notify users about malware detection
     notify_malware_detected.delay(app=app, model=model, pk=pk, field=field, file_hash=file_hash, findings=findings)
     return t.cast(dict[str, t.Any], findings)
+
+
+# An audit younger than this is assumed to have its scan still queued or running. With a worker backlog
+# longer than this, the sweep can queue a duplicate scan. That does no damage: a duplicate of a clean
+# scan scans again, and a duplicate after a quarantine fails because the file or the row is gone.
+RESCAN_GRACE = timedelta(minutes=15)
+# ponytail: audits older than this are not dispatched again. This bounds the first run and stops the
+# sweep from queuing for ever a file that never resolves its audit: a scan that keeps failing, or a
+# file replaced without a new audit (its hash no longer matches, so the scan never updates the audit).
+# Such a file is scanned every run until the cap. Upgrade path: a terminal audit status (e.g.
+# SCAN_FAILED) set after N attempts, then drop the cap.
+RESCAN_LOOKBACK = timedelta(days=7)
+
+
+@shared_task(name="common.tasks.rescan_pending_uploads")
+def rescan_pending_uploads() -> int:
+    """Queue the malware scan again for uploads whose audit is still ``PENDING`` (#1446).
+
+    The upload path queues the scan after commit. If the broker is down at that time, the file is
+    stored but not scanned. This sweep picks the latest audit of each
+    ``(app, model, instance_pk, field)`` that is still pending after ``RESCAN_GRACE``. A newer
+    audit for the same field means that the file was replaced, so the sweep skips the older one.
+    It also skips uploads whose model, field, instance or file is gone.
+
+    Returns:
+        The number of scans queued.
+    """
+    if not settings.FEATURE_MALWARE_SCAN:
+        return 0
+    now = timezone.now()
+    newer = FileUploadAudit.objects.filter(
+        app=OuterRef("app"),
+        model=OuterRef("model"),
+        instance_pk=OuterRef("instance_pk"),
+        field=OuterRef("field"),
+        created_at__gt=OuterRef("created_at"),
+    )
+    # list(): materialize before dispatching (no server-side cursor behind PgBouncer).
+    candidates = list(
+        FileUploadAudit.objects.filter(
+            status=FileUploadAudit.FileUploadAuditStatus.PENDING,
+            created_at__lte=now - RESCAN_GRACE,
+            created_at__gte=now - RESCAN_LOOKBACK,
+        )
+        .exclude(Exists(newer))
+        .values_list("app", "model", "instance_pk", "field")
+        .distinct()
+    )
+    queued = 0
+    for app, model, pk, field in candidates:
+        try:
+            model_class = apps.get_model(app, model)
+            model_class._meta.get_field(field)
+        except LookupError, FieldDoesNotExist:
+            logger.warning("rescan_pending_upload_unknown_field", app=app, model=model, field=field)
+            continue
+        empty_file = Q(**{f"{field}__isnull": True}) | Q(**{field: ""})
+        if not model_class.objects.filter(pk=pk).exclude(empty_file).exists():
+            continue
+        scan_for_malware.delay(app=app, model=model, pk=str(pk), field=field)
+        queued += 1
+    if queued:
+        logger.info("rescan_pending_uploads_queued", count=queued)
+    return queued
 
 
 def _get_organization_owner(app: str, model: str, pk: str) -> RevelUser | None:

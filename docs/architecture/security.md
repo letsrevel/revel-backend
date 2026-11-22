@@ -75,6 +75,28 @@ sequenceDiagram
     - The file is **removed from the model instance** (field set to `None`).
     - Email notifications are sent to the uploader, the organization owner (if applicable), and all superusers/staff.
 
+### Queuing the Scan and the Rescan Sweep
+
+The scan is queued after the upload transaction commits (`create_file_audit_and_scan()` in `common/service/upload_service.py`), through a robust `on_commit` callback. If the broker is not available, the callback logs `malware_scan_dispatch_failed`, the upload is kept and the audit stays `PENDING`. The thumbnail dispatches of the same upload are robust too, so a broker failure never fails a stored upload.
+
+The beat task `common.tasks.rescan_pending_uploads` runs every 15 minutes (seeded by migration `common.0022`). It queues `scan_for_malware` again for the latest audit of each `(app, model, instance_pk, field)` that is still `PENDING` after 15 minutes. It skips:
+
+- an audit that has a newer audit for the same field (the file was replaced),
+- an audit older than 7 days,
+- an audit whose instance was deleted or whose file field is empty.
+
+### Stored File Extensions
+
+Questionnaire files and organization resources get a random stored name. The extension comes from the type that libmagic detects in the content (`common/file_types.py`). The client suffix only refines a generic detection: `extension_for_upload()` keeps it only for these pairs:
+
+| Detected type | Client suffixes kept |
+|---|---|
+| `text/plain` | `.csv` |
+| `application/zip` | `.docx`, `.xlsx`, `.pptx` |
+| `video/mp4` | `.m4a` |
+
+Every other client suffix is ignored.
+
 ### Models
 
 | Model | Purpose |

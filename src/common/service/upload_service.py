@@ -8,6 +8,7 @@ imports ``common.utils`` — keeping these helpers here breaks that cycle.
 import hashlib
 import typing as t
 
+import structlog
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
@@ -23,6 +24,25 @@ from common.thumbnails.tasks import (
 )
 
 T = t.TypeVar("T", bound=models.Model)
+
+logger = structlog.get_logger(__name__)
+
+
+def _scan_dispatch(*, app: str, model: str, pk: str, field: str) -> t.Callable[[], None]:
+    """A named on-commit callback that queues the malware scan of one upload.
+
+    It runs after the upload is committed, so a broker failure must not fail the request. The
+    failure is logged and the audit stays ``PENDING``: ``rescan_pending_uploads`` dispatches it
+    again. It is a named function, not a ``partial``, so Django's robust handling can name it.
+    """
+
+    def dispatch_malware_scan() -> None:
+        try:
+            tasks.scan_for_malware.delay(app=app, model=model, pk=pk, field=field)
+        except Exception:
+            logger.warning("malware_scan_dispatch_failed", app=app, model=model, pk=pk, field=field, exc_info=True)
+
+    return dispatch_malware_scan
 
 
 def create_file_audit_and_scan(
@@ -50,6 +70,9 @@ def create_file_audit_and_scan(
 
     When ``FEATURE_MALWARE_SCAN`` is disabled the file is recorded as ``CLEAN``
     immediately and no ClamAV scan is dispatched (self-host without an AV daemon).
+
+    The scan is queued after commit. If queuing fails, the upload is kept and the
+    periodic ``rescan_pending_uploads`` task queues the scan again.
     """
     audit = FileUploadAudit.objects.create(
         app=app,
@@ -63,7 +86,8 @@ def create_file_audit_and_scan(
         audit.status = FileUploadAudit.FileUploadAuditStatus.CLEAN
         audit.save(update_fields=["status", "updated_at"])
         return
-    transaction.on_commit(lambda: tasks.scan_for_malware.delay(app=app, model=model, pk=str(instance_pk), field=field))
+    # The callback logs its own failure; robust is a backstop so a failed dispatch never skips other callbacks.
+    transaction.on_commit(_scan_dispatch(app=app, model=model, pk=str(instance_pk), field=field), robust=True)
 
 
 def _validate_file_field(instance: models.Model, field_name: str, file: File) -> None:  # type: ignore[type-arg]
@@ -140,7 +164,10 @@ def safe_save_uploaded_file(
 
     # Schedule deletion of old thumbnails
     if old_thumbnail_paths:
-        transaction.on_commit(lambda: delete_orphaned_thumbnails_task.delay(thumbnail_paths=old_thumbnail_paths))
+        # robust: a broker failure must not fail the stored upload (#1446); orphaned thumbnails are harmless.
+        transaction.on_commit(
+            lambda: delete_orphaned_thumbnails_task.delay(thumbnail_paths=old_thumbnail_paths), robust=True
+        )
 
     setattr(instance, field, file)
 
@@ -177,7 +204,8 @@ def safe_save_uploaded_file(
                 model=model,
                 pk=str(instance.pk),
                 field=field,
-            )
+            ),
+            robust=True,  # a broker failure must not fail the stored upload (#1446)
         )
 
     return instance
