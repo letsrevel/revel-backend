@@ -12,10 +12,13 @@ import random
 import typing as t
 import uuid
 
+import structlog
 from django.db import transaction
 from django.utils import timezone
 
 from events.models import Event, EventRSVP, EventWaitList, Ticket, WaitlistOffer
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -277,12 +280,23 @@ def enqueue_waitlist_processing(event_id: uuid.UUID) -> None:
     Safe to call multiple times in a single transaction; the underlying task
     is idempotent via the Event row lock.
 
+    The dispatch is independent of the other commit callbacks: a dispatch that fails is
+    logged as an error with the event id, and the callbacks after it still run. It is a
+    named function, not a lambda or a ``partial``, so Django's robust handling can name it.
+
     Args:
         event_id: UUID of the event to process.
     """
     from events.tasks import process_waitlist_for_event_task
 
-    transaction.on_commit(lambda: process_waitlist_for_event_task.delay(str(event_id)))
+    def dispatch_waitlist_processing() -> None:
+        try:
+            process_waitlist_for_event_task.delay(str(event_id))
+        except Exception:
+            logger.error("waitlist_dispatch_failed", event_id=str(event_id), exc_info=True)
+
+    # The callback logs its own failure; robust is a backstop so one callback can never skip the others.
+    transaction.on_commit(dispatch_waitlist_processing, robust=True)
 
 
 def _dispatch_offer_notifications(offer_ids: list[uuid.UUID]) -> None:

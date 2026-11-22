@@ -1,7 +1,9 @@
 """Tests for the waitlist selection algorithm."""
 
 import datetime as dt
+import typing as t
 import uuid
+from unittest import mock
 
 import pytest
 from django.utils import timezone
@@ -295,3 +297,24 @@ class TestExcludesUsersWithPendingOffers:
         assert result.status == "ok"
         assert result.offers_created == 1
         assert WaitlistOffer.objects.filter(user=u1, status="pending").exists()
+
+
+def test_one_failed_waitlist_dispatch_does_not_skip_the_other_events(
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """A dispatch that fails at commit is logged, and the next event still gets its waitlist run (#1480)."""
+    first, second = uuid.uuid4(), uuid.uuid4()
+    with (
+        mock.patch("events.tasks.process_waitlist_for_event_task") as task,
+        mock.patch("events.service.waitlist_service.logger") as log,
+    ):
+        task.delay.side_effect = [RuntimeError("broker down"), None]
+        with django_capture_on_commit_callbacks(execute=True):
+            waitlist_service.enqueue_waitlist_processing(first)
+            waitlist_service.enqueue_waitlist_processing(second)
+            task.delay.assert_not_called()  # only after commit
+
+    assert [c.args[0] for c in task.delay.call_args_list] == [str(first), str(second)]
+    log.error.assert_called_once()
+    assert log.error.call_args.args[0] == "waitlist_dispatch_failed"
+    assert log.error.call_args.kwargs["event_id"] == str(first)
