@@ -7,6 +7,7 @@ including user management, authentication, and security features.
 import typing as t
 
 import structlog
+from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin import helpers
 from django.contrib.auth.admin import UserAdmin
@@ -173,7 +174,21 @@ class RevelUserChangeForm(UserChangeForm):  # type: ignore[type-arg]
     Such a page still holds the old email, names and profile, and a save would write them back onto the row.
     ``erased_at`` is read under the row lock that ``save_model`` also takes: the admin change view runs in one
     transaction, so an erasure cannot commit between this check and the save.
+
+    The page carries the value that it showed for each field (a hidden initial value). Django reloads the row
+    when the form is posted, so without it a field that changed in the database after the page was opened
+    counts as changed by the admin, and the save would write the old value back. A post without these values
+    (a scripted client) is compared with the row that the view loaded. A file field always compares the post
+    only, so it needs no shown value.
     """
+
+    def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Show the hidden initial values on the page, and use them when the post carries them."""
+        super().__init__(*args, **kwargs)
+        for name, field in self.fields.items():
+            if field.disabled or isinstance(field, forms.FileField):
+                continue
+            field.show_hidden_initial = not self.is_bound or self.add_initial_prefix(name) in self.data
 
     def clean(self) -> dict[str, t.Any] | None:
         cleaned_data = super().clean()
@@ -385,19 +400,16 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
             obj.is_active, obj.deletion_requested_at = stored_active, stored_mark
         obj.save(update_fields=sorted(update_fields))
 
-    def get_form(
-        self, request: HttpRequest, obj: RevelUser | None = None, change: bool = False, **kwargs: t.Any
-    ) -> t.Any:
-        """Compare ``is_active`` with the value the form showed, not with the row at submit time.
-
-        Django reloads the row when the form is posted. Without the hidden initial value, a form opened before
-        a deletion confirm would count ``is_active`` as changed and reactivate the account. A post without
-        that value (a scripted client) is compared with the stored row instead (``_is_active_changed_by_admin``).
-        """
-        form = super().get_form(request, obj, change=change, **kwargs)
-        if "is_active" in form.base_fields:
-            form.base_fields["is_active"].show_hidden_initial = True
-        return form
+    def save_related(self, request: HttpRequest, form: t.Any, formsets: t.Any, change: bool) -> None:
+        """On a change, set only the relations that the admin changed, like the fields in :meth:`save_model`."""
+        if not change:
+            super().save_related(request, form, formsets, change)
+            return
+        for field in form.instance._meta.many_to_many:
+            if field.name in form.changed_data:
+                field.save_form_data(form.instance, form.cleaned_data[field.name])
+        for formset in formsets:
+            self.save_formset(request, form, formset, change=change)
 
     # Actions
     def delete_model(self, request: HttpRequest, obj: RevelUser) -> None:

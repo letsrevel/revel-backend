@@ -1,10 +1,12 @@
 """The admin change form and the admin password change write only what the admin changed."""
 
 import typing as t
+from html.parser import HTMLParser
 from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.hashers import make_password
+from django.contrib.auth.models import Group
 from django.test.client import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -37,6 +39,29 @@ def _with_write_after_load(between: t.Callable[[], object]) -> t.Any:
         return loaded
 
     return patch.object(RevelUserAdmin, "get_object", load_then_change)
+
+
+class _ShownValues(HTMLParser):
+    """Collect the hidden ``initial-*`` inputs of a rendered change page."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.values: dict[str, list[str]] = {}
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        found = dict(attrs)
+        name = found.get("name") or ""
+        if tag == "input" and name.startswith("initial-"):
+            self.values.setdefault(name, []).append(found.get("value") or "")
+
+
+def _browser_post_data(client: Client, user: RevelUser, **overrides: t.Any) -> dict[str, t.Any]:
+    """The post of a browser: the form values plus the values that the rendered page showed."""
+    data = _change_form_post_data(client, user, **overrides)
+    parser = _ShownValues()
+    parser.feed(client.get(reverse("admin:accounts_reveluser_change", args=[user.pk])).content.decode())
+    assert "initial-totp_active" in parser.values
+    return data | parser.values
 
 
 class TestPasswordChange:
@@ -130,3 +155,49 @@ class TestChangeForm:
         assert response.status_code == 302
         changed = RevelUser.objects.get(pk=person.pk)
         assert (changed.is_active, changed.deletion_requested_at) == (False, None)
+
+
+class TestChangeFormOpenedBeforeAChange:
+    """The database changes after the page was rendered and before the admin posts it."""
+
+    @pytest.fixture
+    def group(self, person: RevelUser) -> Group:
+        group = Group.objects.create(name="Helpers")
+        person.groups.add(group)
+        return group
+
+    def test_fields_and_relations_that_the_admin_did_not_change_keep_the_stored_values(
+        self, admin_client: Client, person: RevelUser, group: Group
+    ) -> None:
+        data = _browser_post_data(admin_client, person, bio="Edited")
+        RevelUser.objects.filter(pk=person.pk).update(totp_active=True, preferred_name="Countess")
+        person.groups.remove(group)
+
+        response = admin_client.post(reverse("admin:accounts_reveluser_change", args=[person.pk]), data)
+
+        assert response.status_code == 302
+        changed = RevelUser.objects.get(pk=person.pk)
+        assert (changed.bio, changed.totp_active, changed.preferred_name) == ("Edited", True, "Countess")
+        assert not changed.groups.exists()
+
+    def test_a_relation_that_the_admin_changes_is_saved(
+        self, admin_client: Client, person: RevelUser, group: Group
+    ) -> None:
+        other = Group.objects.create(name="Door")
+        data = _browser_post_data(admin_client, person, groups=[str(group.pk), str(other.pk)])
+
+        response = admin_client.post(reverse("admin:accounts_reveluser_change", args=[person.pk]), data)
+
+        assert response.status_code == 302
+        assert set(person.groups.values_list("name", flat=True)) == {"Helpers", "Door"}
+
+    def test_a_field_that_the_admin_changes_is_saved_also_when_the_row_changed_too(
+        self, admin_client: Client, person: RevelUser
+    ) -> None:
+        data = _browser_post_data(admin_client, person, preferred_name="Ada L.")
+        RevelUser.objects.filter(pk=person.pk).update(preferred_name="Countess")
+
+        response = admin_client.post(reverse("admin:accounts_reveluser_change", args=[person.pk]), data)
+
+        assert response.status_code == 302
+        assert RevelUser.objects.get(pk=person.pk).preferred_name == "Ada L."
