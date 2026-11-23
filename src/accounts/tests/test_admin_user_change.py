@@ -115,10 +115,15 @@ class TestChangeForm:
         assert response.status_code == 302
         assert RevelUser.objects.get(pk=person.pk).bio == "Meanwhile"
 
-    def test_a_deactivation_still_clears_the_deletion_mark(self, admin_client: Client, person: RevelUser) -> None:
+    @pytest.mark.parametrize("browser", [True, False], ids=["with-shown-value", "scripted-client"])
+    def test_a_deactivation_still_clears_the_deletion_mark(
+        self, admin_client: Client, person: RevelUser, browser: bool
+    ) -> None:
         RevelUser.objects.filter(pk=person.pk).update(deletion_requested_at=timezone.now())
         data = _change_form_post_data(admin_client, person)
         del data["is_active"]
+        if browser:
+            data["initial-is_active"] = "True"  # the hidden value that the page showed
 
         response = admin_client.post(reverse("admin:accounts_reveluser_change", args=[person.pk]), data)
 
