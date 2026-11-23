@@ -23,7 +23,8 @@ class Command(BaseCommand):
     def handle(self, *args: t.Any, **options: t.Any) -> None:
         """Print one row per registered task, then rows whose task is no longer registered."""
         # A runner holds the row lock for the whole attempt, so a row we cannot lock is running now,
-        # whatever status its last committed state shows. The locks last only for this read.
+        # whatever status its last committed state shows, unless that status is SUCCEEDED.
+        # The locks last only for this read.
         with transaction.atomic():
             rows = {row.task_id: row for row in PostDeployTaskRun.objects.all()}
             # Rows we can lock are read again here: a retry can commit between the two reads, so only
@@ -36,8 +37,9 @@ class Command(BaseCommand):
         for task in registered():
             row = rows.pop(task.id, None)
             status = row.status if row else "pending"
-            if row and (task.id in busy or (row.finished_at is None and row.status == PostDeployTaskRun.Status.FAILED)):
-                status = "running"  # locked by a runner, or created and not finished (in progress or crashed)
+            if row and row.status != PostDeployTaskRun.Status.SUCCEEDED:  # SUCCEEDED is terminal: no runner retries it
+                if task.id in busy or (row.finished_at is None and row.status == PostDeployTaskRun.Status.FAILED):
+                    status = "running"  # locked by a runner, or created and not finished (in progress or crashed)
             if status in ("pending", "running", PostDeployTaskRun.Status.FAILED):
                 problems.append(f"{task.id} ({status})")
             finished = row.finished_at.isoformat() if row and row.finished_at else "-"

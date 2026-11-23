@@ -149,6 +149,36 @@ def test_status_shows_row_locked_by_a_runner_as_running_and_check_fails() -> Non
     _call("post_deploy_status", "--check")
 
 
+@pytest.mark.django_db(transaction=True)
+def test_status_keeps_locked_succeeded_row_terminal() -> None:
+    """Use ``transaction=True``: another status reader can lock a SUCCEEDED row; it must not show as running."""
+    _register("a")
+    row = PostDeployTaskRun.objects.create(
+        task_id="a", release="1.0.0", status=Status.SUCCEEDED, finished_at=timezone.now()
+    )
+    locked, release = threading.Event(), threading.Event()
+
+    def hold_lock() -> None:
+        try:
+            with transaction.atomic():
+                PostDeployTaskRun.objects.select_for_update().get(pk=row.pk)
+                locked.set()
+                release.wait(timeout=10)
+        finally:
+            connection.close()
+
+    thread = threading.Thread(target=hold_lock)
+    thread.start()
+    try:
+        assert locked.wait(timeout=10)
+        lines = {line.split()[0]: line for line in _call("post_deploy_status").splitlines()[1:]}
+        assert "succeeded" in lines["a"]
+        _call("post_deploy_status", "--check")
+    finally:
+        release.set()
+        thread.join(timeout=10)
+
+
 @pytest.mark.django_db
 def test_status_of_unlocked_row_comes_from_the_locking_read(monkeypatch: pytest.MonkeyPatch) -> None:
     """A retry that commits FAILED between the plain read and the locking read must show as failed."""

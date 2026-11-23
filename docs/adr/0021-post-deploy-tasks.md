@@ -44,7 +44,7 @@ Recommended: a one-shot compose service `post_deploy`.
 
 - It uses the same image, with `command: python manage.py run_post_deploy` and `restart: "no"`.
 - `deploy-rollout.sh` runs it after `docker rollout web` and `docker rollout celery_default` finish.
-- For a plain `docker compose pull && up -d` with `latest`, the same service runs on `up`. It must run
+- For a plain `docker compose pull && docker compose up -d` with `latest`, the same service runs on `up`. It must run
   after `migrate`. Use `depends_on` with the condition that `web` is healthy. Alternatively, the command
   runs `migrate` first. `migrate` is idempotent.
 - The wiring is a follow-up. The PoC has the command only.
@@ -85,7 +85,7 @@ the v3.0.0 cutoff backfill, stays manual. The release notes carry a warning. A t
 ### 6. Visibility
 
 PoC: `manage.py post_deploy_status [--check]`. It prints each task with its status. With `--check`, it
-exits 1 when a task is `FAILED` or pending. Follow-ups:
+exits 1 when a task is `FAILED`, running or pending. Follow-ups:
 
 - A read-only admin page, with an entry in the curated Unfold sidebar.
 - A field in `/api/version` for pending or failed tasks.
