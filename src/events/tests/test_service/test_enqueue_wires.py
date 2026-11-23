@@ -118,7 +118,11 @@ def test_stripe_refund_webhook_never_enqueues_waitlist(
             "object": {
                 "id": "ch_test_enq",
                 "payment_intent": "pi_test_enq",
-                "refunds": {"data": [{"id": "re_test_enq", "amount": refund_amount_cents, "metadata": {}}]},
+                "refunds": {
+                    "data": [
+                        {"id": "re_test_enq", "amount": refund_amount_cents, "status": "succeeded", "metadata": {}}
+                    ]
+                },
             }
         },
     }
@@ -290,7 +294,11 @@ def test_stripe_refund_webhook_batch_never_enqueues_waitlist(
             "object": {
                 "id": "ch_batch_enq",
                 "payment_intent": "pi_batch_refund",
-                "refunds": {"data": [{"id": "re_batch_enq", "amount": refund_amount_cents, "metadata": {}}]},
+                "refunds": {
+                    "data": [
+                        {"id": "re_batch_enq", "amount": refund_amount_cents, "status": "succeeded", "metadata": {}}
+                    ]
+                },
             }
         },
     }

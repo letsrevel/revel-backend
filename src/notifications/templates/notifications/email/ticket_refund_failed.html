@@ -1,0 +1,12 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+<p>{% blocktranslate with amount=context.refund_amount event=context.event_name %}The refund of {{ amount }} for {{ event }} did not go through at the payment provider.{% endblocktranslate %}</p>
+
+<p>{% trans "The money was not returned to you. Contact the organizer if you have questions." %}</p>
+
+<center>
+    <a href="{{ context.event_url }}" class="button">{% trans "View Event Details" %}</a>
+</center>
+{% endblock %}

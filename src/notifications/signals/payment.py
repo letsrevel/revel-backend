@@ -10,14 +10,16 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 from common.models import SiteSettings
-from events.models import Dispute, Event, Payment, Ticket
+from events.models import Dispute, Event, Organization, Payment, Ticket
 from events.utils import format_organization_datetime
 from events.utils.currency import format_major_amount
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.context_schemas import (
     EventRefundSummaryContext,
+    RefundFailedContext,
     RefundUnmatchedCandidate,
     StaffPaymentDisputedContext,
+    TicketRefundFailedContext,
 )
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import (
@@ -267,6 +269,117 @@ def send_refund_unmatched(
         candidate_count=len(candidate_contexts),
         recipient_count=notified,
     )
+
+
+def send_refund_failed(
+    *,
+    organization: Organization,
+    refund_id: str,
+    payment_intent_id: str,
+    refund_amount: Decimal,
+    currency: str,
+    failure_reason: str,
+    holder_name: str,
+    holder_email: str,
+    ticket: Ticket | None = None,
+    plan_name: str = "",
+    credit_note_numbers: t.Sequence[str] = (),
+    subscription_cancelled_by_refund: bool = False,
+) -> int:
+    """Notify org staff and owners that a refund failed at Stripe after Revel recorded it (#1507).
+
+    Called explicitly from the refund webhook handlers, inside their atomic block (same
+    rationale as :func:`send_refund_unmatched`). The recipients are the owners and the staff with
+    ``manage_tickets``, for ticket and membership refunds alike.
+
+    Args:
+        organization: The organization that owns the payment.
+        refund_id: The Stripe refund id.
+        payment_intent_id: The Stripe payment intent id.
+        refund_amount: The refund amount in major currency units.
+        currency: ISO currency code of the refund.
+        failure_reason: The Stripe failure reason, or an empty string.
+        holder_name: The name staff see for the buyer.
+        holder_email: The buyer email.
+        ticket: The ticket of a ticket refund. None for a membership refund.
+        plan_name: The plan name of a membership refund.
+        credit_note_numbers: Credit notes Revel issued for the refund. Revel does not reverse them.
+        subscription_cancelled_by_refund: Whether a refund had cancelled the membership subscription.
+
+    Returns:
+        The number of staff members notified.
+    """
+    context: RefundFailedContext = {
+        "organization_id": str(organization.id),
+        "organization_name": organization.name,
+        "kind": "ticket" if ticket is not None else "membership",
+        "refund_id": refund_id,
+        "payment_intent_id": payment_intent_id,
+        "refund_amount": f"{refund_amount:.2f}",
+        "currency": currency,
+        "failure_reason": failure_reason,
+        "holder_name": holder_name,
+        "holder_email": holder_email,
+    }
+    if ticket is not None:
+        context["event_id"] = str(ticket.event_id)
+        context["event_name"] = ticket.event.name
+        # Event ticket admin, filtered to the buyer (the same link as the unmatched-refund notification).
+        context["resolve_url"] = (
+            f"{SiteSettings.get_solo().frontend_base_url}"
+            f"/org/{organization.slug}/admin/events/{ticket.event_id}/tickets"
+            f"?search={quote(holder_email)}"
+        )
+    if plan_name:
+        context["plan_name"] = plan_name
+        context["subscription_cancelled_by_refund"] = subscription_cancelled_by_refund
+    if credit_note_numbers:
+        context["credit_note_numbers"] = list(credit_note_numbers)
+
+    notified = notify_org_staff(
+        organization_id=organization.id,
+        notification_type=NotificationType.REFUND_FAILED,
+        context=context,
+        sender=send_refund_failed,
+    )
+    logger.info(
+        "refund_failed_notifications_sent",
+        refund_id=refund_id,
+        kind=context["kind"],
+        recipient_count=notified,
+    )
+    return notified
+
+
+def send_ticket_refund_failed(*, payment: Payment, refund_amount: Decimal) -> None:
+    """Tell the buyer that a refund failed, after an earlier "ticket refunded" email (#1507).
+
+    The caller sends it only when that earlier email went out. A series-pass ticket never got it,
+    so it gets no failure email either.
+
+    Args:
+        payment: The Payment whose refund failed.
+        refund_amount: The failed refund amount in major currency units.
+    """
+    ticket = payment.ticket
+    if ticket.held_pass_id is not None:
+        return
+    event = ticket.event
+    context: TicketRefundFailedContext = {
+        "ticket_id": str(ticket.id),
+        "event_id": str(event.id),
+        "event_name": event.name,
+        # organization_id lets enrichment point event_url at the org's custom domain (#1153).
+        "organization_id": str(event.organization_id),
+        "refund_amount": f"{refund_amount:.2f} {payment.currency}",
+    }
+    notification_requested.send(
+        sender=send_ticket_refund_failed,
+        user=payment.user,
+        notification_type=NotificationType.TICKET_REFUND_FAILED,
+        context=context,
+    )
+    logger.info("ticket_refund_failed_notification_sent", payment_id=str(payment.id), ticket_id=str(ticket.id))
 
 
 def send_payment_disputed(*, dispute: Dispute, outcome: str) -> None:

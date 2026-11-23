@@ -49,7 +49,9 @@ def dispatch_notification(notification_id: str) -> dict[str, t.Any]:
 
         # Activate user's language for rendering
         with translation.override(user_language):
-            notification.title = template.get_in_app_title(notification)
+            # A title built from a name (event, organization) can pass the column limit.
+            title_limit = Notification._meta.get_field("title").max_length
+            notification.title = template.get_in_app_title(notification)[:title_limit]
             notification.body = template.get_in_app_body(notification)
 
         notification.save(update_fields=["title", "body", "updated_at"])

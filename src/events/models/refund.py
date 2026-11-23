@@ -1,9 +1,11 @@
 """Refund attempts against ticket Payments.
 
 One row per refund attempt (full or partial). ``Payment.refund_amount`` is a
-denormalized running total of SUCCEEDED rows, maintained by the
-``charge.refunded`` webhook. Rows are the anchor the webhook matcher uses to
-attribute inbound Stripe refunds exactly.
+denormalized running total of SUCCEEDED rows, maintained by the ``charge.refunded``,
+``refund.updated`` and ``refund.failed`` webhooks. A row is SUCCEEDED only when Stripe
+says the refund succeeded. It moves PENDING -> SUCCEEDED, and PENDING or SUCCEEDED -> FAILED
+(a refund can fail after it succeeded). FAILED is final. Rows are the anchor the webhook
+matcher uses to attribute inbound Stripe refunds exactly.
 """
 
 from django.conf import settings
@@ -37,7 +39,7 @@ class Refund(TimeStampedModel):
         blank=True,
         editable=False,
         help_text=(
-            "When the charge.refunded webhook confirmed this refund as SUCCEEDED. "
+            "When a Stripe refund webhook confirmed this refund as SUCCEEDED. "
             "Revenue reporting attributes the refund to the period containing this date."
         ),
     )

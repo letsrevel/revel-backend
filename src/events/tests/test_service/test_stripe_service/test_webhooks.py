@@ -265,7 +265,9 @@ class TestStripeEventHandler:
         mock_charge_data = {
             "id": "ch_test123",
             "payment_intent": "pi_test123",
-            "refunds": {"data": [{"id": "re_test", "amount": refund_amount_cents, "metadata": {}}]},
+            "refunds": {
+                "data": [{"id": "re_test", "amount": refund_amount_cents, "status": "succeeded", "metadata": {}}]
+            },
         }
 
         event_dict_data: dict[str, t.Any] = {"type": "charge.refunded", "data": {"object": mock_charge_data}}
@@ -341,6 +343,7 @@ class TestStripeEventHandler:
                 "data": [
                     {
                         "id": "re_dup",
+                        "status": "succeeded",
                         "amount": int(completed_payment.amount * 100),
                         "metadata": {},
                     }

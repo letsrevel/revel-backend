@@ -330,11 +330,25 @@ and leave the session payable. `_expire_stripe_session` logs Stripe errors and d
 (`refund:{payment.pk}:{sequence}:{amount}`) is deterministic per attempt, so a retry after a
 post-Stripe DB failure (rollback) replays the same key and gets back the same Stripe refund
 object instead of double-refunding. The `charge.refunded` webhook self-heals a lost
-response regardless of whether a retry ever happens — it only finalizes a `Refund` row PENDING →
-SUCCEEDED via the `refund_id` metadata, it never re-cancels or re-decrements. The blast radius of
+response regardless of whether a retry ever happens — it moves a `Refund` row PENDING → SUCCEEDED
+(or → FAILED) via the `refund_id` metadata, according to the Stripe refund status, and it never
+re-cancels or re-decrements. The blast radius of
 one slow Stripe call is one payment intent. The worst realistic collision is that intent's own
 `charge.refunded` webhook delivery blocking for one round-trip behind the request that issued the
 refund — and Stripe retries webhook deliveries, so a blocked delivery is not lost, only delayed.
+
+**Refund status and the row lock (#1507).** The refund webhooks (`charge.refunded`, `refund.updated`,
+`refund.failed`) lock the intent's `Payment` rows with `select_for_update(of=("self",))` and
+`.order_by("pk")`, and nothing else. A `refund.*` event carries the refund object, so that handler makes
+no outbound Stripe call at all. A `Refund` row moves only forward: PENDING → SUCCEEDED, and PENDING or
+SUCCEEDED → FAILED. FAILED is final, so a stale or reordered event cannot undo a later one. A late
+failure of a SUCCEEDED row sets the `Payment` back from REFUNDED to SUCCEEDED with a queryset
+`update()`. Do not use `save()` for that move: the `Payment` signal would send the buyer a payment
+confirmation. The forward move (to REFUNDED) uses `save()` on purpose, because it sends the buyer
+the "refunded" email. The membership handler (`_handle_subscription_refund_object`) locks the `MembershipPayment`
+first and lists the charge's refunds **under** that lock, like the `charge.refunded` membership path. A failure
+that commits meanwhile waits for the lock, so the list is never older than the last committed failure. The cost
+is one Stripe call while one `MembershipPayment` row is locked.
 
 On the webhook side, `stripe_webhook_refunds`'s `_resolve_refunds` (the `Refund.list` fallback for
 API versions where `charge.refunded` doesn't embed the refunds list) is called **before** any

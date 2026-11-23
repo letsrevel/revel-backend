@@ -304,7 +304,9 @@ class TestChargeRefundedWebhook:
         amount_cents = int(plan.price * 100)
         event = _subscription_charge_event("pi_test_123", amount_cents)
         with patch.object(stripe.Refund, "list") as list_mock:
-            list_mock.return_value.auto_paging_iter.return_value = [{"id": "re_full_1", "amount": amount_cents}]
+            list_mock.return_value.auto_paging_iter.return_value = [
+                {"id": "re_full_1", "amount": amount_cents, "status": "succeeded"}
+            ]
             StripeEventHandler(event).handle_charge_refunded(event)
 
         payment.refresh_from_db()
@@ -340,7 +342,9 @@ class TestChargeRefundedWebhook:
 
         event = _subscription_charge_event("pi_test_partial", int(plan.price * 100), amount_refunded_cents=250)
         with patch.object(stripe.Refund, "list") as list_mock:
-            list_mock.return_value.auto_paging_iter.return_value = [{"id": "re_partial_1", "amount": 250}]
+            list_mock.return_value.auto_paging_iter.return_value = [
+                {"id": "re_partial_1", "amount": 250, "status": "succeeded"}
+            ]
             StripeEventHandler(event).handle_charge_refunded(event)
 
         list_mock.assert_called_once_with(charge="ch_test", limit=100)
@@ -375,7 +379,9 @@ class TestChargeRefundedWebhook:
             "pi_test_partial_conn", int(plan.price * 100), amount_refunded_cents=100, account="acct_conn_7"
         )
         with patch.object(stripe.Refund, "list") as list_mock:
-            list_mock.return_value.auto_paging_iter.return_value = [{"id": "re_partial_conn", "amount": 100}]
+            list_mock.return_value.auto_paging_iter.return_value = [
+                {"id": "re_partial_conn", "amount": 100, "status": "succeeded"}
+            ]
             StripeEventHandler(event).handle_charge_refunded(event)
 
         list_mock.assert_called_once_with(charge="ch_test", limit=100, stripe_account="acct_conn_7")

@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Running the command again is harmless.
 
+These two events now also settle every ticket and membership refund: a pending refund that succeeds later, or a refund that fails later.
+
 ### Added
 - Operators can register one-time post-deploy tasks. `manage.py run_post_deploy` runs each pending task once per instance, and `manage.py post_deploy_status` lists them. This is off by default behind `FEATURE_POST_DEPLOY_TASKS`. The first task syncs the Stripe webhook event types.
 
@@ -32,6 +34,8 @@ Running the command again is harmless.
 - Deleting an account expires the open Stripe checkout sessions of its unfinished (pending) checkouts, so they can no longer be paid.
 - A ticket or series-pass checkout that completes at Stripe after its payment records were removed (for example, with a deleted account) is refunded in full automatically (the platform fee is kept, as for every refund). A repeated Stripe notification does not refund the checkout again. When Stripe cannot complete such a refund, also later, staff get an alert to refund by hand.
 - An upload no longer fails when its malware scan cannot be queued, and a new task (every 15 minutes) queues the scan again for files that are still not scanned. A CSV, a Word, Excel or PowerPoint file and an M4A file keep their `.csv`, `.docx`, `.xlsx`, `.pptx` or `.m4a` extension in questionnaire and resource uploads. Before, they were stored as `.txt`, `.zip` or `.mp4`.
+- A refund now counts as returned money only when Stripe says it succeeded, for ticket and membership refunds. A pending refund stays pending: the payment is not marked as refunded, the buyer gets no "refunded" email and no credit note is issued until Stripe reports that the refund succeeded. A pending full refund of a membership payment no longer cancels the subscription before the refund succeeds.
+- A refund that Stripe fails or cancels, also after Revel recorded it as succeeded, is now marked failed, and the payment shows as not refunded again unless another refund of it succeeded. The staff with `manage_tickets` and the organization owner get a `refund_failed` notification. The log has the ERROR event `ticket_refund_failed` or `membership_refund_failed`. When the buyer already got a "ticket refunded" email, the buyer gets a `ticket_refund_failed` email. Revel does not reverse an issued credit note: staff correct it by hand. A membership subscription that a refund cancelled stays cancelled.
 
 ## [3.0.0] - 2026-11-20
 

@@ -22,7 +22,7 @@ events are disjoint by construction.
 | Group | Event types |
 |---|---|
 | Checkout and payments | `checkout.session.completed`, `checkout.session.expired` (abandoned membership checkouts free the pending row's cap slot), `payment_intent.canceled` |
-| Refunds and disputes | `charge.refunded`, `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.closed`, `refund.failed` and `refund.updated` (an automatic refund of a session with no payment rows that fails or is canceled later, #1489) |
+| Refunds and disputes | `charge.refunded`, `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.closed`, `refund.failed` and `refund.updated` (they settle ticket and membership refunds: pending to succeeded, failed or canceled, #1507; and they alert for the automatic refund of a session with no payment rows that fails or is canceled later, #1489) |
 | Membership subscriptions | `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required` (renewals blocked on SCA/3DS), `subscription_schedule.released` |
 
 Subscriptions live on connected accounts (direct charges), but a host-bound organization routes

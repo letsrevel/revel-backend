@@ -11,7 +11,7 @@ from django.db import transaction
 from django.test import override_settings
 
 from events.exceptions import InvalidStripeWebhookSignatureError
-from events.models import Payment, StripeWebhookEvent, Ticket
+from events.models import Payment, Refund, StripeWebhookEvent, Ticket
 from events.service import stripe_webhooks
 
 pytestmark = pytest.mark.django_db
@@ -231,15 +231,24 @@ def test_duplicate_refund_replay_reenqueues_credit_note(
         stripe_payment_intent_id="pi_replay_refund",
         refund_status=Payment.RefundStatus.SUCCEEDED,
     )
+    # Every refunded payment has its Refund row (migration 0113 backfilled the older ones), and the
+    # retry is keyed on SUCCEEDED rows (#1507).
+    refund_row = Refund.objects.create(
+        payment=payment,
+        amount=payment.amount,
+        currency=payment.currency,
+        status=Refund.RefundStatus.SUCCEEDED,
+        source=Refund.Source.STRIPE_DASHBOARD,
+        stripe_refund_id="re_replay_refund",
+    )
     StripeWebhookEvent.objects.create(event_id="evt_refund_replay", event_type="charge.refunded")
     with (
         patch("events.tasks.generate_attendee_credit_note_task.delay") as delay_spy,
         django_capture_on_commit_callbacks(execute=True),
     ):
         stripe_webhooks.handle_event(_make_refund_event("pi_replay_refund"))
-    # No Refund row exists for this fixture (only Payment.refund_status is set),
-    # so the partial-aware refund_ids collection comes back empty (#865).
-    delay_spy.assert_called_once_with("cs_replay_refund", [str(payment.id)], [])
+    # The partial-aware retry passes the SUCCEEDED Refund rows (#865).
+    delay_spy.assert_called_once_with("cs_replay_refund", [str(payment.id)], [str(refund_row.pk)])
 
 
 def test_handler_error_rolls_back_dedup_row() -> None:

@@ -107,6 +107,20 @@ class TicketRefundedContext(BaseNotificationContext):
     refund_reason: t.NotRequired[str]
 
 
+class TicketRefundFailedContext(BaseNotificationContext):
+    """Context for TICKET_REFUND_FAILED notification (to the buyer).
+
+    Sent only when an earlier "ticket refunded" email went out and the refund then failed
+    at the payment provider. ``refund_amount`` is a major-unit amount with its currency.
+    """
+
+    ticket_id: str
+    event_id: str
+    event_name: str
+    organization_id: str
+    refund_amount: str
+
+
 class StaffTicketCreatedContext(TicketCreatedContext):
     """Context for STAFF_TICKET_CREATED notification (to org staff/owners)."""
 
@@ -182,6 +196,36 @@ class RefundUnmatchedContext(BaseNotificationContext):
     # Event ticket admin, pre-filtered to the buyer (#744). Every Payment on one intent
     # belongs to one buyer, so this lands on exactly the candidates above.
     resolve_url: str
+
+
+class RefundFailedContext(BaseNotificationContext):
+    """Context for REFUND_FAILED notification (to org staff and owners).
+
+    Sent when the payment provider failed or canceled a refund after Revel recorded it. The
+    buyer did not get the money back. ``kind`` is ``ticket`` or ``membership``. ``event_*`` is set
+    for a ticket, ``plan_name`` for a membership. ``credit_note_numbers`` lists the credit notes
+    Revel issued for the refund; Revel does not reverse them.
+    """
+
+    organization_id: str
+    organization_name: str
+    kind: str
+    refund_id: str
+    payment_intent_id: str
+    refund_amount: str
+    currency: str
+    failure_reason: str
+    holder_name: str
+    holder_email: str
+    event_id: t.NotRequired[str]
+    event_name: t.NotRequired[str]
+    plan_name: t.NotRequired[str]
+    # Membership only: the REFUNDED payment was reopened, and the subscription (cancelled) stays cancelled.
+    # False for a historical-period payment: its refund never cancels the subscription.
+    subscription_cancelled_by_refund: t.NotRequired[bool]
+    credit_note_numbers: t.NotRequired[list[str]]
+    # Event ticket admin, pre-filtered to the buyer. Ticket refunds only.
+    resolve_url: t.NotRequired[str]
 
 
 class EventRefundSummaryContext(BaseNotificationContext):
@@ -818,6 +862,8 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.PAYMENT_CONFIRMATION: PaymentConfirmationContext,
     NotificationType.STAFF_PAYMENT_DISPUTED: StaffPaymentDisputedContext,
     NotificationType.REFUND_UNMATCHED: RefundUnmatchedContext,
+    NotificationType.REFUND_FAILED: RefundFailedContext,
+    NotificationType.TICKET_REFUND_FAILED: TicketRefundFailedContext,
     NotificationType.EVENT_REFUND_SUMMARY: EventRefundSummaryContext,
     NotificationType.FISCAL_DOCUMENT_SKIPPED: FiscalDocumentSkippedContext,
     NotificationType.EVENT_OPEN: EventOpenContext,

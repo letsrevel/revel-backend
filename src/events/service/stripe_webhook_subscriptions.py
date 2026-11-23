@@ -17,10 +17,12 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from events.models import MembershipPayment, MembershipSubscription
+from events.models import MembershipPayment, MembershipSubscription, Refund
 from events.service import stripe_incidents
-from events.utils.currency import from_stripe_amount
+from events.service.stripe_webhook_refunds import _stripe_refund_outcome
+from events.utils.currency import from_stripe_amount, to_stripe_amount
 from events.utils.subscription_periods import is_calendar_plan
+from notifications.signals.payment import send_refund_failed
 
 logger = structlog.get_logger(__name__)
 
@@ -296,26 +298,30 @@ class SubscriptionWebhookHandlersMixin:
             subscription_id=str(subscription_pk),
         )
 
-    def _latest_refund_id(self, charge_data: t.Any) -> str:
-        """Return the id of the charge's most recent refund, or ``""`` if it has none.
+    @staticmethod
+    def _succeeded_refund_cents(refunds: list[dict[str, t.Any]]) -> int:
+        """Sum the refunds that Stripe says ``succeeded``, in minor units.
 
-        Reading ``charge_data["refunds"]["data"]`` inline is not enough: at our
-        pinned API version the ``charge.refunded`` payload doesn't embed the
-        refunds list at all, so the audit field ended up empty on every
-        production refund. :meth:`_resolve_refunds` (on the host handler) is the
-        ticket side's answer to the same problem — it short-circuits on an
-        embedded list and otherwise fetches outbound with the connected-account
-        header. Stripe returns refunds newest-first in both cases, so the head
-        is the refund this delivery is about.
-
-        The fetch runs while holding this member's row lock — the documented
-        single-member-blast-radius trade for the subscription webhook paths — and
-        a Stripe failure propagates so Stripe redelivers the event.
-
-        Args:
-            charge_data: The Stripe ``charge.refunded`` ``data.object``.
+        ``charge.amount_refunded`` counts pending refunds too, so it is not used for this.
+        A refund without a status counts as pending (see ``_stripe_refund_outcome``).
         """
-        refunds = self._resolve_refunds(charge_data)
+        return sum(
+            int(refund.get("amount") or 0)
+            for refund in refunds
+            if _stripe_refund_outcome(refund) == Refund.RefundStatus.SUCCEEDED
+        )
+
+    @staticmethod
+    def _latest_refund_id(refunds: list[dict[str, t.Any]]) -> str:
+        """Return the id of the newest refund in ``refunds``, or ``""`` if there is none.
+
+        Stripe returns refunds newest-first, so the head is the refund the delivery is about.
+        ``refunds`` comes from ``_resolve_refunds`` (on the host handler). At our pinned API version
+        the ``charge.refunded`` payload does not embed the refunds list, so it is fetched outbound
+        with the connected-account header. That fetch runs while this member's row lock is held, the
+        documented single-member-blast-radius trade for the subscription webhook paths. A Stripe
+        failure propagates, so Stripe redelivers the event.
+        """
         return t.cast(str, refunds[0].get("id") or "") if refunds else ""
 
     @staticmethod
@@ -333,7 +339,7 @@ class SubscriptionWebhookHandlersMixin:
 
         Args:
             membership_payment: The matched ledger row.
-            amount_refunded: Cumulative refunded amount, in minor units.
+            amount_refunded: Cumulative succeeded refund amount, in minor units.
             refund_id: The Stripe refund id, from :meth:`_latest_refund_id`.
         """
         membership_payment.refund_amount = from_stripe_amount(amount_refunded, membership_payment.currency)
@@ -344,6 +350,76 @@ class SubscriptionWebhookHandlersMixin:
             update_fields=["refund_amount", "refunded_at", "stripe_refund_id", "updated_at"],
         )
 
+    def _apply_succeeded_refunds(
+        self,
+        membership_payment: MembershipPayment,
+        *,
+        succeeded_cents: int,
+        amount_cents: int | None,
+        refund_id: str,
+        may_reopen: bool,
+    ) -> None:
+        """Bring a MembershipPayment in line with the sum of its succeeded refunds.
+
+        - The succeeded refunds cover the charge: delegate to ``subscription_refunds.refund_payment``.
+          It marks the row REFUNDED and, if the refund covers the current period, cancels the
+          subscription. The Stripe-side cancel runs after commit, so no network call happens under
+          the row locks held here.
+        - They cover part of it: record the partial refund; the member keeps the period.
+        - They cover less than before (a refund failed later): the row loses the amount, and a
+          REFUNDED row goes back to SUCCEEDED when ``may_reopen``. The subscription stays cancelled.
+
+        Args:
+            membership_payment: The locked ledger row.
+            succeeded_cents: The sum of the succeeded refunds, in minor units.
+            amount_cents: The charged amount, in minor units (None when unknown).
+            refund_id: The Stripe refund id to stamp.
+            may_reopen: Whether a REFUNDED row may go back to SUCCEEDED.
+        """
+        from events.service.subscription import refunds as subscription_refunds
+
+        if amount_cents is not None and succeeded_cents >= amount_cents > 0:
+            if membership_payment.status != MembershipPayment.PaymentStatus.REFUNDED:
+                payment = subscription_refunds.refund_payment(membership_payment, recorded_by=None)
+                if refund_id:
+                    # Parity with the ticket side, which stamps the refund id on every refund it applies.
+                    # refund_payment is shared with staff-recorded refunds, which have no Stripe refund
+                    # to point at, so the id is stamped here rather than inside it.
+                    payment.stripe_refund_id = refund_id
+                    payment.save(update_fields=["stripe_refund_id", "updated_at"])
+            return
+
+        if membership_payment.status == MembershipPayment.PaymentStatus.REFUNDED:
+            if may_reopen:
+                membership_payment.status = MembershipPayment.PaymentStatus.SUCCEEDED
+                self._record_remaining_refund(membership_payment, succeeded_cents, refund_id)
+            return
+
+        if succeeded_cents > 0:
+            if not may_reopen and membership_payment.refund_amount is not None:
+                # An embedded ``charge.refunded`` payload (old unpinned endpoints) can be older than the
+                # recorded amount. Only a failure event may lower the amount.
+                succeeded_cents = max(
+                    succeeded_cents, to_stripe_amount(membership_payment.refund_amount, membership_payment.currency)
+                )
+            # ``succeeded_cents`` is cumulative, so a later top-up that reaches the full charge
+            # falls through to the branch above and flips to REFUNDED.
+            self._record_partial_refund(membership_payment, succeeded_cents, refund_id)
+        elif membership_payment.refund_amount is not None and may_reopen:
+            self._record_remaining_refund(membership_payment, 0, refund_id)
+
+    def _record_remaining_refund(
+        self, membership_payment: MembershipPayment, succeeded_cents: int, refund_id: str
+    ) -> None:
+        """Set the refund audit fields after a refund failed: what is still refunded, or nothing."""
+        if succeeded_cents > 0:
+            self._record_partial_refund(membership_payment, succeeded_cents, refund_id)
+            membership_payment.save(update_fields=["status", "updated_at"])
+            return
+        membership_payment.refund_amount = None
+        membership_payment.refunded_at = None
+        membership_payment.save(update_fields=["status", "refund_amount", "refunded_at", "updated_at"])
+
     def _handle_subscription_refund(
         self,
         event: stripe.Event,
@@ -351,10 +427,10 @@ class SubscriptionWebhookHandlersMixin:
     ) -> None:
         """Apply a charge.refunded event to a MembershipPayment.
 
-        Delegates to subscription_refunds.refund_payment, which marks the row
-        REFUNDED and (if the refund fully covers the current period) cancels
-        the subscription immediately — the Stripe-side cancel is deferred to
-        after commit so no network call happens under the row locks held here.
+        Only refunds that Stripe says ``succeeded`` count (#1507). ``charge.amount_refunded`` also
+        counts pending refunds, so a pending full refund must not mark the payment REFUNDED or
+        cancel the subscription: that cancel cannot be undone. The ``refund.updated`` event applies
+        the refund when it succeeds (:meth:`_handle_subscription_refund_object`).
 
         Idempotent on already-REFUNDED rows. ``charge.refunded`` fires for both
         partial and full refunds, but only a fully refunded charge flips the
@@ -366,8 +442,6 @@ class SubscriptionWebhookHandlersMixin:
             event: The Stripe webhook event.
             membership_payment: The MembershipPayment row matched by payment_intent_id.
         """
-        from events.service.subscription import refunds as subscription_refunds
-
         if membership_payment.status == MembershipPayment.PaymentStatus.REFUNDED:
             # Idempotent: re-delivered webhook for an already-processed refund.
             return
@@ -378,7 +452,7 @@ class SubscriptionWebhookHandlersMixin:
         # Resolved once, before either branch writes: it may be an outbound call
         # (see _latest_refund_id), so a Stripe failure aborts the delivery before
         # the ledger is touched rather than between two writes.
-        refund_id = self._latest_refund_id(charge_data)
+        refunds = self._resolve_refunds(charge_data)
         if amount_refunded is None:
             # Nothing to record, and ``from_stripe_amount(None, ...)`` would
             # TypeError into a 500 — which rolls the dedup row back and puts
@@ -389,37 +463,106 @@ class SubscriptionWebhookHandlersMixin:
                 membership_payment_id=str(membership_payment.id),
             )
             return
-        if amount is None or amount_refunded < amount:
-            # Partial refund: the member keeps the period they partly paid for,
-            # so the row stays SUCCEEDED and the auto-cancel must not fire. It
-            # still gets recorded — otherwise the refund leaves no trace at all
-            # and our ledger silently disagrees with Stripe. ``amount_refunded``
-            # is cumulative, so a later top-up refund that reaches the full
-            # charge falls through to the branch below and flips to REFUNDED.
-            self._record_partial_refund(membership_payment, amount_refunded, refund_id)
-            logger.info(
-                "stripe_subscription_partial_refund_recorded",
-                payment_intent_id=charge_data.get("payment_intent"),
-                membership_payment_id=str(membership_payment.id),
-                amount=amount,
-                amount_refunded=amount_refunded,
-            )
-            return
-
-        payment = subscription_refunds.refund_payment(membership_payment, recorded_by=None)
-        if refund_id:
-            # Parity with the ticket side (_apply_refund_to_payment), which stamps
-            # the refund id on every refund it applies. refund_payment is shared
-            # with staff-recorded refunds, which have no Stripe refund to point at,
-            # so the id is stamped here rather than inside it.
-            payment.stripe_refund_id = refund_id
-            payment.save(update_fields=["stripe_refund_id", "updated_at"])
-
+        # No refund object anywhere: fall back to the charge total, so the ledger still records the money moved.
+        succeeded_cents = self._succeeded_refund_cents(refunds) if refunds else int(amount_refunded)
+        self._apply_succeeded_refunds(
+            membership_payment,
+            succeeded_cents=succeeded_cents,
+            amount_cents=amount,
+            refund_id=self._latest_refund_id(refunds),
+            may_reopen=False,
+        )
         logger.info(
             "stripe_subscription_refund_processed",
-            payment_intent_id=event.data.object.get("payment_intent"),
+            payment_intent_id=charge_data.get("payment_intent"),
             membership_payment_id=str(membership_payment.id),
             subscription_id=str(membership_payment.subscription_id),
+            amount=amount,
+            amount_refunded=amount_refunded,
+            succeeded_refunded=succeeded_cents,
+        )
+
+    def _handle_subscription_refund_object(self, event: stripe.Event, payment_intent_id: str) -> None:
+        """Apply a ``refund.updated`` or ``refund.failed`` event to a MembershipPayment (#1507).
+
+        A pending refund that succeeds now counts and may cancel the subscription. A refund that
+        fails or is canceled later reopens a REFUNDED payment (REFUNDED -> SUCCEEDED, the refund
+        amount follows the refunds that remain). The subscription stays cancelled: the member
+        subscribes again if wanted. Staff get the ERROR log ``membership_refund_failed`` and a
+        REFUND_FAILED notification. The member gets no email, because no "refunded" email exists
+        for a membership.
+
+        The charge's refunds are fetched under the MembershipPayment row lock (as in the
+        ``charge.refunded`` path), so the list is never older than the last committed failure.
+        """
+        refund = event.data.object
+        membership_payment = (
+            MembershipPayment.objects.select_for_update(of=("self",))
+            .select_related("subscription__plan", "subscription__organization", "subscription__user")
+            .filter(stripe_payment_intent_id=payment_intent_id)
+            .first()
+        )
+        if membership_payment is None:  # pragma: no cover - the caller probed it, a delete raced
+            return
+        # Fetched under the row lock, like the charge.refunded path: a failure that commits meanwhile
+        # waits for the lock, so the list is current when it is applied. The cost is one Stripe call
+        # while one MembershipPayment row is locked (the accepted single-row trade, as in the refund paths).
+        charge_id = refund.get("charge")
+        by_id: dict[str, dict[str, t.Any]] = {}
+        if charge_id:
+            for listed in self._resolve_refunds({"id": charge_id}):
+                by_id[str(listed.get("id"))] = listed
+        # The list is current, the payload may be a late retry: the payload only fills a gap.
+        effective = by_id.setdefault(str(refund.get("id")), dict(refund))
+        refunds = list(by_id.values())
+
+        previous_status = membership_payment.status
+        failed = _stripe_refund_outcome(effective) == Refund.RefundStatus.FAILED
+        self._apply_succeeded_refunds(
+            membership_payment,
+            succeeded_cents=self._succeeded_refund_cents(refunds),
+            amount_cents=to_stripe_amount(membership_payment.amount, membership_payment.currency),
+            refund_id=self._latest_refund_id(refunds),
+            may_reopen=failed,
+        )
+        # One alert per failure: refund.failed and refund.updated both fire for it.
+        if (event.type, effective.get("status")) in (("refund.failed", "failed"), ("refund.updated", "canceled")):
+            self._report_failed_subscription_refund(membership_payment, effective, previous_status, payment_intent_id)
+
+    @staticmethod
+    def _report_failed_subscription_refund(
+        membership_payment: MembershipPayment,
+        refund: dict[str, t.Any],
+        previous_status: str,
+        payment_intent_id: str,
+    ) -> None:
+        """Log the ERROR ``membership_refund_failed`` (ids only) and notify the staff."""
+        subscription = membership_payment.subscription
+        logger.error(
+            "membership_refund_failed",
+            payment_id=str(membership_payment.id),
+            subscription_id=str(subscription.id),
+            payment_intent_id=payment_intent_id,
+            organization_id=str(subscription.organization_id),
+            refund_id=refund.get("id"),
+            status=refund.get("status"),
+            failure_reason=refund.get("failure_reason"),
+            previous_status=previous_status,
+        )
+        send_refund_failed(
+            organization=subscription.organization,
+            refund_id=str(refund.get("id") or ""),
+            payment_intent_id=payment_intent_id,
+            refund_amount=from_stripe_amount(int(refund.get("amount") or 0), membership_payment.currency),
+            currency=membership_payment.currency,
+            failure_reason=str(refund.get("failure_reason") or ""),
+            holder_name=subscription.user.get_display_name(),
+            holder_email=subscription.user.email,
+            plan_name=subscription.plan.name,
+            subscription_cancelled_by_refund=(
+                previous_status == MembershipPayment.PaymentStatus.REFUNDED
+                and subscription.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+            ),
         )
 
     def handle_subscription_schedule_released(self, event: stripe.Event) -> None:

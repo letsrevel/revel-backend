@@ -85,6 +85,8 @@ The following notification types are supported across all channels:
 | `staff_ticket_refunded` | A ticket was refunded to the attendee (org staff and owners) |
 | `staff_payment_disputed` | A card dispute was opened or closed on an organizer payment; evidence deadlines are time-boxed. See [Disputes](billing-and-vat.md#disputes) |
 | `refund_unmatched` | An inbound Stripe refund Revel refused to auto-match to a ticket (staff only) |
+| `refund_failed` | A refund failed or was canceled at Stripe after Revel recorded it (organization owner and staff with `manage_tickets`) |
+| `ticket_refund_failed` | The buyer's refund failed after an earlier "ticket refunded" email (buyer only) |
 
 !!! note "`ticket_checked_in` is no longer dispatched (1.64.0)"
     The `ticket_checked_in` enum value (and its template/context scaffolding) still
@@ -97,8 +99,8 @@ The **transactional** types (`TRANSACTIONAL_TYPES` in `notifications/enums.py`) 
 payment, ticket and subscription lifecycle types. They are time- and money-sensitive, so they
 **always deliver immediately and bypass the digest cadence**:
 
-- `payment_confirmation`, `ticket_created`, `ticket_cancelled`, `ticket_refunded`
-- `staff_ticket_created`, `staff_ticket_cancelled`, `staff_ticket_refunded`, `staff_payment_disputed`
+- `payment_confirmation`, `ticket_created`, `ticket_cancelled`, `ticket_refunded`, `ticket_refund_failed`
+- `staff_ticket_created`, `staff_ticket_cancelled`, `staff_ticket_refunded`, `staff_payment_disputed`, `refund_failed`
 - `org_custom_domain_active`, `org_custom_domain_failed` ([White-Label](white-label.md))
 - `subscription_renewal_succeeded`, `subscription_payment_failed`, `subscription_expired`,
   `subscription_cancellation_confirmed`, `subscription_revival_checkout`
@@ -110,7 +112,7 @@ with days of slack and stay on the digest cadence.
 
 A subset of these, `MANDATORY_TYPES`, can't be opted out of:
 
-- `payment_confirmation`, `ticket_created`, `ticket_cancelled`, `ticket_refunded`
+- `payment_confirmation`, `ticket_created`, `ticket_cancelled`, `ticket_refunded`, `ticket_refund_failed`
 - `subscription_renewal_succeeded`, `subscription_payment_failed`, `subscription_expired`,
   `subscription_cancellation_confirmed`, `subscription_revival_checkout`
 - `membership_payment_requested`

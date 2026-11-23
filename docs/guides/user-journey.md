@@ -391,7 +391,7 @@ sequenceDiagram
 ### Organizer Refunds & Event Cancellation
 
 Refunding a payment and cancelling a ticket are orthogonal operations — an organizer can do either
-independently. Refund money moves through `Refund` rows (one per attempt); the `charge.refunded`
+independently. Refund money moves through `Refund` rows (one per attempt); the `charge.refunded` or `refund.updated`
 webhook confirms Stripe's side and never touches ticket status or capacity. See
 [Refunds](../architecture/billing-and-vat.md#refunds) for the full data-model and webhook detail.
 
@@ -406,7 +406,7 @@ webhook confirms Stripe's side and never touches ticket status or capacity. See
 
 !!! note "A Stripe-dashboard refund does not cancel the ticket"
     Refunding a charge directly from the Stripe dashboard is recorded — matched back to its
-    `Payment`/`Refund` rows via the `charge.refunded` webhook — but it never cancels the ticket or
+    `Payment`/`Refund` rows via the `charge.refunded` or `refund.updated` webhook — but it never cancels the ticket or
     reclaims tier capacity. The organizer must cancel separately if that's the intent.
 
 #### Cancelling an Entire Event with Refunds
