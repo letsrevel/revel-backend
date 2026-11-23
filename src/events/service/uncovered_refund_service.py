@@ -9,6 +9,7 @@ from uuid import UUID
 
 from events.models import Refund, SkippedFiscalDocument
 from events.models.attendee_invoice import AttendeeInvoice
+from events.service.attendee_credit_note_service import invoiced_payment_ids
 
 
 def uncovered_refunds(stripe_session_id: str) -> tuple[list[UUID], list[UUID]]:
@@ -25,16 +26,15 @@ def uncovered_refunds(stripe_session_id: str) -> tuple[list[UUID], list[UUID]]:
     Returns:
         ``(payment_ids, refund_ids)``, both empty when there is nothing to credit.
     """
-    invoice = AttendeeInvoice.objects.filter(stripe_session_id=stripe_session_id).only("line_items").first()
-    if invoice is not None:
-        payment_ids: set[str] = {line["payment_id"] for line in invoice.line_items if line.get("payment_id")}
-    else:
-        skipped = SkippedFiscalDocument.objects.filter(
+    source: AttendeeInvoice | SkippedFiscalDocument | None = (
+        AttendeeInvoice.objects.filter(stripe_session_id=stripe_session_id).only("line_items").first()
+        or SkippedFiscalDocument.objects.filter(
             stripe_session_id=stripe_session_id, kind=SkippedFiscalDocument.Kind.INVOICE
         ).first()
-        if skipped is None:
-            return [], []
-        payment_ids = {str(pk) for pk in skipped.payments.values_list("pk", flat=True)}
+    )
+    if source is None:
+        return [], []
+    payment_ids = invoiced_payment_ids(source)
     if not payment_ids:
         return [], []
     rows = list(

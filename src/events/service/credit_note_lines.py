@@ -5,9 +5,11 @@ may have edited a DRAFT's rates, descriptions or reverse-charge flag before issu
 invoice line snapshots the ``payment_id`` it charges (#1242), so a refunded payment finds its
 line, which is copied with its rate, category and description, prorated for a partial refund.
 
-A payment whose invoice carries no line for it (an invoice generated before the ids existed, or
-a line the organizer removed or added by hand) falls back to the payment-based builders in
-:mod:`events.service.attendee_invoice_lines`.
+A payment whose invoice carries no line for it falls back to the payment-based builders in
+:mod:`events.service.attendee_invoice_lines`. The credit-note generation gives this module such a
+payment only when no line of the invoice carries a ``payment_id`` (an invoice generated before the
+ids existed, or lines all replaced by hand); otherwise it leaves the payment out (#1485,
+``attendee_credit_note_service.load_refunded``).
 
 Pure builders: the telescoping that keeps cumulative credit notes within the invoice stays in
 :mod:`events.service.credit_note_totals`.
