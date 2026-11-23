@@ -20,6 +20,8 @@ WEBHOOK_MAX_RETRIES = 3
 # WEBHOOK_MAX_RETRIES is untouched) until it is older than the cap, then it is marked FAILED.
 WEBHOOK_BUDGET_DEFER_COUNTDOWN_SECONDS = 15 * 60
 WEBHOOK_BUDGET_DEFER_MAX_AGE = timedelta(hours=24)
+# Lifetime of a connection's deferred-delivery slot: two countdowns, so a lost task frees the slot.
+WEBHOOK_DEFERRED_SLOT_TTL_SECONDS = 2 * WEBHOOK_BUDGET_DEFER_COUNTDOWN_SECONDS
 RETRY_BACKOFF_SECONDS = 30
 RETRY_BACKOFF_MAX_SECONDS = 600
 
@@ -89,13 +91,18 @@ def import_remote_event(job_id: str) -> None:
     import_service.run_import_job(job)
 
 
-@shared_task(bind=True, name="integrations.handle_webhook_delivery", max_retries=WEBHOOK_MAX_RETRIES)
+@shared_task(
+    bind=True, name="integrations.handle_webhook_delivery", max_retries=WEBHOOK_MAX_RETRIES, ignore_result=True
+)
 def handle_webhook_delivery(self: t.Any, delivery_id: str) -> None:
     """Process one recorded webhook delivery (spec §8).
 
     ``handle_delivery`` leaves a retryable failure RECEIVED so the retry can finish it, so this
     task owns the other half of that contract: once the budget is spent the row is marked FAILED
     rather than claiming pending work forever.
+
+    While the shared budget is low, each connection keeps one deferred delivery (its slot); every
+    other deferred delivery of that connection is finished at once instead of re-enqueued.
 
     Args:
         self: Celery task instance (automatically passed when bind=True).
@@ -105,14 +112,16 @@ def handle_webhook_delivery(self: t.Any, delivery_id: str) -> None:
     from integrations.service import webhook_service
 
     # Only a RECEIVED row is pending work: a redelivered message (acks_late) must not process it twice.
-    created_at = (
+    row = (
         WebhookDelivery.objects.filter(id=delivery_id, outcome=WebhookDelivery.Outcome.RECEIVED)
-        .values_list("created_at", flat=True)
+        .values_list("created_at", "connection_id")
         .first()
     )
-    if created_at is None:
+    if row is None:
         logger.info("integration_webhook_skipped_missing_or_finished_delivery", delivery_id=delivery_id)
         return
+    created_at, connection_id = row
+    deferred = False
     try:
         webhook_service.handle_delivery(UUID(delivery_id))
     except BudgetDeferredError:
@@ -120,8 +129,12 @@ def handle_webhook_delivery(self: t.Any, delivery_id: str) -> None:
             logger.warning("integration_webhook_budget_defer_expired", delivery_id=delivery_id)
             webhook_service.mark_exhausted(UUID(delivery_id))
             return
+        if not webhook_service.hold_deferred_slot(connection_id, delivery_id, WEBHOOK_DEFERRED_SLOT_TTL_SECONDS):
+            webhook_service.finish_coalesced(UUID(delivery_id), connection_id)
+            return
         # A fresh task, not self.retry(): the retry counter stays free for real provider errors.
         handle_webhook_delivery.apply_async(args=(delivery_id,), countdown=WEBHOOK_BUDGET_DEFER_COUNTDOWN_SECONDS)
+        deferred = True
     except RetryableProviderError as e:
         try:
             raise self.retry(exc=e, countdown=_retry_countdown(self.request.retries))
@@ -131,6 +144,9 @@ def handle_webhook_delivery(self: t.Any, delivery_id: str) -> None:
             if self.request.retries >= WEBHOOK_MAX_RETRIES:
                 webhook_service.mark_exhausted(UUID(delivery_id))
             raise
+    finally:
+        if not deferred:
+            webhook_service.release_deferred_slot(connection_id, delivery_id)
 
 
 @shared_task(

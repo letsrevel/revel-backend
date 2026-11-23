@@ -231,6 +231,7 @@ Stripe stays optional; the variables below matter once you sell tickets or membe
 | `INTEGRATIONS_EVENTBRITE_CLIENT_SECRET` | Eventbrite "Client secret" |
 | `INTEGRATIONS_RATE_RESERVE` (default `200`) | Calls kept in reserve in the shared per-app-key hourly budget so organizer actions (push, pause) never starve behind the reconcile sweep |
 | `INTEGRATIONS_WEBHOOK_DELIVERY_RETENTION_DAYS` (default `30`) | Days a `WebhookDelivery` audit row or a finished `ImportJob` is kept before the daily prune sweep deletes it |
+| `INTEGRATIONS_WEBHOOK_INTAKE_LIMIT_PER_HOUR` (default `2000`) | Webhook deliveries accepted per connection per hour. Above it a delivery is logged and answered 200 without an audit row or a task; the 15-minute reconcile restores the counts of live links, but a dropped publish or unpublish notification is lost |
 
 Both empty → the provider is not offered. Register the app's OAuth redirect URI as
 `{BASE_URL}/api/integrations/eventbrite/callback` and set the application URL to `{BASE_URL}`.
