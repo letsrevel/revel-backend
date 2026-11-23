@@ -32,6 +32,8 @@ def test_mandatory_types_contents() -> None:
         NotificationType.STAFF_TICKET_CANCELLED,
         NotificationType.STAFF_TICKET_REFUNDED,
         NotificationType.STAFF_PAYMENT_DISPUTED,
+        # A refund that failed at Stripe after Revel recorded it (#1507): a staff alert, opt-out-able like the others.
+        NotificationType.REFUND_FAILED,
         # Owner mail about a custom domain going live or failing (#1148): opt-out-able, but the owner waits on it.
         NotificationType.ORG_CUSTOM_DOMAIN_ACTIVE,
         NotificationType.ORG_CUSTOM_DOMAIN_FAILED,

@@ -8921,3 +8921,51 @@ msgstr "Wenn du das warst, musst du nichts tun – versuche es einfach nach der 
 
 msgid "This ticket has changed. Reload the page and try again."
 msgstr "Dieses Ticket hat sich geändert. Lade die Seite neu und versuche es erneut."
+
+msgid "Refund failed"
+msgstr "Rückerstattung fehlgeschlagen"
+
+msgid "Ticket refund failed"
+msgstr "Ticket-Rückerstattung fehlgeschlagen"
+
+#, python-format
+msgid "Action needed: refund failed - %(org)s"
+msgstr "Handlung erforderlich: Rückerstattung fehlgeschlagen - %(org)s"
+
+#, python-format
+msgid "Your refund for %(event)s failed"
+msgstr "Deine Rückerstattung für %(event)s ist fehlgeschlagen"
+
+#, python-format
+msgid "The refund of %(amount)s %(currency)s for %(holder)s (membership %(plan)s) did not go through at Stripe."
+msgstr "Die Rückerstattung von %(amount)s %(currency)s für %(holder)s (Mitgliedschaft %(plan)s) ist bei Stripe nicht durchgegangen."
+
+#, python-format
+msgid "The refund of %(amount)s %(currency)s for %(holder)s (%(event)s) did not go through at Stripe."
+msgstr "Die Rückerstattung von %(amount)s %(currency)s für %(holder)s (%(event)s) ist bei Stripe nicht durchgegangen."
+
+msgid "Buyer:"
+msgstr "Käufer:in:"
+
+msgid "The buyer did not get this refund."
+msgstr "Die Person hat diese Rückerstattung nicht erhalten."
+
+msgid "Read the failure reason in Stripe before you refund this payment again."
+msgstr "Lies den Fehlergrund in Stripe, bevor du diese Zahlung erneut zurückerstattest."
+
+#, python-format
+msgid "Revel already issued the credit note %(numbers)s for this refund. Revel does not reverse a credit note. Correct it by hand."
+msgstr "Revel hat für diese Rückerstattung bereits die Gutschrift %(numbers)s ausgestellt. Revel storniert keine Gutschrift. Korrigiere sie von Hand."
+
+msgid "The subscription stays cancelled. The member must subscribe again if they want to continue."
+msgstr "Das Abonnement bleibt gekündigt. Das Mitglied muss erneut ein Abonnement abschließen, wenn es weitermachen möchte."
+
+msgid "Review the ticket in Revel"
+msgstr "Das Ticket in Revel prüfen"
+
+#, python-format
+msgid "The refund of %(amount)s for %(event)s did not go through at the payment provider."
+msgstr "Die Rückerstattung von %(amount)s für %(event)s ist beim Zahlungsanbieter nicht durchgegangen."
+
+msgid "The money was not returned to you. Contact the organizer if you have questions."
+msgstr "Das Geld wurde nicht an dich zurückgezahlt. Wende dich bei Fragen an das Organisationsteam."

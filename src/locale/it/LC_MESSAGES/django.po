@@ -8904,3 +8904,51 @@ msgstr "Se eri tu, non devi fare nulla: riprova semplicemente al termine della p
 
 msgid "This ticket has changed. Reload the page and try again."
 msgstr "Questo biglietto è cambiato. Ricarica la pagina e riprova."
+
+msgid "Refund failed"
+msgstr "Rimborso non riuscito"
+
+msgid "Ticket refund failed"
+msgstr "Rimborso del biglietto non riuscito"
+
+#, python-format
+msgid "Action needed: refund failed - %(org)s"
+msgstr "Azione richiesta: rimborso non riuscito - %(org)s"
+
+#, python-format
+msgid "Your refund for %(event)s failed"
+msgstr "Il tuo rimborso per %(event)s non è riuscito"
+
+#, python-format
+msgid "The refund of %(amount)s %(currency)s for %(holder)s (membership %(plan)s) did not go through at Stripe."
+msgstr "Il rimborso di %(amount)s %(currency)s per %(holder)s (iscrizione %(plan)s) non è andato a buon fine su Stripe."
+
+#, python-format
+msgid "The refund of %(amount)s %(currency)s for %(holder)s (%(event)s) did not go through at Stripe."
+msgstr "Il rimborso di %(amount)s %(currency)s per %(holder)s (%(event)s) non è andato a buon fine su Stripe."
+
+msgid "Buyer:"
+msgstr "Acquirente:"
+
+msgid "The buyer did not get this refund."
+msgstr "L'acquirente non ha ricevuto questo rimborso."
+
+msgid "Read the failure reason in Stripe before you refund this payment again."
+msgstr "Leggi il motivo dell'errore in Stripe prima di rimborsare di nuovo questo pagamento."
+
+#, python-format
+msgid "Revel already issued the credit note %(numbers)s for this refund. Revel does not reverse a credit note. Correct it by hand."
+msgstr "Revel ha già emesso la nota di credito %(numbers)s per questo rimborso. Revel non annulla una nota di credito. Correggila a mano."
+
+msgid "The subscription stays cancelled. The member must subscribe again if they want to continue."
+msgstr "L'abbonamento resta annullato. Il membro deve abbonarsi di nuovo se vuole continuare."
+
+msgid "Review the ticket in Revel"
+msgstr "Rivedi il biglietto su Revel"
+
+#, python-format
+msgid "The refund of %(amount)s for %(event)s did not go through at the payment provider."
+msgstr "Il rimborso di %(amount)s per %(event)s non è andato a buon fine presso il fornitore di pagamenti."
+
+msgid "The money was not returned to you. Contact the organizer if you have questions."
+msgstr "I soldi non ti sono stati restituiti. Se hai domande, contatta l'organizzazione."

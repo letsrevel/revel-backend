@@ -558,7 +558,7 @@ a PDF/A-3 with the CII XML embedded, produced with the `euinvoice` library (#123
 
 ### Credit Notes
 
-Generated on the `charge.refunded` webhook, keyed on the specific [`Refund`](#refunds) row(s) that
+Generated on the `charge.refunded` or `refund.updated` webhook, keyed on the specific [`Refund`](#refunds) row(s) that
 webhook call just applied — not the whole `Payment` — so two separate partial refunds on the same
 payment each produce their own credit note:
 
@@ -712,6 +712,33 @@ the charge to its ticket `Payment` row(s), first match wins:
 
 A Stripe-dashboard refund that matches lands as a `Refund` row with `source=stripe_dashboard` — the
 ticket stays valid until the organizer cancels it separately.
+
+#### Refund status (#1507)
+
+A refund counts as money returned only when its Stripe `status` is `succeeded`. Each refund object
+moves its `Refund` row along a one-way state machine:
+
+| Stripe status | `Refund` row |
+|---|---|
+| `succeeded` | PENDING → SUCCEEDED. Stamps `succeeded_at`, adds the amount to `Payment.refund_amount`, sends the "refunded" email and issues the credit note |
+| `pending`, `requires_action`, or no status | Stays PENDING (a refund without a status gets a `stripe_refund_status_missing` warning). A PENDING row has no `succeeded_at`, no refund total and no credit note |
+| `failed`, `canceled` | PENDING or SUCCEEDED → FAILED, with `failure_reason` |
+
+`refund.updated` and `refund.failed` run the same code path as `charge.refunded` (`handle_refund_event`),
+so a pending refund is applied when it succeeds. A FAILED row is final: a stale `succeeded` event does
+not undo it. A failed refund with no `Refund` row changes nothing (`stripe_refund_failed_unknown`).
+
+`Payment` totals are recomputed from the rows: `refund_amount` is the sum of the SUCCEEDED rows, and
+`refund_status` is PENDING while a row is PENDING, else SUCCEEDED, else FAILED. When a row fails later,
+a REFUNDED `Payment` goes back to SUCCEEDED, and the buyer gets no payment confirmation. Revel does
+**not** reverse an issued credit note automatically: the staff alert tells staff to correct it by hand.
+
+Each transition to FAILED logs the ERROR `ticket_refund_failed` (ids only: `payment_id`,
+`payment_intent_id`, `organization_id`, `event_id`, `ticket_id`, `refund_id`, `status`, `failure_reason`,
+`previous_status`, `credit_note_issued`). It sends the `REFUND_FAILED` notification to the organization
+owner and to the staff with `manage_tickets`. When the `Payment` was REFUNDED before (so the buyer
+got a "ticket refunded" email), the buyer also gets the `TICKET_REFUND_FAILED` notification: the refund
+did not go through, the money was not returned, and the organizer will make contact.
 
 ## Disputes
 

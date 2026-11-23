@@ -512,6 +512,31 @@ class RefundUnmatchedTemplate(NotificationTemplate):
         return _("Action needed: unmatched refund - %(org)s") % {"org": org_name}
 
 
+class RefundFailedTemplate(NotificationTemplate):
+    """Template for REFUND_FAILED notification (to org staff and owners)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return _("Refund failed")
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        org_name = notification.context.get("organization_name", "")
+        return _("Action needed: refund failed - %(org)s") % {"org": org_name}
+
+
+class TicketRefundFailedTemplate(NotificationTemplate):
+    """Template for TICKET_REFUND_FAILED notification (to the buyer)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return _("Your refund for %(event)s failed") % {"event": notification.context.get("event_name", "")}
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        return self.get_in_app_title(notification)
+
+
 class EventRefundSummaryTemplate(NotificationTemplate):
     """Template for EVENT_REFUND_SUMMARY notification (to org staff)."""
 
@@ -538,4 +563,6 @@ register_template(NotificationType.STAFF_PAYMENT_DISPUTED, StaffPaymentDisputedT
 register_template(NotificationType.TICKET_CHECKED_IN, TicketCheckedInTemplate())
 register_template(NotificationType.PAYMENT_CONFIRMATION, PaymentConfirmationTemplate())
 register_template(NotificationType.REFUND_UNMATCHED, RefundUnmatchedTemplate())
+register_template(NotificationType.REFUND_FAILED, RefundFailedTemplate())
+register_template(NotificationType.TICKET_REFUND_FAILED, TicketRefundFailedTemplate())
 register_template(NotificationType.EVENT_REFUND_SUMMARY, EventRefundSummaryTemplate())

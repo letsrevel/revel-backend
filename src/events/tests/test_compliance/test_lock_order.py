@@ -407,7 +407,7 @@ def test_charge_refunded_webhook_locks_payment_rows_without_join(paid_ticket: Ti
     Payment.objects.filter(ticket=paid_ticket).update(
         status=Payment.PaymentStatus.SUCCEEDED, stripe_payment_intent_id="pi_refund_lock"
     )
-    refund = {"id": "re_lock", "amount": 100, "metadata": {}}
+    refund = {"id": "re_lock", "amount": 100, "status": "succeeded", "metadata": {}}
     charge = {"id": "ch_lock", "payment_intent": "pi_refund_lock", "refunds": {"data": [refund]}}
     payload: dict[str, t.Any] = {"id": "evt_lock", "type": "charge.refunded", "account": None, "livemode": False}
     payload["data"] = {"object": charge}
@@ -420,3 +420,25 @@ def test_charge_refunded_webhook_locks_payment_rows_without_join(paid_ticket: Ti
     with CaptureQueriesContext(connection) as ctx:
         StripeEventHandler(event).handle_charge_refunded(event)
     _assert_payment_lock_of_self_pk_order(ctx.captured_queries)
+
+
+def test_refund_updated_webhook_locks_payment_rows_without_join_and_calls_no_stripe(paid_ticket: Ticket) -> None:
+    """The refund.* handler locks only the Payment rows (pk order) and makes no outbound Stripe call (#1507)."""
+    Payment.objects.filter(ticket=paid_ticket).update(
+        status=Payment.PaymentStatus.SUCCEEDED, stripe_payment_intent_id="pi_refund_event_lock"
+    )
+    refund = {
+        "id": "re_event_lock",
+        "amount": 4000,
+        "status": "succeeded",
+        "payment_intent": "pi_refund_event_lock",
+        "charge": "ch_event_lock",
+        "metadata": {},
+    }
+    payload = {"id": "evt_event_lock", "type": "refund.updated", "livemode": False, "data": {"object": refund}}
+    event = stripe.Event.construct_from(payload, "sk_test")
+    with CaptureQueriesContext(connection) as ctx, patch("stripe.Refund.list") as refund_list:
+        StripeEventHandler(event).handle_refund_event(event)
+    _assert_payment_lock_of_self_pk_order(ctx.captured_queries)
+    assert _assert_in_global_order(ctx.captured_queries)[0] == "events_payment"
+    refund_list.assert_not_called()

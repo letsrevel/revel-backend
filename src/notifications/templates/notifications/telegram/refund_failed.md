@@ -1,0 +1,16 @@
+{% load i18n %}**{% trans "Refund failed" %}**
+
+{% if context.kind == "membership" %}{% blocktranslate with amount=context.refund_amount currency=context.currency holder=context.holder_name plan=context.plan_name %}The refund of {{ amount }} {{ currency }} for {{ holder }} (membership {{ plan }}) did not go through at Stripe.{% endblocktranslate %}{% else %}{% blocktranslate with amount=context.refund_amount currency=context.currency holder=context.holder_name event=context.event_name %}The refund of {{ amount }} {{ currency }} for {{ holder }} ({{ event }}) did not go through at Stripe.{% endblocktranslate %}{% endif %}
+{% if context.failure_reason %}
+{% trans "Reason:" %} {{ context.failure_reason }}
+{% endif %}
+{% trans "The buyer did not get this refund." %}
+
+{% trans "Read the failure reason in Stripe before you refund this payment again." %}
+{% if context.credit_note_numbers %}
+{% blocktranslate with numbers=context.credit_note_numbers|join:", " %}Revel already issued the credit note {{ numbers }} for this refund. Revel does not reverse a credit note. Correct it by hand.{% endblocktranslate %}
+{% endif %}{% if context.subscription_cancelled_by_refund %}
+{% trans "The subscription stays cancelled. The member must subscribe again if they want to continue." %}
+{% endif %}
+{% if context.resolve_url %}[{% trans "Review the ticket in Revel" %}]({{ context.resolve_url }})
+{% endif %}{% trans "Refund ID:" %} {{ context.refund_id }}

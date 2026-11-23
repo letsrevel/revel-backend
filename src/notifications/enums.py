@@ -20,6 +20,10 @@ class NotificationType(TextChoices):
     PAYMENT_CONFIRMATION = "payment_confirmation", _("Payment confirmation")
     # Inbound Stripe refund Revel refused to auto-match to a ticket (staff only)
     REFUND_UNMATCHED = "refund_unmatched", _("Unmatched refund")
+    # A refund the payment provider failed or canceled after Revel recorded it (#1507). Staff get the
+    # alert; the buyer gets the second one only when an earlier "ticket refunded" email went out.
+    REFUND_FAILED = "refund_failed", _("Refund failed")
+    TICKET_REFUND_FAILED = "ticket_refund_failed", _("Ticket refund failed")
     # Org staff/owner alerts about ticket sales, cancellations and refunds (#1127). Separate
     # types from the holder receipts so mandatory delivery never overrides staff preferences.
     STAFF_TICKET_CREATED = "staff_ticket_created", _("Ticket sold")
@@ -200,10 +204,12 @@ TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
         NotificationType.TICKET_CREATED,
         NotificationType.TICKET_CANCELLED,
         NotificationType.TICKET_REFUNDED,
+        NotificationType.TICKET_REFUND_FAILED,
         NotificationType.STAFF_TICKET_CREATED,
         NotificationType.STAFF_TICKET_CANCELLED,
         NotificationType.STAFF_TICKET_REFUNDED,
         NotificationType.STAFF_PAYMENT_DISPUTED,
+        NotificationType.REFUND_FAILED,
         NotificationType.ORG_CUSTOM_DOMAIN_ACTIVE,
         NotificationType.ORG_CUSTOM_DOMAIN_FAILED,
         # Subscription money/lifecycle events must not wait for a digest sweep:
@@ -232,6 +238,7 @@ MANDATORY_TYPES: frozenset[str] = frozenset(
         NotificationType.TICKET_CREATED,
         NotificationType.TICKET_CANCELLED,
         NotificationType.TICKET_REFUNDED,
+        NotificationType.TICKET_REFUND_FAILED,
         NotificationType.SUBSCRIPTION_RENEWAL_SUCCEEDED,
         NotificationType.SUBSCRIPTION_PAYMENT_FAILED,
         NotificationType.SUBSCRIPTION_EXPIRED,
@@ -273,6 +280,7 @@ TENANT_ORG_SENDER_TYPES: frozenset[str] = frozenset(
         NotificationType.TICKET_UPDATED,
         NotificationType.TICKET_CANCELLED,
         NotificationType.TICKET_REFUNDED,
+        NotificationType.TICKET_REFUND_FAILED,
         NotificationType.TICKET_CHECKED_IN,
         NotificationType.PAYMENT_CONFIRMATION,
         NotificationType.QUESTIONNAIRE_EVALUATION_RESULT,

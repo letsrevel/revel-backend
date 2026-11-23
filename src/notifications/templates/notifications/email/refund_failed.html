@@ -1,0 +1,24 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2>{% trans "Refund failed" %}</h2>
+
+<p>{% if context.kind == "membership" %}{% blocktranslate with amount=context.refund_amount currency=context.currency holder=context.holder_name plan=context.plan_name %}The refund of {{ amount }} {{ currency }} for {{ holder }} (membership {{ plan }}) did not go through at Stripe.{% endblocktranslate %}{% else %}{% blocktranslate with amount=context.refund_amount currency=context.currency holder=context.holder_name event=context.event_name %}The refund of {{ amount }} {{ currency }} for {{ holder }} ({{ event }}) did not go through at Stripe.{% endblocktranslate %}{% endif %}</p>
+
+<div class="card card--info">
+    <div class="info-row"><span class="label">{% trans "Buyer:" %}</span> {{ context.holder_name }} ({{ context.holder_email }})</div>
+    {% if context.failure_reason %}<div class="info-row"><span class="label">{% trans "Reason:" %}</span> {{ context.failure_reason }}</div>{% endif %}
+</div>
+
+<p>{% trans "The buyer did not get this refund." %}</p>
+
+<p>{% trans "Read the failure reason in Stripe before you refund this payment again." %}</p>
+
+{% if context.credit_note_numbers %}<p>{% blocktranslate with numbers=context.credit_note_numbers|join:", " %}Revel already issued the credit note {{ numbers }} for this refund. Revel does not reverse a credit note. Correct it by hand.{% endblocktranslate %}</p>{% endif %}
+
+{% if context.subscription_cancelled_by_refund %}<p>{% trans "The subscription stays cancelled. The member must subscribe again if they want to continue." %}</p>{% endif %}
+
+{% if context.resolve_url %}<p><a href="{{ context.resolve_url }}">{% trans "Review the ticket in Revel" %}</a></p>{% endif %}
+
+<p style="color: #666; font-size: 12px;">{% trans "Refund ID:" %} {{ context.refund_id }}</p>
+{% endblock %}

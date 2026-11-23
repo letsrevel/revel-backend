@@ -149,9 +149,9 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
             "charge.dispute.created": self.handle_charge_dispute,
             "charge.dispute.updated": self.handle_charge_dispute,
             "charge.dispute.closed": self.handle_charge_dispute,
-            # A refund that fails or is canceled after it was created (#1489: automatic refunds only).
-            "refund.failed": self.handle_refund_failure,
-            "refund.updated": self.handle_refund_failure,
+            # A refund that settles after it was created: pending -> succeeded, or failed/canceled (#1489, #1507).
+            "refund.failed": self.handle_refund_event,
+            "refund.updated": self.handle_refund_event,
             # Membership subscriptions (Phases 2-4). Diff-based and idempotent:
             # the dedup gate skips true redeliveries, these also tolerate the
             # nightly reconciliation feeding them retrieved payloads.
@@ -188,6 +188,9 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
         replayers: dict[str, t.Callable[[stripe.Event], None]] = {
             "checkout.session.completed": self.replay_checkout_session_completed,
             "charge.refunded": self.replay_charge_refunded,
+            # Same credit-note retry: a refund that succeeded at refund.updated may have lost its enqueue (#1507).
+            "refund.updated": self.replay_charge_refunded,
+            "refund.failed": self.replay_charge_refunded,
         }
         replayer = replayers.get(self.event.type)
         if replayer is not None:
@@ -227,7 +230,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
 
         Mirrors the "pure duplicate webhook" branch of
         :meth:`_schedule_credit_note`: the payments the first delivery
-        refunded are ``refund_status=SUCCEEDED`` by now, so retry the credit
+        refunded have SUCCEEDED Refund rows by now, so retry the credit
         note for exactly those.
         """
         payment_intent_id = event.data.object.get("payment_intent")
@@ -259,25 +262,23 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
                     functools.partial(cancel_stripe_subscription_best_effort, sub, reason="refund_auto_cancel_replay")
                 )
             return
-        refunded = list(
-            Payment.objects.filter(
-                stripe_payment_intent_id=payment_intent_id,
-                refund_status=Payment.RefundStatus.SUCCEEDED,
+        # Gate on SUCCEEDED Refund rows: refund_status is PENDING while another refund is pending.
+        # One read gives both lists, so a refund.failed that commits meanwhile cannot leave a payment id
+        # with no refund id (the credit-note task reads an empty refund list as "the full payment amount").
+        rows = list(
+            Refund.objects.filter(
+                payment__stripe_payment_intent_id=payment_intent_id, status=Refund.RefundStatus.SUCCEEDED
             )
+            .select_related("payment")
+            .order_by("created_at", "pk")
         )
-        if not refunded:
+        if not rows:
             return
-        sid = refunded[0].stripe_session_id
-        ids = [str(p.id) for p in refunded]
-        # refund_status=SUCCEEDED now also covers partial refunds (#865), so
-        # collect the actual Refund rows rather than assuming full-payment
-        # amounts — the task is amount-aware when refund_ids is given.
-        refund_ids = [
-            str(pk)
-            for pk in Refund.objects.filter(payment__in=refunded, status=Refund.RefundStatus.SUCCEEDED).values_list(
-                "pk", flat=True
-            )
-        ]
+        sid = rows[0].payment.stripe_session_id
+        # A payment may have only a partial refund (#865), so pass the actual Refund rows rather than
+        # assuming full-payment amounts: the task is amount-aware when refund_ids is given.
+        ids = list(dict.fromkeys(str(row.payment_id) for row in rows))
+        refund_ids = [str(row.pk) for row in rows]
 
         def _retry_credit_note() -> None:
             from events.tasks import generate_attendee_credit_note_task

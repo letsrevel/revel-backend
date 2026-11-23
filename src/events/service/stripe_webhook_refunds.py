@@ -11,17 +11,21 @@ orthogonal operations.
 
 import typing as t
 import uuid
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 import stripe
 import structlog
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q
+from django.utils import timezone
 
-from events.models import Payment, Refund
+from events.models import MembershipPayment, Payment, Refund, Ticket
+from events.models.attendee_invoice import AttendeeInvoiceCreditNote
 from events.service import refund_service
 from events.utils.currency import from_stripe_amount, to_stripe_amount
-from notifications.signals.payment import send_refund_unmatched
+from notifications.signals.payment import send_refund_failed, send_refund_unmatched, send_ticket_refund_failed
+from notifications.signals.ticket import staff_holder_name
 
 logger = structlog.get_logger(__name__)
 
@@ -46,6 +50,112 @@ def _distinct_remaining_amounts(payments: list[Payment]) -> set[tuple[int, str]]
     return {(to_stripe_amount(refund_service.remaining_refundable(p), p.currency), p.currency) for p in payments}
 
 
+# Stripe refund status -> the status of our Refund row. Only ``succeeded`` is money returned to the buyer.
+_STRIPE_REFUND_OUTCOMES: dict[str, Refund.RefundStatus] = {
+    "succeeded": Refund.RefundStatus.SUCCEEDED,
+    "pending": Refund.RefundStatus.PENDING,
+    "requires_action": Refund.RefundStatus.PENDING,
+    "failed": Refund.RefundStatus.FAILED,
+    "canceled": Refund.RefundStatus.FAILED,
+}
+
+
+def _stripe_refund_outcome(refund: dict[str, t.Any]) -> Refund.RefundStatus:
+    """Map the Stripe refund ``status`` to the status of our Refund row.
+
+    A missing or unknown status counts as pending, never as succeeded: Revel must not
+    treat money as returned that Stripe did not confirm. The next ``refund.updated``
+    event settles it. The warning makes a payload without the field visible.
+    """
+    status = refund.get("status")
+    outcome = _STRIPE_REFUND_OUTCOMES.get(status) if isinstance(status, str) else None
+    if outcome is None:
+        logger.warning(
+            "stripe_refund_status_missing" if status is None else "stripe_refund_status_unknown",
+            refund_id=refund.get("id"),
+            status=status,
+        )
+        return Refund.RefundStatus.PENDING
+    return outcome
+
+
+def _transition_refund_row(row: Refund, outcome: Refund.RefundStatus, failure_reason: str, refund_id: str) -> bool:
+    """Move a Refund row along its state machine; return True when the status changed.
+
+    - PENDING -> SUCCEEDED (stamps ``succeeded_at`` once).
+    - PENDING -> FAILED and SUCCEEDED -> FAILED (records ``failure_reason``).
+    - Everything else is a no-op. A row never goes back to PENDING, and FAILED is final,
+      so a stale or reordered event cannot undo a later one.
+
+    A blank ``stripe_refund_id`` is filled in even when the status does not change.
+    """
+    changed = True
+    if outcome == Refund.RefundStatus.SUCCEEDED and row.status == Refund.RefundStatus.PENDING:
+        row.status = Refund.RefundStatus.SUCCEEDED
+        row.failure_reason = ""
+        if row.succeeded_at is None:  # period attribution for revenue reports, never re-stamped on replay
+            row.succeeded_at = timezone.now()
+    elif outcome == Refund.RefundStatus.FAILED and row.status in (
+        Refund.RefundStatus.PENDING,
+        Refund.RefundStatus.SUCCEEDED,
+    ):
+        row.status = Refund.RefundStatus.FAILED
+        row.failure_reason = failure_reason
+        row.succeeded_at = None
+    else:
+        changed = False
+    if changed or not row.stripe_refund_id:
+        row.stripe_refund_id = row.stripe_refund_id or refund_id
+        row.save(update_fields=["status", "failure_reason", "succeeded_at", "stripe_refund_id", "updated_at"])
+    return changed
+
+
+@dataclass
+class FailedRefundRow:
+    """A Refund row that this delivery moved to FAILED (input for the alerts)."""
+
+    row: Refund
+    payment: Payment
+    refund: dict[str, t.Any]
+    previous_row_status: str
+    previous_payment_status: str
+
+
+@dataclass
+class ProcessedRefunds:
+    """What :meth:`TicketRefundHandlersMixin._process_refunds` changed.
+
+    Attributes:
+        newly_refunded_ids: Payment ids with a Refund row that became SUCCEEDED in this call.
+        newly_refund_row_ids: The pks of those Refund rows.
+        touched_session_id: The session id of the last such Payment, or None.
+        failures: The Refund rows that this call moved to FAILED.
+    """
+
+    newly_refunded_ids: list[str] = field(default_factory=list)
+    newly_refund_row_ids: list[str] = field(default_factory=list)
+    touched_session_id: str | None = None
+    failures: list[FailedRefundRow] = field(default_factory=list)
+
+
+@dataclass
+class _RefundBatch:
+    """Working state of one :meth:`TicketRefundHandlersMixin._process_refunds` call."""
+
+    by_id: dict[uuid.UUID, Payment]
+    previous_status: dict[uuid.UUID, str]
+    result: ProcessedRefunds = field(default_factory=ProcessedRefunds)
+    touched: dict[uuid.UUID, str] = field(default_factory=dict)  # payment pk -> id of the last refund that touched it
+    reopen: set[uuid.UUID] = field(default_factory=set)  # payments with a row that this call moved to FAILED
+    succeeded_payment_ids: set[uuid.UUID] = field(default_factory=set)
+
+    def row_became_succeeded(self, payment: Payment, row: Refund, refund_id: str) -> None:
+        """Record that ``row`` of ``payment`` is now SUCCEEDED."""
+        self.touched[payment.pk] = refund_id
+        self.succeeded_payment_ids.add(payment.pk)
+        self.result.newly_refund_row_ids.append(str(row.pk))
+
+
 def _safe_uuid_list(value: str) -> list[uuid.UUID]:
     """Parse a metadata-supplied uuid string, returning [] on garbage instead of raising."""
     try:
@@ -59,14 +169,62 @@ class TicketRefundHandlersMixin:
 
     if t.TYPE_CHECKING:
         # Provided by the host StripeEventHandler; declared for mypy only.
+        event: stripe.Event
+
         def _resolve_refunds(self, charge_data: dict[str, t.Any]) -> list[dict[str, t.Any]]: ...
+
+        def handle_refund_failure(self, event: stripe.Event) -> None:
+            """Log the orphaned-checkout refund alert (host handler)."""
+
+        def _handle_subscription_refund_object(self, event: stripe.Event, payment_intent_id: str) -> None: ...
+
+    @transaction.atomic
+    def handle_refund_event(self, event: stripe.Event) -> None:
+        """Apply a ``refund.updated`` or ``refund.failed`` event to the refund it describes (#1507).
+
+        ``charge.refunded`` carries the status of the refunds when it fires, but a refund settles
+        later: ``pending`` becomes ``succeeded``, or ``failed`` / ``canceled``. These events move
+        the Refund rows along the same code path as ``charge.refunded``.
+
+        The orphaned-checkout alert (:meth:`handle_refund_failure`, #1489) runs first and is
+        unchanged. It only acts on a payment intent that has no Payment row.
+        """
+        self.handle_refund_failure(event)
+        refund = event.data.object
+        payment_intent_id = refund.get("payment_intent")
+        if not payment_intent_id:
+            return
+        # Stripe payment intents are per purchase: a MembershipPayment on it means a subscription invoice.
+        if MembershipPayment.objects.filter(stripe_payment_intent_id=payment_intent_id).exists():
+            self._handle_subscription_refund_object(event, payment_intent_id)
+            return
+        self._handle_refund_object(event, payment_intent_id)
+
+    def _handle_refund_object(self, event: stripe.Event, payment_intent_id: str) -> None:
+        """Apply the refund object of a ``refund.*`` event to the ticket Payments of its intent.
+
+        The event carries the refund itself, so no Stripe call is needed. The unmatched-refund
+        notification stays with ``charge.refunded``: an ambiguous refund here is only logged.
+        """
+        # Cheap unlocked probe: an automatic refund of an orphaned session has no Payment row.
+        if not Payment.objects.filter(stripe_payment_intent_id=payment_intent_id).exists():
+            logger.debug("stripe_refund_event_unknown_intent", payment_intent_id=payment_intent_id)
+            return
+        self._lock_and_process_refunds(
+            refunds=[event.data.object],
+            payment_intent_id=payment_intent_id,
+            raw_response=dict(event),
+            notify_unmatched=False,
+            retry_duplicates=False,
+        )
 
     def _handle_ticket_refunds(self, event: stripe.Event, payment_intent_id: str) -> None:
         """Match each refund object in the charge to its specific ticket Payment row.
 
         Record-only: applying a match never cancels a ticket or reclaims tier
-        capacity (see :meth:`_apply_refund_to_payment`) — cancel and refund are
-        orthogonal operations.
+        capacity (see :meth:`_process_refunds`) — cancel and refund are
+        orthogonal operations. A refund counts as money returned only when its
+        Stripe status is ``succeeded`` (#1507).
 
         Matching strategy (first match wins):
           1. existing stripe_refund_id on a Payment or Refund row
@@ -97,6 +255,34 @@ class TicketRefundHandlersMixin:
             logger.warning("stripe_refund_event_no_refund_data", payment_intent_id=payment_intent_id)
             return
 
+        self._lock_and_process_refunds(
+            refunds=refunds,
+            payment_intent_id=payment_intent_id,
+            raw_response=dict(event),
+            notify_unmatched=True,
+            retry_duplicates=True,
+        )
+
+    def _lock_and_process_refunds(
+        self,
+        *,
+        refunds: list[dict[str, t.Any]],
+        payment_intent_id: str,
+        raw_response: dict[str, t.Any],
+        notify_unmatched: bool,
+        retry_duplicates: bool,
+    ) -> None:
+        """Lock the intent's Payment rows, apply the refunds, and schedule the credit note.
+
+        The refunds are already resolved, so no outbound Stripe call runs under the lock.
+
+        Args:
+            refunds: The Stripe refund object dicts to apply.
+            payment_intent_id: The Stripe payment intent id.
+            raw_response: The full serialised webhook event (for audit).
+            notify_unmatched: Whether an ambiguous refund raises the unmatched-refund notification.
+            retry_duplicates: Whether a delivery that changes nothing re-enqueues the credit note.
+        """
         # Lock Payment rows for the duration of this transaction. Stripe webhooks
         # are at-least-once, and a Stripe-Dashboard refund's webhook can also race
         # against an in-flight user-initiated cancel (which itself locks the same
@@ -113,27 +299,43 @@ class TicketRefundHandlersMixin:
             logger.warning("stripe_refund_unknown_intent", payment_intent_id=payment_intent_id)
             return
 
-        newly_refunded_ids, newly_refund_row_ids, touched_session_id = self._process_refunds(
+        processed = self._process_refunds(
             refunds=refunds,
             candidates=candidates,
-            raw_response=dict(event),
+            raw_response=raw_response,
             payment_intent_id=payment_intent_id,
+            notify_unmatched=notify_unmatched,
         )
 
-        self._schedule_credit_note(
-            payment_intent_id=payment_intent_id,
-            candidates=candidates,
-            newly_refunded_ids=newly_refunded_ids,
-            newly_refund_row_ids=newly_refund_row_ids,
-            touched_session_id=touched_session_id,
-        )
+        if processed.newly_refunded_ids or retry_duplicates:
+            self._schedule_credit_note(
+                payment_intent_id=payment_intent_id,
+                candidates=candidates,
+                newly_refunded_ids=processed.newly_refunded_ids,
+                newly_refund_row_ids=processed.newly_refund_row_ids,
+                touched_session_id=processed.touched_session_id,
+            )
 
         logger.info(
             "stripe_refund_processed",
             payment_intent_id=payment_intent_id,
             refund_count=len(refunds),
-            newly_refunded_payment_ids=newly_refunded_ids,
+            newly_refunded_payment_ids=processed.newly_refunded_ids,
         )
+
+    @staticmethod
+    def _existing_refund_rows(refund: dict[str, t.Any], candidates: list[Payment]) -> list[Refund]:
+        """Return the Refund rows of the candidates that already belong to this Stripe refund.
+
+        A row belongs to it when it carries the Stripe refund id (a replay, or one row of a
+        batch refund) or when the refund metadata points at it (``refund_id``, set on every
+        refund issued through Revel). One query, whatever the number of candidates.
+        """
+        refund_id: str | None = refund.get("id")
+        match = Q(pk__in=_safe_uuid_list((refund.get("metadata") or {}).get("refund_id") or ""))
+        if refund_id:
+            match |= Q(stripe_refund_id=refund_id)
+        return list(Refund.objects.filter(match, payment__in=candidates).order_by("created_at", "pk"))
 
     def _process_refunds(
         self,
@@ -142,28 +344,64 @@ class TicketRefundHandlersMixin:
         candidates: list[Payment],
         raw_response: dict[str, t.Any],
         payment_intent_id: str,
-    ) -> tuple[list[str], list[str], str | None]:
-        """Match each refund to its Payment(s) and apply it.
+        notify_unmatched: bool = True,
+    ) -> ProcessedRefunds:
+        """Match each refund to its Payment(s) and apply its Stripe status.
 
-        Record-only — see :meth:`_apply_refund_to_payment`.
+        Record-only: a refund never cancels a ticket or releases tier capacity.
+
+        For each refund, in this order:
+
+        1. A refund that already has Refund rows (by Stripe id or metadata pointer, fan-out
+           safe) moves those rows along :func:`_transition_refund_row`.
+        2. A refund with no row and a ``succeeded`` or ``pending`` status is matched to
+           its Payment(s) and gets a new row with that status.
+        3. A ``failed`` refund with no row changes nothing (it never counted).
+        4. An ambiguous refund changes nothing; ``charge.refunded`` raises the unmatched notification.
+
+        The rows that exist move first and their Payment totals are synced; only then are the refunds
+        with no row matched, so a refund that failed in this batch has reopened its Payment by then.
+        The totals are synced again after the new rows.
 
         Args:
-            refunds: The charge's refund object dicts (from _resolve_refunds).
+            refunds: The refund object dicts (from ``_resolve_refunds`` or the refund event).
             candidates: All locked Payment rows for this intent.
             raw_response: The full serialised webhook event (for audit).
             payment_intent_id: Stripe payment intent id (logging only).
+            notify_unmatched: Whether an ambiguous refund raises the unmatched-refund notification.
 
         Returns:
-            A ``(newly_refunded_ids, newly_refund_row_ids, touched_session_id)``
-            tuple: the Payment ids mutated in this call, the pks of the Refund
-            rows applied, and the session id of the last mutated Payment (or
-            None).
+            What changed: see :class:`ProcessedRefunds`.
         """
-        touched_session_id: str | None = None
-        newly_refunded_ids: list[str] = []
-        newly_refund_row_ids: list[str] = []
+        batch = _RefundBatch(by_id={p.pk: p for p in candidates}, previous_status={p.pk: p.status for p in candidates})
 
+        # Pass 1: move the rows that exist. Their totals are synced before any new row is matched, so
+        # a refund that failed in this batch has already reopened its Payment when the next one matches.
+        new_refunds: list[tuple[dict[str, t.Any], Refund.RefundStatus]] = []
         for refund in refunds:
+            outcome = _stripe_refund_outcome(refund)
+            rows = self._existing_refund_rows(refund, candidates)
+            if rows:
+                self._transition_existing_rows(batch, rows, refund, outcome)
+            else:
+                new_refunds.append((refund, outcome))
+        self._sync_batch_totals(batch, raw_response)
+
+        # Pass 2: the refunds with no row yet.
+        for refund, outcome in new_refunds:
+            refund_id = str(refund.get("id") or "")
+            if outcome == Refund.RefundStatus.FAILED:
+                # ponytail: no money moved, so Revel records nothing for a failed refund it has no row for; a
+                # late charge.refunded that carries the failed status records nothing either. Upgrade path: a
+                # table keyed by stripe_refund_id, if an audit of unknown refunds is ever needed.
+                logger.info(
+                    "stripe_refund_failed_unknown",
+                    payment_intent_id=payment_intent_id,
+                    refund_id=refund_id,
+                    status=refund.get("status"),
+                )
+                continue
+
             matched = self._match_refund_to_payments(refund, candidates)
             if not matched:
                 logger.warning(
@@ -176,35 +414,164 @@ class TicketRefundHandlersMixin:
                         f"{c.amount}{c.currency}" for c in candidates if c.status != Payment.PaymentStatus.REFUNDED
                     ],
                 )
-                self._notify_unmatched_refund(refund, candidates, payment_intent_id)
+                if notify_unmatched:
+                    self._notify_unmatched_refund(refund, candidates, payment_intent_id)
                 continue
-            # Branch 4 fans out a single refund across N Payments — each gets its
-            # own remaining refundable amount, not the aggregate and not its gross
-            # amount. Branches 1-3 always return one row.
-            is_full_batch = len(matched) > 1
-            # One query for the whole batch rather than one `.exists()` per payment —
-            # `matched` can hold N rows already under select_for_update, and a
-            # per-payment query here would turn into O(N) round trips held under
-            # those locks (same rationale as `_match_by_known_refund_id`).
-            already_applied_ids = set(
-                Refund.objects.filter(
-                    payment__in=matched, stripe_refund_id=refund["id"], status=Refund.RefundStatus.SUCCEEDED
-                ).values_list("payment_id", flat=True)
-            )
-            for payment in matched:
-                if payment.id in already_applied_ids:
-                    continue  # idempotent replay of this specific refund
-                allocated_amount = (
-                    refund_service.remaining_refundable(payment)
-                    if is_full_batch
-                    else from_stripe_amount(int(refund.get("amount", 0)), payment.currency)
-                )
-                refund_row = self._apply_refund_to_payment(payment, refund, raw_response, allocated_amount)
-                newly_refunded_ids.append(str(payment.id))
-                newly_refund_row_ids.append(str(refund_row.pk))
-                touched_session_id = payment.stripe_session_id
+            self._create_refund_rows(batch, matched, refund, outcome)
+        self._sync_batch_totals(batch, raw_response)
 
-        return newly_refunded_ids, newly_refund_row_ids, touched_session_id
+        result = batch.result
+        self._report_failed_refunds(result.failures, payment_intent_id)
+        return result
+
+    def _sync_batch_totals(self, batch: _RefundBatch, raw_response: dict[str, t.Any]) -> None:
+        """Recompute the totals of the Payments touched since the last call, then reset the batch marks."""
+        for payment_pk, last_refund_id in batch.touched.items():
+            payment = batch.by_id[payment_pk]
+            self._sync_payment_refund_totals(
+                payment, raw_response, refund_id=last_refund_id, may_reopen=payment_pk in batch.reopen
+            )
+            if payment_pk in batch.succeeded_payment_ids:
+                if str(payment.id) not in batch.result.newly_refunded_ids:
+                    batch.result.newly_refunded_ids.append(str(payment.id))
+                batch.result.touched_session_id = payment.stripe_session_id
+        batch.touched.clear()
+        batch.reopen.clear()
+        batch.succeeded_payment_ids.clear()
+
+    @staticmethod
+    def _transition_existing_rows(
+        batch: _RefundBatch, rows: list[Refund], refund: dict[str, t.Any], outcome: Refund.RefundStatus
+    ) -> None:
+        """Move the existing Refund rows of ``refund`` to its Stripe status; record what changed."""
+        refund_id = str(refund.get("id") or "")
+        failure_reason = str(refund.get("failure_reason") or "")
+        for row in rows:
+            before = row.status
+            if not _transition_refund_row(row, outcome, failure_reason, refund_id):
+                continue
+            payment = batch.by_id[row.payment_id]
+            if row.status == Refund.RefundStatus.SUCCEEDED:
+                batch.row_became_succeeded(payment, row, refund_id)
+                continue
+            batch.touched[payment.pk] = refund_id
+            batch.reopen.add(payment.pk)
+            batch.result.failures.append(
+                FailedRefundRow(
+                    row=row,
+                    payment=payment,
+                    refund=refund,
+                    previous_row_status=before,
+                    previous_payment_status=batch.previous_status[payment.pk],
+                )
+            )
+
+    @staticmethod
+    def _create_refund_rows(
+        batch: _RefundBatch, matched: list[Payment], refund: dict[str, t.Any], outcome: Refund.RefundStatus
+    ) -> None:
+        """Create a Refund row with the Stripe status for each Payment the refund matched."""
+        refund_id = str(refund.get("id") or "")
+        # Branch 4 fans out a single refund across N Payments — each gets its
+        # own remaining refundable amount, not the aggregate and not its gross
+        # amount. Branches 1-3 always return one row.
+        is_full_batch = len(matched) > 1
+        for payment in matched:
+            allocated_amount = (
+                refund_service.remaining_refundable(payment)
+                if is_full_batch
+                else from_stripe_amount(int(refund.get("amount", 0)), payment.currency)
+            )
+            row = Refund(
+                payment=payment,
+                amount=allocated_amount,
+                currency=payment.currency,
+                source=Refund.Source.STRIPE_DASHBOARD,
+                stripe_refund_id=refund_id,
+                status=outcome,
+                succeeded_at=timezone.now() if outcome == Refund.RefundStatus.SUCCEEDED else None,
+            )
+            # ponytail: a stale embedded charge.refunded (unpinned endpoints only) can create a PENDING row for a
+            # refund whose final refund.* event was already consumed; that row never settles. Upgrade path: a
+            # sweep that re-checks old PENDING rows with Stripe.
+            row.save()
+            if outcome == Refund.RefundStatus.SUCCEEDED:
+                batch.row_became_succeeded(payment, row, refund_id)
+            else:
+                batch.touched[payment.pk] = refund_id
+
+    @staticmethod
+    def _report_failed_refunds(failures: list[FailedRefundRow], payment_intent_id: str) -> None:
+        """Alert for each Refund row that this delivery moved to FAILED (#1507).
+
+        - An ERROR log ``ticket_refund_failed`` per row (ids only), for the Loki ruler alert.
+        - One staff notification per Stripe refund: the owners and the staff with ``manage_tickets``
+          learn that the buyer did not get the money back.
+        - A buyer notification per Payment that was REFUNDED before this delivery and is not REFUNDED
+          at the end of it: the buyer got a "ticket refunded" email, so the buyer now hears that it
+          failed, once per Payment, for the sum of its failed refunds. A new refund in the same batch can
+          refund the Payment again; then the buyer hears nothing.
+
+        Revel does not reverse an issued credit note. The staff notification says so.
+        Runs inside the webhook's atomic block, like the unmatched-refund notification.
+        """
+        if not failures:
+            return
+        tickets = Ticket.objects.select_related("event__organization", "user").in_bulk(
+            [f.payment.ticket_id for f in failures]
+        )
+        credit_notes: dict[uuid.UUID, list[str]] = {}
+        for row_id, number in AttendeeInvoiceCreditNote.objects.filter(
+            refunds__in=[f.row for f in failures]
+        ).values_list("refunds", "credit_note_number"):
+            credit_notes.setdefault(row_id, []).append(number)
+
+        staff_groups: dict[str, list[FailedRefundRow]] = {}
+        buyer_corrections: dict[uuid.UUID, list[FailedRefundRow]] = {}
+        for failure in failures:
+            ticket = tickets[failure.payment.ticket_id]
+            logger.error(
+                "ticket_refund_failed",
+                payment_id=str(failure.payment.id),
+                payment_intent_id=payment_intent_id,
+                organization_id=str(ticket.event.organization_id),
+                event_id=str(ticket.event_id),
+                ticket_id=str(ticket.id),
+                refund_id=failure.refund.get("id"),
+                status=failure.refund.get("status"),
+                failure_reason=failure.refund.get("failure_reason"),
+                previous_status=failure.previous_row_status,
+                credit_note_issued=failure.row.pk in credit_notes,
+            )
+            staff_groups.setdefault(str(failure.refund.get("id") or ""), []).append(failure)
+            # A later refund of the same batch may have refunded the Payment again: then no failure to report.
+            if (
+                failure.previous_payment_status == Payment.PaymentStatus.REFUNDED
+                and failure.payment.status != Payment.PaymentStatus.REFUNDED
+            ):
+                buyer_corrections.setdefault(failure.payment.pk, []).append(failure)
+
+        # One message per reopened Payment, whatever the number of refunds that stopped counting.
+        for group in buyer_corrections.values():
+            send_ticket_refund_failed(
+                payment=group[0].payment, refund_amount=sum((f.row.amount for f in group), Decimal("0"))
+            )
+
+        for refund_id, group in staff_groups.items():
+            first = group[0]
+            ticket = tickets[first.payment.ticket_id]
+            send_refund_failed(
+                organization=ticket.event.organization,
+                refund_id=refund_id,
+                payment_intent_id=payment_intent_id,
+                refund_amount=sum((f.row.amount for f in group), Decimal("0")),
+                currency=first.row.currency,
+                failure_reason=first.row.failure_reason,
+                holder_name=staff_holder_name(ticket),
+                holder_email=ticket.user.email,
+                ticket=ticket,
+                credit_note_numbers=sorted({n for f in group for n in credit_notes.get(f.row.pk, [])}),
+            )
 
     def _notify_unmatched_refund(
         self, refund: dict[str, t.Any], candidates: list[Payment], payment_intent_id: str
@@ -278,19 +645,18 @@ class TicketRefundHandlersMixin:
             transaction.on_commit(_trigger_credit_note)
             return
 
-        # refund_status flips to SUCCEEDED on any successful refund, full or
-        # partial (#865) — so this also covers candidates that only ever had a
-        # partial refund applied. Harmless: the retry is idempotent downstream.
-        if not newly_refunded_ids and all(p.refund_status == Payment.RefundStatus.SUCCEEDED for p in candidates):
+        # Gate on SUCCEEDED Refund rows, not on refund_status: a SUCCEEDED partial refund next to a PENDING
+        # one leaves refund_status PENDING. The retry is idempotent downstream.
+        succeeded_rows = list(
+            Refund.objects.filter(payment__in=candidates, status=Refund.RefundStatus.SUCCEEDED).values_list(
+                "pk", "payment_id"
+            )
+        )
+        if not newly_refunded_ids and {pid for _, pid in succeeded_rows} >= {p.pk for p in candidates}:
             # Pure duplicate webhook — every candidate is already refunded.
             dup_sid = candidates[0].stripe_session_id
             dup_ids = [str(p.id) for p in candidates]
-            dup_refund_ids = [
-                str(pk)
-                for pk in Refund.objects.filter(
-                    payment__in=candidates, status=Refund.RefundStatus.SUCCEEDED
-                ).values_list("pk", flat=True)
-            ]
+            dup_refund_ids = [str(pk) for pk, _ in succeeded_rows]
 
             def _retry_credit_note() -> None:
                 from events.tasks import generate_attendee_credit_note_task
@@ -425,81 +791,62 @@ class TicketRefundHandlersMixin:
         # Branch 5: ambiguous.
         return []
 
-    def _apply_refund_to_payment(
-        self,
-        payment: Payment,
-        refund: dict[str, t.Any],
-        raw_response: dict[str, t.Any],
-        allocated_amount: Decimal,
-    ) -> Refund:
-        """Persist refund data onto its Refund row and the Payment. Record-only.
+    def _sync_payment_refund_totals(
+        self, payment: Payment, raw_response: dict[str, t.Any], *, refund_id: str, may_reopen: bool
+    ) -> None:
+        """Recompute the Payment's refund fields from its Refund rows. Record-only.
 
-        Refunds no longer cancel tickets: cancel and refund are orthogonal
-        operations, and a Stripe-Dashboard refund leaves the ticket valid until
-        the organizer explicitly cancels it.
+        - ``refund_amount`` is the sum of the SUCCEEDED rows (None when there is none).
+        - ``refund_status`` is PENDING while a row is PENDING, else SUCCEEDED once money
+          returned, else FAILED when a row failed.
+        - The Payment becomes REFUNDED when the SUCCEEDED rows cover its amount. The
+          ``save()`` sends the buyer the refunded email (``payment`` signal).
+        - ``may_reopen``: a row failed in this delivery, so a REFUNDED Payment that the
+          SUCCEEDED rows no longer cover goes back to SUCCEEDED. This uses a queryset
+          ``update()`` on purpose: a ``save()`` here would fire the payment signal and
+          email the buyer a payment confirmation for the status change.
 
         Args:
-            payment: The Payment instance to update.
-            refund: The Stripe refund object dict.
+            payment: The locked Payment.
             raw_response: The full serialised webhook event (for audit).
-            allocated_amount: The refund amount attributable to THIS Payment in
-                major currency units. For single-Payment matches this equals the
-                Stripe refund amount converted from smallest units; for a
-                full-batch sweep (Branch 4) this equals the payment's own
-                remaining refundable balance, not its gross amount. Only used
-                when no existing Refund row is found for this refund — a
-                pre-existing (e.g. PENDING, app-initiated) row keeps its own
-                requested amount.
-
-        Returns:
-            The Refund row this webhook applied — used to thread refund ids
-            through to the amount-aware credit note task.
+            refund_id: The Stripe refund id that touched the Payment last.
+            may_reopen: Whether a REFUNDED Payment may go back to SUCCEEDED.
         """
-        from django.utils import timezone
+        rows = list(payment.refunds.all())
+        succeeded = [r for r in rows if r.status == Refund.RefundStatus.SUCCEEDED]
+        failed = [r for r in rows if r.status == Refund.RefundStatus.FAILED]
+        total = sum((r.amount for r in succeeded), Decimal("0"))
 
-        refund_id: str = refund["id"]
-        metadata_refund_id = (refund.get("metadata") or {}).get("refund_id")
+        refund_status: Payment.RefundStatus | None
+        if any(r.status == Refund.RefundStatus.PENDING for r in rows):
+            refund_status = Payment.RefundStatus.PENDING
+        elif total > 0:
+            refund_status = Payment.RefundStatus.SUCCEEDED
+        elif failed:
+            refund_status = Payment.RefundStatus.FAILED
+        else:
+            refund_status = None
 
-        row: Refund | None = None
-        if metadata_refund_id:
-            row = Refund.objects.filter(pk__in=_safe_uuid_list(metadata_refund_id), payment=payment).first()
-        if row is None:
-            row = Refund.objects.filter(payment=payment, stripe_refund_id=refund_id).first()
-        if row is None:
-            row = Refund(
-                payment=payment,
-                amount=allocated_amount,
-                currency=payment.currency,
-                source=Refund.Source.STRIPE_DASHBOARD,
+        fields: dict[str, t.Any] = {
+            "stripe_refund_id": refund_id,
+            "refund_amount": total if total > 0 else None,
+            "refund_status": refund_status,
+            "refund_failure_reason": failed[-1].failure_reason if refund_status == Payment.RefundStatus.FAILED else "",
+            "refunded_at": max((r.succeeded_at or r.updated_at for r in succeeded), default=None),
+            "raw_response": raw_response,
+        }
+
+        if total > 0 and total >= payment.amount:
+            fields["status"] = Payment.PaymentStatus.REFUNDED
+        elif may_reopen and payment.status == Payment.PaymentStatus.REFUNDED:
+            Payment.objects.filter(pk=payment.pk).update(
+                status=Payment.PaymentStatus.SUCCEEDED, updated_at=timezone.now(), **fields
             )
-        now = timezone.now()
-        row.stripe_refund_id = refund_id
-        row.status = Refund.RefundStatus.SUCCEEDED
-        if row.succeeded_at is None:  # period attribution for revenue reports — never re-stamped on replay
-            row.succeeded_at = now
-        row.failure_reason = ""
-        row.save()
+            payment.status = Payment.PaymentStatus.SUCCEEDED
+            for name, value in fields.items():
+                setattr(payment, name, value)
+            return
 
-        total = payment.refunds.filter(status=Refund.RefundStatus.SUCCEEDED).aggregate(total=Sum("amount"))[
-            "total"
-        ] or Decimal("0")
-        payment.stripe_refund_id = refund_id
-        payment.refund_amount = total
-        payment.refund_status = Payment.RefundStatus.SUCCEEDED
-        payment.refunded_at = now
-        payment.refund_failure_reason = ""
-        if total >= payment.amount:
-            payment.status = Payment.PaymentStatus.REFUNDED
-        payment.raw_response = raw_response
-        payment.save(
-            update_fields=[
-                "stripe_refund_id",
-                "refund_amount",
-                "refund_status",
-                "refunded_at",
-                "status",
-                "raw_response",
-                "refund_failure_reason",
-            ]
-        )
-        return row
+        for name, value in fields.items():
+            setattr(payment, name, value)
+        payment.save(update_fields=[*fields, "updated_at"])

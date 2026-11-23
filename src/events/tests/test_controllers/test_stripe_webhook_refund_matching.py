@@ -52,7 +52,7 @@ class TestChargeRefundedMatching:
         target.refund_status = Payment.RefundStatus.PENDING
         target.save(update_fields=["stripe_refund_id", "refund_status"])
 
-        refund: dict[str, t.Any] = {"id": "re_already_recorded", "amount": 4000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_already_recorded", "amount": 4000, "status": "succeeded", "metadata": {}}
         event = _charge_event("pi_batch", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
 
@@ -71,6 +71,7 @@ class TestChargeRefundedMatching:
         target = payments[2]
         refund: dict[str, t.Any] = {
             "id": "re_new",
+            "status": "succeeded",
             "amount": 4000,
             "metadata": {"ticket_id": str(target.ticket_id)},
         }
@@ -94,7 +95,12 @@ class TestChargeRefundedMatching:
         Payment.objects.filter(pk=target.pk).update(
             refund_status=Payment.RefundStatus.FAILED, refund_failure_reason="earlier attempt failed"
         )
-        refund: dict[str, t.Any] = {"id": "re_later", "amount": 4000, "metadata": {"ticket_id": str(target.ticket_id)}}
+        refund: dict[str, t.Any] = {
+            "id": "re_later",
+            "amount": 4000,
+            "status": "succeeded",
+            "metadata": {"ticket_id": str(target.ticket_id)},
+        }
         event = _charge_event("pi_batch", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
 
@@ -111,7 +117,7 @@ class TestChargeRefundedMatching:
             refund_status=Payment.RefundStatus.SUCCEEDED, status=Payment.PaymentStatus.REFUNDED
         )
 
-        refund: dict[str, t.Any] = {"id": "re_new", "amount": 4000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_new", "amount": 4000, "status": "succeeded", "metadata": {}}
         event = _charge_event("pi_batch", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
         payments[0].refresh_from_db()
@@ -123,7 +129,7 @@ class TestChargeRefundedMatching:
         tier_id = payments[0].ticket.tier_id
         TicketTier.objects.filter(pk=tier_id).update(quantity_sold=4)
         total_cents = int(sum(p.amount for p in payments) * 100)
-        refund: dict[str, t.Any] = {"id": "re_full", "amount": total_cents, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_full", "amount": total_cents, "status": "succeeded", "metadata": {}}
         event = _charge_event("pi_batch", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
         for p in payments:
@@ -142,7 +148,12 @@ class TestChargeRefundedMatching:
         payments = batch_of_4_online_payments
         # All payments cost the same AND amount doesn't equal full intent.
         _batch(payments, "pi_batch")
-        refund: dict[str, t.Any] = {"id": "re_ambig", "amount": 4000, "metadata": {}}  # matches any single payment
+        refund: dict[str, t.Any] = {
+            "id": "re_ambig",
+            "amount": 4000,
+            "status": "succeeded",
+            "metadata": {},
+        }  # matches any single payment
         event = _charge_event("pi_batch", [refund])
         with caplog.at_level("WARNING", logger="events.service.stripe_webhook_refunds"):
             StripeEventHandler(event).handle_charge_refunded(event)
@@ -162,7 +173,12 @@ class TestChargeRefundedMatching:
         target.refund_status = Payment.RefundStatus.SUCCEEDED
         target.status = Payment.PaymentStatus.REFUNDED
         target.save(update_fields=["stripe_refund_id", "refund_status", "status"])
-        refund: dict[str, t.Any] = {"id": "re_a", "amount": int(target.amount * 100), "metadata": {}}
+        refund: dict[str, t.Any] = {
+            "id": "re_a",
+            "amount": int(target.amount * 100),
+            "status": "succeeded",
+            "metadata": {},
+        }
         # Replay — should be a no-op.
         event = _charge_event("pi_batch", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
@@ -178,7 +194,12 @@ class TestRefundsFetchedOutbound:
         payments = batch_of_4_online_payments
         _batch(payments, "pi_pinned")
         target = payments[1]
-        refund: dict[str, t.Any] = {"id": "re_api_1", "amount": 4000, "metadata": {"ticket_id": str(target.ticket_id)}}
+        refund: dict[str, t.Any] = {
+            "id": "re_api_1",
+            "amount": 4000,
+            "status": "succeeded",
+            "metadata": {"ticket_id": str(target.ticket_id)},
+        }
         event = _charge_event("pi_pinned", refunds=None)
 
         with patch.object(stripe.Refund, "list") as list_mock:
@@ -195,7 +216,12 @@ class TestRefundsFetchedOutbound:
         payments = batch_of_4_online_payments
         _batch(payments, "pi_pinned_conn")
         target = payments[0]
-        refund: dict[str, t.Any] = {"id": "re_api_2", "amount": 4000, "metadata": {"ticket_id": str(target.ticket_id)}}
+        refund: dict[str, t.Any] = {
+            "id": "re_api_2",
+            "amount": 4000,
+            "status": "succeeded",
+            "metadata": {"ticket_id": str(target.ticket_id)},
+        }
         event = _charge_event("pi_pinned_conn", refunds=None, account="acct_conn_42")
 
         with patch.object(stripe.Refund, "list") as list_mock:
@@ -256,7 +282,7 @@ class TestNonUniformBatchRefunds:
         _batch([payment_a, payment_b], "pi_mixed")
 
         # Goodwill refund of 30.00 issued on ticket A from the Stripe Dashboard.
-        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "status": "succeeded", "metadata": {}}
         event = _charge_event("pi_mixed", [refund])
         with caplog.at_level("WARNING", logger="events.service.stripe_webhook_refunds"):
             StripeEventHandler(event).handle_charge_refunded(event)
@@ -306,7 +332,7 @@ class TestRemainingBasedMatching:
         )
 
         # A dashboard refund for exactly the combined remainder: 25.00 (A) + 40.00 (B).
-        refund: dict[str, t.Any] = {"id": "re_remainder", "amount": 6500, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_remainder", "amount": 6500, "status": "succeeded", "metadata": {}}
         event = _charge_event("pi_partial_then_full", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
 
@@ -350,7 +376,7 @@ class TestRemainingBasedMatching:
 
         # 10.00 matches A's remaining exactly — a gross-amount comparison (40.00)
         # would have missed this and fallen through to Branch 5.
-        refund: dict[str, t.Any] = {"id": "re_exact_remaining", "amount": 1000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_exact_remaining", "amount": 1000, "status": "succeeded", "metadata": {}}
         event = _charge_event("pi_remaining_exact", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
 

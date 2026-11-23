@@ -73,7 +73,7 @@ def mixed_price_batch(
 class TestUnmatchedRefundNotification:
     def test_non_uniform_decline_notifies_staff(self, mixed_price_batch: list[Payment]) -> None:
         """Branch 3's refusal on a mixed-price batch must reach the organizer."""
-        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "status": "succeeded", "metadata": {}}
         event = _charge_event("pi_mixed", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
 
@@ -90,7 +90,7 @@ class TestUnmatchedRefundNotification:
     def test_ambiguous_decline_notifies_staff(self, batch_of_4_online_payments: list[Payment]) -> None:
         """Branch 5 declines a uniform batch too — same operator-visible outcome."""
         _batch(batch_of_4_online_payments, "pi_batch")
-        refund: dict[str, t.Any] = {"id": "re_ambig", "amount": 4000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_ambig", "amount": 4000, "status": "succeeded", "metadata": {}}
         event = _charge_event("pi_batch", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
 
@@ -109,6 +109,7 @@ class TestUnmatchedRefundNotification:
         target = payments[2]
         refund: dict[str, t.Any] = {
             "id": "re_revel",
+            "status": "succeeded",
             "amount": 4000,
             "metadata": {"ticket_id": str(target.ticket_id)},
         }
@@ -121,7 +122,7 @@ class TestUnmatchedRefundNotification:
 
     def test_redelivered_webhook_does_not_notify_twice(self, mixed_price_batch: list[Payment]) -> None:
         """Stripe redelivers; the StripeWebhookEvent dedup row must absorb the repeat."""
-        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "status": "succeeded", "metadata": {}}
         handle_event(_charge_event("pi_mixed", [refund]))
         assert len(_unmatched_notifications()) == 1
 
@@ -133,7 +134,7 @@ class TestUnmatchedRefundNotification:
         Payment.objects.filter(pk__in=[p.pk for p in mixed_price_batch]).update(
             refund_status=Payment.RefundStatus.SUCCEEDED, status=Payment.PaymentStatus.REFUNDED
         )
-        refund: dict[str, t.Any] = {"id": "re_late", "amount": 3000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_late", "amount": 3000, "status": "succeeded", "metadata": {}}
         event = _charge_event("pi_mixed", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
 
@@ -147,7 +148,7 @@ class TestUnmatchedRefundNotification:
         The documented trap: a ``.delay()`` fired inside the atomic block would
         race the worker against an uncommitted row.
         """
-        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "status": "succeeded", "metadata": {}}
         event = _charge_event("pi_mixed", [refund])
 
         with patch("notifications.tasks.dispatch_notification.delay") as delay:
@@ -160,7 +161,7 @@ class TestUnmatchedRefundNotification:
 
     def test_rendered_message_names_what_the_operator_needs(self, mixed_price_batch: list[Payment]) -> None:
         """Title and body must carry the intent, the amount, and the candidate tickets."""
-        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "status": "succeeded", "metadata": {}}
         event = _charge_event("pi_mixed", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
 
@@ -194,7 +195,7 @@ class TestResolveLink:
     """
 
     def test_context_carries_a_link_to_the_filtered_ticket_admin(self, mixed_price_batch: list[Payment]) -> None:
-        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "status": "succeeded", "metadata": {}}
         StripeEventHandler(_charge_event("pi_mixed", [refund])).handle_charge_refunded(
             _charge_event("pi_mixed", [refund])
         )
@@ -208,7 +209,7 @@ class TestResolveLink:
 
     def test_every_channel_renders_the_link(self, mixed_price_batch: list[Payment]) -> None:
         """A channel that drops the link leaves that operator with nowhere to go."""
-        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_dashboard", "amount": 3000, "status": "succeeded", "metadata": {}}
         StripeEventHandler(_charge_event("pi_mixed", [refund])).handle_charge_refunded(
             _charge_event("pi_mixed", [refund])
         )

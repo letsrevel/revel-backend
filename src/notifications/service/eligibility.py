@@ -279,6 +279,7 @@ NOTIFICATION_REQUIRED_PERMISSIONS: dict[NotificationType, str] = {
     NotificationType.STAFF_TICKET_REFUNDED: "manage_tickets",
     NotificationType.STAFF_PAYMENT_DISPUTED: "manage_tickets",
     NotificationType.REFUND_UNMATCHED: "manage_tickets",
+    NotificationType.REFUND_FAILED: "manage_tickets",
     NotificationType.EVENT_REFUND_SUMMARY: "manage_tickets",
     NotificationType.FISCAL_DOCUMENT_SKIPPED: "manage_tickets",
     NotificationType.STAFF_SERIES_PASS_PURCHASED: "manage_tickets",

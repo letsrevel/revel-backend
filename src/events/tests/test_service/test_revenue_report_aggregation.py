@@ -226,6 +226,65 @@ def test_refund_row_without_succeeded_at_falls_back_to_updated_at(
     assert section.refunds_total == Decimal("40.00")
 
 
+def _stripe_refund(status: str) -> dict[str, t.Any]:
+    return {
+        "object": "refund",
+        "id": "re_rev",
+        "amount": 4000,
+        "status": status,
+        "payment_intent": "pi_rev",
+        "charge": "ch_rev",
+        "metadata": {},
+    }
+
+
+def _stripe_event(event_type: str, obj: dict[str, t.Any], event_id: str) -> t.Any:
+    import stripe
+
+    payload = {"id": event_id, "type": event_type, "livemode": False, "data": {"object": obj}}
+    return stripe.Event.construct_from(payload, "sk_test")
+
+
+@pytest.mark.django_db
+def test_a_pending_refund_is_booked_when_it_succeeds_and_dropped_when_it_fails(
+    org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
+) -> None:
+    """Revenue books a refund only once Stripe confirms it, and drops it again if it fails later (#1507)."""
+    from unittest.mock import patch
+
+    from events.service.stripe_webhooks import handle_event
+
+    org, event, tier, user = org_event_tier
+    ticket = Ticket.objects.create(
+        event=event, tier=tier, user=user, status=Ticket.TicketStatus.ACTIVE, guest_name="Gus"
+    )
+    Payment.objects.create(
+        ticket=ticket,
+        user=user,
+        status=Payment.PaymentStatus.SUCCEEDED,
+        amount=Decimal("40.00"),
+        currency="EUR",
+        platform_fee=Decimal("0.00"),
+        stripe_session_id="cs_rev",
+        stripe_payment_intent_id="pi_rev",
+    )
+
+    def refunds_total() -> Decimal:
+        data = svc.build_revenue_report_data(_scope(org))
+        return next(s for s in data.sections if s.currency == "EUR").refunds_total
+
+    charge = {"id": "ch_rev", "payment_intent": "pi_rev", "refunds": {"data": [_stripe_refund("pending")]}}
+    with patch("events.tasks.generate_attendee_credit_note_task.delay"):
+        handle_event(_stripe_event("charge.refunded", charge, "evt_rev_1"))
+        assert refunds_total() == Decimal("0.00")
+
+        handle_event(_stripe_event("refund.updated", _stripe_refund("succeeded"), "evt_rev_2"))
+        assert refunds_total() == Decimal("40.00")
+
+        handle_event(_stripe_event("refund.failed", _stripe_refund("failed"), "evt_rev_3"))
+        assert refunds_total() == Decimal("0.00")
+
+
 @pytest.mark.django_db
 def test_vat_rate_bucket_label_is_human_readable(
     org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],

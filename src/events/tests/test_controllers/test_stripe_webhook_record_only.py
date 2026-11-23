@@ -78,7 +78,7 @@ class TestRecordOnlyRefunds:
         TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=1)
         payment = _single_payment(payment_factory, ticket_factory, tier, "pi_dashboard_full")
 
-        refund: dict[str, t.Any] = {"id": "re_full", "amount": 4000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_full", "amount": 4000, "status": "succeeded", "metadata": {}}
         event = _charge_event("pi_dashboard_full", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
 
@@ -110,7 +110,7 @@ class TestRecordOnlyRefunds:
         tier = tier_online_with_cancellation_enabled
         payment = _single_payment(payment_factory, ticket_factory, tier, "pi_dashboard_partial")
 
-        refund: dict[str, t.Any] = {"id": "re_partial", "amount": 1000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_partial", "amount": 1000, "status": "succeeded", "metadata": {}}
         event = _charge_event("pi_dashboard_partial", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
 
@@ -133,11 +133,11 @@ class TestRecordOnlyRefunds:
         tier = tier_online_with_cancellation_enabled
         payment = _single_payment(payment_factory, ticket_factory, tier, "pi_dashboard_accum")
 
-        first: dict[str, t.Any] = {"id": "re_1", "amount": 1000, "metadata": {}}
+        first: dict[str, t.Any] = {"id": "re_1", "amount": 1000, "status": "succeeded", "metadata": {}}
         first_event = _charge_event("pi_dashboard_accum", [first])
         StripeEventHandler(first_event).handle_charge_refunded(first_event)
 
-        second: dict[str, t.Any] = {"id": "re_2", "amount": 1500, "metadata": {}}
+        second: dict[str, t.Any] = {"id": "re_2", "amount": 1500, "status": "succeeded", "metadata": {}}
         second_event = _charge_event("pi_dashboard_accum", [second])
         StripeEventHandler(second_event).handle_charge_refunded(second_event)
 
@@ -164,6 +164,7 @@ class TestRecordOnlyRefunds:
 
         refund: dict[str, t.Any] = {
             "id": "re_app",
+            "status": "succeeded",
             "amount": 4000,
             "metadata": {"refund_id": str(pending_row.pk)},
         }
@@ -191,7 +192,7 @@ class TestRecordOnlyRefunds:
         tier = tier_online_with_cancellation_enabled
         payment = _single_payment(payment_factory, ticket_factory, tier, "pi_replay")
 
-        refund: dict[str, t.Any] = {"id": "re_replay", "amount": 1000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_replay", "amount": 1000, "status": "succeeded", "metadata": {}}
         handle_event(_charge_event("pi_replay", [refund], event_id="evt_1"))
         handle_event(_charge_event("pi_replay", [refund], event_id="evt_2"))
 
@@ -226,6 +227,7 @@ class TestRecordOnlyRefunds:
 
         refund: dict[str, t.Any] = {
             "id": "re_meta_disc",
+            "status": "succeeded",
             "amount": int(target.amount * 100),
             "metadata": {"refund_id": str(pending_row.pk)},
         }
@@ -272,7 +274,7 @@ class TestRecordOnlyRefunds:
         )
         payment.refresh_from_db()
 
-        refund: dict[str, t.Any] = {"id": "re_1", "amount": 1000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_1", "amount": 1000, "status": "succeeded", "metadata": {}}
         event = _charge_event("pi_mirror_overwritten", [refund])
         StripeEventHandler(event).handle_charge_refunded(event)
 
