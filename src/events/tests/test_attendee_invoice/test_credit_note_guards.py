@@ -176,6 +176,26 @@ class TestRefundOfAPaymentThatIsNotOnTheInvoice:
         doc = SkippedFiscalDocument.objects.get(kind=SkippedFiscalDocument.Kind.CREDIT_NOTE)
         assert list(doc.refunds.all()) == [on_record]
 
+    def test_skipped_invoice_that_lost_all_its_payments_records_nothing(
+        self, invoicing_org: Organization, pay: t.Callable[..., Payment]
+    ) -> None:
+        """Deleting a tier cascades to the payments; an empty record must not credit any refund."""
+        invoicing_org.vat_country_code = "BE"
+        invoicing_org.vat_id = "BE123456789"
+        invoicing_org.save()
+        kept = pay(BE_BUYER)
+        refunded = pay(BE_BUYER)
+        off_record = _refund(refunded, "100.00")
+        generate_attendee_invoice_task(SID)
+        parent = SkippedFiscalDocument.objects.get(kind=SkippedFiscalDocument.Kind.INVOICE)
+        parent.payments.remove(kept)
+        assert not parent.payments.exists()
+
+        assert generate_attendee_credit_note(SID, [refunded.id], refund_ids=[off_record.id]) is None
+        assert generate_attendee_credit_note(SID, [refunded.id]) is None
+
+        assert not SkippedFiscalDocument.objects.filter(kind=SkippedFiscalDocument.Kind.CREDIT_NOTE).exists()
+
 
 class TestRefundOfAPaymentThatIsNotOnTheDraft:
     """#1497: a draft that shows only the payment that was not refunded."""

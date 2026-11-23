@@ -150,24 +150,29 @@ def load_refunded(
 
     A credit note reverses what the sale's document shows, so a refund (or a legacy payment) whose
     payment is not on ``source`` is left out (#1485): each caller of the credit-note generation gets
-    the same rule. A document that names no payment (see :func:`invoiced_payment_ids`) is not filtered.
+    the same rule.
+    An attendee invoice that names no payment (see :func:`invoiced_payment_ids`) is not filtered;
+    a skipped record with no payment credits nothing.
 
     Returns:
         ``(refund_rows, [])`` or ``([], refunded_payments)``; ``None`` when nothing matches.
     """
     on_document = invoiced_payment_ids(source)
+    # Only an attendee invoice without payment ids (generated before the ids existed) is not filtered.
+    # A skipped invoice record always stores its payments, so an empty set there matches nothing.
+    filter_by_document = not isinstance(source, AttendeeInvoice) or bool(on_document)
     if refund_ids:
         refunds = Refund.objects.filter(
             pk__in=refund_ids,
             status=Refund.RefundStatus.SUCCEEDED,
             payment__stripe_session_id=stripe_session_id,
         )
-        if on_document:
+        if filter_by_document:
             refunds = refunds.filter(payment_id__in=on_document)
         refund_rows = list(refunds.select_related("payment__ticket__event", "payment__ticket__tier"))
         return (refund_rows, []) if refund_rows else None
     payments = Payment.objects.filter(id__in=refunded_payment_ids, stripe_session_id=stripe_session_id)
-    if on_document:
+    if filter_by_document:
         payments = payments.filter(id__in=on_document)
     refunded_payments = list(payments.select_related("ticket__event", "ticket__tier"))
     return ([], refunded_payments) if refunded_payments else None
