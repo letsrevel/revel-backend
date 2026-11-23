@@ -201,3 +201,16 @@ class TestChangeFormOpenedBeforeAChange:
 
         assert response.status_code == 302
         assert RevelUser.objects.get(pk=person.pk).preferred_name == "Ada L."
+
+    def test_a_relation_that_the_page_showed_empty_keeps_a_value_added_later(
+        self, admin_client: Client, person: RevelUser
+    ) -> None:
+        """An empty many-to-many field renders no hidden input; the page still showed it as empty."""
+        data = _browser_post_data(admin_client, person, bio="Edited")
+        assert "initial-groups" not in data
+        person.groups.add(Group.objects.create(name="Added later"))
+
+        response = admin_client.post(reverse("admin:accounts_reveluser_change", args=[person.pk]), data)
+
+        assert response.status_code == 302
+        assert list(person.groups.values_list("name", flat=True)) == ["Added later"]

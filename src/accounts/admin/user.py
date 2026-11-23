@@ -185,10 +185,13 @@ class RevelUserChangeForm(UserChangeForm):  # type: ignore[type-arg]
     def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
         """Show the hidden initial values on the page, and use them when the post carries them."""
         super().__init__(*args, **kwargs)
-        for name, field in self.fields.items():
-            if field.disabled or isinstance(field, forms.FileField):
-                continue
-            field.show_hidden_initial = not self.is_bound or self.add_initial_prefix(name) in self.data
+        # A rendered page sends a shown value for every field, except an empty many-to-many field: its hidden
+        # widget renders no input. So any shown value in the post means "the page showed it", empty included.
+        prefix = self.add_initial_prefix("")
+        rendered = not self.is_bound or any(key.startswith(prefix) for key in self.data)
+        for field in self.fields.values():
+            if not field.disabled and not isinstance(field, forms.FileField):
+                field.show_hidden_initial = rendered
 
     def clean(self) -> dict[str, t.Any] | None:
         cleaned_data = super().clean()
