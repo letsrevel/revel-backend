@@ -385,22 +385,20 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         An edit that does not change ``is_active`` keeps the stored ``is_active`` and mark, read under the row
         lock that a deletion confirm also takes, so a form opened before the confirm does not write over them.
 
-        The save writes only the fields that the admin changed. The view loads the account before it takes
-        the row lock, so the other fields of ``obj`` can be older than the row.
+        The save writes only the fields that the admin changed. The other fields of ``obj`` can be older than
+        the row (from the page, or loaded before the row lock), so they are read again under the lock.
         """
         if not change:
             super().save_model(request, obj, form, change)
             return
-        stored_active, stored_mark = (
-            RevelUser.objects.select_for_update().values_list("is_active", "deletion_requested_at").get(pk=obj.pk)
-        )
+        stored_active = RevelUser.objects.select_for_update().values_list("is_active", flat=True).get(pk=obj.pk)
         concrete = {field.name for field in obj._meta.concrete_fields}
         update_fields = {name for name in form.changed_data if name in concrete} - {"is_active"}
         if _is_active_changed_by_admin(form, obj, stored_active):
             obj.deletion_requested_at = None
             update_fields |= {"is_active", "deletion_requested_at"}
-        else:
-            obj.is_active, obj.deletion_requested_at = stored_active, stored_mark
+        # The save signals and the admin log then see the stored values of the fields that the admin did not change.
+        obj.refresh_from_db(fields=sorted(concrete - update_fields - {obj._meta.pk.name}))
         obj.save(update_fields=sorted(update_fields))
 
     def save_related(self, request: HttpRequest, form: t.Any, formsets: t.Any, change: bool) -> None:

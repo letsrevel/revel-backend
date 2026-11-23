@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import Group
+from django.db.models.signals import post_save
 from django.test.client import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -214,3 +215,22 @@ class TestChangeFormOpenedBeforeAChange:
 
         assert response.status_code == 302
         assert list(person.groups.values_list("name", flat=True)) == ["Added later"]
+
+    def test_the_save_signals_see_the_stored_values_of_the_fields_that_the_admin_did_not_change(
+        self, admin_client: Client, person: RevelUser
+    ) -> None:
+        data = _browser_post_data(admin_client, person, bio="Edited")
+        RevelUser.objects.filter(pk=person.pk).update(email="new@example.com", email_verified=True)
+        seen: list[tuple[str, bool, str]] = []
+
+        def receiver(instance: RevelUser, **kwargs: t.Any) -> None:
+            seen.append((instance.email, instance.email_verified, instance.bio))
+
+        post_save.connect(receiver, sender=RevelUser, dispatch_uid="test-admin-saved-instance")
+        try:
+            response = admin_client.post(reverse("admin:accounts_reveluser_change", args=[person.pk]), data)
+        finally:
+            post_save.disconnect(sender=RevelUser, dispatch_uid="test-admin-saved-instance")
+
+        assert response.status_code == 302
+        assert seen == [("new@example.com", True, "Edited")]
