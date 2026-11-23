@@ -2672,7 +2672,6 @@ msgstr "Envío de cuestionario no válido."
 msgid "Questionnaire not found for this organization."
 msgstr "No se ha encontrado el cuestionario para esta organización."
 
-
 msgid "This is already the contact email for this organization."
 msgstr "Este ya es el correo electrónico de contacto de esta organización."
 
@@ -7352,7 +7351,6 @@ msgstr "Un tipo de entrada que concede una membresía no puede limitarse a miemb
 msgid "A ticket tier that grants a membership must be limited to one ticket per person."
 msgstr "Un tipo de entrada que concede una membresía debe limitarse a una entrada por persona."
 
-
 msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
 msgstr "Los niveles temporales son membresías de un día concedidas por entradas; no pueden mantenerse ni solicitarse."
 
@@ -8898,3 +8896,7 @@ msgstr "El reembolso de %(amount)s de %(event)s no se ha completado en el provee
 
 msgid "The money was not returned to you. Contact the organizer if you have questions."
 msgstr "El dinero no se te ha devuelto. Si tienes preguntas, ponte en contacto con la organización."
+
+#: src/events/service/organization_service/membership.py
+msgid "The applicant is already an active member, so this plan cannot be approved for them."
+msgstr "El solicitante ya es un miembro activo, por lo que este plan no se puede aprobar para él."

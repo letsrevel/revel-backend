@@ -20,7 +20,11 @@ from events.models import (
     OrganizationMembershipRequest,
     WhitelistRequest,
 )
-from events.utils.membership_access import is_eligible_status
+from events.utils.membership_access import (
+    active_member_refused_application,
+    is_active_member_without_live_subscription,
+    is_eligible_status,
+)
 from events.utils.subscription_payment import is_never_paid_offline
 from questionnaires.models import QuestionnaireEvaluation, QuestionnaireSubmission
 from questionnaires.utils.retake_policy import RetakeVerdict, approval_is_stale, evaluate_retake_policy
@@ -103,11 +107,17 @@ class BaseMembershipEligibilityGate(abc.ABC):
 
 
 class PrivilegedAccessGate(BaseMembershipEligibilityGate):
-    """Gate #1: Owners and staff always pass."""
+    """Gate #1: Owners and staff always pass.
+
+    The exception is an application that would change an ACTIVE member's tier for free (#1518): it gets
+    ``ALREADY_MEMBER`` here too, because the rule reads the member row, not the role.
+    """
 
     def check(self) -> MembershipEligibility | None:
         """Allow immediately when the user owns or staffs the organization."""
         if self.handler.is_owner or self.user.id in self.handler.staff_ids:
+            if active_member_refused_application(self.user, self.organization.pk, self.tier, self.plan):
+                return self._allow(next_step=MembershipNextStep.ALREADY_MEMBER)
             return self._allow()
         return None
 
@@ -175,6 +185,15 @@ class AlreadyMemberGate(BaseMembershipEligibilityGate):
     When the user is applying via the free path (``plan is None``) but already has
     a non-terminal :class:`MembershipSubscription` in this org, block — they
     cannot self-promote a paid membership through the free flow.
+
+    A plan-bearing application from an ACTIVE member with no live subscription short-circuits
+    ALREADY_MEMBER for a FREE plan at any tier: ``POST /subscribe`` refuses it (#1518), so the
+    application must not be approved. A paid plan (ONLINE or OFFLINE) at any tier, including the
+    member's own, falls through to the payment gates. At the member's own tier the admission gates
+    (:class:`AcceptRequestsGate`, :class:`MembershipQuestionnaireGate`, :class:`ManualApprovalGate`) are skipped
+    (``handler.is_own_tier_paid_start``): the member passed them once. A plan-less (free) application that would switch
+    such a member to another tier short-circuits ALREADY_MEMBER too. Owners and staff pass
+    :class:`PrivilegedAccessGate` first and keep their own verdict.
     """
 
     def check(self) -> MembershipEligibility | None:
@@ -189,9 +208,21 @@ class AlreadyMemberGate(BaseMembershipEligibilityGate):
         if any(m.status == OrganizationMember.MembershipStatus.PAUSED for m in self.handler.user_memberships.values()):
             return self._block(Reasons.MEMBERSHIP_PAUSED)
 
-        if self.tier is None:
+        if self.plan is not None and is_active_member_without_live_subscription(self.user, self.plan):
+            if self.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.FREE:
+                return self._allow(next_step=MembershipNextStep.ALREADY_MEMBER)
+            # Paid plan, any tier (#1518): the member may start paying, so skip the same-tier short-circuit.
+            return None
+        if self.handler.is_own_tier_paid_start:
+            # Own-tier paid start with its PENDING subscription already open: PaymentReadyGate must answer
+            # (resume / awaiting offline payment), not ALREADY_MEMBER.
+            return None
+
+        if self.tier is None or self.plan is None:
             # Tier-less: there is no target tier to compare against, so any
             # ACTIVE membership means there is nothing left to apply for.
+            # Plan-less (free path, #1518): a different tier would switch the member's tier for free,
+            # which /subscribe refuses for FREE plans, so it is refused here too.
             if self._has_active_membership():
                 return self._allow(next_step=MembershipNextStep.ALREADY_MEMBER)
             return None
@@ -208,6 +239,8 @@ class AcceptRequestsGate(BaseMembershipEligibilityGate):
 
     def check(self) -> MembershipEligibility | None:
         """Block when the org is not accepting new membership requests."""
+        if self.handler.is_own_tier_paid_start:
+            return None
         if self.organization.accept_membership_requests:
             return None
         return self._block(Reasons.NOT_ACCEPTING_REQUESTS, next_step=MembershipNextStep.REQUIRES_INVITATION)
@@ -259,6 +292,10 @@ class ApplicationStatusGate(BaseMembershipEligibilityGate):
 
     def check(self) -> MembershipEligibility | None:
         """Block when the current application is REJECTED; fall through otherwise."""
+        if self.handler.is_own_tier_paid_start:
+            # Own-tier paid start skips the admission gates (#1518): a stale REJECTED row is the
+            # manual-approval outcome, which this path does not use.
+            return None
         app = self.handler.current_application
         if app is None:
             return None
@@ -295,7 +332,7 @@ class MembershipQuestionnaireGate(BaseMembershipEligibilityGate):
     def check(self) -> MembershipEligibility | None:
         """Evaluate the resolved membership questionnaire against the user's latest submission."""
         questionnaire_oq = self.handler.membership_questionnaire_oq
-        if questionnaire_oq is None:
+        if questionnaire_oq is None or self.handler.is_own_tier_paid_start:
             return None
 
         # members_exempt grandfathers existing members: any user with an ACTIVE membership
@@ -420,7 +457,9 @@ class ManualApprovalGate(BaseMembershipEligibilityGate):
 
     def check(self) -> MembershipEligibility | None:
         """Block a PENDING application; pass through when approved or not yet applied."""
-        if not resolve_requires_membership_approval(self.organization, self.tier):
+        if self.handler.is_own_tier_paid_start or not resolve_requires_membership_approval(
+            self.organization, self.tier
+        ):
             return None
         app = self.handler.current_application
         if app and app.status == OrganizationMembershipRequest.Status.PENDING:
@@ -499,7 +538,9 @@ class PaymentReadyGate(BaseMembershipEligibilityGate):
                     next_step=MembershipNextStep.WAIT_FOR_OFFLINE_PAYMENT,
                     application_id=app.pk if app and app.subscription_id == awaiting.pk else None,
                 )
-        if self.handler.approval_required_annotation or (is_offline and self._approval_closed_with_subscription()):
+        if self.handler.approval_required_annotation or (
+            is_offline and not self.handler.is_own_tier_paid_start and self._approval_closed_with_subscription()
+        ):
             # Approval required but nothing usable on file: the user must create the
             # application first so staff have something to approve. No prose —
             # "your application is awaiting staff approval" would be a lie when

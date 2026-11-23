@@ -73,7 +73,8 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
         A refusal with a ``code`` carries ``forceable``: ``true`` means retrying with
         ``force=true`` gets past it (``subscription_active``, ``membership_paused``);
         ``false`` means it is refused regardless (``link_paid_application``,
-        ``link_future_dated``, ``link_unavailable``, ``applicant_has_entry``).
+        ``link_future_dated``, ``link_unavailable``, ``applicant_has_entry``,
+        ``applicant_already_member``).
         """
         organization = self.get_one(slug)
         membership_request = get_object_or_404(

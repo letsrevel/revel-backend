@@ -25,6 +25,7 @@ from events.models import (
     OrganizationMembershipRequest,
 )
 from events.service import member_register_service
+from events.utils.membership_access import is_eligible_status, is_own_tier_paid_start
 from events.utils.subscription_payment import is_never_paid_offline
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
@@ -132,6 +133,11 @@ class MembershipEligibilityService:
         self.approval_required_annotation: bool = False
 
         self._gates: list[BaseMembershipEligibilityGate] = [gate(self) for gate in MEMBERSHIP_ELIGIBILITY_GATES]
+
+    @functools.cached_property
+    def is_own_tier_paid_start(self) -> bool:
+        """An ACTIVE member starts a PAID plan at their own tier: admission gates are skipped (#1518)."""
+        return self.plan is not None and is_own_tier_paid_start(self.user, self.plan)
 
     @property
     def current_application(self) -> OrganizationMembershipRequest | None:
@@ -340,7 +346,15 @@ def advance_application(
 
         # Advance PENDING → APPROVED/COMPLETED when gates pass.
         if application.status == OrganizationMembershipRequest.Status.PENDING and eligibility.allowed:
-            if application.plan_id is None and application.tier_id is not None:
+            if eligibility.next_step == MembershipNextStep.ALREADY_MEMBER and application.tier_id is not None:
+                # ALREADY_MEMBER (#1518): the user became an ACTIVE member after applying. The free tier switch
+                # and a FREE plan are refused, so the row stays PENDING instead of switching the tier or
+                # being stranded APPROVED. A plan-less row at the member's current tier is the exception:
+                # completing it changes nothing (idempotent), as before.
+                own = service.user_memberships.get(application.tier_id)
+                if application.plan_id is None and own is not None and is_eligible_status(own.status):
+                    _complete_free_application(application)
+            elif application.plan_id is None and application.tier_id is not None:
                 _complete_free_application(application)
             elif application.plan is not None:
                 if (

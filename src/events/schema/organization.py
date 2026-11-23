@@ -571,7 +571,7 @@ class MembershipApprovalRefusedSchema(Schema):
 
     ``forceable`` tells the frontend whether retrying with ``force=true`` gets past
     this refusal (``subscription_active``, ``membership_paused``) or not (every
-    ``link_*`` code and ``applicant_has_entry``). ``detail`` is translated and must
+    ``link_*`` code, ``applicant_has_entry`` and ``applicant_already_member``). ``detail`` is translated and must
     never be matched on; renaming a ``code`` value is a breaking change.
     """
 

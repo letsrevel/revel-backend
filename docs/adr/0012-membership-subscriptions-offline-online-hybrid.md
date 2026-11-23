@@ -90,6 +90,11 @@ Key consequences of the split:
 
 ## Amendments
 
+!!! note "Amended 2026-11 (#1518)"
+    Since #1518 an ACTIVE member with no live subscription cannot subscribe to a FREE plan:
+    `POST /subscribe` answers 400 `already_member`. An OFFLINE plan, at any tier including the
+    member's own, still behaves as described here.
+
 !!! note "Amended 2026-11 (v2.38.0)"
     OFFLINE plans became **self-joinable**: members can now subscribe to (or apply
     for) an OFFLINE plan themselves, where before only staff could create those

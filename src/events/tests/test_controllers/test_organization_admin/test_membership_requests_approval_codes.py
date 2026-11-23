@@ -184,6 +184,36 @@ class TestNonForceableRefusals:
 
         _assert_refused(response, "applicant_has_entry", False)
 
+    def test_applicant_already_member_is_refused_and_not_forceable(
+        self,
+        owner_client: Client,
+        organization: Organization,
+        tier: MembershipTier,
+        applicant: RevelUser,
+    ) -> None:
+        """#1518: approving a FREE-plan application for an ACTIVE member keeps the staff refusal contract."""
+        OrganizationMember.objects.create(
+            organization=organization,
+            user=applicant,
+            tier=tier,
+            status=OrganizationMember.MembershipStatus.ACTIVE,
+        )
+        plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="M",
+            price=Decimal("0"),
+            currency="EUR",
+            period_unit="lifetime",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.FREE,
+        )
+        application = _application(organization, applicant, tier, plan=plan)
+
+        response = _approve(owner_client, organization, application, force=True)
+
+        _assert_refused(response, "applicant_already_member", False)
+        application.refresh_from_db()
+        assert application.status == OrganizationMembershipRequest.Status.PENDING
+
     def test_plain_400_keeps_error_detail_shape(
         self,
         owner_client: Client,

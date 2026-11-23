@@ -15,12 +15,14 @@ neither money module grows a dependency on ``membership_manager``.
 """
 
 from accounts.models import RevelUser
+from events.exceptions import AlreadyMemberError
 from events.models import MembershipSubscription, MembershipSubscriptionPlan, OrganizationMembershipRequest
 from events.service.membership_manager import MembershipApplicationIneligibleError, MembershipEligibilityService
 from events.service.membership_manager.enums import MembershipReasonCode
 from events.service.subscription.core import create_subscription
 from events.service.subscription.offline import open_offline_subscription
 from events.service.subscription.stripe import checkout as stripe_checkout
+from events.utils.membership_access import active_member_refused_plan
 
 
 def _ensure_plan_eligibility(
@@ -60,6 +62,27 @@ def _ensure_plan_eligibility(
     return eligibility_service
 
 
+def _refuse_active_member(plan: MembershipSubscriptionPlan, user: RevelUser) -> None:
+    """Refuse a FREE plan subscription from an ACTIVE member (#1518).
+
+    Members without a subscription row (owner-added, imported, open-ended) would otherwise have their
+    tier overwritten by a FREE plan. The member row is read directly, not through the gate verdict:
+    owners and staff pass the gates first.
+    A paid (ONLINE / OFFLINE) plan at any tier, including the member's own, is allowed and follows the gates.
+    A live subscription is skipped: that case keeps its own answer (resume a pending checkout,
+    idempotent OFFLINE repeat, duplicate refusal). See ``active_member_refused_plan``.
+    Staff-created subscriptions do not come through here.
+
+    Raises:
+        AlreadyMemberError: Rendered as a 400 with ``code="already_member"``.
+    """
+    # ponytail: plain read before create_subscription's transaction. A concurrent staff activation
+    # or cancel can slip between this check and the write; the window is narrow. Upgrade path: repeat
+    # the check inside create_subscription under select_for_update of the member row (member-facing flag).
+    if active_member_refused_plan(user, plan):
+        raise AlreadyMemberError
+
+
 def subscribe_to_plan(plan: MembershipSubscriptionPlan, user: RevelUser) -> tuple[MembershipSubscription, str | None]:
     """Gate-checked ``/subscribe`` workflow: eligibility, activation, application link.
 
@@ -81,10 +104,15 @@ def subscribe_to_plan(plan: MembershipSubscriptionPlan, user: RevelUser) -> tupl
     instead — through the same status-filtered update the Stripe path defers to
     :mod:`events.service.subscription.stripe.sync`.
 
+    An ACTIVE member who holds no live subscription is refused first with ``AlreadyMemberError``
+    (400 ``already_member``) for a FREE plan, before any member write (#1518). A paid plan at any tier,
+    including their own, goes on.
+
     Returns:
         The local subscription row and the hosted Checkout URL — ``None`` for a
         FREE plan (already ACTIVE) or an OFFLINE plan (PENDING until paid).
     """
+    _refuse_active_member(plan, user)
     eligibility_service = _ensure_plan_eligibility(user, plan)
     application = eligibility_service.current_application
     if application is not None and application.status not in (

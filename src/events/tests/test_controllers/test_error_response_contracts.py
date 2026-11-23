@@ -442,6 +442,32 @@ class TestSubscriptionErrorContracts:
         assert body["reason_code"] == "org_not_stripe_connected"
         assert "message" not in body, body
 
+    def test_subscribe_by_active_member_returns_already_member_code(
+        self,
+        member_client: Client,
+        organization: Organization,
+    ) -> None:
+        """#1518: an ACTIVE member is refused with the legacy ``{detail, code}`` shape."""
+        from events.models import MembershipSubscriptionPlan, MembershipTier
+
+        tier = MembershipTier.objects.filter(organization=organization).first()
+        assert tier is not None
+        plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Monthly",
+            price=Decimal("0"),
+            currency="EUR",
+            period_unit="lifetime",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.FREE,
+        )
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = member_client.post(url, data={"plan_id": str(plan.id)}, content_type="application/json")
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert body["code"] == "already_member"
+        assert isinstance(body.get("detail"), str)
+        assert "message" not in body, body
+
     def test_no_subscription_returns_detail_404(self, member_client: Client, organization: Organization) -> None:
         """404 was declared ``ResponseMessage`` too; ``get_object_or_404`` emits ``{detail}``."""
         url = reverse("api:get_my_organization_subscription", kwargs={"org_id": organization.id})

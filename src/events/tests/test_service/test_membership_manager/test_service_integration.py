@@ -1,15 +1,19 @@
 """Integration tests covering spec scenarios S1–S7 through the full gate chain."""
 
+from decimal import Decimal
+
 import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import (
+    MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
     OrganizationMember,
     OrganizationMembershipRequest,
     OrganizationQuestionnaire,
+    SubscriptionPaymentMethod,
 )
 from events.service.membership_manager import MembershipEligibilityService, advance_application
 from events.service.membership_manager.enums import MembershipNextStep, MembershipReasonCode, Reasons
@@ -182,12 +186,20 @@ def test_rejected_then_new_application_runs_gates_fresh(user: RevelUser, organiz
 
 
 def test_s7_tier_upgrade_re_gates(user: RevelUser, organization: Organization) -> None:
-    """S7: existing ACTIVE member at tier A must pass new tier B's questionnaire."""
+    """S7: plan-less tier B is refused for an ACTIVE member; a PAID plan at B re-gates on B's questionnaire."""
     tier_a = MembershipTier.objects.create(organization=organization, name="A")
     tier_b = MembershipTier.objects.create(organization=organization, name="B")
     _, oq_b = _make_membership_questionnaire(organization, "Tier B exam")
     tier_b.membership_questionnaire = oq_b
     tier_b.save(update_fields=["membership_questionnaire"])
+    plan_b = MembershipSubscriptionPlan.objects.create(
+        tier=tier_b,
+        name="B monthly",
+        price=Decimal("10.00"),
+        currency="EUR",
+        period_unit="month",
+        payment_method=SubscriptionPaymentMethod.OFFLINE,
+    )
 
     OrganizationMember.objects.create(
         organization=organization,
@@ -196,9 +208,14 @@ def test_s7_tier_upgrade_re_gates(user: RevelUser, organization: Organization) -
         status=OrganizationMember.MembershipStatus.ACTIVE,
     )
 
-    # Upgrade target (tier B) must trigger its own questionnaire
-    service = MembershipEligibilityService(user=user, organization=organization, tier=tier_b)
-    result = service.check_eligibility()
+    # #1518: the plan-less free tier switch is refused for an ACTIVE member.
+    plan_less = MembershipEligibilityService(user=user, organization=organization, tier=tier_b).check_eligibility()
+    assert plan_less.next_step == MembershipNextStep.ALREADY_MEMBER
+
+    # A paid plan at tier B (not the member's own tier) still triggers B's questionnaire.
+    result = MembershipEligibilityService(
+        user=user, organization=organization, tier=tier_b, plan=plan_b
+    ).check_eligibility()
     assert result.allowed is False
     assert result.next_step == MembershipNextStep.SUBMIT_QUESTIONNAIRE
 

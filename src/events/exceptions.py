@@ -250,6 +250,7 @@ class MembershipApprovalRefusalCode(str, enum.Enum):
     LINK_FUTURE_DATED = "link_future_dated"
     LINK_UNAVAILABLE = "link_unavailable"
     APPLICANT_HAS_ENTRY = "applicant_has_entry"
+    APPLICANT_ALREADY_MEMBER = "applicant_already_member"
 
 
 #: Refusals a ``force=true`` retry gets past; every other code is refused regardless of ``force``.
