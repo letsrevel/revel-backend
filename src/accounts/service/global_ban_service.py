@@ -123,24 +123,28 @@ def deactivate_restored_account_if_banned(user_id: str, mark: datetime) -> bool:
     :func:`~accounts.service.account_erasure.restore_access_after_failed_deletion`). The account goes back to
     the state that a refused restore leaves: inactive, with ``mark`` (the mark that the restore cleared). So
     the deletion that the user asked for is not lost: the stale-mark sweep queues it again. One UPDATE does
-    this, and only for a row that is still as the restore left it (active, no mark). The account gets no ban
-    notification: it asked for its deletion. Return whether the restore was undone.
+    this, and only for a row that is still as the restore left it (active, no mark, the email that was checked).
+    The account gets no ban notification: it asked for its deletion. Return whether the restore was undone.
 
     The caller runs this as a robust on-commit callback, so an error here is only logged. An error before the
     UPDATE (the read, the ban lookup) leaves the account as restored: active, also when its email is banned,
-    until the next ban of it or an admin action. An error after the UPDATE leaves the account inactive and
-    pending; the token blacklist or the OAuth-app step can then be missing, and an inactive account cannot
-    use a token.
+    until the next ban of it or an admin action. After the UPDATE, the owned OAuth apps are disarmed also when
+    the token blacklist raises; that error still propagates (and is logged by the robust callback).
     """
     user = RevelUser.objects.filter(pk=user_id, is_active=True, deletion_requested_at__isnull=True).first()
     if user is None or not is_email_globally_banned(user.email):
         return False
-    as_restored = RevelUser.objects.filter(pk=user.pk, is_active=True, deletion_requested_at__isnull=True)
+    as_restored = RevelUser.objects.filter(
+        pk=user.pk, is_active=True, deletion_requested_at__isnull=True, email=user.email
+    )
     if not as_restored.update(is_active=False, deletion_requested_at=mark):
-        return False  # changed meanwhile: a ban task, an admin or a new confirmation decided
+        return False  # changed meanwhile: a ban task, an admin, a new confirmation or an email change decided
     logger.warning("account_restore_undone_for_ban", user_id=str(user.pk))
-    blacklist_user_tokens(user)
-    _deactivate_apps_owned_by(user)
+    try:
+        blacklist_user_tokens(user)
+    finally:
+        # Other users' grants to the owner's apps must stop also when the blacklist fails.
+        _deactivate_apps_owned_by(user)
     return True
 
 

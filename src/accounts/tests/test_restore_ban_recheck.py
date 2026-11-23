@@ -97,9 +97,9 @@ def test_an_error_of_the_check_does_not_replace_the_error_of_the_deletion(
     assert _state(user) == (True, None)
 
 
-@pytest.mark.parametrize("change", ["new-confirmation", "admin-deactivated", "active-with-a-mark"])
+@pytest.mark.parametrize("change", ["new-confirmation", "admin-deactivated", "active-with-a-mark", "email-changed"])
 def test_the_check_does_not_write_over_a_state_that_changed_after_the_restore(user: RevelUser, change: str) -> None:
-    """Each condition of the UPDATE alone: an inactive row, and an active row that has a mark again."""
+    """Each condition of the UPDATE alone: an inactive row, an active row that has a mark again, a new email."""
     mark = _pend(user)
     _ban_domain_of(user)
     new_mark = timezone.now()
@@ -107,6 +107,7 @@ def test_the_check_does_not_write_over_a_state_that_changed_after_the_restore(us
         "new-confirmation": {"is_active": False, "deletion_requested_at": new_mark},
         "admin-deactivated": {"is_active": False},
         "active-with-a-mark": {"deletion_requested_at": new_mark},
+        "email-changed": {"email": f"changed-{user.pk.hex}@unbanned.test"},
     }
     after = changes[change]
     RevelUser.objects.filter(pk=user.pk).update(is_active=True, deletion_requested_at=None)  # as restored

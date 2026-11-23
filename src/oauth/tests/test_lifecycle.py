@@ -6,6 +6,7 @@ reach DOT's tables, and the sweeps must not reap a client that is merely idle.
 
 import datetime as dt
 import typing as t
+from unittest.mock import patch
 
 import pytest
 from django.test import Client
@@ -19,7 +20,11 @@ from pytest_django.fixtures import Settings
 from accounts.jwt import blacklist_user_tokens
 from accounts.models import GlobalBan, RevelUser
 from accounts.service import account as account_service
-from accounts.service.global_ban_service import deactivate_user_for_ban, process_domain_ban
+from accounts.service.global_ban_service import (
+    deactivate_restored_account_if_banned,
+    deactivate_user_for_ban,
+    process_domain_ban,
+)
 from oauth.models import OAuthApplication
 from oauth.service.authorize_service import has_prior_grant
 from oauth.tasks import clear_expired_tokens, prune_unused_dynamic_clients
@@ -202,6 +207,18 @@ def test_domain_ban_disarms_the_apps_of_an_owner_that_is_already_inactive(
     domain = f"owner-{user.pk.hex}.test"
     RevelUser.objects.filter(pk=user.pk).update(email=f"owner@{domain}", is_active=False, deletion_requested_at=marked)
     make_access_token(revel_user_factory(), oauth_app, "org:read")
+    # Control: an inactive owner in another domain keeps its app and the grants to it.
+    other_owner = revel_user_factory(email=f"owner@other-{user.pk.hex}.test", email_verified=True)
+    RevelUser.objects.filter(pk=other_owner.pk).update(is_active=False, deletion_requested_at=marked)
+    other_app = OAuthApplication.objects.create(
+        user=other_owner,
+        name="Other App",
+        client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+        redirect_uris="https://other.example/cb",
+        allowed_scopes=list(oauth_app.allowed_scopes),
+        registration_source=OAuthApplication.RegistrationSource.MANUAL,
+    )
+    make_access_token(revel_user_factory(), other_app, "org:read")
     ban = GlobalBan(ban_type=GlobalBan.BanType.DOMAIN, value=domain, normalized_value=domain, reason="spam")
 
     assert process_domain_ban(ban) == 0
@@ -211,6 +228,33 @@ def test_domain_ban_disarms_the_apps_of_an_owner_that_is_already_inactive(
     assert not AccessToken.objects.filter(application=oauth_app).exists()
     user.refresh_from_db()
     assert (user.is_active, user.deletion_requested_at) == (False, marked)
+    other_app.refresh_from_db()
+    assert other_app.is_active is True
+    assert AccessToken.objects.filter(application=other_app).exists()
+
+
+def test_an_undone_restore_disarms_the_owned_apps_also_when_the_token_blacklist_fails(
+    user: RevelUser, oauth_app: OAuthApplication, revel_user_factory: t.Any
+) -> None:
+    """A banned account whose restore is undone: other users' grants to its apps stop even if the blacklist raises."""
+    mark = timezone.now() - dt.timedelta(minutes=1)
+    domain = f"owner-{user.pk.hex}.test"
+    RevelUser.objects.filter(pk=user.pk).update(email=f"owner@{domain}", is_active=True, deletion_requested_at=None)
+    GlobalBan.objects.bulk_create(
+        [GlobalBan(ban_type=GlobalBan.BanType.DOMAIN, value=domain, normalized_value=domain, reason="spam")]
+    )
+    make_access_token(revel_user_factory(), oauth_app, "org:read")
+
+    with (
+        patch("accounts.service.global_ban_service.blacklist_user_tokens", side_effect=OSError("db")),
+        pytest.raises(OSError),
+    ):
+        deactivate_restored_account_if_banned(str(user.pk), mark)
+
+    oauth_app.refresh_from_db()
+    assert oauth_app.is_active is False
+    assert not AccessToken.objects.filter(application=oauth_app).exists()
+    assert RevelUser.objects.values_list("is_active", "deletion_requested_at").get(pk=user.pk) == (False, mark)
 
 
 def test_prune_keeps_manual_apps(oauth_app: OAuthApplication) -> None:
