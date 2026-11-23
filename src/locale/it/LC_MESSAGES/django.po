@@ -8999,3 +8999,9 @@ msgstr "Questo account è stato eliminato."
 
 msgid "This account is being deleted."
 msgstr "Questo account è in fase di eliminazione."
+
+msgid "Only the organization owner can blacklist a staff member."
+msgstr "Solo chi possiede l'organizzazione può mettere nella blacklist un membro dello staff."
+
+msgid "A blacklisted person cannot be made staff."
+msgstr "Una persona nella blacklist non può diventare membro dello staff."

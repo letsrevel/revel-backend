@@ -9039,3 +9039,9 @@ msgstr "Ce compte a été supprimé."
 
 msgid "This account is being deleted."
 msgstr "Ce compte est en cours de suppression."
+
+msgid "Only the organization owner can blacklist a staff member."
+msgstr "Seule la personne propriétaire de l'organisation peut mettre un membre de l'équipe sur liste de blocage."
+
+msgid "A blacklisted person cannot be made staff."
+msgstr "Une personne sur liste de blocage ne peut pas devenir membre de l'équipe."

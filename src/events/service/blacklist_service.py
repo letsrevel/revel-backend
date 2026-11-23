@@ -157,6 +157,38 @@ def _apply_consequences_to_matched_holders(entry: Blacklist) -> None:
         apply_blacklist_consequences(holder, organization)
 
 
+def _matches_current_staff(
+    organization: Organization,
+    *,
+    user: RevelUser | None,
+    email: str | None,
+    telegram_username: str | None,
+    phone_number: str | None,
+) -> bool:
+    """Whether an entry with these normalized identifiers would hard-match a current staff member (not the owner).
+
+    Same match as ``users_matching_entries``, evaluated before the entry exists: the linked account, or the
+    email (case-insensitive), phone or telegram handle of a staff account.
+    """
+    q = Q()
+    if user:
+        q |= Q(user=user)
+    if email:
+        q |= Q(user__email__iexact=email)
+    if phone_number:
+        q |= Q(user__phone_number=phone_number)
+    if telegram_username:
+        q |= Q(user__telegram_users__telegram_username__iexact=telegram_username)
+    if not q:
+        return False
+    return (
+        OrganizationStaff.objects.filter(organization=organization)
+        .filter(q)
+        .exclude(user_id=organization.owner_id)
+        .exists()
+    )
+
+
 @transaction.atomic
 def add_to_blacklist(
     organization: Organization,
@@ -180,6 +212,9 @@ def add_to_blacklist(
        match. An unlinked entry still applies the ban consequences to existing staff and members of the
        organization that it matches by email, phone or telegram (the owner is exempt).
 
+    An entry that matches a current staff member (in either mode) removes their staff role, so only the
+    organization owner can create it.
+
     Args:
         organization: The organization to add the blacklist entry to
         created_by: The user creating the blacklist entry
@@ -196,7 +231,8 @@ def add_to_blacklist(
         The created Blacklist entry
 
     Raises:
-        HttpError: If no identifiers provided or user already blacklisted
+        HttpError: If no identifiers provided or user already blacklisted (400), or if the entry matches a
+            current staff member and ``created_by`` is not the organization owner (403)
     """
     if user:
         # Quick mode - populate from user. The profile is copied only for an account that acted toward the
@@ -242,6 +278,11 @@ def add_to_blacklist(
             email__iexact=email,
         ).exists():
             raise HttpError(400, str(_("An entry with this email already exists.")))
+
+    if created_by.pk != organization.owner_id and _matches_current_staff(
+        organization, user=user, email=email, telegram_username=telegram_username, phone_number=phone_number
+    ):
+        raise HttpError(403, str(_("Only the organization owner can blacklist a staff member.")))
 
     entry = Blacklist.objects.create(
         organization=organization,
