@@ -429,7 +429,7 @@ flowchart TD
         RefundWH[charge.refunded] -->|"on_commit"| CNCelery[generate_attendee_credit_note_task]
         CNCelery --> CNSvc[Credit Note Service]
         CNSvc -->|"ISSUED invoice"| CN[(AttendeeInvoiceCreditNote)]
-        CNSvc -->|"DRAFT invoice"| Delete[Delete draft]
+        CNSvc -->|"DRAFT invoice that shows the payment"| Delete[Delete draft]
     end
 ```
 
@@ -562,7 +562,10 @@ Generated on the `charge.refunded` or `refund.updated` webhook, keyed on the spe
 webhook call just applied — not the whole `Payment` — so two separate partial refunds on the same
 payment each produce their own credit note:
 
-- If the invoice is `DRAFT` → delete the draft (nothing was issued)
+- If the invoice is `DRAFT` and shows the refunded payment → delete the draft (nothing was issued).
+  The task locks the invoice row and reads it again before it decides (#1486): a draft that the
+  organizer issued in the meantime is an issued invoice, so it gets a credit note.
+  `delete_draft_invoice` takes the same lock.
 - If the invoice is `ISSUED` → create a credit note for `sum(refund.amount)`
 - If total credited across all credit notes ≥ invoice total → mark invoice as `CANCELLED`
 
@@ -575,14 +578,25 @@ rules above apply (a draft is deleted). A payment that was fully refunded before
 on the invoice (only `SUCCEEDED` payments are invoiced), so it gets no credit note. Each run of
 the invoice task does this check, also a retry or a replayed `checkout.session.completed`.
 
+**Only payments on the document are credited (#1485).** The same rule is in the credit-note
+generation itself (`attendee_credit_note_service.load_refunded`), so each caller follows it: a new
+refund, a duplicate or replayed `charge.refunded` (these send each succeeded refund of the payment
+intent), and the invoice task. A refund row, or a payment in a request without refund ids, is left
+out when its payment is not in `invoiced_payment_ids`: the `payment_id` of the invoice's lines, or
+the payments of the skipped-invoice record. An invoice whose lines carry no `payment_id` is not
+filtered.
+The rule applies to a draft too (#1497): a draft is deleted only when the request names a refund
+(or payment) that the draft shows. If not, the draft stays.
+
 A credit note reverses what **the invoice shows**, not what the `Payment` rows say: an organizer may
 have edited a draft's rates, descriptions or reverse-charge flag before issuing it. So the lines are
 copied from the invoice's own lines, matched by the `payment_id` each line snapshots, with their
 rate, category and description, and prorated for a partial refund (`credit_note_lines.py`). The
 payment-based builders in `attendee_invoice_lines.py` (VAT pro-rated per row from the payment's VAT
 ratio, `refund.amount × payment.vat_amount / payment.amount`, rounded half-up to the cent) are only
-the **fallback** for a payment whose invoice carries no line for it (an invoice generated before the
-ids existed, or a line the organizer removed or added by hand).
+the **fallback** for an invoice whose lines carry no `payment_id` (an invoice generated before the
+ids existed, or a draft whose lines the organizer all replaced by hand). When some lines carry a
+`payment_id`, a refund on a payment without a line gets no credit note (#1485).
 
 Totals follow the invoice's `totals_method` (`credit_note_totals.py`): a `legacy` invoice gets the
 old arithmetic; an `en16931` invoice gets **telescoping** per-group totals. For each

@@ -549,14 +549,22 @@ def issue_and_deliver(invoice: AttendeeInvoice) -> AttendeeInvoice:
 def delete_draft_invoice(invoice: AttendeeInvoice) -> None:
     """Delete a DRAFT invoice.
 
+    Locks the row and reads it again (#1486): the caller's instance can be a draft that
+    :func:`issue_draft_invoice` issued in the meantime, and an issued invoice must stay. An
+    invoice that is already gone is left alone.
+
     Raises:
         HttpError 409: If the invoice is not a draft.
     """
-    if invoice.status != AttendeeInvoice.InvoiceStatus.DRAFT:
-        raise HttpError(409, str(_("Only draft invoices can be deleted.")))
+    with transaction.atomic():
+        locked = AttendeeInvoice.objects.select_for_update().filter(pk=invoice.pk).first()
+        if locked is None:
+            return
+        if locked.status != AttendeeInvoice.InvoiceStatus.DRAFT:
+            raise HttpError(409, str(_("Only draft invoices can be deleted.")))
 
-    # Delete PDF file if it exists
-    if invoice.pdf_file:
-        invoice.pdf_file.delete(save=False)
+        # Delete PDF file if it exists
+        if locked.pdf_file:
+            locked.pdf_file.delete(save=False)
 
-    invoice.delete()
+        locked.delete()
