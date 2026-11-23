@@ -32,3 +32,8 @@ INTEGRATIONS_RATE_RESERVE: int = config("INTEGRATIONS_RATE_RESERVE", default=200
 INTEGRATIONS_WEBHOOK_DELIVERY_RETENTION_DAYS: int = config(
     "INTEGRATIONS_WEBHOOK_DELIVERY_RETENTION_DAYS", default=30, cast=int
 )
+# Deliveries accepted per connection per hour; above it a delivery is logged and answered without a row
+# or a task. Matches Eventbrite's 2000 calls per hour per token: a connection cannot use more anyway.
+INTEGRATIONS_WEBHOOK_INTAKE_LIMIT_PER_HOUR: int = config(
+    "INTEGRATIONS_WEBHOOK_INTAKE_LIMIT_PER_HOUR", default=2000, cast=int
+)

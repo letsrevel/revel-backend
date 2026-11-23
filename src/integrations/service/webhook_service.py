@@ -6,9 +6,11 @@ provider's own host with the connection's token, and routes it to a debounced co
 or the remote-status transition matrix.
 """
 
+import time
 from uuid import UUID
 
 import structlog
+from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.http import Http404, HttpRequest
@@ -30,8 +32,26 @@ _STATUS_ON: dict[str, str] = {
 }
 
 
-def record_delivery(provider_key: str, secret: str, request: HttpRequest) -> WebhookDelivery:
-    """Resolve the connection by secret, parse the body via the provider, and persist the audit row."""
+_INTAKE_WINDOW_SECONDS = 3600
+
+
+def _intake_count(conn: PlatformConnection) -> int:
+    """Count this delivery in the connection's fixed one-hour window and return the new total."""
+    # ponytail: a fixed window lets up to twice the limit through across a window edge; a sliding
+    # window is the upgrade if that ever matters.
+    key = f"integrations:webhook-intake:{conn.id}:{int(time.time()) // _INTAKE_WINDOW_SECONDS}"
+    cache.add(key, 0, _INTAKE_WINDOW_SECONDS + 60)
+    return int(cache.incr(key))
+
+
+def record_delivery(provider_key: str, secret: str, request: HttpRequest) -> WebhookDelivery | None:
+    """Resolve the connection by secret, parse the body via the provider, and persist the audit row.
+
+    Above ``INTEGRATIONS_WEBHOOK_INTAKE_LIMIT_PER_HOUR`` deliveries for one connection in the
+    current hour, the delivery is logged and answered without a row or a task (returns ``None``).
+    The reconcile sweep restores the counts of live links; a status change (publish/unpublish) in a
+    dropped delivery is lost until the next status delivery for that event.
+    """
     provider = registry.get_provider(provider_key)
     conn = PlatformConnection.objects.filter(provider=provider_key, webhook_secret=secret).first()
     if conn is None:
@@ -40,6 +60,17 @@ def record_delivery(provider_key: str, secret: str, request: HttpRequest) -> Web
         notification = provider.parse_webhook(request)
     except ProviderError as e:
         raise IntegrationError(e.code, str(_("Malformed webhook delivery.")), e.provider_message) from e
+    count = _intake_count(conn)
+    if count > settings.INTEGRATIONS_WEBHOOK_INTAKE_LIMIT_PER_HOUR:
+        logger.warning(
+            "integration_webhook_intake_limit_reached",
+            connection_id=str(conn.id),
+            organization_id=str(conn.organization_id),
+            provider=provider_key,
+            action=notification.action,
+            count=count,
+        )
+        return None
     delivery = WebhookDelivery.objects.create(
         connection=conn, action=notification.action, resource_path=notification.resource_path, payload=notification.raw
     )
@@ -80,6 +111,51 @@ def mark_exhausted(delivery_id: UUID) -> None:
     """
     WebhookDelivery.objects.filter(id=delivery_id, outcome=WebhookDelivery.Outcome.RECEIVED).update(
         outcome=WebhookDelivery.Outcome.FAILED, updated_at=timezone.now()
+    )
+
+
+def _deferred_slot_key(connection_id: UUID) -> str:
+    return f"integrations:webhook-deferred:{connection_id}"
+
+
+def hold_deferred_slot(connection_id: UUID, delivery_id: str, ttl_seconds: int) -> bool:
+    """Claim (or keep) the connection's one deferred-delivery slot for this delivery.
+
+    While the shared budget is low only one delivery per connection waits for it; the caller
+    finishes every other deferred delivery with ``finish_coalesced``.
+    """
+    # ponytail: get-then-set is not atomic; if the TTL ends between the two calls, two deliveries can
+    # wait for one cycle, and the next run coalesces one. A Lua compare-and-set is the upgrade.
+    key = _deferred_slot_key(connection_id)
+    if cache.add(key, delivery_id, ttl_seconds):
+        return True
+    if cache.get(key) != delivery_id:
+        return False
+    cache.set(key, delivery_id, ttl_seconds)
+    return True
+
+
+def release_deferred_slot(connection_id: UUID, delivery_id: str) -> None:
+    """Free the connection's deferred-delivery slot if this delivery holds it."""
+    key = _deferred_slot_key(connection_id)
+    if cache.get(key) == delivery_id:
+        cache.delete(key)
+
+
+def finish_coalesced(delivery_id: UUID, connection_id: UUID) -> None:
+    """Finish a budget-deferred order delivery while another delivery holds the connection's slot.
+
+    An order delivery only triggers a counts refresh: the held delivery refreshes its link and
+    the reconcile sweep restores the counts of every other link once the budget recovers.
+    """
+    WebhookDelivery.objects.filter(id=delivery_id, outcome=WebhookDelivery.Outcome.RECEIVED).update(
+        outcome=WebhookDelivery.Outcome.PROCESSED, updated_at=timezone.now()
+    )
+    logger.info(
+        "integration_webhook_coalesced_budget_low",
+        delivery_id=str(delivery_id),
+        connection_id=str(connection_id),
+        held_by=cache.get(_deferred_slot_key(connection_id)),
     )
 
 

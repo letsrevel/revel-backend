@@ -47,8 +47,11 @@ Policy decisions baked into the protocol and the sync/reconcile services:
   drops below a configurable reserve (`INTEGRATIONS_RATE_RESERVE`), so organizer-initiated push
   and pause calls never starve behind the sweep. Webhook dispatch and the trailing counts refresh honour
   the same reserve: below it, a delivery stays `RECEIVED` and is re-enqueued every 15 minutes (not counted
-  against the webhook retry limit) until it is 24 hours old, then marked `FAILED`; intake itself stays
-  unthrottled.
+  against the webhook retry limit) until it is 24 hours old, then marked `FAILED`. Only one delivery per
+  connection waits like this; the connection's other deferred order deliveries are marked `PROCESSED`, because
+  the waiting one refreshes its link and the reconcile sweep restores the others. Intake is free of the
+  shared per-IP throttle, but each connection has its own limit (`INTEGRATIONS_WEBHOOK_INTAKE_LIMIT_PER_HOUR`,
+  default 2000): above it a delivery is logged and answered 200 without a row or a task, so a status change in it is lost.
 - **`listed` follows Revel's own visibility** — a private event is never mirrored regardless of
   connection or auto-sync state.
 - **The `provider` column is unconstrained** (no `choices=`); the registry is the single point
