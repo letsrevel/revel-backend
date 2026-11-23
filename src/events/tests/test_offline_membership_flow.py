@@ -414,8 +414,15 @@ def test_online_paid_approval_sends_approved_notification(
 def test_advance_on_read_skips_user_who_became_member(
     org: Organization, open_tier: MembershipTier, nonmember_user: RevelUser
 ) -> None:
-    """ALREADY_MEMBER is an allowing verdict, but it must not open a subscription or ask the member to pay."""
-    plan = _offline_plan(open_tier)
+    """ALREADY_MEMBER (a FREE plan, #1518) is an allowing verdict, but it must not open a subscription."""
+    plan = MembershipSubscriptionPlan.objects.create(
+        tier=open_tier,
+        name="Free",
+        price=Decimal("0"),
+        currency="EUR",
+        period_unit="lifetime",
+        payment_method=SubscriptionPaymentMethod.FREE,
+    )
     application = OrganizationMembershipRequest.objects.create(
         user=nonmember_user, organization=org, tier=open_tier, plan=plan
     )

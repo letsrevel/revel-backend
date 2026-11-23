@@ -2712,7 +2712,6 @@ msgstr "Soumission de questionnaire invalide."
 msgid "Questionnaire not found for this organization."
 msgstr "Questionnaire introuvable pour cette organisation."
 
-
 msgid "This is already the contact email for this organization."
 msgstr "C'est déjà l'adresse e-mail de contact de cette organisation."
 
@@ -7428,7 +7427,6 @@ msgstr ""
 "Une catégorie de tickets qui accorde une adhésion doit être limitée à un "
 "ticket par personne."
 
-
 msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
 msgstr ""
 "Les niveaux temporaires sont des adhésions d'un jour accordées par des "
@@ -8992,3 +8990,7 @@ msgstr "Le remboursement de %(amount)s pour %(event)s n'a pas abouti chez le pre
 
 msgid "The money was not returned to you. Contact the organizer if you have questions."
 msgstr "L'argent ne t'a pas été rendu. Si tu as des questions, contacte l'équipe organisatrice."
+
+#: src/events/service/organization_service/membership.py
+msgid "The applicant is already an active member, so this plan cannot be approved for them."
+msgstr "Le demandeur est déjà un membre actif, ce forfait ne peut donc pas être approuvé pour lui."

@@ -35,7 +35,7 @@ from events.models import (
 )
 from events.service.user_note_transfer import transfer_record_note
 from events.utils.frontend_urls import frontend_base_url_for
-from events.utils.membership_access import banned_memberships
+from events.utils.membership_access import active_member_refused_plan, banned_memberships
 from events.utils.subscription_payment import is_never_paid_offline
 
 if t.TYPE_CHECKING:
@@ -275,7 +275,17 @@ def _approve_paid_application(
 
     ONLINE awaits the member's /subscribe + checkout; OFFLINE opens the awaiting-payment subscription
     now (capacity/sales HttpErrors raise before any write).
+
+    Raises:
+        MembershipApprovalRefusedError: ``applicant_already_member``, not forceable. The applicant is an ACTIVE
+            member with no live subscription and the plan is FREE: ``/subscribe`` would
+            refuse it (#1518), so the application stays PENDING.
     """
+    if active_member_refused_plan(membership_request.user, plan):
+        raise MembershipApprovalRefusedError(
+            MembershipApprovalRefusalCode.APPLICANT_ALREADY_MEMBER,
+            str(_("The applicant is already an active member, so this plan cannot be approved for them.")),
+        )
     if plan.payment_method == models.MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
         open_offline_subscription(plan, membership_request.user, application=membership_request)
     membership_request.status = models.OrganizationMembershipRequest.Status.APPROVED

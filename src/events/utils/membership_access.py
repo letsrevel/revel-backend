@@ -20,7 +20,7 @@ if t.TYPE_CHECKING:
     from django.db.models import QuerySet
 
     from accounts.models import RevelUser
-    from events.models import OrganizationMember
+    from events.models import MembershipSubscriptionPlan, MembershipTier, OrganizationMember
     from events.models.membership import OrganizationMemberQuerySet
 
 # Plain strings (== OrganizationMember.MembershipStatus values) because models cannot be
@@ -136,3 +136,88 @@ def is_eligible_member(user: "RevelUser | UUID", organization_id: "UUID") -> boo
 def get_eligible_membership(user: "RevelUser | UUID", organization_id: "UUID") -> "OrganizationMember | None":
     """The user's eligible membership in the organization (with ``tier``), if any."""
     return eligible_memberships().select_related("tier").filter(user=user, organization_id=organization_id).first()
+
+
+def is_active_member_without_live_subscription(user: "RevelUser", plan: "MembershipSubscriptionPlan") -> bool:
+    """Whether the user is an ACTIVE member of the plan's organization and holds no live subscription (#1518).
+
+    A live subscription is a non-terminal one that is not PENDING, or a PENDING one on this same plan
+    (a checkout resume or an idempotent OFFLINE repeat). Such a user keeps the duplicate-subscription or
+    resume answer. A PENDING subscription on another plan does not count as live: an ONLINE one is replaced
+    by the new checkout, an OFFLINE one still blocks any new subscription.
+    """
+    from django.db.models import Q
+
+    from events.models import MembershipSubscription
+
+    organization_id = plan.tier.organization_id
+    if not eligible_memberships().filter(organization_id=organization_id, user=user).exists():
+        return False
+    pending = MembershipSubscription.SubscriptionStatus.PENDING
+    holds_live_subscription = (
+        MembershipSubscription.objects.filter(organization_id=organization_id, user=user)
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .filter(~Q(status=pending) | Q(plan=plan))
+        .exists()
+    )
+    return not holds_live_subscription
+
+
+def active_member_refused_plan(user: "RevelUser", plan: "MembershipSubscriptionPlan") -> bool:
+    """Whether an ACTIVE member with no live subscription must be refused this plan (#1518).
+
+    True only for a FREE plan (any tier): it would change the member's tier for nothing. A paid plan
+    (ONLINE or OFFLINE) is allowed at any tier, including the member's own: that is how an imported or
+    owner-added member starts paying. See ``is_active_member_without_live_subscription``.
+    """
+    from events.models import MembershipSubscriptionPlan
+
+    if plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.FREE:
+        return False
+    return is_active_member_without_live_subscription(user, plan)
+
+
+def is_own_tier_paid_start(user: "RevelUser", plan: "MembershipSubscriptionPlan") -> bool:
+    """Whether an ACTIVE member starts paying a PAID plan at their OWN tier (#1518).
+
+    That member passed this tier's admission gates once, so they are not gated again (same principle as
+    a plan change). True when the plan is ONLINE or OFFLINE, the member's ACTIVE row is at the plan's tier, and
+    they hold no live subscription. A PENDING subscription on this same plan (the start of the flow) is not live.
+    """
+    from events.models import MembershipSubscription, MembershipSubscriptionPlan
+
+    if plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.FREE:
+        return False
+    organization_id = plan.tier.organization_id
+    if not eligible_memberships().filter(organization_id=organization_id, user=user, tier_id=plan.tier_id).exists():
+        return False
+    return not (
+        MembershipSubscription.objects.filter(organization_id=organization_id, user=user)
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .exclude(status=MembershipSubscription.SubscriptionStatus.PENDING)
+        .exists()
+    )
+
+
+def active_member_refused_application(
+    user: "RevelUser", organization_id: "UUID", tier: "MembershipTier | None", plan: "MembershipSubscriptionPlan | None"
+) -> bool:
+    """Whether ``/apply`` must refuse an ACTIVE member with no live subscription (#1518).
+
+    True for a FREE plan (see ``active_member_refused_plan``), and for a plan-less application at a tier other
+    than the member's own: both would change the member's tier for nothing. Read from the member row, so owners
+    and staff are refused too.
+    """
+    if tier is None:
+        return False
+    if plan is not None:
+        return active_member_refused_plan(user, plan)
+    from events.models import MembershipSubscription
+
+    switching = eligible_memberships().filter(organization_id=organization_id, user=user).exclude(tier_id=tier.pk)
+    return (
+        switching.exists()
+        and not MembershipSubscription.objects.filter(organization_id=organization_id, user=user)
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .exists()
+    )

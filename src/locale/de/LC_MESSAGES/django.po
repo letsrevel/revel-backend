@@ -2715,7 +2715,6 @@ msgstr "Ungültige Fragebogen-Einreichung."
 msgid "Questionnaire not found for this organization."
 msgstr "Fragebogen für diese Organisation nicht gefunden."
 
-
 msgid "This is already the contact email for this organization."
 msgstr "Dies ist bereits die Kontakt-E-Mail-Adresse für diese Organisation."
 
@@ -7417,7 +7416,6 @@ msgstr "Eine Ticketkategorie, die eine Mitgliedschaft vergibt, kann nicht auf Mi
 msgid "A ticket tier that grants a membership must be limited to one ticket per person."
 msgstr "Eine Ticketkategorie, die eine Mitgliedschaft vergibt, muss auf ein Ticket pro Person begrenzt sein."
 
-
 msgid "Temporary tiers are day memberships granted by tickets; they cannot be held or applied for."
 msgstr "Temporäre Stufen sind Tagesmitgliedschaften, die durch Tickets vergeben werden; sie können weder gehalten noch beantragt werden."
 
@@ -8969,3 +8967,7 @@ msgstr "Die Rückerstattung von %(amount)s für %(event)s ist beim Zahlungsanbie
 
 msgid "The money was not returned to you. Contact the organizer if you have questions."
 msgstr "Das Geld wurde nicht an dich zurückgezahlt. Wende dich bei Fragen an das Organisationsteam."
+
+#: src/events/service/organization_service/membership.py
+msgid "The applicant is already an active member, so this plan cannot be approved for them."
+msgstr "Die antragstellende Person ist bereits ein aktives Mitglied, daher kann dieser Tarif nicht für sie genehmigt werden."

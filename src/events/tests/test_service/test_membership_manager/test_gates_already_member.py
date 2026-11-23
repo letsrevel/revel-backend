@@ -49,9 +49,10 @@ def test_active_at_target_tier_returns_already_member(
     assert result.next_step == MembershipNextStep.ALREADY_MEMBER
 
 
-def test_active_at_different_tier_falls_through(
+def test_active_at_different_tier_plan_less_returns_already_member(
     user: RevelUser, organization: Organization, tier_a: MembershipTier, tier_b: MembershipTier
 ) -> None:
+    """A plan-less (free) application for another tier would switch the member's tier: refused (#1518)."""
     OrganizationMember.objects.create(
         organization=organization,
         user=user,
@@ -60,9 +61,8 @@ def test_active_at_different_tier_falls_through(
     )
     service = MembershipEligibilityService(user=user, organization=organization, tier=tier_b)
     result = service.check_eligibility()
-    # Falls through; no gate blocks → ALLOWED with no next_step.
     assert result.allowed is True
-    assert result.next_step is None
+    assert result.next_step == MembershipNextStep.ALREADY_MEMBER
 
 
 def test_tier_less_check_from_active_member_returns_already_member(
