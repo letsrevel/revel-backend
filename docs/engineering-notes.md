@@ -223,8 +223,35 @@ path if a capped plan ever sees rush-level traffic.
 
 One global order, everywhere a transaction locks more than one of these:
 
-**`Payment` (pk order) → `HeldSeriesPass` → `SeriesPass` → `TicketTier` (pk order) → `Event` → `Ticket` (pk order)
+**`RevelUser` (the account row of the buyer or of the deleted account, `FOR NO KEY UPDATE`) → `Payment` (pk order)
+→ `HeldSeriesPass` → `SeriesPass` → `TicketTier` (pk order) → `Event` → `Ticket` (pk order)
 → `DiscountCode` (pk order) → `MembershipRecord` → `TicketNumberSequence` (org-id order)**
+
+**Account row first (#1476).** The deletion task (`accounts.tasks.delete_user_account`) locks the account row
+before it locks or reads any holding of the account. Every checkout that writes a `Ticket`, `Payment` or
+`HeldSeriesPass` for a buyer takes the same lock with `account_erasure.lock_account_for_checkout(user)` before its
+first row lock: `BatchTicketService.create_batch` (after the VIES call, before the tier lock),
+`SeriesPassPurchaseService.purchase` (before the pass row lock), `box_office.sell` (before the tier lock) and
+`guest.claim_invitation_link` (a guest checkout or RSVP with an invitation link: before the claim, which locks the
+token and the guest's `EventInvitation`; the deletion cascade deletes that invitation while it holds the account row). The
+helper reads `erased_at` and `deletion_requested_at` under the lock and refuses with 403 when one is set or the row
+is gone. So the two never overlap: the checkout commits first and the deletion sees its rows (it releases a PENDING
+checkout and keeps an issued ticket with its holder snapshot), or the deletion commits first and the checkout writes
+nothing. The data-export task takes the same lock for the whole export.
+
+- The mode is `FOR NO KEY UPDATE` on both sides, not `FOR UPDATE` plus `FOR KEY SHARE`. Django's foreign keys are
+  deferred, so every transaction that inserts a row for the account takes `FOR KEY SHARE` on the account row at its
+  commit, while it still holds its other locks. `FOR NO KEY UPDATE` does not conflict with that, so the deletion
+  cannot deadlock against such a transaction. `FOR UPDATE` would.
+- A new path that holds one of the locks above must not lock or update a `RevelUser` row afterwards. Take the
+  account lock first.
+- The lock is on one account: two checkouts of the same buyer wait for each other, and so does the buyer's own
+  token refresh. Checkouts of different buyers do not.
+- Not serialized: tickets that a kept series pass gets later (`series_pass_service.materialize_tickets` from a
+  backfill or an extension). That path already holds pass and tier locks, so it cannot take the account lock, and
+  an erased holder must still get these tickets. They take the holder snapshot from the pass. A materialization
+  that overlaps the erasure itself can write a ticket without the snapshot; staff then see "Deleted user".
+  The threaded tests are in `events/tests/test_account_erasure/test_serialization.py`.
 
 **Ticket-ownership lemma.** Every transaction that touches an existing ticket that has a `Payment`
 locks that `Payment` first. So, once a transaction holds the `Payment`, no other path can cancel,
@@ -663,8 +690,154 @@ An `on_commit` callback runs after the request transaction commits. If its `.del
 down), the data is already stored but the request answers 500, and the task is never queued. When that
 work must not fail the request, use a named callback that logs its own failure, register it with
 `transaction.on_commit(callback, robust=True)`, and add a sweep that finds the work again from the
-database. Examples: `_erasure_dispatch` in `accounts/admin/user.py`, and `_scan_dispatch` in
+database. Examples: `account_deletion_dispatch` in `accounts/tasks/gdpr.py`, and `_scan_dispatch` in
 `common/service/upload_service.py` with the `rescan_pending_uploads` sweep (#1446).
 
 Never pass a `functools.partial` with `robust=True`: Django logs a failing robust callback by its
 `__qualname__`, and a `partial` has none, so the error path itself raises `AttributeError`.
+## Account erasure: keep the holdings, erase the person
+
+`accounts.tasks.delete_user_account` is the one deletion path (self-service confirm, the unverified
+sweep, the admin delete). After it locks the account's checkouts (`release_capacity_of_account`), it
+reads `kept_holdings` under those locks:
+
+- ACTIVE or CHECKED_IN tickets whose event `end` is at or after `now - 120 days` (full datetimes).
+- Every ACTIVE held series pass, also one whose series has no event yet. (PR 3's retention job deletes
+  it 120 days after its last covered event, and only when the series has no upcoming event.)
+- The held pass of every kept ticket (`Ticket.held_pass` is `RESTRICT`).
+
+No kept holdings: `user.delete()`, as before. Otherwise `account_erasure.erase_account_keeping_holdings`
+runs in the same transaction:
+
+1. Copy the holder email onto the kept tickets (`holder_email`) and the holder name and email onto the kept
+   passes (`holder_name`, `holder_email`). A ticket keeps a `guest_name` that is already set. A ticket with a
+   blank `guest_name` gets the account name only when its organization knows the holder
+   (`holder_visibility.is_known_holder_id`): staff saw that name before the erasure. For any other holder (an
+   unconfirmed guest checkout without a ticket name) staff saw only the email, so the name stays blank and the
+   staff view shows the kept email. Clear `raw_response` (the stored Stripe payload) of the kept
+   payments; keep `buyer_billing_snapshot` for the retention period (a late invoice or credit note needs it).
+   A later Stripe event (a refund, a late completion, a cancelled intent) stores `{}` for an erased buyer:
+   every writer of `Payment.raw_response` goes through `erased_holder.stripe_payload_to_store`.
+2. `blacklist_user_tokens`, before the cascade nulls `OutstandingToken.user`.
+3. Walk every relation to `RevelUser` (`get_candidate_relations_to_delete`, so hidden M2M through rows
+   too) and give each the outcome of `user.delete()`: CASCADE rows deleted, SET_NULL columns nulled,
+   PROTECT rows refuse. The exceptions are the kept tickets, passes and their payments, and
+   `NotificationPreference` (kept and **not** silenced: the event-cancel audience skips silenced accounts,
+   and the dispatcher already drops every type but the five cancellation and refund emails). Tickets go first because of the `RESTRICT`. If a kept row
+   is gone afterwards, the task raises and the transaction rolls back.
+4. Anonymise the row: placeholder `username`/`email` (`erased-<id>@erased.invalid`), names, phone, bio,
+   pictures, Stripe Connect, TOTP and `last_login` cleared, unusable password, `is_active`/`is_staff`/
+   `is_superuser`/`guest`/`email_verified` False, `credentials_changed_at` and `erased_at` set.
+
+`gdpr.purge_user_history` then runs as for a full delete. On both paths the stored data-export ZIP of the account
+is deleted after commit (`account_erasure.delete_data_export_file_after_commit`): the export row cascades, but a
+row delete does not delete the file, and its emailed link stays valid for 7 days. A repeated export deletes the
+ZIP of the earlier one after commit, and an export that fails after it wrote its ZIP deletes that ZIP at once
+(`gdpr._stale_export_cleanup`), so the export row always names the only export file of the account.
+
+An export file can still lose its row: the export task writes the ZIP inside the transaction that holds the
+account lock, so a worker that is killed (the 300 s time limit, an OOM kill) after the write and before the commit
+rolls the row back and leaves the file. The beat task `accounts.sweep_orphan_data_exports` runs once a day (03:40
+UTC, seeded by migration `accounts.0041`). It lists the upload folder of `UserDataExport.file`
+(`protected/user_data_exports/`) through the storage API and deletes each file that has the name of an export ZIP
+(`revel_export_<account id>*.zip`; each export has its own name, `revel_export_<account id>_<16 hex>.zip`, so a
+signed link to an earlier ZIP never opens a later one), that no row names, and that is older than the lifetime of a download link
+(7 days, `ORPHAN_DATA_EXPORT_MIN_AGE`). The age limit keeps an export that is being made now. One sweep deletes at
+most 500 files, and its log has counts only. It also removes the files that earlier versions left without a row in that folder.
+
+Sign-in and a failed deletion:
+
+- The self-service confirm runs one UPDATE on an **active** account: `is_active=False` and
+  `deletion_requested_at=now`. An account that was already inactive (the unverified sweep, an admin) gets no mark.
+- The run carries its mark: the confirm passes the timestamp to the task (`deletion_mark`, ISO 8601). A run for
+  an account that got no mark carries `None`, and so do the admin runs and the unverified sweep.
+- One run for each mark: a second confirmation of an account that already has the mark queues nothing. Two runs
+  would share the mark, and a failure of one would give the access back while the other still deletes the account.
+  An account without a mark (already inactive) queues a run for each confirmation; none of them can reactivate.
+- The dispatch is a robust `on_commit` callback. If `.delay` raises (broker down), it logs
+  `account_deletion_dispatch_failed` (ERROR, user id only). The account stays inactive with its mark, because the
+  response already said that the deletion will run. The stale-mark sweep (below) queues the run again.
+- On the task's final failure (any exception raised in the task on any path, also the soft time limit,
+  or a referral payout still in flight after the last retry), it logs `account_deletion_failed` (ERROR, user id only). Then one UPDATE sets `is_active=True` and
+  clears the mark, but only for a row that still has exactly the mark of that run, has no `erased_at`, still has
+  the email it was read with, and whose email is not globally banned
+  (`account_erasure.restore_access_after_failed_deletion`). After that UPDATE has committed, the ban of the
+  email is checked once more in a new statement (`global_ban_service.deactivate_restored_account_if_banned`):
+  a banned account goes back to the state of a refused restore (inactive, with its mark, so the stale-mark
+  sweep queues the deletion again), with no ban notification, and `account_restore_undone_for_ban`
+  (WARNING, user id only) is logged. The check is a robust on-commit callback: its own error is logged (ERROR,
+  by Django, with the callback name `check_ban_after_restore`) and does not replace the error of the deletion.
+  Known limit: a check that fails before its UPDATE (a database error in that short window) leaves the account
+  as restored, also when its email is banned. The UPDATE cannot see a domain ban that commits while it runs, and the
+  task of a domain ban deactivates only accounts that are active when it reads them; with the second check, one
+  of the two always sees the other. A run without a mark never restores, so it cannot
+  clear the mark of a later confirmation.
+- A run with a mark is fenced (`gdpr._mark_changed`): it works only while the account is inactive and still has
+  exactly the mark of that run. The task reads the account again and checks this at three points: immediately
+  before the subscription cancel, immediately before the referral cleanup, and under the account row lock,
+  before it releases capacity and erases or deletes. When a check fails, the run logs
+  `account_deletion_skipped_mark_changed` (INFO, user id only) and ends: no further step, no restore, no retry.
+  The lock is held for the last phase only. The cancel and the cleanup run without it (statement PDF writes,
+  the locks of the payout task, and the cancel must commit on its own), so a change that commits after the
+  check of one of these two steps does not stop that step; every later step is skipped (by design, see
+  `.claude/review/by-design.md`). So an old run cannot delete an account that got its access back, that an admin
+  reactivated, or that has a newer run. A run without a mark has no fence.
+- The admin delete, the "Force full delete" action, an admin who changes `is_active`, and a ban clear the
+  mark. So an admin run never reactivates, also when a self-service run is pending. Because the fence then
+  stops the run of the confirm, each of these decides what happens next:
+  - The admin delete and "Force full delete" queue their own run without a mark.
+  - A ban (`global_ban_service.deactivate_user_for_ban`, both branches) reads the mark under the row lock in
+    the transaction that clears it. When a mark was set, it queues one run without a mark on commit
+    (`gdpr.account_deletion_dispatch`, the helper of the admin delete). The banned account is still deleted or
+    erased, and a failure of that run leaves it inactive. A domain ban deactivates active accounts only, so a
+    pending account in that domain keeps its mark and its own run.
+  - No code may write `is_active` or the mark from data that it read earlier without a lock. Save a `RevelUser`
+    with `update_fields` that name only the fields that changed: a full `save()` of an instance that was read
+    earlier would write the old `is_active` and mark back, and the fence would then stop the deletion for good.
+  - An admin who changes `is_active` cancels the deletion: ticked, the account is active again; unticked (only
+    possible with a form that was opened before the confirm), the account stays inactive and undeleted.
+- An erasure clears the mark; a full delete removes the row.
+- The stale-mark sweep: the beat task `accounts.requeue_stale_account_deletions` runs every 15 minutes (seeded by
+  migration `accounts.0040`). It covers a run that never reports: a failed dispatch, a hard kill of the task (the
+  300 s time limit, or an OOM kill of the child process; Celery acks the message: a time-limit kill acks by
+  default, and `task_reject_on_worker_lost` is off for a lost child process, so there is no retry) and a message
+  lost by the broker. A lost whole worker is redelivered (`acks_late`). The sweep selects inactive rows without
+  `erased_at` whose mark is older than 24 hours (`STALE_ACCOUNT_DELETION_AFTER`). One run lives about 11 hours at
+  most: 12 retries with a backoff capped at 1 hour, and the 300 s time limit for each attempt. For each row a
+  compare-and-set UPDATE (`WHERE deletion_requested_at = <the value read>`) writes a new mark, and the new run
+  carries the new mark. So two sweeps queue one run, and a late failure of the old run cannot give the access
+  back. If the dispatch fails, the sweep puts the old mark back and raises, and the next sweep tries again. One
+  sweep takes at most 100 rows, oldest mark first. Rows without a mark (admin, ban, the unverified sweep) are
+  never selected. An operator can still reactivate a pending account in the admin (ticking `is_active` also
+  clears the mark).
+- Rolling deploy: the column is nullable, so old code keeps working. A task queued before the deploy comes
+  from a confirm that did not deactivate the account and carries no mark, so its failure changes nothing. A new
+  confirm whose task an old worker receives fails there (the old task does not accept `deletion_mark`) and
+  deletes nothing; the account stays inactive with its mark, and the sweep queues the run again after 24 hours.
+
+No `Notification` row is stored
+for a type an erased account never receives, and the digest sweep skips erased accounts (it reads `erased_at` again
+for each account before it sends). A queued data export is skipped for an erased account and while a deletion is
+pending; the export holds the account row lock (also across its emails; each email is sent in its own savepoint, so a
+database error in its `EmailLog` write does not roll back the FAILED or READY status of the export), so an erasure cannot commit in the
+middle of it, and the account's checkouts, sign-in and token refresh wait for it. A second run on an erased account with
+holdings does nothing; the superuser admin action "Force full delete" passes `force_full_delete=True`.
+
+Rules for new code:
+
+- A new relation to `RevelUser` fails `events/tests/test_account_erasure/test_relations.py` until you
+  record its outcome there. If the erasure must keep its rows, add it to `account_erasure._kept_rows`.
+- Kept models must not be history-tracked: the history purge would drop their history.
+- Code that shows or emails a ticket or pass holder reads the snapshot through
+  `events/utils/erased_holder.py` (`holder_email`, `ticket_holder_name`, `pass_holder_name`).
+  `RevelUser.get_display_name()` returns "Deleted user" for an erased account, so an unpatched path
+  never shows the placeholder. Notification emails greet with `recipient_name`, not `user.display_name`.
+- `holder_email` is a `CharField`, not an `EmailField`: it is a stored snapshot, and `full_clean` on a
+  later save (check-in, cancel) must never reject it (the same rule as `MembershipRecord.email`).
+- Links mailed before the erasure (password reset, email verification) find no account: their lookups
+  exclude `erased_at` rows and rows with `deletion_requested_at`, as if the row were gone. So a link never
+  reactivates an account whose deletion is pending, and the answer does not tell that it is pending. The
+  senders (resend verification, password reset request, the admin verification action, a repeat signup) skip such accounts. An
+  OIDC login does not convert or reactivate a pending guest (`convert_guest(reactivate=True)`).
+- Never send mail to `user.email` of an erased account: the email backend guard drops it (see
+  [Email Sending](architecture/email-sending.md#the-erased-recipient-guard)).

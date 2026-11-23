@@ -20,6 +20,8 @@ from accounts.tasks.gdpr import (
     cleanup_expired_data_exports,
     delete_user_account,
     generate_user_data_export,
+    requeue_stale_account_deletions,
+    sweep_orphan_data_exports,
 )
 from accounts.tasks.notifications import (
     notify_admin_new_referral_application,
@@ -54,7 +56,9 @@ __all__ = [
     "notify_admin_new_user_joined_discord",
     "process_domain_ban_task",
     "process_referral_payouts",
+    "requeue_stale_account_deletions",
     "send_account_email",
     "send_early_verification_reminders",
     "send_final_verification_warnings",
+    "sweep_orphan_data_exports",
 ]

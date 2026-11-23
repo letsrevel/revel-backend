@@ -1,12 +1,14 @@
 # src/accounts/tests/test_controllers/test_auth_otp_controllers.py
 """test_auth_otp_controllers.py: Integration tests for AuthController and OtpController."""
 
+import typing as t
 from unittest.mock import MagicMock, patch
 
 import orjson
 import pytest
 from django.test.client import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import RevelUser
 
@@ -134,3 +136,26 @@ def test_disable_otp_success(mock_verify: MagicMock, auth_client: Client, user: 
     assert response.status_code == 200
     user.refresh_from_db()
     assert user.totp_active is False
+
+
+@pytest.mark.parametrize(("url_name", "enabled"), [("enable-otp", True), ("disable-otp", False)])
+def test_an_otp_change_does_not_write_back_an_account_state_that_changed_during_the_request(
+    auth_client: Client, user: RevelUser, url_name: str, enabled: bool
+) -> None:
+    """The deletion confirm commits after the request read the account: the save must not undo it (#1476)."""
+    RevelUser.objects.filter(pk=user.pk).update(totp_active=not enabled)
+    mark = timezone.now()
+
+    def confirm_meanwhile(*args: t.Any, **kwargs: t.Any) -> bool:
+        RevelUser.objects.filter(pk=user.pk).update(is_active=False, deletion_requested_at=mark)
+        return True
+
+    with patch("accounts.controllers.otp.totp_service.verify_totp", side_effect=confirm_meanwhile):
+        response = auth_client.post(
+            reverse(f"api:{url_name}"), data=orjson.dumps({"otp": "123456"}), content_type="application/json"
+        )
+
+    assert response.status_code == 200
+    user.refresh_from_db()
+    assert user.totp_active is enabled
+    assert (user.is_active, user.deletion_requested_at) == (False, mark)

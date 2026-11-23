@@ -185,7 +185,9 @@ class SeriesPassAdminController(UserAwareController):
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["user__email", "user__first_name", "user__last_name"])
+    @searching(
+        Searching, search_fields=["user__email", "user__first_name", "user__last_name", "holder_email", "holder_name"]
+    )
     def list_series_pass_holders(self, series_id: UUID, pass_id: UUID) -> QuerySet[models.HeldSeriesPass]:
         """List holders of a series pass, searchable by holder name/email (admin only).
 

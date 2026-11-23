@@ -188,6 +188,10 @@ class HeldSeriesPass(TimeStampedModel):
     )
     price_paid = models.DecimalField(max_digits=10, decimal_places=2)
     stripe_session_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    # Holder snapshot, written only when the account is erased (it then has no name or real email).
+    holder_name = models.CharField(max_length=255, blank=True, default="", db_default="", editable=False)
+    # Not an EmailField: a stored snapshot must never fail full_clean on save (as MembershipRecord.email).
+    holder_email = models.CharField(max_length=254, blank=True, default="", db_default="", editable=False)
     attribution = models.JSONField(
         null=True,
         blank=True,

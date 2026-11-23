@@ -11,6 +11,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from events.models import Event, HeldSeriesPass, Ticket
+from events.utils.erased_holder import holder_email, pass_holder_name
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
@@ -59,8 +60,8 @@ def send_series_pass_purchased(held_pass_id: UUID) -> None:
 
     staff_context = {
         **context,
-        "holder_name": held_pass.user.get_display_name(),
-        "holder_email": held_pass.user.email,
+        "holder_name": pass_holder_name(held_pass),
+        "holder_email": holder_email(held_pass),
     }
     notify_org_staff(
         organization_id=held_pass.series_pass.event_series.organization_id,
@@ -153,8 +154,8 @@ def send_series_pass_cancelled(held_pass_id: UUID, refunded_total: Decimal, canc
 
     staff_context = {
         **context,
-        "holder_name": held_pass.user.get_display_name(),
-        "holder_email": held_pass.user.email,
+        "holder_name": pass_holder_name(held_pass),
+        "holder_email": holder_email(held_pass),
     }
     notify_org_staff(
         organization_id=held_pass.series_pass.event_series.organization_id,

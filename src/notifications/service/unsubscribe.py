@@ -22,7 +22,7 @@ from notifications.schema import (
     OneClickUnsubscribePayload,
     UpdateNotificationPreferenceSchema,
 )
-from notifications.service.email_policy import suppress
+from notifications.service.email_policy import recipient_address, suppress
 from notifications.service.preferences import create_default_preferences
 
 logger = structlog.get_logger(__name__)
@@ -46,7 +46,9 @@ def generate_unsubscribe_token(
     """
     payload = OneClickUnsubscribePayload(
         user_id=user.id,
-        email=user.email,
+        # An erased account's placeholder is no valid address; its token names the kept holder email, so
+        # the confirm step (which compares it with user.email) refuses it.
+        email=recipient_address(user),
         exp=timezone.now() + settings.UNSUBSCRIBE_TOKEN_LIFETIME,
         notification_type=NotificationType(notification_type) if notification_type else None,
         organization_id=organization_id,

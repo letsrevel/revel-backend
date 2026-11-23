@@ -339,7 +339,9 @@ def materialize_tickets(
         .exclude(status=Ticket.TicketStatus.CANCELLED)
         .values_list("event_id", flat=True)
     )
-    guest_name = held_pass.user.get_full_name() or held_pass.user.username
+    holder = held_pass.user
+    # An erased holder has only the snapshot on the pass (its username is a placeholder); new tickets carry it too.
+    guest_name = held_pass.holder_name if holder.erased_at else holder.get_full_name() or holder.username
     tickets = [
         Ticket(
             event_id=link.event_id,
@@ -348,6 +350,7 @@ def materialize_tickets(
             held_pass=held_pass,
             status=status,
             guest_name=guest_name,
+            holder_email=held_pass.holder_email,
             refund_policy_snapshot=None,
             price_paid=price_paid,
             # The pass, not the request, is the source of truth (#922): backfills and

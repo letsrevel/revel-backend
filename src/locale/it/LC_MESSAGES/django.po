@@ -8954,3 +8954,48 @@ msgstr "I soldi non ti sono stati restituiti. Se hai domande, contatta l'organiz
 #: src/events/service/organization_service/membership.py
 msgid "The applicant is already an active member, so this plan cannot be approved for them."
 msgstr "Il richiedente è già un membro attivo, quindi questo piano non può essere approvato per lui."
+
+msgid "Deleted user"
+msgstr "Utente eliminato"
+
+msgid "Erased"
+msgstr "Cancellato"
+
+msgid "Force full delete of erased accounts (superuser only)"
+msgstr "Elimina completamente gli account cancellati (solo superutente)"
+
+msgid "Superuser required."
+msgstr "È richiesto un superutente."
+
+msgid "No erased account selected."
+msgstr "Nessun account cancellato selezionato."
+
+msgid "Force full delete"
+msgstr "Elimina completamente"
+
+#, python-format
+msgid "Queued the full delete of %d erased account."
+msgid_plural "Queued the full delete of %d erased accounts."
+msgstr[0] "Eliminazione completa di %d account cancellato messa in coda."
+msgstr[1] "Eliminazione completa di %d account cancellati messa in coda."
+
+msgid "These erased accounts are deleted now, with their kept tickets, series passes, payments and refunds. The tickets and passes stop working. This cannot be undone."
+msgstr "Questi account cancellati vengono eliminati ora, con i biglietti, gli abbonamenti di serie, i pagamenti e i rimborsi conservati. I biglietti e gli abbonamenti smettono di funzionare. L'operazione non può essere annullata."
+
+#, python-format
+msgid "%(counter)s selected account is not erased and is skipped."
+msgid_plural "%(counter)s selected accounts are not erased and are skipped."
+msgstr[0] "%(counter)s account selezionato non è cancellato e viene saltato."
+msgstr[1] "%(counter)s account selezionati non sono cancellati e vengono saltati."
+
+msgid "Delete these accounts"
+msgstr "Elimina questi account"
+
+msgid "This account was erased. An erased account cannot be edited."
+msgstr "Questo account è stato cancellato. Un account cancellato non può essere modificato."
+
+msgid "This account was deleted."
+msgstr "Questo account è stato eliminato."
+
+msgid "This account is being deleted."
+msgstr "Questo account è in fase di eliminazione."

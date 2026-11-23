@@ -26,6 +26,7 @@ from django.utils.functional import Promise
 from django.utils.translation import gettext_lazy as _
 
 from accounts.models import RevelUser
+from common.email_backend import is_erased_address
 from common.models import EmailLog, FileExport, FileUploadAudit, QuarantinedFile, SiteSettings
 from common.thumbnails.tasks import (  # noqa: F401
     delete_orphaned_thumbnails_task,
@@ -160,8 +161,20 @@ def send_email(
     try:
         site_settings = SiteSettings.get_solo()
         recipients = [to] if isinstance(to, str) else to
+        # Erased accounts go out here, on the addresses as given (before the catch-all rewrite) and before the
+        # To/BCC shape is chosen. The backend guard alone is too late for a batch: it sees the sender in To, so
+        # a batch with only erased recipients would go to the sender.
+        intended = len(recipients) + len(bcc or [])
+        recipients = [email for email in recipients if not is_erased_address(email)]
+        bcc = [email for email in (bcc or []) if not is_erased_address(email)]
+        erased_dropped = intended - len(recipients) - len(bcc)
         recipients = [to_safe_email_address(email, site_settings=site_settings) for email in recipients]
-        safe_bcc = [to_safe_email_address(email, site_settings=site_settings) for email in (bcc or [])]
+        safe_bcc = [to_safe_email_address(email, site_settings=site_settings) for email in bcc]
+        if erased_dropped and not recipients and not safe_bcc:
+            # No address in the log: the placeholder names the account.
+            logger.warning("email_dropped_no_recipient_left", subject=str(subject)[:120])
+            success = True  # as for the single erased recipient that the backend guard drops
+            return
         sender = from_email or settings.DEFAULT_FROM_EMAIL
         if not any(key.lower() == "list-unsubscribe" for key in headers or {}):
             headers = {**(headers or {}), **preferences_list_unsubscribe_header()}
@@ -171,7 +184,8 @@ def send_email(
         # - Single recipient: use as To, add explicit BCC if provided.
         # - Multiple recipients: auto-BCC all for privacy (RFC 5322),
         #   merge with any explicit BCC addresses.
-        if len(recipients) == 1:
+        # - Every To recipient erased, a BCC left: BCC only, with no sender in To (as the backend guard sends it).
+        if len(recipients) == 1 or (erased_dropped and not recipients):
             email_msg = EmailMultiAlternatives(
                 subject=subject,
                 body=body,

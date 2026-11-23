@@ -72,6 +72,74 @@ def test_generate_user_data_export_fails_loudly_when_export_has_no_file(user: Re
 
 
 @pytest.mark.django_db(transaction=True)
+def test_generate_user_data_export_keeps_the_failed_status_when_the_failure_mail_fails(user: RevelUser) -> None:
+    """The task raises the export error, and the FAILED status is committed (``transaction=True``: a real commit)."""
+    with (
+        patch("accounts.service.gdpr.generate_user_data_export", side_effect=Exception("Export failed")),
+        patch("accounts.tasks.gdpr.send_email", side_effect=ConnectionError("smtp down")),
+        pytest.raises(Exception, match="Export failed"),
+    ):
+        generate_user_data_export(str(user.id))
+
+    assert UserDataExport.objects.get(user=user).status == UserDataExport.UserDataExportStatus.FAILED
+
+
+def _email_log_insert_fails() -> t.Any:
+    """Make the database insert of ``EmailLog`` rows fail, below ``bulk_create`` (its own atomic block still runs)."""
+    from django.db import DatabaseError
+    from django.db.models.query import QuerySet
+
+    from common.models import EmailLog
+
+    queryset: t.Any = QuerySet
+    real_insert = queryset._batched_insert
+
+    def insert(self: t.Any, objs: t.Any, *args: t.Any, **kwargs: t.Any) -> t.Any:
+        if self.model is EmailLog:
+            raise DatabaseError("email log insert failed")
+        return real_insert(self, objs, *args, **kwargs)
+
+    return patch.object(QuerySet, "_batched_insert", insert)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_generate_user_data_export_keeps_the_failed_status_when_the_email_log_insert_fails(
+    user: RevelUser, mailoutbox: list[MagicMock]
+) -> None:
+    """The failure mail goes out, then its log row cannot be written: FAILED must still be committed.
+
+    ``transaction=True``: the status is lost only at a real commit of a transaction that is marked for rollback.
+    """
+    with (
+        patch("accounts.service.gdpr.generate_user_data_export", side_effect=Exception("Export failed")),
+        _email_log_insert_fails(),
+        pytest.raises(Exception, match="Export failed"),
+    ):
+        generate_user_data_export(str(user.id))
+
+    assert len(mailoutbox) == 1  # delivered once, and not sent again
+    assert UserDataExport.objects.get(user=user).status == UserDataExport.UserDataExportStatus.FAILED
+
+
+@pytest.mark.django_db(transaction=True)
+def test_generate_user_data_export_keeps_the_ready_export_when_the_email_log_insert_fails(
+    user: RevelUser, mailoutbox: list[MagicMock], settings: t.Any, tmp_path: t.Any
+) -> None:
+    """The download link goes out, then its log row cannot be written: the READY export must still be committed."""
+    from django.db import DatabaseError
+
+    settings.MEDIA_ROOT = str(tmp_path)
+
+    with _email_log_insert_fails(), pytest.raises(DatabaseError, match="email log insert failed"):
+        generate_user_data_export(str(user.id))
+
+    assert len(mailoutbox) == 1
+    export = UserDataExport.objects.get(user=user)
+    assert export.status == UserDataExport.UserDataExportStatus.READY
+    assert export.file.name and export.file.storage.exists(export.file.name)
+
+
+@pytest.mark.django_db(transaction=True)
 def test_generate_user_data_export_sends_failure_email(
     user: RevelUser, staff_user: RevelUser, mailoutbox: list[MagicMock]
 ) -> None:
@@ -88,6 +156,8 @@ def test_generate_user_data_export_sends_failure_email(
 
     # Emails should have been sent before the exception was re-raised
     assert len(mailoutbox) == 2
+    # The FAILED status is committed before the task raises.
+    assert UserDataExport.objects.get(user=user).status == UserDataExport.UserDataExportStatus.FAILED
 
     user_email_sent = False
     admin_email_sent = False

@@ -14,6 +14,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from accounts.service.account_erasure import lock_account_for_checkout
 from events.compliance import enforcement as compliance
 from events.exceptions import SeriesPassNotPurchasableError
 from events.models import (
@@ -194,6 +195,8 @@ class SeriesPassPurchaseService:
         # _cleanup_expired_batch and cancel_pending_checkout) and the session-keyed
         # series_pass_service.expire_stranded_held_passes caller (stripe_webhooks'
         # handle_payment_intent_canceled).
+        # The buyer's account row comes before every other lock: see lock_account_for_checkout (#1476).
+        lock_account_for_checkout(self.user)
         locked_pass = SeriesPass.objects.select_for_update().get(pk=self.series_pass.pk)
         if locked_pass.total_quantity is not None and locked_pass.quantity_sold >= locked_pass.total_quantity:
             raise SeriesPassNotPurchasableError(str(_("This pass is sold out.")))

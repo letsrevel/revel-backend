@@ -8,6 +8,7 @@ name they typed. Everything else on the profile is withheld. See ``events.servic
 import typing as t
 from uuid import UUID
 
+from django.utils.translation import gettext as _
 from ninja import Schema
 
 from accounts.models import RevelUser
@@ -19,6 +20,8 @@ class StaffViewUserSchema(Schema):
 
     id: UUID
     known: bool
+    # True when the account was deleted but kept for its tickets: only the kept holder name and email remain.
+    erased: bool = False
     display_name: str
     email: str | None = None
     phone_number: str | None = None
@@ -33,7 +36,7 @@ class StaffViewUserSchema(Schema):
 
 
 def staff_view_user(
-    user: RevelUser, *, known: bool, supplied_name: str = "", include_phone: bool = False
+    user: RevelUser, *, known: bool, supplied_name: str = "", include_phone: bool = False, holder_email: str = ""
 ) -> StaffViewUserSchema:
     """Project ``user`` for staff.
 
@@ -42,7 +45,17 @@ def staff_view_user(
         known: Whether the account acted toward the organization (``holder_known``).
         supplied_name: The name staff supplied on the row (e.g. the ticket's guest name).
         include_phone: Whether this surface exposes the phone number for a known account.
+        holder_email: The holder email kept on the row when the account is erased.
     """
+    if user.erased_at:
+        return StaffViewUserSchema(
+            id=user.id,
+            known=known,
+            erased=True,
+            # The kept name, else the kept email (what staff saw for a holder they did not know), never profile data.
+            display_name=supplied_name or holder_email or _("Deleted user"),
+            email=holder_email or None,
+        )
     if not known:
         return StaffViewUserSchema(id=user.id, known=False, display_name=supplied_name or user.email, email=user.email)
     return StaffViewUserSchema(
@@ -81,4 +94,10 @@ def resolve_staff_view_user(
         from events.service.holder_visibility import is_known_holder
 
         known = is_known_holder(Organization(pk=organization_id(obj)), user)
-    return staff_view_user(user, known=bool(known), supplied_name=supplied_name, include_phone=include_phone)
+    return staff_view_user(
+        user,
+        known=bool(known),
+        supplied_name=supplied_name,
+        include_phone=include_phone,
+        holder_email=getattr(obj, "holder_email", ""),
+    )

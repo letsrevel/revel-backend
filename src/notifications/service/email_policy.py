@@ -32,6 +32,39 @@ def may_email(user: RevelUser, notification_type: str) -> bool:
     return DeliveryChannel.EMAIL in channels
 
 
+def recipient_address(user: RevelUser) -> str:
+    """The address a notification email to ``user`` goes to.
+
+    An erased account has only a placeholder address, so its mail goes to the holder email kept on its
+    tickets and passes (every snapshot of one account has the same email). Empty when there is none.
+    """
+    if not user.erased_at:
+        return user.email
+    from events.models import HeldSeriesPass, Ticket
+
+    for model in (Ticket, HeldSeriesPass):
+        email = model.objects.filter(user=user).exclude(holder_email="").values_list("holder_email", flat=True).first()
+        if email:
+            return str(email)
+    return ""
+
+
+def recipient_name(user: RevelUser) -> str:
+    """The name to greet ``user`` with. Empty means a greeting without a name.
+
+    For an erased account, only ``HeldSeriesPass.holder_name`` is the account's own name: a ticket's
+    ``guest_name`` can name the guest the ticket was bought for, so a ticket-only holder gets no name.
+    """
+    if not user.erased_at:
+        return user.display_name
+    from events.models import HeldSeriesPass
+
+    name = (
+        HeldSeriesPass.objects.filter(user=user).exclude(holder_name="").values_list("holder_name", flat=True).first()
+    )
+    return str(name or "")
+
+
 def suppression_for(email: str, *, include_opt_out: bool = False) -> EmailSuppression | None:
     """Return the suppression row blocking ``email``, if any.
 

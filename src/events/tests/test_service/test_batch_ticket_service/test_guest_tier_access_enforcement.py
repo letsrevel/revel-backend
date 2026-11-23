@@ -14,7 +14,9 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import pytest
+from django.db import connection
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -178,6 +180,29 @@ class TestGuestInvitationLinkClaim:
         assert response.status_code == 200, response.content
         invitation_link.refresh_from_db()
         assert invitation_link.uses == 1
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_the_guest_account_row_is_locked_before_the_invitation_rows(
+        self, mock_send_email: Mock, guest_event: Event, invited_tier: TicketTier, invitation_link: EventToken
+    ) -> None:
+        """Lock order (#1476): a deletion locks the account row, then deletes the account's invitation.
+
+        A checkout that locks the invitation first and the account second can deadlock against it.
+        """
+        _checkout(guest_event, invited_tier, "returning@example.com", event_token=invitation_link.pk)
+
+        with CaptureQueriesContext(connection) as queries:
+            response = _checkout(guest_event, invited_tier, "returning@example.com", event_token=invitation_link.pk)
+
+        assert response.status_code == 200, response.content
+        locks = [
+            query["sql"] for query in queries if "FOR UPDATE" in query["sql"] or "FOR NO KEY UPDATE" in query["sql"]
+        ]
+        account = next(i for i, sql in enumerate(locks) if 'FROM "accounts_reveluser"' in sql)
+        invitation = next(i for i, sql in enumerate(locks) if 'FROM "events_eventinvitation"' in sql)
+        token = next(i for i, sql in enumerate(locks) if 'FROM "events_eventtoken"' in sql)
+        assert account < min(invitation, token), locks
 
     @pytest.mark.django_db(transaction=True)
     @patch("events.tasks.send_guest_ticket_confirmation.delay")

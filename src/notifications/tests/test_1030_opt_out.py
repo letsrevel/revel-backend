@@ -1,5 +1,6 @@
 """Opt-out posture (#1030): mandatory types, digest opt-out, unsubscribe and resubscribe."""
 
+import typing as t
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -163,6 +164,19 @@ class TestDigestSweep:
             prefs.notification_type_settings[notification_type] = {"enabled": False}
         prefs.save()
         assert send_notification_digests()["digests_sent"] == 0
+        send.assert_not_called()
+
+    def test_an_account_erased_after_the_sweep_loaded_it_gets_no_digest(
+        self, send: MagicMock, _now: MagicMock, digest_user: RevelUser
+    ) -> None:
+        """The sweep loads its accounts once; an erasure can commit before the loop reaches one (#1476)."""
+
+        def erase_then_answer(_emails: t.Any) -> set[str]:  # runs after the list is loaded, before the loop
+            RevelUser.objects.filter(pk=digest_user.pk).update(erased_at=timezone.now())
+            return set()
+
+        with patch("notifications.service.email_policy.suppressed_addresses", side_effect=erase_then_answer):
+            assert send_notification_digests()["digests_sent"] == 0
         send.assert_not_called()
 
     def test_suppressed_address_gets_no_digest(self, send: MagicMock, _now: MagicMock, digest_user: RevelUser) -> None:

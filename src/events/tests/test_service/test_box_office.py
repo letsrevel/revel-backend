@@ -122,6 +122,22 @@ def test_resolve_recipient_by_user_id_with_attendance(
 # ---- sell ----
 
 
+def test_sell_refuses_a_recipient_whose_account_was_erased_meanwhile(
+    seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, recipient: RevelUser
+) -> None:
+    """The sale locks the recipient's account row first and reads ``erased_at`` under the lock (#1476)."""
+    event, seats = seated_event
+    RevelUser.objects.filter(pk=recipient.pk).update(erased_at=timezone.now())
+
+    with pytest.raises(HttpError) as refused:
+        box_office.sell(
+            event, tier, seat_id=seats[0].id, payment_method=TicketTier.PaymentMethod.AT_THE_DOOR, recipient=recipient
+        )
+
+    assert refused.value.status_code == 403
+    assert not Ticket.objects.filter(user=recipient).exists()
+
+
 def test_sell_at_the_door_on_free_seat(
     seated_event: tuple[Event, list[VenueSeat]], tier: TicketTier, recipient: RevelUser
 ) -> None:

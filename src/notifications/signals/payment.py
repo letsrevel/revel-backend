@@ -13,6 +13,7 @@ from common.models import SiteSettings
 from events.models import Dispute, Event, Organization, Payment, Ticket
 from events.utils import format_organization_datetime
 from events.utils.currency import format_major_amount
+from events.utils.erased_holder import holder_email
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.context_schemas import (
     EventRefundSummaryContext,
@@ -163,7 +164,7 @@ def _send_refund_notifications(payment: Payment) -> None:
     staff_context = {
         **context,
         "ticket_holder_name": staff_holder_name(ticket),
-        "ticket_holder_email": payment.user.email,
+        "ticket_holder_email": holder_email(ticket),
     }
 
     notify_org_staff(
@@ -236,7 +237,7 @@ def send_refund_unmatched(
             "event_name": ticket.event.name,
             "seat_label": ticket.seat.label if ticket.seat else "",
             "amount": str(amount_by_ticket[ticket.id]),
-            "holder_email": ticket.user.email,
+            "holder_email": holder_email(ticket),
         }
         for ticket in tickets
     ]

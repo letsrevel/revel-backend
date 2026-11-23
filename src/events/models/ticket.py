@@ -785,6 +785,8 @@ class Ticket(PreserveTicketNumberMixin, TimeStampedModel):
         blank=True,
         help_text="Name of the ticket holder (may differ from purchasing user).",
     )
+    # Snapshot, not input (as MembershipRecord.email): not an EmailField, so full_clean never rejects it.
+    holder_email = models.CharField(max_length=254, blank=True, default="", db_default="", editable=False)
     price_paid = models.DecimalField(
         max_digits=10,
         decimal_places=2,

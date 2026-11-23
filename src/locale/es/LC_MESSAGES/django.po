@@ -8900,3 +8900,48 @@ msgstr "El dinero no se te ha devuelto. Si tienes preguntas, ponte en contacto c
 #: src/events/service/organization_service/membership.py
 msgid "The applicant is already an active member, so this plan cannot be approved for them."
 msgstr "El solicitante ya es un miembro activo, por lo que este plan no se puede aprobar para él."
+
+msgid "Deleted user"
+msgstr "Usuario eliminado"
+
+msgid "Erased"
+msgstr "Borrado"
+
+msgid "Force full delete of erased accounts (superuser only)"
+msgstr "Eliminar por completo las cuentas borradas (solo superusuario)"
+
+msgid "Superuser required."
+msgstr "Se requiere un superusuario."
+
+msgid "No erased account selected."
+msgstr "No se ha seleccionado ninguna cuenta borrada."
+
+msgid "Force full delete"
+msgstr "Eliminar por completo"
+
+#, python-format
+msgid "Queued the full delete of %d erased account."
+msgid_plural "Queued the full delete of %d erased accounts."
+msgstr[0] "Se ha puesto en cola la eliminación completa de %d cuenta borrada."
+msgstr[1] "Se ha puesto en cola la eliminación completa de %d cuentas borradas."
+
+msgid "These erased accounts are deleted now, with their kept tickets, series passes, payments and refunds. The tickets and passes stop working. This cannot be undone."
+msgstr "Estas cuentas borradas se eliminan ahora, con sus entradas, abonos de serie, pagos y reembolsos conservados. Las entradas y los abonos dejan de funcionar. Esta acción no se puede deshacer."
+
+#, python-format
+msgid "%(counter)s selected account is not erased and is skipped."
+msgid_plural "%(counter)s selected accounts are not erased and are skipped."
+msgstr[0] "%(counter)s cuenta seleccionada no está borrada y se omite."
+msgstr[1] "%(counter)s cuentas seleccionadas no están borradas y se omiten."
+
+msgid "Delete these accounts"
+msgstr "Eliminar estas cuentas"
+
+msgid "This account was erased. An erased account cannot be edited."
+msgstr "Esta cuenta fue borrada. Una cuenta borrada no se puede editar."
+
+msgid "This account was deleted."
+msgstr "Esta cuenta fue eliminada."
+
+msgid "This account is being deleted."
+msgstr "Esta cuenta se está eliminando."

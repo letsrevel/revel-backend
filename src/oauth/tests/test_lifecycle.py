@@ -17,9 +17,9 @@ from oauth2_provider.settings import oauth2_settings
 from pytest_django.fixtures import Settings
 
 from accounts.jwt import blacklist_user_tokens
-from accounts.models import RevelUser
+from accounts.models import GlobalBan, RevelUser
 from accounts.service import account as account_service
-from accounts.service.global_ban_service import deactivate_user_for_ban
+from accounts.service.global_ban_service import deactivate_user_for_ban, process_domain_ban
 from oauth.models import OAuthApplication
 from oauth.service.authorize_service import has_prior_grant
 from oauth.tasks import clear_expired_tokens, prune_unused_dynamic_clients
@@ -179,6 +179,38 @@ def test_ban_deactivates_and_revokes_apps_owned_by_the_banned_user(
     oauth_app.refresh_from_db()
     assert oauth_app.is_active is False
     assert not AccessToken.objects.filter(application=oauth_app).exists()
+
+
+def test_ban_of_an_inactive_user_also_deactivates_their_apps(user: RevelUser, oauth_app: OAuthApplication) -> None:
+    """R-116 holds also when the account is already inactive, for example while its deletion is pending."""
+    RevelUser.objects.filter(pk=user.pk).update(is_active=False)
+    user.refresh_from_db()
+    deactivate_user_for_ban(user, "spam")
+    oauth_app.refresh_from_db()
+    assert oauth_app.is_active is False
+
+
+def test_domain_ban_disarms_the_apps_of_an_owner_that_is_already_inactive(
+    user: RevelUser, oauth_app: OAuthApplication, revel_user_factory: t.Any
+) -> None:
+    """The domain sweep deactivates active accounts only; an inactive owner's apps must not keep working.
+
+    The account itself (here: waiting for its deletion) is not changed and is not counted.
+    """
+    marked = timezone.now()
+    # A domain of its own: other users in a shared test domain (also rows that other tests left) are not counted.
+    domain = f"owner-{user.pk.hex}.test"
+    RevelUser.objects.filter(pk=user.pk).update(email=f"owner@{domain}", is_active=False, deletion_requested_at=marked)
+    make_access_token(revel_user_factory(), oauth_app, "org:read")
+    ban = GlobalBan(ban_type=GlobalBan.BanType.DOMAIN, value=domain, normalized_value=domain, reason="spam")
+
+    assert process_domain_ban(ban) == 0
+
+    oauth_app.refresh_from_db()
+    assert oauth_app.is_active is False
+    assert not AccessToken.objects.filter(application=oauth_app).exists()
+    user.refresh_from_db()
+    assert (user.is_active, user.deletion_requested_at) == (False, marked)
 
 
 def test_prune_keeps_manual_apps(oauth_app: OAuthApplication) -> None:

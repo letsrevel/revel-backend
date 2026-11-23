@@ -13,6 +13,7 @@ from common.models import EmailLog, SiteSettings
 from common.tasks import to_safe_email_address
 from common.utils import with_message_id
 from notifications.enums import (
+    ERASED_ACCOUNT_EMAIL_TYPES,
     MANDATORY_TYPES,
     ORG_SENDER_TYPES,
     PLATFORM_LIST_UNSUBSCRIBE_TYPES,
@@ -22,7 +23,7 @@ from notifications.enums import (
 )
 from notifications.models import Notification, NotificationDelivery
 from notifications.service.channels.base import NotificationChannel
-from notifications.service.email_policy import may_email, suppression_for
+from notifications.service.email_policy import may_email, recipient_address, suppression_for
 from notifications.service.org_sender import (
     build_list_unsubscribe_headers,
     build_preferences_list_unsubscribe_header,
@@ -52,13 +53,17 @@ class EmailChannel(NotificationChannel):
         Returns:
             True if email can be delivered
         """
-        if not notification.user.email:
+        if not recipient_address(notification.user):
             logger.warning(
                 "user_missing_email",
                 notification_id=str(notification.id),
                 user_id=str(notification.user.id),
             )
             return False
+
+        if notification.user.erased_at:
+            # Preferences do not apply: the dispatcher allows only the cancellation and refund types.
+            return notification.notification_type in ERASED_ACCOUNT_EMAIL_TYPES
 
         # One shared preference check (silence, email switch, per-type disables;
         # mandatory types bypass them) — see email_policy.may_email (#1030).
@@ -88,7 +93,8 @@ class EmailChannel(NotificationChannel):
         delivery.attempted_at = timezone.now()
         delivery.retry_count += 1
 
-        suppression = suppression_for(notification.user.email)
+        address = recipient_address(notification.user)
+        suppression = suppression_for(address)
         if suppression is not None:
             # Permanent: returning False (no raise) means no Celery retry, and
             # retry_failed_deliveries skips rows carrying suppression_reason.
@@ -124,7 +130,7 @@ class EmailChannel(NotificationChannel):
 
             # Get safe recipient email
             site_settings = SiteSettings.get_solo()
-            recipient = to_safe_email_address(notification.user.email, site_settings=site_settings)
+            recipient = to_safe_email_address(address, site_settings=site_settings)
 
             from_email, reply_to, headers = self._envelope(notification, delivery)
             headers = with_message_id(headers, from_email)

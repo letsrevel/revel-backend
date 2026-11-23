@@ -102,8 +102,12 @@ def test_staff_membership_message_says_the_subscription_stays_cancelled(revel_us
 
 
 def test_buyer_message_says_the_money_was_not_returned_and_to_contact_the_organizer(revel_user_factory: t.Any) -> None:
+    buyer = _user(revel_user_factory, "u3")
+    buyer.preferred_name = "Grace H"
+    buyer.save(update_fields=["preferred_name"])
+    assert buyer.display_name == "Grace H"
     notification = _create_notification_for_test(
-        user=_user(revel_user_factory, "u3"),
+        user=buyer,
         notification_type=NotificationType.TICKET_REFUND_FAILED,
         context={
             "ticket_id": "00000000-0000-0000-0000-000000000003",
@@ -125,6 +129,9 @@ def test_buyer_message_says_the_money_was_not_returned_and_to_contact_the_organi
         assert "Contact the organizer" in text
         # Staff delivery is not guaranteed (no eligible recipient), so the buyer is not told staff knows.
         assert "was told" not in text
+    # A live account is greeted by name in both email bodies (an erased holder gets no name, #1476).
+    assert rendered[3].startswith("Hello Grace H,")
+    assert "Hello Grace H," in rendered[4]
 
 
 @pytest.mark.parametrize(

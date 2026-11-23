@@ -100,8 +100,10 @@ sequenceDiagram
     API-->>U: Account deleted
 ```
 
-!!! info "Payment records"
-    Payment records cascade-delete with the user account. This works because Stripe retains the financial records on their side for the organization, so local deletion does not cause data loss for accounting purposes. This is a pragmatic simplification; a future iteration may introduce soft-deletion or anonymization of payment records instead.
+Confirming the deletion deactivates the account at once. The background task then does one of two things:
+
+- **Full delete.** The account holds no issued ticket or series pass that is still in scope. The account row and its data are deleted, and its payment records cascade with it (Stripe keeps the financial records for the organization).
+- **Erase in place.** The account holds an ACTIVE or checked-in ticket for an event that is upcoming or ended less than 120 days ago, or an ACTIVE series pass. The row stays without personal data (`erased_at` is set). The tickets, passes, payments and refunds stay valid, and the holder name and email are kept on them for the organizer. The organizer can still cancel or refund them; those emails go to the kept email. See [Account erasure](../engineering-notes.md#account-erasure-keep-the-holdings-erase-the-person).
 
 ---
 

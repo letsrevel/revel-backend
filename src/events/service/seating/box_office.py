@@ -18,6 +18,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from accounts.service.account_erasure import lock_account_for_checkout
 from events.models import Event, EventSeatOverride, Organization, Ticket, TicketSaleSource, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService
@@ -154,6 +155,8 @@ def sell(
     """
     assert_event_sells_tickets(event)
     service = BatchTicketService(event, tier, recipient)
+    # The recipient's account row first, as in create_batch (#1476).
+    lock_account_for_checkout(recipient)
     # Coarse locks first (tier → event), matching create_batch's order.
     locked_tier = TicketTier.objects.select_for_update().get(pk=tier.pk)
     service.assert_tier_capacity(locked_tier, 1)

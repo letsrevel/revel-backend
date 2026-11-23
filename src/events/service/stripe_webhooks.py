@@ -38,6 +38,7 @@ from events.service.stripe_webhook_refunds import TicketRefundHandlersMixin
 from events.service.stripe_webhook_subscriptions import SubscriptionWebhookHandlersMixin
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import to_stripe_amount
+from events.utils.erased_holder import stripe_payload_to_store
 from notifications.signals.series_pass import send_series_pass_purchased
 
 logger = structlog.get_logger(__name__)
@@ -312,7 +313,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
 
             payment.status = Payment.PaymentStatus.SUCCEEDED
             payment.stripe_payment_intent_id = payment_intent_id
-            payment.raw_response = raw_response
+            payment.raw_response = stripe_payload_to_store(payment, raw_response)
             payment.save(update_fields=["status", "stripe_payment_intent_id", "raw_response"])
             ticket.status = Ticket.TicketStatus.ACTIVE
             ticket.save(update_fields=["status"])
@@ -333,7 +334,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
         Payment.objects.filter(pk=payment.pk).update(
             status=Payment.PaymentStatus.SUCCEEDED,
             stripe_payment_intent_id=payment_intent_id,
-            raw_response=raw_response,
+            raw_response=stripe_payload_to_store(payment, raw_response),
             refund_status=Payment.RefundStatus.PENDING if refund_due else None,
             updated_at=timezone.now(),
         )
@@ -852,7 +853,7 @@ class StripeEventHandler(SubscriptionWebhookHandlersMixin, TicketRefundHandlersM
         for payment in pending_payments:
             # Update payment status to failed
             payment.status = Payment.PaymentStatus.FAILED
-            payment.raw_response = raw_response
+            payment.raw_response = stripe_payload_to_store(payment, raw_response)
             payment.save(update_fields=["status", "raw_response"])
 
             # Cancel the ticket

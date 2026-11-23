@@ -290,6 +290,7 @@ def send_notification_digests() -> dict[str, t.Any]:
     Returns:
         Dict with digest stats
     """
+    from accounts.models import RevelUser
     from accounts.utils.email_normalization import normalize_email_for_matching
     from notifications.service.digest import (
         NotificationDigest,
@@ -304,6 +305,7 @@ def send_notification_digests() -> dict[str, t.Any]:
     users_with_digests = list(
         NotificationPreference.objects.exclude(digest_frequency=NotificationPreference.DigestFrequency.IMMEDIATE)
         .filter(silence_all_notifications=False, enabled_channels__contains=[DeliveryChannel.EMAIL])
+        .filter(user__erased_at__isnull=True)  # an erased account gets no digest (#1476)
         .select_related("user")
     )
     suppressed = suppressed_addresses(prefs.user.email for prefs in users_with_digests)
@@ -331,6 +333,11 @@ def send_notification_digests() -> dict[str, t.Any]:
 
         if not pending.exists():
             continue  # No notifications to send
+
+        # The list above was loaded once: an account erased since then gets no digest at its old address (#1476).
+        if RevelUser.objects.filter(pk=prefs.user_id, erased_at__isnull=False).exists():
+            digests_skipped += 1
+            continue
 
         # Build and send digest
         digest = NotificationDigest(prefs.user, pending)

@@ -10,6 +10,7 @@ from django.dispatch import receiver
 from accounts.models import RevelUser
 from events.models import Event, Ticket, TicketTier
 from events.service.holder_visibility import is_known_holder
+from events.utils.erased_holder import holder_email
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
@@ -50,6 +51,8 @@ def staff_holder_name(ticket: Ticket, *, known: bool | None = None) -> str:
         ticket: The ticket (``event.organization`` and ``user`` are read).
         known: Precomputed ``is_known_holder`` result, to avoid a query per ticket in a batch.
     """
+    if ticket.user.erased_at:  # only the holder snapshot on the ticket is left
+        return ticket.guest_name or ticket.holder_email
     if known is None:
         known = is_known_holder(ticket.event.organization, ticket.user)
     return ticket.user.get_display_name() if known else (ticket.guest_name or ticket.user.email)
@@ -201,7 +204,7 @@ def _send_ticket_created_notifications(ticket: Ticket) -> None:
         **base_context,
         **_staff_location_context(ticket.event),
         "ticket_holder_name": staff_holder_name(ticket),
-        "ticket_holder_email": ticket.user.email,
+        "ticket_holder_email": holder_email(ticket),
     }
     notify_org_staff(
         organization_id=ticket.event.organization_id,
@@ -309,7 +312,7 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
             **shared_context,
             **_staff_location_context(event),
             "ticket_holder_name": staff_holder_name(ticket, known=holder_known),
-            "ticket_holder_email": ticket.user.email,
+            "ticket_holder_email": holder_email(ticket),
         }
         notify_org_staff(
             organization_id=event.organization_id,
@@ -378,7 +381,7 @@ def _send_ticket_cancelled_notifications(ticket: Ticket, old_status: str) -> Non
         **base_context,
         **_staff_location_context(ticket.event),
         "ticket_holder_name": staff_holder_name(ticket),
-        "ticket_holder_email": ticket.user.email,
+        "ticket_holder_email": holder_email(ticket),
     }
     notify_org_staff(
         organization_id=ticket.event.organization_id,
@@ -401,7 +404,7 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
             staff_context = {
                 **_build_ticket_created_context(ticket, for_staff=True),
                 "ticket_holder_name": staff_holder_name(ticket),
-                "ticket_holder_email": ticket.user.email,
+                "ticket_holder_email": holder_email(ticket),
             }
             notify_org_staff(
                 organization_id=ticket.event.organization_id,

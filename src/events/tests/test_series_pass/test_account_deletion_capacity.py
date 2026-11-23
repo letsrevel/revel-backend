@@ -244,7 +244,7 @@ class TestOtherAccountDeletionPaths:
     def test_the_admin_delete_queues_the_account_erasure_after_commit(
         self, revel_user: RevelUser, django_capture_on_commit_callbacks: t.Any
     ) -> None:
-        with patch("accounts.admin.user.delete_user_account") as task:
+        with patch("accounts.tasks.gdpr.delete_user_account") as task:
             with django_capture_on_commit_callbacks(execute=True):
                 RevelUserAdmin(RevelUser, site).delete_model(RequestFactory().post("/"), revel_user)
                 task.delay.assert_not_called()  # only after commit
@@ -256,7 +256,7 @@ class TestOtherAccountDeletionPaths:
     def test_the_admin_bulk_delete_queues_the_erasure_for_each_account(
         self, revel_user: RevelUser, member_user: RevelUser, django_capture_on_commit_callbacks: t.Any
     ) -> None:
-        with patch("accounts.admin.user.delete_user_account") as task:
+        with patch("accounts.tasks.gdpr.delete_user_account") as task:
             with django_capture_on_commit_callbacks(execute=True):
                 RevelUserAdmin(RevelUser, site).delete_queryset(
                     RequestFactory().post("/"), RevelUser.objects.filter(pk__in=[revel_user.pk, member_user.pk])
@@ -271,8 +271,8 @@ class TestOtherAccountDeletionPaths:
     ) -> None:
         ids = sorted([str(revel_user.pk), str(member_user.pk)])
         with (
-            patch("accounts.admin.user.delete_user_account") as task,
-            patch("accounts.admin.user.logger") as log,
+            patch("accounts.tasks.gdpr.delete_user_account") as task,
+            patch("accounts.tasks.gdpr.logger") as log,
         ):
             task.delay.side_effect = [RuntimeError("broker down"), None]
             with django_capture_on_commit_callbacks(execute=True):

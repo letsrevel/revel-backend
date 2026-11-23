@@ -24,6 +24,7 @@ from events.models import MembershipPayment, Payment, Refund, Ticket
 from events.models.attendee_invoice import AttendeeInvoiceCreditNote
 from events.service import refund_service
 from events.utils.currency import from_stripe_amount, to_stripe_amount
+from events.utils.erased_holder import holder_email, stripe_payload_to_store
 from notifications.signals.payment import send_refund_failed, send_refund_unmatched, send_ticket_refund_failed
 from notifications.signals.ticket import staff_holder_name
 
@@ -568,7 +569,7 @@ class TicketRefundHandlersMixin:
                 currency=first.row.currency,
                 failure_reason=first.row.failure_reason,
                 holder_name=staff_holder_name(ticket),
-                holder_email=ticket.user.email,
+                holder_email=holder_email(ticket),
                 ticket=ticket,
                 credit_note_numbers=sorted({n for f in group for n in credit_notes.get(f.row.pk, [])}),
             )
@@ -833,7 +834,8 @@ class TicketRefundHandlersMixin:
             "refund_status": refund_status,
             "refund_failure_reason": failed[-1].failure_reason if refund_status == Payment.RefundStatus.FAILED else "",
             "refunded_at": max((r.succeeded_at or r.updated_at for r in succeeded), default=None),
-            "raw_response": raw_response,
+            # The Payment is locked here: an erased buyer's payload is not stored (see stripe_payload_to_store).
+            "raw_response": stripe_payload_to_store(payment, raw_response),
         }
 
         if total > 0 and total >= payment.amount:

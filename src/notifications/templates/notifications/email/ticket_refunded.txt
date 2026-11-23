@@ -1,4 +1,4 @@
-{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
+{% load i18n %}{% trans "Hello" %}{% if recipient_name %} {{ recipient_name }}{% endif %},
 
 {% blocktranslate with event=context.event_name %}Your ticket refund for {{ event }} has been processed.{% endblocktranslate %}
 

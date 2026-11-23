@@ -10,6 +10,7 @@ from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
+from accounts.service.account_erasure import lock_account_for_checkout
 from events.compliance import enforcement as compliance
 from events.exceptions import GuestEmailConfirmationRequired
 from events.models import Ticket, TicketTier, VenueSeat
@@ -321,6 +322,10 @@ class BatchTicketService(PurchaseEligibilityMixin, CapacityMixin, SeatResolution
 
             buyer_vat = stripe_service.resolve_attendee_vat_for_reserve(billing_info=billing_info)
         self._reserve_buyer_vat = buyer_vat  # consumed by _online_checkout
+
+        # The buyer's account row first (after VIES, before the tiers): a deletion of the account takes the
+        # same lock before it reads the account's tickets, so the two never overlap (#1476).
+        lock_account_for_checkout(self.user)
 
         # Lock every tier in the cart for the capacity checks, in PK order — the
         # deadlock discipline two concurrent carts naming the same tiers in opposite

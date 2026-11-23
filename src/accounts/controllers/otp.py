@@ -66,7 +66,7 @@ class OtpController(UserAwareController):
         if not totp_service.verify_totp(user, payload.otp, reason="enable"):
             raise HttpError(status.HTTP_403_FORBIDDEN, str(_("Invalid OTP")))
         user.totp_active = True
-        user.save()
+        user.save(update_fields=["totp_active"])  # only this field: the row can have changed since the sign-in
         return user
 
     @route.post(
@@ -86,5 +86,5 @@ class OtpController(UserAwareController):
         if not totp_service.verify_totp(user, payload.otp, reason="disable"):
             raise HttpError(status.HTTP_403_FORBIDDEN, str(_("Invalid OTP")))
         user.totp_active = False
-        user.save()
+        user.save(update_fields=["totp_active"])  # only this field: the row can have changed since the sign-in
         return user
