@@ -8,7 +8,7 @@ from django.test.client import Client
 from django.urls import reverse
 
 from accounts.models import RevelUser
-from events.models import Blacklist, Organization, OrganizationStaff
+from events.models import Blacklist, Organization, OrganizationMember, OrganizationStaff
 from events.service import blacklist_service
 
 pytestmark = pytest.mark.django_db
@@ -56,6 +56,8 @@ MATCHING_PAYLOADS = [
     pytest.param(lambda u: {"email": u.email.upper()}, id="verified-email"),
     pytest.param(lambda u: {"phone_number": u.phone_number}, id="phone"),
     pytest.param(lambda u: {"telegram_username": "@other_staff_tg"}, id="telegram"),
+    pytest.param(lambda u: {"telegram_username": "  @Other_Staff_TG "}, id="telegram-padded"),
+    pytest.param(lambda u: {"telegram_username": "@Other_Staff_TG  "}, id="telegram-trailing-space"),
 ]
 
 
@@ -186,3 +188,38 @@ def test_service_rule_applies_to_every_caller(
 
     assert exc.value.status_code == 403
     assert OrganizationStaff.objects.filter(organization=organization, user=other_staff).exists()
+
+
+def test_adding_staff_and_blacklisting_lock_the_organization_row(
+    organization: Organization, django_user_model: type[RevelUser]
+) -> None:
+    """Both paths take the same organization row lock first, so they cannot interleave.
+
+    A two-connection race test is not used: the lock mode is what serializes the paths, so the test asserts
+    that each path issues ``FOR NO KEY UPDATE`` on the organization table before any write.
+    """
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from events.service import organization_service
+
+    candidate = django_user_model.objects.create_user(username="cand", email="cand@example.com", password="pass")
+    OrganizationMember.objects.create(organization=organization, user=candidate)
+
+    def first_write_index(queries: list[dict[str, str]]) -> int:
+        return next(i for i, q in enumerate(queries) if q["sql"].startswith(("INSERT", "UPDATE", "DELETE")))
+
+    def lock_index(queries: list[dict[str, str]]) -> int:
+        return next(
+            i
+            for i, q in enumerate(queries)
+            if 'FROM "events_organization"' in q["sql"] and "FOR NO KEY UPDATE OF" in q["sql"]
+        )
+
+    with CaptureQueriesContext(connection) as staff_queries:
+        organization_service.add_staff(organization, candidate)
+    assert lock_index(staff_queries.captured_queries) < first_write_index(staff_queries.captured_queries)
+
+    with CaptureQueriesContext(connection) as blacklist_queries:
+        blacklist_service.add_to_blacklist(organization, organization.owner, email="someone@example.com")
+    assert lock_index(blacklist_queries.captured_queries) < first_write_index(blacklist_queries.captured_queries)

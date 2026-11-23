@@ -771,6 +771,7 @@ def reorder_membership_tiers(organization: Organization, tier_ids: list[UUID]) -
     MembershipTier.objects.bulk_update(tiers_to_update, ["display_order"])
 
 
+@transaction.atomic
 def add_staff(
     organization: Organization, user: RevelUser, permissions: PermissionsSchema | None = None
 ) -> OrganizationStaff:
@@ -780,6 +781,7 @@ def add_staff(
         AlreadyMemberError: If the user is already a staff member.
         HttpError: 400 if the user is hard-blacklisted in the organization (the owner is exempt, as for bans).
     """
+    blacklist_service.lock_organization_for_staff_changes(organization)
     if OrganizationStaff.objects.filter(organization=organization, user=user).exists():
         raise AlreadyMemberError(str(_("User is already a staff member of this organization.")))
     if organization.owner_id != user.pk and blacklist_service.check_user_hard_blacklisted(user, organization):
