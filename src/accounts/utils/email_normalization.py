@@ -35,9 +35,8 @@ def normalize_email_for_matching(email: str) -> str:
 def normalize_telegram_for_matching(username: str) -> str:
     """Normalize a Telegram username for ban matching.
 
-    - Strips leading '@'
+    - Strips surrounding whitespace, then a leading '@', then whitespace after the '@'
     - Lowercases
-    - Strips whitespace
 
     Args:
         username: Raw Telegram username.
@@ -45,7 +44,7 @@ def normalize_telegram_for_matching(username: str) -> str:
     Returns:
         Normalized username string.
     """
-    return username.strip().lstrip("@").lower()
+    return username.strip().lstrip("@").strip().lower()
 
 
 def normalize_domain_for_matching(domain: str) -> str:
