@@ -19,6 +19,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
+from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
@@ -33,6 +34,7 @@ from accounts.admin.user_extras import (
     IsOrganizationOwnerFilter,
     ReferralCodeInline,
 )
+from accounts.jwt import blacklist_user_tokens
 from accounts.models import (
     DietaryRestriction,
     EmailVerificationReminderTracking,
@@ -182,6 +184,7 @@ class RevelUserChangeForm(UserChangeForm):  # type: ignore[type-arg]
 class RevelAdminPasswordChangeForm(AdminPasswordChangeForm):  # type: ignore[type-arg]
     """The admin password change writes only the password, and refuses an erased or deleted account.
 
+    Like a password reset, it sets ``credentials_changed_at`` and ends every session of the account.
     The view loads the account before the post is checked, so the instance can be stale: a full save would
     write back every other field, for example the personal data that an erasure removed meanwhile.
     ``user_change_password`` runs the check and the save in one transaction, under the row lock. The error
@@ -199,7 +202,9 @@ class RevelAdminPasswordChangeForm(AdminPasswordChangeForm):  # type: ignore[typ
     def save(self, commit: bool = True) -> t.Any:
         user = super().save(commit=False)
         if commit:
-            user.save(update_fields=["password"])
+            user.credentials_changed_at = timezone.now()
+            user.save(update_fields=["password", "credentials_changed_at"])
+            blacklist_user_tokens(user)
         return user
 
 
@@ -361,6 +366,9 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         emailed links refuse a marked account, so an operator who reactivates one by hand clears it here.
         An edit that does not change ``is_active`` keeps the stored ``is_active`` and mark, read under the row
         lock that a deletion confirm also takes, so a form opened before the confirm does not write over them.
+
+        The save writes only the fields that the admin changed. The view loads the account before it takes
+        the row lock, so the other fields of ``obj`` can be older than the row.
         """
         if not change:
             super().save_model(request, obj, form, change)
@@ -368,11 +376,14 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         stored_active, stored_mark = (
             RevelUser.objects.select_for_update().values_list("is_active", "deletion_requested_at").get(pk=obj.pk)
         )
+        concrete = {field.name for field in obj._meta.concrete_fields}
+        update_fields = {name for name in form.changed_data if name in concrete} - {"is_active"}
         if _is_active_changed_by_admin(form, obj, stored_active):
             obj.deletion_requested_at = None
+            update_fields |= {"is_active", "deletion_requested_at"}
         else:
             obj.is_active, obj.deletion_requested_at = stored_active, stored_mark
-        super().save_model(request, obj, form, change)
+        obj.save(update_fields=sorted(update_fields))
 
     def get_form(
         self, request: HttpRequest, obj: RevelUser | None = None, change: bool = False, **kwargs: t.Any
