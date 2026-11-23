@@ -9,6 +9,8 @@ FEATURE_LLM_EVALUATION: bool = config("FEATURE_LLM_EVALUATION", default=True, ca
 FEATURE_MALWARE_SCAN: bool = config("FEATURE_MALWARE_SCAN", default=True, cast=bool)
 FEATURE_TELEGRAM: bool = config("FEATURE_TELEGRAM", default=True, cast=bool)
 FEATURE_ORGANIZATION_CREATION: bool = config("FEATURE_ORGANIZATION_CREATION", default=True, cast=bool)
+# Off by default: `run_post_deploy` only executes registered post-deploy tasks when this is on (#1508).
+FEATURE_POST_DEPLOY_TASKS: bool = config("FEATURE_POST_DEPLOY_TASKS", default=False, cast=bool)
 
 # Observability is a deployment capability, so it lives here under the FEATURE_ prefix.
 # The legacy ``ENABLE_OBSERVABILITY`` env var is still honoured as a deprecated alias for

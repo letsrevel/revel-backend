@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Running the command again is harmless.
 
+### Added
+- Operators can register one-time post-deploy tasks. `manage.py run_post_deploy` runs each pending task once per instance, and `manage.py post_deploy_status` lists them. This is off by default behind `FEATURE_POST_DEPLOY_TASKS`. The first task syncs the Stripe webhook event types.
 
 ### Fixed
 - Confirming or reverting an offline payment (`POST /event-admin/{event_id}/tickets/{ticket_id}/confirm-payment` and `.../unconfirm-payment`) answers 409 when the ticket changes while the request runs, for example by a cancellation. A ticket that is already in another status still gets 404, as before.
