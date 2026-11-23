@@ -8715,3 +8715,9 @@ msgstr "Esta conta foi eliminada."
 
 msgid "This account is being deleted."
 msgstr "Esta conta está a ser eliminada."
+
+msgid "Only the organization owner can blacklist a staff member."
+msgstr "Só o proprietário da organização pode colocar um membro da equipa na lista negra."
+
+msgid "A blacklisted person cannot be made staff."
+msgstr "Uma pessoa na lista negra não pode ser membro da equipa."

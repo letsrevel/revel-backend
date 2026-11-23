@@ -56,6 +56,10 @@ class TestNormalizeTelegramForMatching:
     def test_strip_whitespace(self) -> None:
         assert normalize_telegram_for_matching("  @UserName  ") == "username"
 
+    def test_strips_whitespace_after_the_at_sign(self) -> None:
+        """A space between the '@' and the name is not part of the handle."""
+        assert normalize_telegram_for_matching(" @ UserName ") == "username"
+
     def test_no_at_prefix(self) -> None:
         assert normalize_telegram_for_matching("username") == "username"
 

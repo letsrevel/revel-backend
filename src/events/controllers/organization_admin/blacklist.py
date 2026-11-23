@@ -76,6 +76,9 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
 
         If the provided identifiers match an existing registered user, the entry
         will be automatically linked to them.
+
+        Only the organization owner can create an entry that matches a current
+        staff member (by account, email, phone or telegram). Others get 403.
         """
         organization = self.get_one(slug)
         current_user = self.user()

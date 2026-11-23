@@ -15,6 +15,7 @@ from ninja.errors import HttpError
 from rapidfuzz import fuzz
 
 from accounts.models import RevelUser
+from accounts.utils.email_normalization import normalize_telegram_for_matching
 from accounts.validators import normalize_phone_number
 from events.models import Blacklist, Organization, OrganizationMember, OrganizationStaff
 from events.service import day_membership_service
@@ -29,8 +30,8 @@ DEFAULT_FUZZY_MATCH_THRESHOLD = 85
 
 
 def _normalize_telegram_username(username: str | None) -> str | None:
-    """Normalize telegram username by removing @ prefix and lowercasing."""
-    return username.lstrip("@").lower().strip() if username else None
+    """Normalize telegram username: trim whitespace, remove the @ prefix, lowercase."""
+    return normalize_telegram_for_matching(username) if username else None
 
 
 def _normalize_email(email: str | None) -> str | None:
@@ -157,6 +158,48 @@ def _apply_consequences_to_matched_holders(entry: Blacklist) -> None:
         apply_blacklist_consequences(holder, organization)
 
 
+def lock_organization_for_staff_changes(organization: Organization) -> None:
+    """Serialize adding staff and creating a blacklist entry for one organization.
+
+    Both paths call this first, inside their transaction, so that the "is blacklisted" check and the staff
+    insert (or the "is staff" check and the entry insert) cannot interleave. The mode is ``FOR NO KEY UPDATE``
+    so it does not conflict with the ``FOR KEY SHARE`` that deferred foreign keys take at commit.
+    """
+    Organization.objects.select_for_update(of=("self",), no_key=True).filter(pk=organization.pk).first()
+
+
+def _matches_current_staff(
+    organization: Organization,
+    *,
+    user: RevelUser | None,
+    email: str | None,
+    telegram_username: str | None,
+    phone_number: str | None,
+) -> bool:
+    """Whether an entry with these normalized identifiers would hard-match a current staff member (not the owner).
+
+    Same match as ``users_matching_entries``, evaluated before the entry exists: the linked account, or the
+    email (case-insensitive), phone or telegram handle of a staff account.
+    """
+    q = Q()
+    if user:
+        q |= Q(user=user)
+    if email:
+        q |= Q(user__email__iexact=email)
+    if phone_number:
+        q |= Q(user__phone_number=phone_number)
+    if telegram_username:
+        q |= Q(user__telegram_users__telegram_username__iexact=telegram_username)
+    if not q:
+        return False
+    return (
+        OrganizationStaff.objects.filter(organization=organization)
+        .filter(q)
+        .exclude(user_id=organization.owner_id)
+        .exists()
+    )
+
+
 @transaction.atomic
 def add_to_blacklist(
     organization: Organization,
@@ -180,6 +223,9 @@ def add_to_blacklist(
        match. An unlinked entry still applies the ban consequences to existing staff and members of the
        organization that it matches by email, phone or telegram (the owner is exempt).
 
+    An entry that matches a current staff member (in either mode) removes their staff role, so only the
+    organization owner can create it.
+
     Args:
         organization: The organization to add the blacklist entry to
         created_by: The user creating the blacklist entry
@@ -196,8 +242,11 @@ def add_to_blacklist(
         The created Blacklist entry
 
     Raises:
-        HttpError: If no identifiers provided or user already blacklisted
+        HttpError: If no identifiers provided or user already blacklisted (400), or if the entry matches a
+            current staff member and ``created_by`` is not the organization owner (403)
     """
+    lock_organization_for_staff_changes(organization)
+
     if user:
         # Quick mode - populate from user. The profile is copied only for an account that acted toward the
         # organization; a stranger's entry keeps the email alone (ADR-0020).
@@ -242,6 +291,11 @@ def add_to_blacklist(
             email__iexact=email,
         ).exists():
             raise HttpError(400, str(_("An entry with this email already exists.")))
+
+    if created_by.pk != organization.owner_id and _matches_current_staff(
+        organization, user=user, email=email, telegram_username=telegram_username, phone_number=phone_number
+    ):
+        raise HttpError(403, str(_("Only the organization owner can blacklist a staff member.")))
 
     entry = Blacklist.objects.create(
         organization=organization,

@@ -24,6 +24,10 @@ These two events now also settle every ticket and membership refund: a pending r
 ### Added
 - Operators can register one-time post-deploy tasks. `manage.py run_post_deploy` runs each pending task once per instance, and `manage.py post_deploy_status` lists them. This is off by default behind `FEATURE_POST_DEPLOY_TASKS`. The first task syncs the Stripe webhook event types.
 
+### Changed
+- Only the organization owner can blacklist a staff member. A blacklist entry (`POST /organization-admin/{slug}/blacklist`) that matches a current staff member of the organization, by account, email, phone or Telegram, gets 403 for other staff. Entries for other people work as before.
+- A blacklisted person cannot be made staff. `POST /organization-admin/{slug}/staff/{user_id}` answers 400 for a person who is on the organization's blacklist.
+
 ### Fixed
 - Confirming or reverting an offline payment (`POST /event-admin/{event_id}/tickets/{ticket_id}/confirm-payment` and `.../unconfirm-payment`) answers 409 when the ticket changes while the request runs, for example by a cancellation. A ticket that is already in another status still gets 404, as before.
 - A payment that completes after its ticket was cancelled is refunded automatically (the platform fee is kept, as for every refund), and no payment confirmation is sent. Refund rows can have the new source `late_payment`.

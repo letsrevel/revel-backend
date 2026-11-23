@@ -328,6 +328,17 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
     `update_organization` (`events/service/organization_service.py`), not in the permission
     class (carve-out introduced in v1.65.0).
 
+!!! warning "Owner-only blacklist entries inside the `manage_members`-gated blacklist"
+    The blacklist has a similar carve-out. Staff with `manage_members` can add blacklist
+    entries, but only the owner can add an entry that matches a current staff member (by
+    account, email, phone or telegram). Other staff get 403. An owner-created entry also
+    removes the staff role, like `DELETE /staff/{user_id}`. The check lives in
+    `add_to_blacklist` (`events/service/blacklist_service.py`).
+
+    In the other direction, a person who is on the organization's blacklist cannot be made
+    staff: `add_staff` (`events/service/organization_service/membership.py`) answers 400.
+    Claiming a staff-granting token refuses a blacklisted person too.
+
 ### How `get_object_or_exception` Triggers Permission Checks
 
 The `get_object_or_exception` method (inherited from `ControllerBase`) fetches the object from the queryset and then calls `check_object_permissions` against the controller's permission classes. This is why permission classes receive the resolved object in `has_object_permission`.
