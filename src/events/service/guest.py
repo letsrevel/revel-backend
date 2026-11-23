@@ -18,6 +18,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from accounts.jwt import check_blacklist, consume_one_shot_token, create_token
 from accounts.models import RevelUser
+from accounts.service.account_erasure import lock_account_for_checkout
 from common.keys import decode_jwt, signing_key, verification_keys
 from events import models, schema
 from events.exceptions import GuestAccountExistsError, GuestCartTooLargeError, GuestEmailConfirmationRequired
@@ -131,6 +132,10 @@ def claim_invitation_link(user: RevelUser, event: models.Event, event_token: mod
         return
     # claim_invitation locks the token row (select_for_update) — needs a transaction.
     with transaction.atomic():
+        # The account row before every other row lock (#1476): the claim locks the token and the guest's
+        # invitation, and a deletion of the account locks the account row and then deletes that invitation.
+        # A checkout takes the account lock later (create_batch), so it must come first here.
+        lock_account_for_checkout(user)
         claim_invitation(user, event_token.pk, greeting=user.email)
 
 

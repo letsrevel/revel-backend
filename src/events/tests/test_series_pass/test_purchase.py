@@ -234,6 +234,21 @@ class TestFreePathPurchase:
 
         mock_notify.assert_not_called()
 
+    @pytest.mark.parametrize("field", ["erased_at", "deletion_requested_at"])
+    def test_an_account_that_is_being_deleted_cannot_buy_a_pass(
+        self, purchasable_free_pass: SeriesPass, revel_user: RevelUser, field: str
+    ) -> None:
+        """The purchase locks the buyer's account row and reads these marks under the lock (#1476)."""
+        RevelUser.objects.filter(pk=revel_user.pk).update(**{field: timezone.now()})
+
+        with pytest.raises(HttpError) as refused:
+            SeriesPassPurchaseService(purchasable_free_pass, revel_user).purchase()
+
+        assert refused.value.status_code == 403
+        assert not HeldSeriesPass.objects.filter(user=revel_user).exists()
+        purchasable_free_pass.refresh_from_db()
+        assert purchasable_free_pass.quantity_sold == 0
+
 
 class TestOfflinePathPurchase:
     def test_creates_pending_pass_and_pending_tickets(

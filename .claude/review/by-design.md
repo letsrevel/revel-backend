@@ -98,3 +98,18 @@ Policy-level intended behaviour that reviewers must not report as a finding. Eac
 - behaviour: check-in locks Payment, then the tier and the ticket with `ticket_service.lock_tier_then_ticket`, like every other ticket writer. Scans of tickets of the same tier therefore run one after another, a few milliseconds each.
 - boundary: a network call (Stripe, email, wallet) inside the check-in lock, or a lock held across more than the one short transaction, remains a valid finding.
 - reference: owner decision 2026-11-22 (#1482).
+
+## Account deletion: no row lock across the subscription cancel and the referral cleanup
+- behaviour: a deletion run with a mark (`accounts.tasks.delete_user_account`) reads the account again immediately before the subscription cancel, immediately before the referral cleanup, and under the account row lock before the erase or delete. The lock is held for the last phase only. A change of the account state that commits after the check of the cancel or of the cleanup, and before that step ends, does not stop that step. A later step is skipped when its own fresh check fails; a check only sees the state at that moment, so a change that is undone before the next check (for example, a stale-deletion requeue whose dispatch fails and puts the old mark back) does not stop the later steps. The lock is not held across these two steps because the cleanup writes statement PDFs (file writes cannot be rolled back) and would contend with the payout disbursement task, and the cancel must commit on its own so that its Stripe call fires.
+- boundary: a step that starts after its own check failed, an erase or delete of an account whose state changed before the locked check, or a new destructive step that has no check on a fresh read immediately before it, remains a valid finding.
+- reference: owner decision 2026-11-23 (#1476, PR #1509).
+
+## Ban-queued and admin-queued account deletion: a failed dispatch is logged only
+- behaviour: an admin delete, "Force full delete" and an email or Telegram ban that clears the mark of a pending deletion queue one deletion run without a mark on commit. The domain ban does not: for an owner that is already inactive it only disarms the owner's OAuth apps and keeps the mark, so the self-service run and the stale-deletion sweep still own that deletion. When that dispatch fails, the code logs `account_erasure_dispatch_failed` (ERROR, user id only), the account stays inactive, and an operator queues the deletion again. There is no durable record and no automatic retry for these runs; the stale-deletion sweep covers self-service marks only. An operator alert on the log event is an infra follow-up.
+- boundary: a failed dispatch that is not logged, that leaves the account active, or that gives the access back remains a valid finding.
+- reference: owner decision 2026-11-23 (#1476, PR #1509).
+
+## Stored Stripe webhook events keep the payload of an erased buyer
+- behaviour: `StripeWebhookEvent.payload` stores each Stripe event as it arrived, also for a buyer whose account is erased, so it can hold that buyer's billing details (name, email, address). It is an access-restricted audit log with no link to the user, it is deleted after `STRIPE_WEBHOOK_EVENT_RETENTION_DAYS` (90 days), and its content matches the billing details that kept payments of kept tickets retain for the same reason. The erasure clears `Payment.raw_response`, not this log.
+- boundary: an API, export or staff view that serves these payloads, a retention longer than the setting, or a new copy of buyer details from this log onto another row after the erasure remains a valid finding.
+- reference: owner decision 2026-11-23 (#1476, PR #1509); the privacy policy update for #1476 names it.

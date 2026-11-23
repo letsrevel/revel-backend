@@ -116,6 +116,11 @@ def reset_unverified_credentials(user: RevelUser, *, password: str | None) -> No
     user.telegram_users.update(user=None)
 
 
+# The lookup filter of the emailed links (verify, reset): an erased account or one whose deletion is pending
+# (#1476) is answered as if the row were gone, so a link never reactivates it or tells that a deletion is pending.
+_NOT_BEING_DELETED = {"erased_at__isnull": True, "deletion_requested_at__isnull": True}
+
+
 def _mark_email_verified(user: RevelUser) -> None:
     """Activate the account, mark its email verified and stop the reminders.
 
@@ -177,11 +182,16 @@ def _contest_unverified_signup(
     Nobody proved who owns the address, so the stored account (password, profile, referral, 2FA,
     sessions) is left alone; verifying it later restarts it (see :func:`adopt_unverified_account`).
     The returned user is built from the submitted payload only, so the answer reveals nothing stored.
+    An account with a pending or finished deletion gets neither the mark nor the link; the answer is the same.
     """
     logger.info("user_registration_contested_unverified", user_id=str(user.id), email=payload.email)
-    user.signup_contested_at = timezone.now()
-    user.save(update_fields=["signup_contested_at"])
-    _, token = send_verification_email_for_user(user, return_url=payload.return_url, return_host=return_host)
+    if user.erased_at is None and user.deletion_requested_at is None:
+        user.signup_contested_at = timezone.now()
+        user.save(update_fields=["signup_contested_at"])
+        _, token = send_verification_email_for_user(user, return_url=payload.return_url, return_host=return_host)
+    else:
+        # Deletion is pending: no link (``verify_email`` would refuse it) and no mark, same answer.
+        token = create_verification_token(user)
     echo = RevelUser(
         username=payload.email, email=payload.email, first_name=payload.first_name, last_name=payload.last_name
     )
@@ -220,7 +230,8 @@ def register_user(payload: schema.RegisterUserSchema, *, return_host: str | None
         raise HttpError(403, str(BAN_ERROR_MESSAGE))
     existing_user = RevelUser.objects.select_for_update().filter(username=payload.email).first()
     if existing_user and (existing_user.guest or existing_user.email_verified):
-        if existing_user.guest:
+        # A guest whose deletion is pending or done gets no link (``reset_password`` would refuse it); same answer.
+        if existing_user.guest and existing_user.erased_at is None and existing_user.deletion_requested_at is None:
             _send_activation_email_for_guest(existing_user, return_host=return_host)
         logger.warning("user_registration_duplicate", email=payload.email)
         raise HttpError(400, str(_("A user with this email already exists.")))
@@ -355,7 +366,8 @@ def verify_email(token: str, *, return_host: str | None = None) -> RevelUser:
     """Verify a user's email.
 
     Automatically reactivates deactivated accounts upon verification and clears
-    any reminder tracking to prevent further emails. A link minted before the account's last
+    any reminder tracking to prevent further emails. An erased account, or one whose
+    deletion is pending, gets the answer for a missing account. A link minted before the account's last
     credential reset is refused. If somebody signed up again with the address while it was
     unverified, verifying restarts the account (:func:`adopt_unverified_account`) and a
     password-reset email is sent so the person can set a password.
@@ -372,7 +384,9 @@ def verify_email(token: str, *, return_host: str | None = None) -> RevelUser:
 
     payload = token_to_payload(token, schema.VerifyEmailJWTPayloadSchema)
     check_blacklist(payload.jti)
-    if user := RevelUser.objects.select_for_update().filter(id=payload.user_id).first():
+    # An erased account, or one whose deletion is pending (#1476), counts as gone, as with a deleted row:
+    # verifying would reactivate it.
+    if user := RevelUser.objects.select_for_update().filter(id=payload.user_id, **_NOT_BEING_DELETED).first():
         # Guest users must not be verified through this flow — they were never registered
         if user.guest:
             logger.warning("email_verification_blocked_guest_user", user_id=str(user.id), email=user.email)
@@ -418,7 +432,7 @@ def resend_verification_email(email: str, *, return_url: str | None = None, retu
     """
     logger.info("verification_email_resend_requested", email=email)
     try:
-        user = RevelUser.objects.get(username=email)
+        user = RevelUser.objects.get(username=email, **_NOT_BEING_DELETED)  # its link would be refused
     except RevelUser.DoesNotExist:
         logger.info("verification_email_resend_user_not_found", email=email)
         return None
@@ -454,7 +468,7 @@ def request_password_reset(email: str, *, return_host: str | None = None) -> str
     """
     logger.info("password_reset_requested", email=email)
     try:
-        user = RevelUser.objects.get(username=email)
+        user = RevelUser.objects.get(username=email, **_NOT_BEING_DELETED)  # its link would be refused
     except RevelUser.DoesNotExist:
         logger.info("password_reset_user_not_found", email=email)
         return None
@@ -513,7 +527,9 @@ def reset_password(token: str, new_password: str) -> RevelUser:
 
     payload = token_to_payload(token, schema.PasswordResetJWTPayloadSchema)
     check_blacklist(payload.jti)
-    user = get_object_or_404(RevelUser, id=payload.user_id)
+    # An erased account, or one whose deletion is pending (#1476), is a deleted account: a link sent before
+    # the deletion finds nothing, as when the row is gone. Otherwise the reset could verify and reactivate it.
+    user = get_object_or_404(RevelUser, id=payload.user_id, **_NOT_BEING_DELETED)
     # Re-check the global ban at reset time — a ban added after the token was issued
     # must block the reset (and the guest-to-full-user conversion below), mirroring
     # verify_email. Blacklist the token so it cannot be retried. This runs OUTSIDE the
@@ -553,8 +569,13 @@ def convert_guest(user: RevelUser, *, reactivate: bool = False) -> bool:
     Returns:
         True only when this call actually converted the user.
     """
-    current = RevelUser.objects.select_for_update().values("guest", "email_verified", "is_active").get(pk=user.pk)
-    if not current["guest"]:
+    current = (
+        RevelUser.objects.select_for_update()
+        .values("guest", "email_verified", "is_active", "deletion_requested_at")
+        .get(pk=user.pk)
+    )
+    # A guest whose deletion is pending (#1476) is not converted by a reactivating login: it stays inactive.
+    if not current["guest"] or (reactivate and current["deletion_requested_at"] is not None):
         user.guest, user.email_verified, user.is_active = (
             current["guest"],
             current["email_verified"],
@@ -577,8 +598,8 @@ def convert_guest(user: RevelUser, *, reactivate: bool = False) -> bool:
 @transaction.atomic
 def _apply_password_reset(user: RevelUser, token: str, new_password: str) -> RevelUser:
     """Set the new password and consume the token (the atomic half of ``reset_password``)."""
-    # Lock and re-read, like ``verify_email``: a contest or verification committed concurrently is seen.
-    user = RevelUser.objects.select_for_update().get(pk=user.pk)
+    # Lock and re-read, like ``verify_email``: a contest, verification or deletion committed concurrently is seen.
+    user = get_object_or_404(RevelUser.objects.select_for_update(), pk=user.pk, **_NOT_BEING_DELETED)
     validate_password(new_password, user=user)
     if not user.guest and not user.email_verified:
         # The reset link proves ownership of the address: the account starts over with the new password.
@@ -844,8 +865,31 @@ def confirm_account_deletion(token: str, force: bool = False) -> None:
 
     logger.info("account_deletion_confirmed", user_id=str(user.id), email=user.email, force=force)
     blacklist_token(token)
-    # Enqueue the deletion as a background task to handle heavy operations
-    transaction.on_commit(lambda: tasks.delete_user_account.delay(str(user.id)))
+    # Sign-in stops now, in this transaction, not only when the background task has run. Only an account
+    # that was active gets the mark: a failed deletion must not give access back to an account that an
+    # admin or the unverified sweep deactivated.
+    mark = timezone.now()
+    marked = RevelUser.objects.filter(pk=user.pk, is_active=True).update(is_active=False, deletion_requested_at=mark)
+    user_id = str(user.id)
+    # The run carries its mark: only the run of this mark can give the access back when it fails for good.
+    deletion_mark = mark.isoformat() if marked else None
+    # One run for each mark. A second confirmation while the first run is queued or in flight queues nothing:
+    # the two runs would share the mark, and a failure of one would give the access back while the other
+    # still deletes the account. The UPDATE above waits for a concurrent confirmation, so this read sees its mark.
+    if not marked and RevelUser.objects.filter(pk=user.pk, deletion_requested_at__isnull=False).exists():
+        logger.info("account_deletion_already_pending", user_id=user_id)
+        return
+
+    # A named closure, not a lambda or partial: robust on_commit needs a name to log.
+    def dispatch_account_deletion() -> None:
+        try:
+            tasks.delete_user_account.delay(user_id, deletion_mark=deletion_mark)
+        except Exception:
+            # The request has already answered that the deletion will run: the account stays inactive with its
+            # mark, and ``requeue_stale_account_deletions`` queues the run again.
+            logger.error("account_deletion_dispatch_failed", user_id=user_id, exc_info=True)
+
+    transaction.on_commit(dispatch_account_deletion, robust=True)
 
 
 def update_profile(user: RevelUser, payload: schema.ProfileUpdateSchema) -> RevelUser:

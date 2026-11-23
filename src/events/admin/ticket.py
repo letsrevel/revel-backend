@@ -89,10 +89,11 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  #
         ("sector", AutocompleteSelectFilter),
     ]
     list_filter_submit = True
-    search_fields = ["event__name", "user__username", "user__email", "guest_name", "seat__label"]
+    search_fields = ["event__name", "user__username", "user__email", "guest_name", "holder_email", "seat__label"]
     autocomplete_fields = ["event", "user", "tier", "checked_in_by", "venue", "sector", "seat"]
     readonly_fields = [
         "id",
+        "holder_email",  # written only by the account erasure (#1476)
         "checked_in_at",
         "checked_in_by",
         "price_paid",
@@ -114,7 +115,7 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  #
     date_hierarchy = "created_at"
 
     fieldsets = [
-        (None, {"fields": ["id", "event", "user", "guest_name", "status", "tier"]}),
+        (None, {"fields": ["id", "event", "user", "guest_name", "holder_email", "status", "tier"]}),
         ("Seating", {"fields": ["venue", "sector", "seat"]}),
         (
             "Payment & Discounts",

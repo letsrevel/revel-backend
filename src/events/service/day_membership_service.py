@@ -33,6 +33,7 @@ from events.service.holder_visibility import STAFF_SALE_SOURCES
 from events.service.member_register_service import _FULL_NAME_MAX, _snapshot_full_name
 from events.utils import membership_access
 from events.utils.blacklist import get_hard_blacklisted_user_ids
+from events.utils.erased_holder import holder_email
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 _ATTENDING = tuple(Ticket.ATTENDING_STATUSES)
@@ -132,7 +133,10 @@ def _record_kwargs(
 ) -> dict[str, t.Any]:
     valid_from, valid_until = _event_window(event)
     user = ticket.user
-    if ticket.sale_source in STAFF_SALE_SOURCES or ticket.unconfirmed_guest:
+    if user.erased_at:
+        # An erased account has no name or real email: record the holder snapshot that the ticket keeps.
+        full_name = (ticket.guest_name or holder_email(ticket))[:_FULL_NAME_MAX]
+    elif ticket.sale_source in STAFF_SALE_SOURCES or ticket.unconfirmed_guest:
         # Staff-issued, or a guest checkout that never proved its email (#1430): record only what the
         # ticket carries, never the account's own names.
         full_name = (ticket.guest_name or user.email)[:_FULL_NAME_MAX]
@@ -142,7 +146,7 @@ def _record_kwargs(
         "organization_id": event.organization_id,
         "user": user,
         "full_name": full_name,
-        "email": user.email,
+        "email": holder_email(ticket),
         "kind": MembershipRecord.Kind.TEMPORARY,
         "tier": granted_tier,
         "tier_name": granted_tier.name,

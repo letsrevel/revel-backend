@@ -8,7 +8,10 @@ import typing as t
 
 import structlog
 from django.contrib import admin, messages
+from django.contrib.admin import helpers
 from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.forms import AdminPasswordChangeForm, UserChangeForm
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Count, Exists, IntegerField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
@@ -42,7 +45,7 @@ from accounts.models import (
 from accounts.service.account import convert_guest, request_password_reset, send_verification_email_for_user
 from accounts.service.global_ban_service import is_email_globally_banned
 from accounts.service.impersonation import can_impersonate, create_impersonation_request
-from accounts.tasks.gdpr import delete_user_account
+from accounts.tasks.gdpr import account_deletion_dispatch
 from accounts.utils.email_normalization import normalize_email_for_matching
 from common.client_ip import get_client_ip
 from common.models import SiteSettings
@@ -128,29 +131,76 @@ class UserBillingProfileInline(TabularInline):  # type: ignore[misc]
     fields = readonly_fields
 
 
-def _erasure_dispatch(user_id: str) -> t.Callable[[], None]:
-    """A named on-commit callback that queues one account erasure.
-
-    The request has already answered when it runs, so a failed dispatch cannot reach the admin page. It is
-    logged as an error with the account id instead: the account stays deactivated, and an operator re-queues
-    its erasure. It is a named function, not a ``partial``, so Django's robust handling can name it.
-    """
-
-    def dispatch_account_erasure() -> None:
-        try:
-            delete_user_account.delay(user_id)
-        except Exception:
-            logger.error("account_erasure_dispatch_failed", user_id=user_id, exc_info=True)
-
-    return dispatch_account_erasure
-
-
 def _queue_account_erasure(user_ids: list[t.Any]) -> None:
-    """Deactivate the accounts in this transaction, then queue their erasure for after commit."""
-    RevelUser.objects.filter(pk__in=user_ids).update(is_active=False)
+    """Deactivate the accounts in this transaction, then queue their erasure for after commit.
+
+    It clears the self-service mark too: an admin deletion that fails leaves the account inactive.
+    """
+    RevelUser.objects.filter(pk__in=user_ids).update(is_active=False, deletion_requested_at=None)
     for user_id in user_ids:
         # The callback logs its own failure; robust is a backstop so one callback can never skip the others.
-        transaction.on_commit(_erasure_dispatch(str(user_id)), robust=True)
+        transaction.on_commit(account_deletion_dispatch(str(user_id)), robust=True)
+
+
+def _is_active_changed_by_admin(form: t.Any, obj: RevelUser, stored_active: bool) -> bool:
+    """Whether the admin changed ``is_active``: against the value the form showed, else against the row."""
+    if "is_active" not in form.fields:  # read-only or not in the form
+        return False
+    if form["is_active"].html_initial_name in form.data:
+        return "is_active" in form.changed_data
+    return bool(obj.is_active != stored_active)
+
+
+def _lock_and_refuse_erased(pk: t.Any) -> None:
+    """Lock the account row and raise a form error when the account is erased or deleted.
+
+    The caller's transaction keeps the lock until its save. The deletion task locks the row first too, so a
+    post during a running erasure waits for it and is then refused (also when the task deleted the row).
+    """
+    try:
+        erased_at = RevelUser.objects.select_for_update().values_list("erased_at", flat=True).get(pk=pk)
+    except RevelUser.DoesNotExist:  # a full delete committed while this post waited for the lock
+        raise ValidationError(_("This account was deleted."), code="deleted") from None
+    if erased_at is not None:
+        raise ValidationError(_("This account was erased. An erased account cannot be edited."), code="erased")
+
+
+class RevelUserChangeForm(UserChangeForm):  # type: ignore[type-arg]
+    """The change form refuses a post for an erased account, for example from a page opened before the erasure.
+
+    Such a page still holds the old email, names and profile, and a save would write them back onto the row.
+    ``erased_at`` is read under the row lock that ``save_model`` also takes: the admin change view runs in one
+    transaction, so an erasure cannot commit between this check and the save.
+    """
+
+    def clean(self) -> dict[str, t.Any] | None:
+        cleaned_data = super().clean()
+        _lock_and_refuse_erased(self.instance.pk)
+        return cleaned_data
+
+
+class RevelAdminPasswordChangeForm(AdminPasswordChangeForm):  # type: ignore[type-arg]
+    """The admin password change writes only the password, and refuses an erased or deleted account.
+
+    The view loads the account before the post is checked, so the instance can be stale: a full save would
+    write back every other field, for example the personal data that an erasure removed meanwhile.
+    ``user_change_password`` runs the check and the save in one transaction, under the row lock. The error
+    goes on ``password1``: the password page shows no errors that are not on a field.
+    """
+
+    def clean(self) -> dict[str, t.Any] | None:
+        cleaned_data = super().clean()
+        try:
+            _lock_and_refuse_erased(self.user.pk)
+        except ValidationError as error:
+            self.add_error("password1", error)
+        return cleaned_data
+
+    def save(self, commit: bool = True) -> t.Any:
+        user = super().save(commit=False)
+        if commit:
+            user.save(update_fields=["password"])
+        return user
 
 
 @admin.register(RevelUser)
@@ -168,6 +218,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         "is_staff",
         "is_active",
         "guest",
+        "erased_display",
         "date_joined",
         "event_count",
         "organization_count",
@@ -182,6 +233,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         "email_verified",
         "totp_active",
         "guest",
+        ("erased_at", admin.EmptyFieldListFilter),
         "language",
         "date_joined",
         "last_login",
@@ -194,6 +246,8 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     readonly_fields = [
         "id",
         "guest",  # changed only through the "Convert guest" action (convert_guest)
+        "erased_at",  # set only by the account erasure (#1476)
+        "deletion_requested_at",  # set only by the self-service deletion confirm (#1476)
         "date_joined",
         "last_login",
         "display_name_display",
@@ -238,6 +292,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
                     ("email_verified", "totp_active"),
                     ("date_joined", "last_login"),
                     "guest",
+                    ("deletion_requested_at", "erased_at"),
                 )
             },
         ),
@@ -291,6 +346,48 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     # Autocomplete
     autocomplete_fields = ["groups"]
 
+    form = RevelUserChangeForm
+    change_password_form = RevelAdminPasswordChangeForm
+
+    def user_change_password(self, request: HttpRequest, id: str, form_url: str = "") -> HttpResponse:
+        """Run the inherited view in one transaction: the row lock of the form check then covers the save."""
+        with transaction.atomic():
+            return super().user_change_password(request, id, form_url)
+
+    def save_model(self, request: HttpRequest, obj: RevelUser, form: t.Any, change: bool) -> None:
+        """An admin who changes ``is_active`` clears the self-service deletion mark: the admin decides now.
+
+        Without the mark, a pending self-service deletion that fails does not change ``is_active`` again. The
+        emailed links refuse a marked account, so an operator who reactivates one by hand clears it here.
+        An edit that does not change ``is_active`` keeps the stored ``is_active`` and mark, read under the row
+        lock that a deletion confirm also takes, so a form opened before the confirm does not write over them.
+        """
+        if not change:
+            super().save_model(request, obj, form, change)
+            return
+        stored_active, stored_mark = (
+            RevelUser.objects.select_for_update().values_list("is_active", "deletion_requested_at").get(pk=obj.pk)
+        )
+        if _is_active_changed_by_admin(form, obj, stored_active):
+            obj.deletion_requested_at = None
+        else:
+            obj.is_active, obj.deletion_requested_at = stored_active, stored_mark
+        super().save_model(request, obj, form, change)
+
+    def get_form(
+        self, request: HttpRequest, obj: RevelUser | None = None, change: bool = False, **kwargs: t.Any
+    ) -> t.Any:
+        """Compare ``is_active`` with the value the form showed, not with the row at submit time.
+
+        Django reloads the row when the form is posted. Without the hidden initial value, a form opened before
+        a deletion confirm would count ``is_active`` as changed and reactivate the account. A post without
+        that value (a scripted client) is compared with the stored row instead (``_is_active_changed_by_admin``).
+        """
+        form = super().get_form(request, obj, change=change, **kwargs)
+        if "is_active" in form.base_fields:
+            form.base_fields["is_active"].show_hidden_initial = True
+        return form
+
     # Actions
     def delete_model(self, request: HttpRequest, obj: RevelUser) -> None:
         """Deactivate the account now and queue its erasure after commit, like the user's own account deletion.
@@ -312,7 +409,54 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         "ban_selected_users",
         "clear_stripe_connect_account",
         "convert_guests",
+        "force_full_delete",
     ]
+
+    def has_superuser_permission(self, request: HttpRequest) -> bool:
+        """Gate for superuser-only actions (``@admin.action(permissions=["superuser"])``)."""
+        return bool(request.user.is_superuser)
+
+    @admin.action(description=_("Force full delete of erased accounts (superuser only)"), permissions=["superuser"])
+    def force_full_delete(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> TemplateResponse | None:
+        """Delete erased accounts and their kept tickets and passes now, before retention ends (#1476).
+
+        An erased account keeps its row while it holds tickets or passes (see ``delete_user_account``).
+        This action runs the normal full delete instead, after a confirmation page. Accounts that are not
+        erased are skipped: delete them with the normal delete. Each queued deletion is logged with the
+        actor id and the account id only.
+        """
+        if not request.user.is_superuser:  # the action is hidden from others; this is a backstop
+            self.message_user(request, _("Superuser required."), level=messages.ERROR)
+            return None
+        erased = list(queryset.filter(erased_at__isnull=False))
+        if not erased:
+            self.message_user(request, _("No erased account selected."), level=messages.WARNING)
+            return None
+        if request.POST.get("confirm_force_full_delete") != "yes":
+            context = {
+                **self.admin_site.each_context(request),
+                "title": _("Force full delete"),
+                "opts": self.model._meta,
+                "accounts": erased,
+                "skipped": queryset.count() - len(erased),
+                "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
+            }
+            return TemplateResponse(request, "admin/accounts/force_full_delete_confirm.html", context)
+        RevelUser.objects.filter(pk__in=[account.pk for account in erased]).update(deletion_requested_at=None)
+        for account in erased:
+            logger.warning("account_force_full_delete_queued", actor_id=str(request.user.pk), user_id=str(account.pk))
+            transaction.on_commit(account_deletion_dispatch(str(account.pk), force_full_delete=True), robust=True)
+        self.message_user(
+            request,
+            ngettext(
+                "Queued the full delete of %d erased account.",
+                "Queued the full delete of %d erased accounts.",
+                len(erased),
+            )
+            % len(erased),
+            messages.SUCCESS,
+        )
+        return None
 
     @admin.action(description=_("Convert guest to full account"), permissions=["change"])
     def convert_guests(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
@@ -377,7 +521,8 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         sent_count = 0
         skipped_count = 0
         for user in queryset:
-            if user.email_verified:
+            # A verified account needs no link; an erased or pending-deletion one would get a refused link.
+            if user.email_verified or user.erased_at or user.deletion_requested_at:
                 skipped_count += 1
                 continue
             send_verification_email_for_user(user)
@@ -510,6 +655,10 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     @admin.display(description="Email", ordering="email")
     def email_link(self, obj: RevelUser) -> str:
         return format_html('<a href="mailto:{}">{}</a>', obj.email, obj.email)
+
+    @admin.display(description=_("Erased"), boolean=True, ordering="erased_at")
+    def erased_display(self, obj: RevelUser) -> bool:
+        return obj.erased_at is not None
 
     @admin.display(description="Email Verified", boolean=True)
     def email_verified_display(self, obj: RevelUser) -> bool:

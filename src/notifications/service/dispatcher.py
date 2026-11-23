@@ -7,7 +7,13 @@ import structlog
 from django.conf import settings
 
 from accounts.models import RevelUser
-from notifications.enums import MANDATORY_TYPES, TRANSACTIONAL_TYPES, DeliveryChannel, NotificationType
+from notifications.enums import (
+    ERASED_ACCOUNT_EMAIL_TYPES,
+    MANDATORY_TYPES,
+    TRANSACTIONAL_TYPES,
+    DeliveryChannel,
+    NotificationType,
+)
 from notifications.models import Notification, NotificationPreference
 
 logger = structlog.get_logger(__name__)
@@ -87,6 +93,12 @@ def bulk_create_notifications(
     """
     from notifications.context_schemas import validate_notification_context
 
+    # An erased account (#1476) never receives these types: store no row for it.
+    notifications_data = [
+        data
+        for data in notifications_data
+        if not data.user.erased_at or data.notification_type in ERASED_ACCOUNT_EMAIL_TYPES
+    ]
     if not notifications_data:
         return []
 
@@ -131,6 +143,11 @@ def determine_delivery_channels(user: RevelUser, notification_type: str) -> list
     Returns:
         List of channel names to deliver to
     """
+    if user.erased_at:
+        # An erased account gets only the cancellation and refund emails, at its kept holder email. No in-app
+        # row is shown (nobody can sign in) and no Telegram message goes out (the link is deleted).
+        return [DeliveryChannel.EMAIL] if notification_type in ERASED_ACCOUNT_EMAIL_TYPES else []
+
     prefs = user.notification_preferences
 
     # Effective channels first, so silence and per-type disables apply to every path

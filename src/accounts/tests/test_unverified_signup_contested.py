@@ -104,6 +104,36 @@ def _register(**overrides: t.Any) -> t.Any:
 
 
 class TestRepeatSignup:
+    @pytest.mark.parametrize("field", ["deletion_requested_at", "erased_at"])
+    def test_pending_deletion_gets_no_link_mark_and_same_answer(
+        self,
+        django_user_model: type[RevelUser],
+        stored: RevelUser,
+        mock_delay: MagicMock,
+        django_capture_on_commit_callbacks: t.Any,
+        field: str,
+    ) -> None:
+        """No verification link and no contested mark; status and body equal a normal repeat signup."""
+        django_user_model.objects.create_user(username="other@example.com", email="other@example.com")
+        with django_capture_on_commit_callbacks(execute=True):
+            normal = _register(email="other@example.com")
+        assert len(_sent_links(mock_delay)) == 1
+        mock_delay.reset_mock()
+
+        RevelUser.objects.filter(pk=stored.pk).update(**{field: timezone.now()})
+        with django_capture_on_commit_callbacks(execute=True):
+            response = _register()
+
+        assert _sent_links(mock_delay) == []
+        assert response.status_code == normal.status_code == 201
+        assert response.json()["id"] != str(stored.pk)  # the answer never names the stored account
+        drop = {"id", "email"}
+        assert {k: v for k, v in response.json().items() if k not in drop} == {
+            k: v for k, v in normal.json().items() if k not in drop
+        }
+        stored.refresh_from_db()
+        assert stored.signup_contested_at is None
+
     def test_changes_nothing_stored_and_echoes_only_the_payload(
         self, stored: RevelUser, mock_delay: MagicMock, django_capture_on_commit_callbacks: t.Any
     ) -> None:

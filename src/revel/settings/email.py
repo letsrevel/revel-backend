@@ -32,7 +32,10 @@ PENDING_INVITATION_DAILY_CAP = config("PENDING_INVITATION_DAILY_CAP", default=20
 
 EMAIL_DRY_RUN = config("EMAIL_DRY_RUN", default=False, cast=bool)
 
+# Every email goes through the guard, which drops erased-account placeholder recipients and then
+# hands the message to the real transport (common.email_backend).
+EMAIL_BACKEND = "common.email_backend.ErasedRecipientGuardBackend"
 if EMAIL_DRY_RUN:
-    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+    EMAIL_GUARDED_BACKEND = "django.core.mail.backends.console.EmailBackend"
 else:
-    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_GUARDED_BACKEND = "django.core.mail.backends.smtp.EmailBackend"

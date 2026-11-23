@@ -21,6 +21,7 @@ from django.utils import timezone
 from django.utils.dateformat import format as date_format
 from django.utils.translation import pgettext
 
+from events.utils.erased_holder import pass_holder_name, ticket_holder_name
 from events.utils.pass_branding import get_pass_brand_colors
 
 if t.TYPE_CHECKING:
@@ -392,7 +393,8 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
         "brand": get_pass_brand_colors(event.organization),
         "event_name": event.name,
         "organization_name": event.organization.name,
-        "user_display_name": ticket.user.get_display_name(),
+        # An erased account shows the holder name kept on the ticket.
+        "user_display_name": ticket_holder_name(ticket),
         "guest_name": ticket.guest_name,
         "tier_name": ticket.tier.name,
         "start_datetime": format_event_datetime(event.start, event),
@@ -474,7 +476,7 @@ def create_series_pass_pdf(held_pass: "HeldSeriesPass") -> bytes:
         "series_name": event_series.name,
         "pass_name": series_pass.name,
         "organization_name": organization.name,
-        "user_display_name": held_pass.user.get_display_name(),
+        "user_display_name": pass_holder_name(held_pass),
         "covered_events": covered_events,
         "qr_code_base64": qr_code_base64,
         "pass_id": str(held_pass.id),

@@ -268,10 +268,18 @@ class HeldSeriesPassAdminSchema(ModelSchema):
 
     status: HeldSeriesPass.HeldSeriesPassStatus
     user: MemberUserSchema
+    # True when the holder deleted the account (#1476): ``user`` then has no name and a placeholder email,
+    # and ``holder_name``/``holder_email`` keep the holder identity. Both are "" for a live account.
+    erased: bool
 
     class Meta:
         model = HeldSeriesPass
-        fields = ["id", "price_paid", "created_at"]
+        fields = ["id", "price_paid", "created_at", "holder_name", "holder_email"]
+
+    @staticmethod
+    def resolve_erased(obj: HeldSeriesPass) -> bool:
+        """Whether the holder's account is erased."""
+        return obj.user.erased_at is not None
 
 
 class HeldSeriesPassCancelSchema(Schema):

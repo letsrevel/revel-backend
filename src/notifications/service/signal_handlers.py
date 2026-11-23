@@ -6,6 +6,7 @@ import structlog
 from django.db import transaction
 from django.dispatch import receiver
 
+from notifications.enums import ERASED_ACCOUNT_EMAIL_TYPES
 from notifications.service.dispatcher import create_notification
 from notifications.signals import notification_requested
 
@@ -44,6 +45,9 @@ def handle_notification_request(sender: t.Any, **kwargs: t.Any) -> None:
                 kwargs=kwargs,
             )
             return
+
+        if user.erased_at and notification_type not in ERASED_ACCOUNT_EMAIL_TYPES:
+            return  # the dispatcher would drop it (#1476): store nothing
 
         # Create notification
         notification = create_notification(

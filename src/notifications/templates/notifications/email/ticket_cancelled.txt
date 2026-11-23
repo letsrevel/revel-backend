@@ -1,4 +1,4 @@
-{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
+{% load i18n %}{% trans "Hello" %}{% if recipient_name %} {{ recipient_name }}{% endif %},
 
 {% if context.cancellation_source == "user" %}{% blocktranslate with event=context.event_name %}You cancelled your ticket for {{ event }}.{% endblocktranslate %}{% elif context.cancellation_source == "stripe_dashboard" %}{% blocktranslate with event=context.event_name %}Your ticket for {{ event }} has been cancelled and refunded.{% endblocktranslate %}{% else %}{% blocktranslate with event=context.event_name %}Your ticket for {{ event }} has been cancelled.{% endblocktranslate %}{% endif %}
 

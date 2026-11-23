@@ -6,6 +6,31 @@ emailed), `notifications/service/org_sender.py` (sender identity and headers) an
 `notifications/service/unsubscribe.py` (tokens and one-click). Operator setup is in
 [Tiers & Configuration → Email](../self-hosting/tiers.md#email).
 
+## The erased-recipient guard
+
+`EMAIL_BACKEND` is `common.email_backend.ErasedRecipientGuardBackend`. Every outbound email goes
+through it: notifications, `common.tasks.send_email`, invoices and org-branded mail. It removes each
+recipient (To, Cc, Bcc) that is the placeholder address of an erased account
+(`erased-<id>@erased.invalid`), logs the drop without the
+address, and sends the message only when a recipient is left. The real transport is
+`EMAIL_GUARDED_BACKEND` (SMTP, or the console backend when `EMAIL_DRY_RUN` is set).
+
+When live emails are off, `to_safe_email_address` rewrites each address to the internal catch-all address. The
+guard also knows that form of the placeholder, but only the exact one:
+`<catch-all user>+erased-<id>_at_erased_dot_invalid@<catch-all domain>`. A real mailbox whose name only ends
+like it (for example `alerts_at_erased_dot_invalid@example.com`) gets its mail.
+
+`common.tasks.send_email` removes these recipients itself first, on the addresses as given (before the
+catch-all rewrite) and before it builds the message. A batch
+goes out with the sender in To and the recipients in Bcc, so the backend alone would still send a batch
+with only erased recipients to the sender. When no recipient is left, the task sends nothing, writes
+no `EmailLog` row, and runs its callback as for a sent message. When every To recipient is erased and
+an explicit Bcc is left, the message goes to the Bcc only, with no sender in To.
+
+An erased account receives only `TICKET_CANCELLED`, `TICKET_REFUNDED`, `TICKET_REFUND_FAILED`,
+`SERIES_PASS_CANCELLED` and `EVENT_CANCELLED` (`ERASED_ACCOUNT_EMAIL_TYPES`), by email only, at the holder email kept on its
+tickets and passes (`email_policy.recipient_address`). The dispatcher drops every other type.
+
 ## Sender identity
 
 Mail falls into two groups.

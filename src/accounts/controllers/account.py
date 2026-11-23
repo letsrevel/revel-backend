@@ -224,9 +224,12 @@ class AccountController(UserAwareController):
         """Permanently delete the account using the confirmation token from email.
 
         Call this with the token received via email after POST /account/delete-request.
-        This action is irreversible and deletes all user data. The deletion is processed
-        asynchronously in the background. The deletion token is single-use and expires
-        after a set period.
+        This action is irreversible. An account that still holds issued tickets for an upcoming
+        or recently ended event, or an active series pass, is erased in place: its personal data
+        is removed and it can no longer sign in, and those tickets and passes stay valid with
+        their holder name, holder email and billing details. Every other account is deleted with
+        all its data. The deletion is processed asynchronously in the background. The deletion
+        token is single-use and expires after a set period.
 
         Returns 409 with a `referral_forfeiture_confirmation_required` payload when the
         account holds unpaid referral payouts that deletion would forfeit. The token is

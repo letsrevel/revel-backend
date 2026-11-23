@@ -1,10 +1,12 @@
 """Tests for the GDPR service."""
 
 import json
+import re
+import typing as t
 import zipfile
 from decimal import Decimal
 from io import BytesIO
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import orjson
 import pytest
@@ -41,6 +43,61 @@ def test_generate_user_data_export(user_with_questionnaire_submission: RevelUser
             assert "profile" in data
             assert "questionnaire_submissions" in data
             assert len(data["questionnaire_submissions"]) == 1
+
+
+@pytest.mark.django_db
+def test_a_repeated_export_deletes_the_file_of_the_earlier_one(
+    user: RevelUser, settings: t.Any, tmp_path: t.Any, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """Each export has its own file name; the ZIP of the earlier export (its link still works) must go.
+
+    A third export must not get the name of the first one again: a signed link to the first ZIP, which is
+    still valid, would then open the third export.
+    """
+    settings.MEDIA_ROOT = str(tmp_path)
+    first = gdpr.generate_user_data_export(user)
+    storage, first_name = first.file.storage, str(first.file.name)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        second = gdpr.generate_user_data_export(user)
+    second_name = str(second.file.name)
+
+    assert second.pk == first.pk and second_name != first_name
+    assert storage.exists(second_name)
+    assert not storage.exists(first_name)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        third = gdpr.generate_user_data_export(user)
+    third_name = str(third.file.name)
+
+    assert third.pk == first.pk
+    assert third_name not in (first_name, second_name)
+    assert storage.exists(third_name)
+    assert not storage.exists(first_name) and not storage.exists(second_name)
+    for name in (first_name, second_name, third_name):
+        assert re.fullmatch(rf"revel_export_{user.pk}_[0-9a-f]{{16}}\.zip", name.rsplit("/", 1)[1])
+
+
+@pytest.mark.django_db
+def test_an_export_that_fails_after_it_wrote_its_file_deletes_that_file(
+    user: RevelUser, settings: t.Any, tmp_path: t.Any
+) -> None:
+    """The row will not name the new ZIP, so nothing could find it later; the earlier ZIP stays."""
+    settings.MEDIA_ROOT = str(tmp_path)
+    first = gdpr.generate_user_data_export(user)
+    storage, first_name = first.file.storage, str(first.file.name)
+    real_save = UserDataExport.save
+
+    def fail_the_ready_save(self: UserDataExport, *args: t.Any, **kwargs: t.Any) -> None:
+        if "completed_at" in (kwargs.get("update_fields") or ()):
+            raise RuntimeError("database down")
+        real_save(self, *args, **kwargs)
+
+    with patch.object(UserDataExport, "save", fail_the_ready_save), pytest.raises(RuntimeError):
+        gdpr.generate_user_data_export(user)
+
+    directory = first_name.rsplit("/", 1)[0]
+    assert storage.listdir(directory)[1] == [first_name.rsplit("/", 1)[1]]
 
 
 @pytest.mark.django_db

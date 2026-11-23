@@ -250,6 +250,19 @@ MANDATORY_TYPES: frozenset[str] = frozenset(
     }
 )
 
+# The only types an erased account still receives, by email only, at the holder email kept on its tickets
+# and passes: the organizer can still cancel or refund them (#1476), and a refund that the holder was told
+# about can fail later. Every other type is dropped for it.
+ERASED_ACCOUNT_EMAIL_TYPES: frozenset[str] = frozenset(
+    {
+        NotificationType.TICKET_CANCELLED,
+        NotificationType.TICKET_REFUNDED,
+        NotificationType.TICKET_REFUND_FAILED,
+        NotificationType.SERIES_PASS_CANCELLED,
+        NotificationType.EVENT_CANCELLED,
+    }
+)
+
 # Revel-written, opt-out-able mail that isn't org-sent but should still carry one-click
 # List-Unsubscribe (bulk-sender rules for promotional-ish mail).
 PLATFORM_LIST_UNSUBSCRIBE_TYPES: frozenset[str] = frozenset({NotificationType.ORG_SETUP_NUDGE})

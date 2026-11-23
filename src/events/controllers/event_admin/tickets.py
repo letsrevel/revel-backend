@@ -213,6 +213,7 @@ class EventAdminTicketsController(EventAdminBaseController):
             "user__email",
             "tier__name",
             "guest_name",
+            "holder_email",  # an erased holder's kept email (#1476)
         ],
     )
     def list_tickets(

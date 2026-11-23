@@ -149,6 +149,7 @@ class NotificationTemplate(ABC):
             Template context dict with user and enriched context
         """
         from common.models import SiteSettings
+        from notifications.service.email_policy import recipient_name
         from notifications.service.unsubscribe import token_for_notification
 
         user = notification.user
@@ -170,6 +171,8 @@ class NotificationTemplate(ABC):
 
         return {
             "user": user,
+            # The greeting name: an erased account (#1476) has no name, so its mail uses the kept holder name.
+            "recipient_name": recipient_name(user),
             "context": enriched_context,
             "frontend_base_url": site_settings.frontend_base_url,
         }

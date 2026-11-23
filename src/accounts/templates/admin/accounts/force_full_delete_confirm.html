@@ -1,0 +1,51 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block bodyclass %}{{ block.super }} app-accounts model-reveluser force-full-delete-confirmation{% endblock %}
+
+{% block content_title %}
+    <h1 class="font-semibold mb-6 text-xl text-font-important-light dark:text-font-important-dark">
+        {% translate "Force full delete" %}
+    </h1>
+{% endblock %}
+
+{% block content %}
+    <div class="border border-base-200 rounded-default shadow-xs dark:border-base-800">
+        <div class="p-4">
+            <div class="bg-red-50 border border-red-200 rounded-default p-4 mb-4 dark:bg-red-900/20 dark:border-red-800">
+                <p class="text-sm text-red-800 dark:text-red-200">
+                    {% translate "These erased accounts are deleted now, with their kept tickets, series passes, payments and refunds. The tickets and passes stop working. This cannot be undone." %}
+                </p>
+            </div>
+            <ul class="list-disc ml-6 mb-4 text-sm">
+                {% for account in accounts %}
+                    <li><code>{{ account.pk }}</code></li>
+                {% endfor %}
+            </ul>
+            {% if skipped %}
+                <p class="text-sm text-base-500 dark:text-base-400">
+                    {% blocktranslate count counter=skipped %}{{ counter }} selected account is not erased and is skipped.{% plural %}{{ counter }} selected accounts are not erased and are skipped.{% endblocktranslate %}
+                </p>
+            {% endif %}
+        </div>
+
+        <form method="post" class="border-base-200 border-t px-4 py-3 dark:border-base-800">
+            {% csrf_token %}
+            {% for account in accounts %}
+                <input type="hidden" name="{{ action_checkbox_name }}" value="{{ account.pk }}">
+            {% endfor %}
+            <input type="hidden" name="action" value="force_full_delete">
+            <input type="hidden" name="confirm_force_full_delete" value="yes">
+            <div class="flex items-center justify-end gap-3">
+                <a href="{% url 'admin:accounts_reveluser_changelist' %}"
+                   class="bg-base-100 border border-base-300 font-medium px-4 py-2 rounded-default text-sm text-base-700 hover:bg-base-200 dark:bg-base-800 dark:border-base-600 dark:text-base-200 dark:hover:bg-base-700">
+                    {% translate "Cancel" %}
+                </a>
+                <button type="submit"
+                        class="bg-red-600 border border-transparent font-medium px-4 py-2 rounded-default text-sm text-white hover:bg-red-700">
+                    {% translate "Delete these accounts" %}
+                </button>
+            </div>
+        </form>
+    </div>
+{% endblock %}

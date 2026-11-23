@@ -25,12 +25,14 @@ import dataclasses
 import io
 import typing as t
 import zipfile
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import orjson
 import structlog
 from django.contrib.gis.geos import Point
 from django.core.files.base import ContentFile
+from django.core.files.storage import Storage
+from django.db import transaction
 from django.db.models import CASCADE, ForeignKey, ManyToManyRel, ManyToOneRel, Model, OneToOneRel, Q
 from django.db.models.fields.files import FieldFile
 from django.forms.models import model_to_dict
@@ -659,11 +661,25 @@ def _serialize_related_objects(user: RevelUser) -> dict[str, t.Any]:
     return export_data
 
 
+def _stale_export_cleanup(user_id: str, storage: Storage, file_name: str) -> t.Callable[[], None]:
+    """A named on-commit callback that deletes the ZIP of an earlier export (its emailed link would still work)."""
+
+    def delete_stale_export_file() -> None:
+        try:
+            storage.delete(file_name)
+        except Exception:
+            logger.error("gdpr_stale_export_file_delete_failed", user_id=user_id)
+
+    return delete_stale_export_file
+
+
 def generate_user_data_export(user: RevelUser) -> UserDataExport:
     """Generate a data export for a user."""
     logger.info("gdpr_export_started", user_id=str(user.id))
 
     export: UserDataExport | None = None
+    previous_file: str | None = None
+    written_file: str | None = None
     try:
         export, created = UserDataExport.objects.get_or_create(user=user)
         if created:
@@ -699,10 +715,18 @@ def generate_user_data_export(user: RevelUser) -> UserDataExport:
         zip_buffer.seek(0)
 
         # 5. Save the ZIP to the model's FileField
-        export.file.save(f"revel_export_{user.id}.zip", ContentFile(zip_buffer.read()), save=False)
+        previous_file = export.file.name if export.file else None
+        # A new name for each export: a signed link to an earlier ZIP must never open a later one. 16 hex
+        # characters: the full path stays inside the 100 characters of the file field.
+        export.file.save(f"revel_export_{user.id}_{uuid4().hex[:16]}.zip", ContentFile(zip_buffer.read()), save=False)
+        written_file = export.file.name
         export.status = UserDataExport.UserDataExportStatus.READY
         export.completed_at = timezone.now()
         export.save(update_fields=["status", "file", "completed_at"])
+        if previous_file and previous_file != export.file.name:
+            # One ZIP for each account: the storage gives a repeated export a new name, and only the file
+            # that the row names is deleted later (the 7-day sweep, the account deletion).
+            transaction.on_commit(_stale_export_cleanup(str(user.id), export.file.storage, previous_file), robust=True)
 
         logger.info(
             "gdpr_export_completed",
@@ -721,6 +745,10 @@ def generate_user_data_export(user: RevelUser) -> UserDataExport:
             error_type=type(e).__name__,
             exc_info=True,
         )
+        if export and written_file and written_file != previous_file:
+            # The row will not name the new ZIP (the caller rolls back, or the status is FAILED): delete it now,
+            # or nothing can find it later.
+            _stale_export_cleanup(str(user.id), export.file.storage, written_file)()
         if export:
             export.status = UserDataExport.UserDataExportStatus.FAILED
             export.save(update_fields=["status"])

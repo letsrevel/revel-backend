@@ -97,6 +97,23 @@ class RevelUser(ExifStripMixin, StripeConnectMixin, AbstractUser):
         help_text="Set when someone signs up again with this unverified account's email; verifying the account "
         "then restarts it (password, profile, referral).",
     )
+    erased_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        db_index=True,
+        help_text="Set when the account was deleted but kept as an anonymised row, because it still holds "
+        "tickets or series passes. The holder name and email live on those rows until retention ends.",
+    )
+    deletion_requested_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="Set when the user confirmed the deletion of an active account. If the deletion fails for good, "
+        "only an account with this mark becomes active again. While it is set, emailed links do not reactivate the "
+        "account. An admin deletion or full delete, an admin change of is_active, a ban, the erasure, or the "
+        "restore after a failure clears it.",
+    )
     language = models.CharField(
         max_length=7,
         choices=settings.LANGUAGES,
@@ -164,7 +181,13 @@ class RevelUser(ExifStripMixin, StripeConnectMixin, AbstractUser):
         return self.get_display_name()
 
     def get_display_name(self) -> str:
-        """Returns the user's preferred name, or their full name as a fallback."""
+        """Returns the user's preferred name, or their full name as a fallback.
+
+        An erased account has no name and its username is a placeholder address, so it shows as
+        "Deleted user". Surfaces that must show the holder read the ticket or pass snapshot instead.
+        """
+        if self.erased_at:
+            return str(_("Deleted user"))
         return self.preferred_name or self.get_full_name() or self.username
 
 

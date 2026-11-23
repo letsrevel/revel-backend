@@ -11,6 +11,7 @@ from common.models import FileExport
 from common.service.export_service import complete_export, fail_export, start_export
 from events.models import Event, EventRSVP, Ticket, TicketAttribution
 from events.service.holder_visibility import annotate_holder_known
+from events.utils.erased_holder import holder_email
 
 from .formatting import (
     auto_fit_columns,
@@ -167,7 +168,8 @@ def _write_attendees_sheet(wb: Workbook, tickets: list[Ticket], rsvps: list[Even
         attribution: TicketAttribution = ticket.attribution or TicketAttribution()
         # A holder known only through staff-made rows shows what staff supplied: the typed name and the
         # email, never the account's profile.
-        known = bool(ticket.user) and ticket.holder_known  # type: ignore[attr-defined]
+        # An erased account counts as unknown: only the holder snapshot on the ticket is left.
+        known = bool(ticket.user) and ticket.holder_known and not ticket.user.erased_at  # type: ignore[attr-defined]
         ws.append(
             [
                 sanitize_cell(ticket.user.get_full_name())
@@ -175,7 +177,7 @@ def _write_attendees_sheet(wb: Workbook, tickets: list[Ticket], rsvps: list[Even
                 else sanitize_cell(ticket.guest_name or "")
                 if ticket.user
                 else "",
-                sanitize_cell(ticket.user.email) if ticket.user else "",
+                sanitize_cell(holder_email(ticket)) if ticket.user else "",
                 sanitize_cell(ticket.user.pronouns) if known else "",
                 "Ticket",
                 "",
