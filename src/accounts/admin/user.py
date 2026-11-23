@@ -16,7 +16,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Count, Exists, IntegerField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, QueryDict
 from django.shortcuts import get_object_or_404
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
@@ -189,9 +189,34 @@ class RevelUserChangeForm(UserChangeForm):  # type: ignore[type-arg]
         # widget renders no input. So any shown value in the post means "the page showed it", empty included.
         prefix = self.add_initial_prefix("")
         rendered = not self.is_bound or any(key.startswith(prefix) for key in self.data)
+        if self.is_bound and rendered:
+            self._keep_empty_shown_relations()
         for field in self.fields.values():
             if not field.disabled and not isinstance(field, forms.FileField):
                 field.show_hidden_initial = rendered
+
+    def _keep_empty_shown_relations(self) -> None:
+        """Put the empty shown value of a relation into the post.
+
+        A page rendered again after a validation error takes the shown value from the post when the post has
+        it, else from the submitted value. Without the key, the submitted relations would become the shown
+        value, and the next post would not save them.
+        """
+        missing = [
+            self.add_initial_prefix(name)
+            for name, field in self.fields.items()
+            if isinstance(field.hidden_widget(), forms.MultipleHiddenInput)
+            and self.add_initial_prefix(name) not in self.data
+        ]
+        if not missing:
+            return
+        if isinstance(self.data, QueryDict):
+            data = self.data.copy()
+            for key in missing:
+                data.setlist(key, [])
+            self.data = data
+        else:
+            self.data = {**self.data, **dict.fromkeys(missing, [])}
 
     def clean(self) -> dict[str, t.Any] | None:
         cleaned_data = super().clean()

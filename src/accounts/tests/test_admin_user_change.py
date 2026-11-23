@@ -234,3 +234,21 @@ class TestChangeFormOpenedBeforeAChange:
 
         assert response.status_code == 302
         assert seen == [("new@example.com", True, "Edited")]
+
+    def test_a_relation_added_on_a_page_that_had_a_validation_error_is_saved_after_the_correction(
+        self, admin_client: Client, person: RevelUser, django_user_model: type[RevelUser]
+    ) -> None:
+        """The page showed no groups; the first post fails, the corrected post must still add the group."""
+        taken = django_user_model.objects.create_user(username="taken@example.com", email="taken@example.com")
+        group = Group.objects.create(name="Added on the page")
+        url = reverse("admin:accounts_reveluser_change", args=[person.pk])
+        data = _browser_post_data(admin_client, person, groups=[str(group.pk)], username=taken.username)
+
+        failed = admin_client.post(url, data)
+        assert failed.status_code == 200  # the form again, with the error
+        parser = _ShownValues()
+        parser.feed(failed.content.decode())
+        response = admin_client.post(url, data | parser.values | {"username": person.username})
+
+        assert response.status_code == 302
+        assert list(person.groups.values_list("name", flat=True)) == ["Added on the page"]
