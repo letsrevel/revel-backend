@@ -75,8 +75,8 @@ class TestCreateNotificationPreferences:
         assert DeliveryChannel.IN_APP in prefs.enabled_channels
         assert DeliveryChannel.EMAIL in prefs.enabled_channels
 
-        # But have 26 notification types disabled
-        assert len(prefs.notification_type_settings) == 27
+        # But have 28 notification types disabled
+        assert len(prefs.notification_type_settings) == 28
 
         # Verify specific disabled types
         disabled_types = [
@@ -97,6 +97,7 @@ class TestCreateNotificationPreferences:
             NotificationType.MEMBERSHIP_REQUEST_REJECTED,
             NotificationType.MEMBERSHIP_PAYMENT_REQUESTED,
             NotificationType.MEMBERSHIP_INVITATION_RECEIVED,
+            NotificationType.MEMBER_RECORD_LINKED,
             NotificationType.MEMBERSHIP_OFFLINE_JOINED,
             NotificationType.ORG_ANNOUNCEMENT,
         ]

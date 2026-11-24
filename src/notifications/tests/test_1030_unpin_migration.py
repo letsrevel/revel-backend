@@ -43,13 +43,14 @@ def test_frozen_defaults_match_current_defaults() -> None:
     # Staff alert types (#1127) postdate the frozen snapshot.
     # STAFF_PAYMENT_DISPUTED (#1245), STAFF_MEMBER_RECORD_AUTO_LINKED (#1319) and
     # MEMBERSHIP_PAYMENT_REQUESTED and MEMBERSHIP_OFFLINE_JOINED (offline membership flow) and
-    # MEMBERSHIP_INVITATION_RECEIVED (member invitations) postdate it too.
+    # MEMBERSHIP_INVITATION_RECEIVED (member invitations) and MEMBER_RECORD_LINKED (#1495) postdate it too.
     staff_types = {str(v) for v in STAFF_TYPE_FOR.values()} | {
         "staff_payment_disputed",
         "staff_member_record_auto_linked",
         "membership_payment_requested",
         "membership_offline_joined",
         "membership_invitation_received",
+        "member_record_linked",
     }
     current_guest = {str(k): v for k, v in get_guest_notification_type_settings().items() if str(k) not in staff_types}
     assert migration.GUEST_DEFAULTS == current_guest

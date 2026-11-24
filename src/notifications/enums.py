@@ -90,6 +90,8 @@ class NotificationType(TextChoices):
     MEMBERSHIP_PAYMENT_REQUESTED = "membership_payment_requested", _("Membership payment requested")
     # Staff invited an existing account to join; it becomes a member only by accepting the link
     MEMBERSHIP_INVITATION_RECEIVED = "membership_invitation_received", _("Membership invitation")
+    # To the person: a register entry was linked to their account by verified-email match (#1495)
+    MEMBER_RECORD_LINKED = "member_record_linked", _("Member register entry linked")
     # Staff heads-up: someone joined an offline plan directly (no application) and now owes a payment
     MEMBERSHIP_OFFLINE_JOINED = "membership_offline_joined", _("Offline membership joined")
     # Staff heads-up: a register entry was linked to an account by verified-email match (#1319)
@@ -305,6 +307,7 @@ TENANT_ORG_SENDER_TYPES: frozenset[str] = frozenset(
         NotificationType.MEMBERSHIP_REQUEST_REJECTED,
         NotificationType.MEMBERSHIP_PAYMENT_REQUESTED,
         NotificationType.MEMBERSHIP_INVITATION_RECEIVED,
+        NotificationType.MEMBER_RECORD_LINKED,
         NotificationType.WAITLIST_SPOT_AVAILABLE,
         # Series pass mail to the holder (STAFF_SERIES_PASS_* are org-facing and stay on the platform sender).
         NotificationType.SERIES_PASS_PURCHASED,

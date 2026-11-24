@@ -10,6 +10,7 @@ import typing as t
 from notifications.context_base import BaseNotificationContext
 from notifications.enums import NotificationType
 from notifications.membership_context_schemas import (
+    MemberRecordLinkedContext,
     MembershipCardUpdatedContext,
     MembershipContext,
     MembershipInvitationReceivedContext,
@@ -893,6 +894,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.MEMBERSHIP_PAYMENT_REQUESTED: MembershipPaymentRequestedContext,
     NotificationType.MEMBERSHIP_INVITATION_RECEIVED: MembershipInvitationReceivedContext,
     NotificationType.MEMBERSHIP_OFFLINE_JOINED: MembershipOfflineJoinedContext,
+    NotificationType.MEMBER_RECORD_LINKED: MemberRecordLinkedContext,
     NotificationType.STAFF_MEMBER_RECORD_AUTO_LINKED: StaffMemberRecordAutoLinkedContext,
     NotificationType.ACCOUNT_BANNED: AccountBannedContext,
     NotificationType.ORG_ANNOUNCEMENT: OrgAnnouncementContext,

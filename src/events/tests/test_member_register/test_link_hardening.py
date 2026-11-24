@@ -412,7 +412,10 @@ def test_auto_link_onto_cancelled_row_grants_and_alerts(
     assert record.user == user
     assert OrganizationMember.objects.get(organization=organization, user=user).status == Status.ACTIVE
     types = _types(send)
-    assert NotificationType.MEMBERSHIP_GRANTED in types and STAFF_ALERT in types
+    # The reactivation is told with MEMBER_RECORD_LINKED, not MEMBERSHIP_GRANTED (#1495).
+    assert NotificationType.MEMBERSHIP_GRANTED not in types
+    assert NotificationType.MEMBERSHIP_CARD_UPDATED not in types  # the tier set on reactivation is not a card update
+    assert NotificationType.MEMBER_RECORD_LINKED in types and STAFF_ALERT in types
 
 
 # ---- real account flows reach the auto-link ----

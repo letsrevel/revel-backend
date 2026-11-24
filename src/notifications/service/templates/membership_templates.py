@@ -174,6 +174,20 @@ class MembershipInvitationReceivedTemplate(NotificationTemplate):
         return _("%(org)s invited you to become a member") % {"org": notification.context.get("organization_name", "")}
 
 
+class MemberRecordLinkedTemplate(NotificationTemplate):
+    """Template for MEMBER_RECORD_LINKED notification (a register entry was linked to the person's account)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        return self.get_email_subject(notification)
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        return _("Your account is now linked to the member register of %(org)s") % {
+            "org": notification.context.get("organization_name", "")
+        }
+
+
 class MembershipOfflineJoinedTemplate(NotificationTemplate):
     """Template for MEMBERSHIP_OFFLINE_JOINED notification (to organizers)."""
 
@@ -245,4 +259,5 @@ register_template(NotificationType.MEMBERSHIP_REQUEST_APPROVED, MembershipReques
 register_template(NotificationType.MEMBERSHIP_REQUEST_REJECTED, MembershipRequestRejectedTemplate())
 register_template(NotificationType.MEMBERSHIP_PAYMENT_REQUESTED, MembershipPaymentRequestedTemplate())
 register_template(NotificationType.MEMBERSHIP_INVITATION_RECEIVED, MembershipInvitationReceivedTemplate())
+register_template(NotificationType.MEMBER_RECORD_LINKED, MemberRecordLinkedTemplate())
 register_template(NotificationType.STAFF_MEMBER_RECORD_AUTO_LINKED, StaffMemberRecordAutoLinkedTemplate())
