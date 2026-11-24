@@ -30,7 +30,7 @@ from accounts.models import RevelUser
 from common.email_backend import is_erased_address
 from common.models import EmailLog, FileExport, FileUploadAudit, QuarantinedFile, SiteSettings
 from common.thumbnails.config import THUMBNAIL_CONFIGS
-from common.thumbnails.files import delete_unreferenced_files_after_commit, detach_image_everywhere
+from common.thumbnails.files import delete_unreferenced_files_after_commit, detach_image_everywhere, named_paths
 from common.thumbnails.tasks import (  # noqa: F401
     delete_orphaned_thumbnails_task,
     generate_thumbnails_task,
@@ -320,23 +320,34 @@ def _scan_path(
     cd: t.Any, model_class: t.Any, *, app: str, model: str, pk: str, field: str, path: str
 ) -> dict[str, t.Any] | None:
     """Scan one stored file of the upload ``(app, model, pk, field)``; quarantine it and detach it when flagged."""
+    path_audits = FileUploadAudit.objects.filter(
+        app=app,
+        model=model,
+        field=field,
+        instance_pk=pk,
+        file_path=path,
+        status=FileUploadAudit.FileUploadAuditStatus.PENDING,
+    )
     if not default_storage.exists(path):
-        # Deleted meanwhile (for example replaced by a newer upload): nothing can serve it. Close its audits, so the
-        # rescan sweep does not queue them again.
-        closed = FileUploadAudit.objects.filter(
-            app=app,
-            model=model,
-            field=field,
-            instance_pk=pk,
-            file_path=path,
-            status=FileUploadAudit.FileUploadAuditStatus.PENDING,
-        ).update(status=FileUploadAudit.FileUploadAuditStatus.CLEAN, updated_at=timezone.now())
+        if named_paths([path]) or model_class.objects.filter(pk=pk, **{field: path}).exists():
+            # A row still names a file that storage does not have (a storage fault?): keep the audit pending.
+            raise FileNotFoundError("An uploaded file named by a row is missing from storage.")
+        # Deleted meanwhile (for example replaced by a newer upload): nothing names or serves it. Close its audits,
+        # so the rescan sweep does not queue them again.
+        closed = path_audits.update(status=FileUploadAudit.FileUploadAuditStatus.CLEAN, updated_at=timezone.now())
         logger.info("upload_scan_file_gone", app=app, model=model, field=field, pk=pk, audits=closed)
         return None
     with default_storage.open(path, "rb") as stored:
         file_bytes = stored.read()
-    findings = cd.scan_stream(file_bytes)
     file_hash = hashlib.sha256(file_bytes).hexdigest()
+    audited_hashes = set(path_audits.values_list("file_hash", flat=True))
+    if audited_hashes and file_hash not in audited_hashes:
+        # The path now holds another upload's bytes (a freed name was reused): the audited bytes are gone. That
+        # upload's own scan handles these bytes; close the audits of this one.
+        closed = path_audits.update(status=FileUploadAudit.FileUploadAuditStatus.CLEAN, updated_at=timezone.now())
+        logger.info("upload_scan_path_reused", app=app, model=model, field=field, pk=pk, audits=closed)
+        return None
+    findings = cd.scan_stream(file_bytes)
     # Scope to this upload's audit rows: never quarantine another instance's file that happens
     # to share the same bytes, and never re-match an already-quarantined audit on re-upload.
     audit_qs = FileUploadAudit.objects.filter(app=app, model=model, field=field, file_hash=file_hash, instance_pk=pk)

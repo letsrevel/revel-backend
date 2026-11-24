@@ -231,3 +231,38 @@ def test_a_flagged_file_without_derived_images_is_deleted_after_commit(
 
     assert not AdditionalResource.objects.get(pk=resource.pk).file
     assert not default_storage.exists(name)
+
+
+@mock.patch("common.tasks.notify_malware_detected.delay")
+@mock.patch("common.tasks.pyclamd.ClamdNetworkSocket")
+def test_a_reused_path_with_other_bytes_closes_the_audit_and_leaves_the_file(
+    mock_clamd: MagicMock, mock_notify: MagicMock, flagged: tuple[Event, Event, list[str]]
+) -> None:
+    """A freed storage name was given to another upload: those bytes belong to that upload's own scan."""
+    event, copy, paths = flagged
+    Event.objects.filter(pk__in=[event.pk, copy.pk]).update(logo=None, logo_thumbnail=None)
+    default_storage.delete(paths[0])
+    reused = default_storage.save(paths[0], ContentFile(_png() + b"another upload"))
+    assert reused == paths[0]
+
+    _scan(event, mock_clamd)  # would flag any bytes
+
+    assert FileUploadAudit.objects.get(instance_pk=event.pk).status == FileUploadAudit.FileUploadAuditStatus.CLEAN
+    assert default_storage.exists(reused)
+    mock_clamd.return_value.scan_stream.assert_not_called()
+    mock_notify.assert_not_called()
+
+
+@mock.patch("common.tasks.notify_malware_detected.delay")
+@mock.patch("common.tasks.pyclamd.ClamdNetworkSocket")
+def test_a_missing_file_that_a_row_still_names_keeps_the_audit_pending(
+    mock_clamd: MagicMock, mock_notify: MagicMock, flagged: tuple[Event, Event, list[str]]
+) -> None:
+    """A storage fault must not mark an upload clean: the scan fails and the sweep tries again."""
+    event, _copy, paths = flagged
+    default_storage.delete(paths[0])
+
+    with pytest.raises(FileNotFoundError):
+        _scan(event, mock_clamd)
+
+    assert FileUploadAudit.objects.get(instance_pk=event.pk).status == FileUploadAudit.FileUploadAuditStatus.PENDING

@@ -58,17 +58,23 @@ def delete_unreferenced_files(paths: list[str]) -> None:
     paths = [path for path in paths if path]
     if not paths:
         return
-    in_use: set[str] = set()
     with transaction.atomic():
         lock_image_paths(paths)
-        for config in THUMBNAIL_CONFIGS.values():
-            names = [config.source_field, *(spec.field_name for spec in config.specs)]
-            query = Q()
-            for name in names:
-                query |= Q(**{f"{name}__in": paths})
-            for row in apps.get_model(config.app_label, config.model_name).objects.filter(query).values_list(*names):
-                in_use.update(row)
+        in_use = named_paths(paths)
         delete_thumbnails_for_paths([path for path in paths if path not in in_use])
+
+
+def named_paths(paths: list[str]) -> set[str]:
+    """The paths in ``paths`` that a row names in a source or derived image field."""
+    in_use: set[str] = set()
+    for config in THUMBNAIL_CONFIGS.values():
+        names = [config.source_field, *(spec.field_name for spec in config.specs)]
+        query = Q()
+        for name in names:
+            query |= Q(**{f"{name}__in": paths})
+        for row in apps.get_model(config.app_label, config.model_name).objects.filter(query).values_list(*names):
+            in_use.update(row)
+    return in_use & set(paths)
 
 
 # The first key of the two-key advisory lock: it keeps these locks apart from other advisory-lock users.
