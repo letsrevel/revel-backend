@@ -266,3 +266,35 @@ def test_a_missing_file_that_a_row_still_names_keeps_the_audit_pending(
         _scan(event, mock_clamd)
 
     assert FileUploadAudit.objects.get(instance_pk=event.pk).status == FileUploadAudit.FileUploadAuditStatus.PENDING
+
+
+@mock.patch("common.tasks.notify_malware_detected.delay")
+@mock.patch("common.tasks.pyclamd.ClamdNetworkSocket")
+def test_a_missing_file_does_not_stop_the_scan_of_the_other_files(
+    mock_clamd: MagicMock,
+    mock_notify: MagicMock,
+    flagged: tuple[Event, Event, list[str]],
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """The first path is missing but named; the next one holds flagged bytes and is still quarantined."""
+    event, copy, paths = flagged
+    later = default_storage.save(f"logos/{event.pk}/z.png", ContentFile(_png() + b"later"))
+    later_bytes = default_storage.open(later, "rb").read()
+    Event.objects.filter(pk=event.pk).update(logo=later, logo_thumbnail=None)
+    FileUploadAudit.objects.create(
+        app="events",
+        model="Event",
+        instance_pk=event.pk,
+        field="logo",
+        file_hash=hashlib.sha256(later_bytes).hexdigest(),
+        uploader="x@example.com",
+        file_path=later,
+    )
+    default_storage.delete(paths[0])  # the copy still names it
+
+    with django_capture_on_commit_callbacks(execute=True), pytest.raises(FileNotFoundError):
+        _scan(event, mock_clamd, later_bytes)
+
+    assert not Event.objects.get(pk=event.pk).logo
+    assert not default_storage.exists(later)
+    mock_notify.assert_called_once()

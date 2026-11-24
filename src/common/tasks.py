@@ -310,9 +310,17 @@ def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dic
     if instance is None and not paths:
         raise model_class.DoesNotExist(f"{app}.{model} pk={pk} not found")
     result: dict[str, t.Any] | None = None
-    for path in sorted(paths):
-        findings = _scan_path(cd, model_class, app=app, model=model, pk=pk, field=field, path=path)
+    missing = 0
+    for path in sorted(paths):  # every path, even when one of them is missing
+        try:
+            findings = _scan_path(cd, model_class, app=app, model=model, pk=pk, field=field, path=path)
+        except FileNotFoundError:
+            missing += 1
+            continue
         result = findings or result
+    if missing:
+        # The audits of the missing files stay pending, so the sweep tries again.
+        raise FileNotFoundError(f"{missing} uploaded file(s) named by a row are missing from storage.")
     return result
 
 
