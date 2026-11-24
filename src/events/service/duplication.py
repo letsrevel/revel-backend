@@ -125,6 +125,7 @@ def duplicate_event(
     - Ticket tiers (with date shifts, reset quantity_sold)
     - Potluck items (without assignments; all become host suggestions)
     - Tags
+    - Logo, cover art and their derived images, shared by path (read under the template's row lock)
 
     Links to same:
     - Organization questionnaires (M2M)

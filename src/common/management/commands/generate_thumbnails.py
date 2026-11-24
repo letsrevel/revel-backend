@@ -246,8 +246,8 @@ class Command(BaseCommand):
                     self.stdout.write(f"  Generated thumbnails for {model_name} pk={pk}")
             except Exception as e:
                 # ponytail: files made before the failure stay in storage (orphans, harmless); a cleanup here
-                # would need the database that may have failed. A later run for the same source writes them
-                # again; the orphans of a source that changed stay.
+                # would need the database that may have failed. A later run saves new files at free names, so
+                # these orphans stay until a storage sweep removes them.
                 self.stdout.write(self.style.ERROR(f"  Failed to generate thumbnails for pk={pk}: {e}"))
                 stats.skipped += 1
         return count

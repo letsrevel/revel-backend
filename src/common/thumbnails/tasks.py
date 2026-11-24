@@ -128,12 +128,9 @@ def delete_orphaned_thumbnails_task(
     as the files will be orphaned but not cause any functional issues.
 
     Args:
-        thumbnail_paths: List of thumbnail paths to delete.
+        thumbnail_paths: Storage paths to check; each one is deleted only when no row names it.
     """
     if thumbnail_paths:
         delete_unreferenced_files(thumbnail_paths)
-        logger.info(
-            "orphaned_thumbnails_deleted",
-            count=len(thumbnail_paths),
-            paths=thumbnail_paths,
-        )
+        # The count only: a path can hold the name of an uploaded file.
+        logger.info("orphaned_image_files_checked", count=len(thumbnail_paths))

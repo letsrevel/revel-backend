@@ -374,3 +374,23 @@ def test_recurrence_locks_on_a_series_let_key_checks_pass(template: Event, opera
 
     locks = [q["sql"] for q in queries.captured_queries if '"events_eventseries"' in q["sql"] and " FOR " in q["sql"]]
     assert locks and all("FOR NO KEY UPDATE" in sql for sql in locks)
+
+
+def test_image_path_locks_let_key_checks_pass(template: Event, rgb_image_bytes: bytes) -> None:
+    """A checkout inserts tickets that check the event key at commit (KEY SHARE): a FOR UPDATE could deadlock."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    template.logo = SimpleUploadedFile("new.jpg", rgb_image_bytes, content_type="image/jpeg")
+    with (
+        patch("common.thumbnails.tasks.delete_orphaned_thumbnails_task"),
+        patch("common.thumbnails.tasks.generate_thumbnails_task"),
+        CaptureQueriesContext(connection) as queries,
+    ):
+        EventAdmin(Event, django_admin.site).save_model(
+            MagicMock(), template, MagicMock(changed_data=["logo"], initial={}), change=True
+        )
+        delete_image_with_derivatives(template, "cover_art")
+
+    locks = [q["sql"] for q in queries.captured_queries if '"events_event"' in q["sql"] and " FOR " in q["sql"]]
+    assert len(locks) >= 2 and all("FOR NO KEY UPDATE" in sql for sql in locks)

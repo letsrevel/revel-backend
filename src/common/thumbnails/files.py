@@ -107,6 +107,7 @@ def stored_image_paths(model_class: type, pk: object, source_field: str) -> list
     meta = model_class._meta  # type: ignore[attr-defined]
     config = THUMBNAIL_CONFIGS.get((meta.app_label, meta.model_name, source_field))
     names = [source_field, *(spec.field_name for spec in config.specs)] if config else [source_field]
-    rows = model_class.objects.select_for_update().filter(pk=pk)  # type: ignore[attr-defined]
+    # NO KEY: only image columns change, so other transactions' foreign-key checks (KEY SHARE) can pass.
+    rows = model_class.objects.select_for_update(no_key=True).filter(pk=pk)  # type: ignore[attr-defined]
     row = rows.values_list(*names).first()
     return [name for name in row or () if name]

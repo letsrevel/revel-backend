@@ -130,7 +130,7 @@ def safe_save_uploaded_file(
     """Safely save an uploaded file passing it to malware scan.
 
     Validates the file against field validators before saving.
-    Deletes the old file if one exists before saving the new file.
+    After commit, deletes the old file and its derived images, if no other row names them.
     Schedules thumbnail generation for image files.
 
     Raises:
@@ -166,11 +166,8 @@ def safe_save_uploaded_file(
     instance.refresh_from_db()
     file_field = getattr(instance, field)
     file_field.open()
-    # NOTE: Race condition possible if user uploads twice in rapid succession.
-    # File A upload: deletes old thumbnails async, schedules thumbnail generation
-    # File B upload (before A's thumbnails exist): deletes nothing, schedules generation
-    # Result: A's thumbnails may be orphaned. Accepted risk - orphaned files are harmless
-    # and a cleanup task can handle them periodically if needed.
+    # Two uploads in quick succession: B reads A's stored paths under the row lock (they are deleted after B
+    # commits), and A's thumbnail task finds that its source changed and discards its files.
     file_hash = hashlib.sha256(file_field.read()).hexdigest()
     file_field.seek(0)
     create_file_audit_and_scan(

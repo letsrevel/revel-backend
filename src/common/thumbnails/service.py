@@ -220,7 +220,7 @@ def write_paths_if_source_unchanged(
     """
     replaced: list[str] = []
     with transaction.atomic():
-        locked = model_class.objects.select_for_update().filter(pk=pk).first()
+        locked = model_class.objects.select_for_update(no_key=True).filter(pk=pk).first()  # image columns only
         current = getattr(locked, field, None) if locked is not None else None
         if not current or current.name != original_path:
             return True, replaced
@@ -288,7 +288,8 @@ def delete_image_with_derivatives(
     fields_to_clear = [source_field, *(spec.field_name for spec in config.specs)] if config else [source_field]
 
     with transaction.atomic():
-        stored = type(instance).objects.select_for_update().filter(pk=instance.pk).values_list(*fields_to_clear).first()
+        rows = type(instance).objects.select_for_update(no_key=True).filter(pk=instance.pk)  # image columns only
+        stored = rows.values_list(*fields_to_clear).first()
         paths = [name for name in stored or () if name]
         if not stored or not stored[0]:
             return
