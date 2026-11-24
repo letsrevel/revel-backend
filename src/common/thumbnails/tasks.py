@@ -11,12 +11,8 @@ from celery import shared_task
 from django.apps import apps
 
 from .config import THUMBNAIL_CONFIGS
-from .service import (
-    delete_thumbnails_for_paths,
-    delete_unreferenced_thumbnails,
-    generate_and_save_thumbnails,
-    write_paths_if_source_unchanged,
-)
+from .files import delete_unreferenced_files
+from .service import generate_and_save_thumbnails, write_paths_if_source_unchanged
 
 logger = structlog.get_logger(__name__)
 
@@ -100,11 +96,11 @@ def generate_thumbnails_task(
     # task then writes the paths again. A source token (for example the file hash) would close that gap.
     discard, replaced = write_paths_if_source_unchanged(model_class, pk, field, original_path, result.thumbnails)
     if discard:
-        delete_unreferenced_thumbnails(list(result.thumbnails.values()))
+        delete_unreferenced_files(list(result.thumbnails.values()))
         logger.info("thumbnails_discarded_source_changed", app=app, model=model, pk=pk, field=field)
         return {}
     if replaced:  # after the commit above: the row no longer names these files
-        delete_unreferenced_thumbnails(replaced)
+        delete_unreferenced_files(replaced)
 
     logger.info(
         "thumbnails_generated_and_saved",
@@ -126,7 +122,7 @@ def delete_orphaned_thumbnails_task(
     *,
     thumbnail_paths: list[str],
 ) -> None:
-    """Delete thumbnails when original is deleted.
+    """Delete image files that a change removed from their row; files that another row still names stay.
 
     This task is fire-and-forget - we don't retry if deletion fails,
     as the files will be orphaned but not cause any functional issues.
@@ -135,7 +131,7 @@ def delete_orphaned_thumbnails_task(
         thumbnail_paths: List of thumbnail paths to delete.
     """
     if thumbnail_paths:
-        delete_thumbnails_for_paths(thumbnail_paths)
+        delete_unreferenced_files(thumbnail_paths)
         logger.info(
             "orphaned_thumbnails_deleted",
             count=len(thumbnail_paths),

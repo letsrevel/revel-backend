@@ -1,0 +1,111 @@
+"""Delete stored image files that no row names any more.
+
+Rows can share an image file: a duplicated or recurring event keeps the template's logo, cover art and their
+derived images. So a file is deleted only when no row of a model with thumbnails names it, and only after the
+commit that removed the reference (a rollback cannot restore a deleted file).
+
+This module has no service imports, so models can use it too.
+"""
+
+import structlog
+from django.apps import apps
+from django.core.files.storage import default_storage
+from django.db import connection, transaction
+from django.db.models import Q
+
+from .config import THUMBNAIL_CONFIGS
+
+logger = structlog.get_logger(__name__)
+
+
+def delete_thumbnails_for_paths(paths: list[str]) -> None:
+    """Delete files from storage, without a reference check. A failed delete is logged.
+
+    Args:
+        paths: Storage paths to delete. Empty paths are skipped.
+    """
+    for path in paths:
+        if not path:
+            continue
+        try:
+            if default_storage.exists(path):
+                default_storage.delete(path)
+                logger.info("thumbnail_deleted", path=path)
+        except Exception as e:
+            logger.error(
+                "thumbnail_delete_failed",
+                path=path,
+                error=str(e),
+            )
+
+
+def delete_unreferenced_files(paths: list[str]) -> None:
+    """Delete the files in ``paths`` that no row names in a source or derived image field.
+
+    Call it after the commit that removed the reference.
+
+    The check and the delete hold an advisory lock on each path, as the derived-path write in
+    ``write_paths_if_source_unchanged`` does: a write either commits first (the file is kept) or finds its file
+    gone (the task retries; the ``generate_thumbnails --sync`` command reports the row as failed).
+
+    ponytail: a source path that a duplication copies is not locked, so a duplication at the moment of the
+    check can lose its source file. Reference counting would close that gap.
+    """
+    paths = [path for path in paths if path]
+    if not paths:
+        return
+    in_use: set[str] = set()
+    with transaction.atomic():
+        lock_image_paths(paths)
+        for config in THUMBNAIL_CONFIGS.values():
+            names = [config.source_field, *(spec.field_name for spec in config.specs)]
+            query = Q()
+            for name in names:
+                query |= Q(**{f"{name}__in": paths})
+            for row in apps.get_model(config.app_label, config.model_name).objects.filter(query).values_list(*names):
+                in_use.update(row)
+        delete_thumbnails_for_paths([path for path in paths if path not in in_use])
+
+
+# The first key of the two-key advisory lock: it keeps these locks apart from other advisory-lock users.
+_IMAGE_PATH_LOCK_CLASS = 7_314_001
+
+
+def lock_image_paths(paths: list[str]) -> None:
+    """Take a transaction-level advisory lock for each image path.
+
+    The locks are taken in the order of their keys (not of the paths), so two callers cannot deadlock, even
+    when two paths share a key. A shared key only makes the callers wait for each other.
+    """
+    if not paths:
+        return
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT DISTINCT hashtext(p) AS h FROM unnest(%s::text[]) AS p ORDER BY h", [sorted(set(paths))])
+        for (key,) in cursor.fetchall():
+            cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_IMAGE_PATH_LOCK_CLASS, key])
+
+
+def delete_unreferenced_files_after_commit(paths: list[str]) -> None:
+    """After the current transaction commits, delete the files in ``paths`` that no row names."""
+    paths = [path for path in paths if path]
+    if not paths:
+        return
+
+    def delete_unreferenced_image_files() -> None:
+        delete_unreferenced_files(paths)
+
+    # robust: a failed cleanup must not fail the change that committed; the files then stay (harmless).
+    transaction.on_commit(delete_unreferenced_image_files, robust=True)
+
+
+def stored_image_paths(model_class: type, pk: object, source_field: str) -> list[str]:
+    """The stored paths of ``source_field`` and of its derived images on the row ``pk`` (empty ones dropped).
+
+    Locks the row: call it inside the transaction that changes the image.
+    """
+    meta = model_class._meta  # type: ignore[attr-defined]
+    config = THUMBNAIL_CONFIGS.get((meta.app_label, meta.model_name, source_field))
+    names = [source_field, *(spec.field_name for spec in config.specs)] if config else [source_field]
+    rows = model_class.objects.select_for_update().filter(pk=pk)  # type: ignore[attr-defined]
+    row = rows.values_list(*names).first()
+    return [name for name in row or () if name]

@@ -209,11 +209,8 @@ class Command(BaseCommand):
         Returns:
             Number of instances processed (including skipped).
         """
-        from common.thumbnails.service import (
-            delete_unreferenced_thumbnails,
-            generate_and_save_thumbnails,
-            write_paths_if_source_unchanged,
-        )
+        from common.thumbnails.files import delete_unreferenced_files
+        from common.thumbnails.service import generate_and_save_thumbnails, write_paths_if_source_unchanged
 
         count = 0
         for instance in queryset.iterator():
@@ -232,7 +229,7 @@ class Command(BaseCommand):
                 discard, replaced = write_paths_if_source_unchanged(
                     type(instance), pk, field_name, original_path, result.thumbnails
                 )
-                delete_unreferenced_thumbnails(list(result.thumbnails.values()) if discard else replaced)
+                delete_unreferenced_files(list(result.thumbnails.values()) if discard else replaced)
                 if discard:
                     stats.skipped += 1
                     continue

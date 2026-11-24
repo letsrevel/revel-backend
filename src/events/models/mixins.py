@@ -235,16 +235,15 @@ class LogoCoverValidationMixin(ExifStripMixin):
     )
 
     def delete(self, *args: t.Any, **kwargs: t.Any) -> tuple[int, dict[str, int]]:
-        """Delete thumbnails from storage when model is deleted."""
-        # Delete logo thumbnails
-        if self.logo_thumbnail:
-            self.logo_thumbnail.delete(save=False)
-        # Delete cover art thumbnails
-        if self.cover_art_thumbnail:
-            self.cover_art_thumbnail.delete(save=False)
-        if self.cover_art_social:
-            self.cover_art_social.delete(save=False)
-        return super().delete(*args, **kwargs)
+        """After commit, delete the image files of this row that no other row names (events share them)."""
+        from common.thumbnails.files import delete_unreferenced_files_after_commit
+
+        image_fields = ("logo", "logo_thumbnail", "cover_art", "cover_art_thumbnail", "cover_art_social")
+        paths = [file.name for name in image_fields if (file := getattr(self, name))]
+        deleted = super().delete(*args, **kwargs)
+        # After the row delete: outside a transaction the callback runs at once, and the row must be gone.
+        delete_unreferenced_files_after_commit(paths)
+        return deleted
 
 
 CODE_ALPHABET = string.ascii_letters + string.digits  # [a-zA-Z0-9]

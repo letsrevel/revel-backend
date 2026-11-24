@@ -12,7 +12,9 @@ from events.suppression import suppress_default_tier_creation
 # 1. Primary key / timestamps — auto-managed by Django.
 # 2. Slug — regenerated via SlugFromNameMixin based on the new name.
 # 3. Per-occurrence state that must never leak from template to occurrence
-#    (is_template, is_modified, attendee_count, auto-generated thumbnails).
+#    (is_template, is_modified, attendee_count).
+# The logo, the cover art and their derived images are shared by path with the template: the files are
+# deleted only when no row names them (common.thumbnails.files).
 # 4. Fields explicitly overridden or shifted by this function
 #    (name, status, start, end, occurrence_index, date windows).
 _EXCLUDED_FROM_COPY: frozenset[str] = frozenset(
@@ -23,9 +25,6 @@ _EXCLUDED_FROM_COPY: frozenset[str] = frozenset(
         "updated_at",
         # auto-generated
         "slug",
-        "logo_thumbnail",
-        "cover_art_thumbnail",
-        "cover_art_social",
         # per-occurrence state
         "attendee_count",
         "is_template",
@@ -134,7 +133,6 @@ def duplicate_event(
     - Tickets, RSVPs, invitations, tokens, waitlist
     - Potluck item assignees/creators
     - Per-occurrence state (is_template, is_modified, attendee_count)
-    - Auto-generated thumbnails
 
     Args:
         template_event: Event to copy from

@@ -572,11 +572,12 @@ class TestDeleteProfilePicture:
         auth_client: Client,
         user: RevelUser,
         png_bytes: bytes,
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         """Test that deleting actually removes the file from storage.
 
         The delete operation should not only clear the database field
-        but also remove the actual file from the storage backend.
+        but also remove the actual file from the storage backend, after commit.
         """
         # Arrange - Upload a picture first
         png_file = SimpleUploadedFile(
@@ -593,7 +594,8 @@ class TestDeleteProfilePicture:
 
         # Act
         delete_url = reverse("api:delete-profile-picture")
-        response = auth_client.delete(delete_url)
+        with django_capture_on_commit_callbacks(execute=True):
+            response = auth_client.delete(delete_url)
 
         # Assert
         assert response.status_code == 204

@@ -12,11 +12,11 @@ from pathlib import Path
 import structlog
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from django.db import connection, transaction
-from django.db.models import Q
+from django.db import transaction
 from PIL import Image, ImageOps
 
-from .config import THUMBNAIL_CONFIGS, ModelThumbnailConfig, ThumbnailSpec
+from .config import ModelThumbnailConfig, ThumbnailSpec
+from .files import delete_unreferenced_files, lock_image_paths
 
 
 @dataclass
@@ -209,27 +209,6 @@ def generate_and_save_thumbnails(
     return result
 
 
-def delete_thumbnails_for_paths(paths: list[str]) -> None:
-    """Delete thumbnail files from storage.
-
-    Args:
-        paths: List of thumbnail paths to delete.
-    """
-    for path in paths:
-        if not path:
-            continue
-        try:
-            if default_storage.exists(path):
-                default_storage.delete(path)
-                logger.info("thumbnail_deleted", path=path)
-        except Exception as e:
-            logger.error(
-                "thumbnail_delete_failed",
-                path=path,
-                error=str(e),
-            )
-
-
 def write_paths_if_source_unchanged(
     model_class: t.Any, pk: t.Any, field: str, original_path: str, thumbnails: dict[str, str]
 ) -> tuple[bool, list[str]]:
@@ -248,12 +227,12 @@ def write_paths_if_source_unchanged(
         if not current or current.name != original_path:
             return True, replaced
         update_fields = [name for name in thumbnails if hasattr(locked, name)]
-        _lock_paths([thumbnails[name] for name in update_fields])
+        lock_image_paths([thumbnails[name] for name in update_fields])
         # A delete of unreferenced files (another row's discard) can have removed a file made here. The retry of
         # the task makes it again.
         if missing := [name for name in update_fields if not default_storage.exists(thumbnails[name])]:
             # The other files of this attempt go too (if no row names them); the retry makes them all again.
-            delete_unreferenced_thumbnails([thumbnails[name] for name in update_fields])
+            delete_unreferenced_files([thumbnails[name] for name in update_fields])
             raise OSError(f"Derived files deleted meanwhile: {missing}")
         for field_name in update_fields:
             old = getattr(locked, field_name)
@@ -263,52 +242,6 @@ def write_paths_if_source_unchanged(
         if update_fields:
             locked.save(update_fields=update_fields)
     return False, replaced
-
-
-def delete_unreferenced_thumbnails(paths: list[str]) -> None:
-    """Delete the derived files in ``paths`` that no row names any more.
-
-    Rows can share a source file (a duplicated event copies the logo and cover art path), so they can share
-    derived files too. Call it after the commit that removed the reference. The thumbnail task and the
-    ``generate_thumbnails`` command use it; the upload and image-delete helpers do not check references yet.
-
-    The check and the delete hold an advisory lock on each path, as the path write in
-    :func:`write_paths_if_source_unchanged` does: a write either commits first (the file is kept) or finds
-    its file gone (the task retries; the ``generate_thumbnails --sync`` command reports the row as failed).
-    """
-    from django.apps import apps
-
-    if not paths:
-        return
-    in_use: set[str] = set()
-    with transaction.atomic():
-        _lock_paths(paths)
-        for config in THUMBNAIL_CONFIGS.values():
-            names = [spec.field_name for spec in config.specs]
-            query = Q()
-            for name in names:
-                query |= Q(**{f"{name}__in": paths})
-            for row in apps.get_model(config.app_label, config.model_name).objects.filter(query).values_list(*names):
-                in_use.update(row)
-        delete_thumbnails_for_paths([path for path in paths if path not in in_use])
-
-
-# The first key of the two-key advisory lock: it keeps these locks apart from other advisory-lock users.
-_DERIVED_PATH_LOCK_CLASS = 7_314_001
-
-
-def _lock_paths(paths: list[str]) -> None:
-    """Take a transaction-level advisory lock for each derived path.
-
-    The locks are taken in the order of their keys (not of the paths), so two callers cannot deadlock, even
-    when two paths share a key. A shared key only makes the callers wait for each other.
-    """
-    if not paths:
-        return
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT DISTINCT hashtext(p) AS h FROM unnest(%s::text[]) AS p ORDER BY h", [sorted(set(paths))])
-        for (key,) in cursor.fetchall():
-            cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_DERIVED_PATH_LOCK_CLASS, key])
 
 
 def is_image_mime_type(mime_type: str) -> bool:
@@ -335,15 +268,11 @@ def delete_image_with_derivatives(
     instance: t.Any,
     source_field: str,
 ) -> None:
-    """Delete an image file and all its derivative thumbnails/previews.
+    """Remove an image and its derived images from the row, and delete the files after commit.
 
-    This function should be used instead of direct `field.delete()` when removing
-    images that have auto-generated derivatives. It:
-    1. Looks up the thumbnail config for this model/field
-    2. Deletes all derivative files from storage
-    3. Clears all derivative field values on the model
-    4. Deletes the source file from storage
-    5. Saves the model with all cleared fields
+    Use it instead of ``field.delete()`` for an image with derived images. The paths are read under the row
+    lock, so derived paths written meanwhile are included. A file that another row still names (a duplicated
+    event shares its images) stays.
 
     Args:
         instance: The Django model instance containing the image field.
@@ -354,55 +283,51 @@ def delete_image_with_derivatives(
         >>> delete_image_with_derivatives(organization, "logo")
     """
     from .config import get_thumbnail_config
+    from .files import delete_unreferenced_files_after_commit
 
-    source_file = getattr(instance, source_field, None)
-    if not source_file:
-        return
-
-    # Get model metadata for config lookup
     meta = instance._meta
-    app_label = meta.app_label
-    model_name = meta.model_name
+    config = get_thumbnail_config(meta.app_label, meta.model_name, source_field)
+    fields_to_clear = [source_field, *(spec.field_name for spec in config.specs)] if config else [source_field]
 
-    # Refresh the specific field from database to ensure we have the correct path.
-    # Django's FileField can have stale in-memory values after partial saves.
-    instance.refresh_from_db(fields=[source_field])
-    source_file = getattr(instance, source_field, None)
-    if not source_file:
-        return
-
-    # Look up thumbnail config (may be None for fields without configured derivatives,
-    # in which case we just delete the source file without any derivative cleanup)
-    config = get_thumbnail_config(app_label, model_name, source_field)
-
-    # Store source path before clearing (needed for storage deletion)
-    source_path = source_file.name if source_file.name else ""
-
-    # Collect fields to clear and derivative paths
-    fields_to_clear = [source_field]
-    derivative_paths: list[str] = []
-
-    if config:
-        for spec in config.specs:
-            field_name = spec.field_name
-            derivative_file = getattr(instance, field_name, None)
-            if derivative_file and derivative_file.name:
-                derivative_paths.append(derivative_file.name)
-            fields_to_clear.append(field_name)
-
-    # Delete all files from storage (source + derivatives)
-    delete_thumbnails_for_paths([source_path] + derivative_paths)
-
-    # Clear all fields on the model
-    for field_name in fields_to_clear:
-        setattr(instance, field_name, None)
-
-    # Save with all cleared fields
-    instance.save(update_fields=fields_to_clear)
+    with transaction.atomic():
+        stored = type(instance).objects.select_for_update().filter(pk=instance.pk).values_list(*fields_to_clear).first()
+        paths = [name for name in stored or () if name]
+        if not stored or not stored[0]:
+            return
+        for field_name in fields_to_clear:
+            setattr(instance, field_name, None)
+        instance.save(update_fields=fields_to_clear)
+        delete_unreferenced_files_after_commit(paths)
 
     logger.info(
         "image_with_derivatives_deleted",
-        model=f"{app_label}.{model_name}",
+        model=f"{meta.app_label}.{meta.model_name}",
         field=source_field,
-        derivatives_deleted=len(derivative_paths),
+        derivatives_deleted=len(paths) - 1,
     )
+
+
+def replace_image_files_after_commit(instance: t.Any, source_field: str, old_paths: list[str]) -> None:
+    """After commit, delete the old image files that no row names, and make the derived images of the new image.
+
+    For a change that wrote ``source_field`` and cleared its derived fields (for example an admin form).
+
+    Args:
+        instance: The saved instance.
+        source_field: The source image field that changed.
+        old_paths: The stored paths of the source and its derived images before the change.
+    """
+    from .config import get_thumbnail_config
+    from .tasks import delete_orphaned_thumbnails_task, generate_thumbnails_task
+
+    meta = instance._meta
+    app, model, pk = meta.app_label, meta.model_name, str(instance.pk)
+    new_name = getattr(instance, source_field).name or ""
+    old_paths = [name for name in old_paths if name and name != new_name]
+    if old_paths:
+        # robust: a broker failure must not fail the saved change; the old files then stay (harmless).
+        transaction.on_commit(lambda: delete_orphaned_thumbnails_task.delay(thumbnail_paths=old_paths), robust=True)
+    if new_name and get_thumbnail_config(app, model, source_field):
+        transaction.on_commit(
+            lambda: generate_thumbnails_task.delay(app=app, model=model, pk=pk, field=source_field), robust=True
+        )

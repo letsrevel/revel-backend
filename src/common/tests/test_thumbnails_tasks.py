@@ -252,6 +252,10 @@ class TestThumbnailIntegration:
                     assert img.height <= 150
 
             delete_orphaned_thumbnails_task(thumbnail_paths=[thumbnail_path])
+            assert default_storage.exists(thumbnail_path)  # the row still names it
+
+            Organization.objects.filter(pk=org.pk).update(logo_thumbnail=None)
+            delete_orphaned_thumbnails_task(thumbnail_paths=[thumbnail_path])
 
             assert not default_storage.exists(thumbnail_path)
         finally:
