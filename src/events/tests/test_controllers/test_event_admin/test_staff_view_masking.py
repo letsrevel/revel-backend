@@ -27,11 +27,15 @@ from events.models import (
 pytestmark = pytest.mark.django_db
 
 MASKED_FIELDS = ("phone_number", "first_name", "last_name", "preferred_name", "pronouns", "bio")
+PICTURE_FIELDS = ("profile_picture_url", "profile_picture_thumbnail_url", "profile_picture_preview_url")
 
 
 @pytest.fixture
 def profiled(public_user: RevelUser) -> RevelUser:
-    """An account with a full profile, so any leak is visible."""
+    """An account with a full profile (picture included), so any leak is visible."""
+    public_user.profile_picture = "protected/profile-pictures/profiled/pic.png"
+    public_user.profile_picture_thumbnail = "protected/profile-pictures/profiled/pic_thumb.png"
+    public_user.profile_picture_preview = "protected/profile-pictures/profiled/pic_preview.png"
     public_user.first_name, public_user.last_name = "Legal", "Person"
     public_user.preferred_name = "Pref"
     public_user.pronouns, public_user.bio = "they/them", "about me"
@@ -72,7 +76,8 @@ def _assert_masked(user: dict[str, t.Any], account: RevelUser, display_name: str
     assert user["display_name"] == display_name
     for field in MASKED_FIELDS:
         assert user[field] is None, field
-    assert user["profile_picture_url"] is None
+    for field in PICTURE_FIELDS:
+        assert user[field] is None, field
 
 
 def _assert_unmasked(user: dict[str, t.Any], account: RevelUser, *, phone: bool) -> None:
@@ -82,6 +87,8 @@ def _assert_unmasked(user: dict[str, t.Any], account: RevelUser, *, phone: bool)
     assert user["pronouns"] == "they/them"
     assert user["bio"] == "about me"
     assert user["phone_number"] == ("+4366012345678" if phone else None)
+    for field in PICTURE_FIELDS:
+        assert user[field], field
 
 
 # ---- tickets: list, detail, check-in ----

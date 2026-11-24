@@ -302,7 +302,8 @@ def _claim_invite_slot(organization: Organization, email: str) -> bool:
     )
 
 
-def _release_invite_slot(organization: Organization, email: str) -> None:
+def release_invite_slot(organization: Organization, email: str) -> None:
+    """End the resend interval of ``email`` early (a failed save, or an invitation email that could not be sent)."""
     cache.delete(_invite_cooldown_key(organization.pk, email))
 
 
@@ -331,7 +332,7 @@ def send_invite(record: MembershipRecord) -> MembershipRecord:
         record.invited_at = timezone.now()
         record.save(update_fields=["invite_token", "invited_at", "updated_at"])
     except Exception:
-        _release_invite_slot(organization, record.email)
+        release_invite_slot(organization, record.email)
         raise
     _dispatch_invite(record)
     return record
@@ -369,7 +370,7 @@ def send_bulk_invites(organization: Organization) -> int:
         except Exception:
             # Nothing committed: free the addresses so a retry is not locked out for the cooldown.
             for record in records:
-                _release_invite_slot(organization, record.email)
+                release_invite_slot(organization, record.email)
             raise
         for record in records:
             _dispatch_invite(record)

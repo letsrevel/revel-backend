@@ -251,9 +251,12 @@ class TestInviteeEnrolmentRequiresVerifiedEmail:
 
 
 class TestVerificationEmailDeletionLink:
-    def test_bodies_carry_deletion_link(self, unverified: RevelUser, mock_delay: MagicMock) -> None:
+    def test_bodies_carry_deletion_link(
+        self, unverified: RevelUser, mock_delay: MagicMock, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
         with patch("accounts.tasks.email.send_email") as mock_send:
-            account_service.send_verification_email_for_user(unverified, defer=False, return_host="events.example.org")
+            with django_capture_on_commit_callbacks(execute=True):
+                account_service.send_verification_email_for_user(unverified, return_host="events.example.org")
             kwargs = mock_delay.call_args.kwargs
             send_account_email(AccountEmail.VERIFICATION, unverified.email, **kwargs)
 

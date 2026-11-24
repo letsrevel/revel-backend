@@ -320,19 +320,13 @@ def create_deletion_token(user: RevelUser) -> str:
 
 
 def send_verification_email_for_user(
-    user: RevelUser, *, defer: bool = True, return_url: str | None = None, return_host: str | None = None
+    user: RevelUser, *, return_url: str | None = None, return_host: str | None = None
 ) -> tuple[RevelUser, str]:
     """Send a verification email for a user.
 
     Args:
-        user: The user to email.
-        defer: When True (default), the dispatch is deferred until the
-            surrounding transaction commits, so a freshly-created user row is
-            visible to the worker (avoids a read-after-commit race). Pass
-            ``defer=False`` on the duplicate-registration anti-enumeration path
-            that dispatches and then rolls the request transaction back: there
-            the target user already exists, so the email must be sent
-            regardless of the rollback.
+        user: The user to email. The email goes out after the surrounding transaction commits, so a new user row is
+            visible to the worker.
         return_url: Optional relative path (validated by ``RegisterUserSchema``)
             carried in the verification link as ``returnUrl``.
         return_host: Optional tenant hostname hint carried in the link as ``return_host``.
@@ -354,10 +348,7 @@ def send_verification_email_for_user(
             ),
         )
 
-    if defer:
-        transaction.on_commit(dispatch)
-    else:
-        dispatch()
+    transaction.on_commit(dispatch)
     return user, token
 
 
