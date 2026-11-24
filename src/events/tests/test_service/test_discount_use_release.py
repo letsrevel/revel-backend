@@ -537,7 +537,7 @@ class TestCascadeDeletes:
         _reserve(online_tier, user_a, code)
 
         with CaptureQueriesContext(connection) as ctx:
-            discount_code_service.release_uses_of_pending_tickets(event=online_tier.event)
+            discount_code_service.release_uses_of_pending_tickets(Ticket.objects.filter(event=online_tier.event))
 
         def table(sql: str) -> str:
             return sql.split("FROM")[1].split()[0]

@@ -54,6 +54,7 @@ These two events now also settle every ticket and membership refund: a pending r
   - Data export: a new daily task deletes data-export files that no export record names and that are older than 7 days (a file can lose its record when the export worker stops before it finishes). Each export file now has its own name, so a download link to an earlier export never opens a later one.
   - Pending deletion: an emailed link or a social login does not reactivate an account while its deletion is pending. A checkout for the account is refused, and a queued data export is skipped.
   - Admin: superusers can fully delete an erased account, and the admin change form and password change refuse an edit of an erased account.
+- Deleting an event, a ticket tier or an event series ends the unfinished (pending) checkouts that the delete removes: their open Stripe Checkout sessions are expired, so they can no longer be paid. Deleting a ticket tier or an event series also gives back the discount code uses of those checkouts, as deleting an event already did.
 
 ## [3.0.0] - 2026-11-20
 
