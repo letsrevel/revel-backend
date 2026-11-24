@@ -125,11 +125,11 @@ Policy-level intended behaviour that reviewers must not report as a finding. Eac
 - reference: owner decision 2026-11-21 (docs-3).
 
 ## First verification keeps the signup password
-- behaviour: someone can sign up with another person's email address. If that person clicks the verification link, the account becomes verified and keeps the password of the first signer. The verification email has a "didn't sign up? delete the account" link.
+- behaviour: someone can sign up with another person's email address. If that person clicks the verification link, the account becomes verified and keeps the password of the first signer, when nobody else signed up with the address in the meantime. When the signup was contested (`signup_contested_at`), verifying restarts the account (`adopt_unverified_account` drops the earlier credentials and resets the profile) and sends a password-reset email. The verification email has a "didn't sign up? delete the account" link.
 - boundary: the account stays unverified until the link is used, and the link never signs anyone in. Accepted as it is. A path that skips email verification, or that gives the first signer access before the verification, is still a bug.
 - reference: owner decision 2026-11-21 (U2).
 
 ## Member-register entries link on email verification
-- behaviour: when an account verifies its email, register entries with that email link to it automatically, and an open entry gives an ACTIVE membership. This is intended: it migrates existing members into accounts. The person is notified (#1495).
+- behaviour: when an account verifies its email, register entries with that email link to it automatically, and an open STANDARD entry gives an ACTIVE membership. This is intended: it migrates existing members into accounts. The person is notified (#1495) only when the link leaves an ACTIVE membership; a link that touches only closed or TEMPORARY entries sends the person nothing (see "Automatic member-register link on a verified email").
 - boundary: a membership created for an invitation before the invitee accepts is still a bug.
 - reference: owner decision 2026-11-21; #1495; `docs/architecture/member-register.md`.
