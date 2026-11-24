@@ -99,7 +99,9 @@ def resolve_series_window(held_pass: HeldSeriesPass) -> SeriesWindow:
         case of a pass covering no events, where the window collapses to the
         pass's creation time) with its venue, timezone and window.
     """
-    events = [link.event for link in held_pass.series_pass.tier_links.select_related("event").all()]
+    covered = [link.event for link in held_pass.series_pass.tier_links.select_related("event").all()]
+    # CANCELLED events give no admission (#1494): leave them out unless every covered event is cancelled.
+    events = [event for event in covered if event.status != Event.EventStatus.CANCELLED] or covered
     now = timezone.now()
     upcoming = sorted((event for event in events if event.end >= now), key=lambda event: event.start)
     representative = upcoming[0] if upcoming else max(events, key=lambda event: event.start, default=None)

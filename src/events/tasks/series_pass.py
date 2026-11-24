@@ -9,7 +9,7 @@ from celery import shared_task
 from django.db import transaction
 from django.db.models import F
 
-from events.models import HeldSeriesPass, SeriesPass, SeriesPassTierLink, Ticket, TicketTier
+from events.models import Event, HeldSeriesPass, SeriesPass, SeriesPassTierLink, Ticket, TicketTier
 
 logger = structlog.get_logger(__name__)
 
@@ -38,10 +38,11 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
 
     series_pass = SeriesPass.objects.select_related("event_series__organization").get(pk=UUID(series_pass_id))
     event_pks = [UUID(e) for e in event_ids]
+    # An event cancelled before this task runs gets no ticket (#1494).
     links = list(
-        SeriesPassTierLink.objects.filter(series_pass=series_pass, event_id__in=event_pks).select_related(
-            "event", "tier"
-        )
+        SeriesPassTierLink.objects.filter(series_pass=series_pass, event_id__in=event_pks)
+        .exclude(event__status=Event.EventStatus.CANCELLED)
+        .select_related("event", "tier")
     )
     holder_ids = list(
         HeldSeriesPass.objects.filter(

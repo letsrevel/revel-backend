@@ -11,7 +11,7 @@ from pydantic import AwareDatetime, ConfigDict, Field
 from accounts.schema import MemberUserSchema
 from common.schema import OneToOneFiftyString, StrippedString
 from events.compliance import PaymentChannelCapability
-from events.models import HeldSeriesPass, SeriesPass
+from events.models import Event, HeldSeriesPass, SeriesPass
 from events.models.ticket import TicketTier
 from events.schema.attribution import AttributionPayloadMixin
 from events.schema.checkout import BuyerBillingInfoSchema
@@ -125,9 +125,16 @@ class HeldSeriesPassSchema(ModelSchema):
 
     @staticmethod
     def resolve_remaining_event_count(obj: HeldSeriesPass) -> int:
-        """Count not-yet-started covered events. Requires ``series_pass__tier_links__event`` prefetched."""
+        """Count not-yet-started, not-CANCELLED covered events.
+
+        Requires ``series_pass__tier_links__event`` prefetched.
+        """
         now = timezone.now()
-        return sum(1 for link in obj.series_pass.tier_links.all() if link.event.start >= now)
+        return sum(
+            1
+            for link in obj.series_pass.tier_links.all()
+            if link.event.start >= now and link.event.status != Event.EventStatus.CANCELLED
+        )
 
 
 class SeriesPassTierLinkAdminSchema(Schema):

@@ -441,6 +441,8 @@ def create_series_pass_pdf(held_pass: "HeldSeriesPass") -> bytes:
     """
     from weasyprint import HTML
 
+    from events.models import Event
+
     series_pass = held_pass.series_pass
     event_series = series_pass.event_series
     organization = event_series.organization
@@ -449,7 +451,12 @@ def create_series_pass_pdf(held_pass: "HeldSeriesPass") -> bytes:
     # (see check_in_service.resolve_check_in_ticket_id).
     qr_code_base64 = _qr_code_base64(held_pass.qr_payload)
 
-    links = list(series_pass.tier_links.select_related("event").order_by("event__start"))
+    # A CANCELLED covered event is not listed: the pass gives no admission to it (#1494).
+    links = list(
+        series_pass.tier_links.exclude(event__status=Event.EventStatus.CANCELLED)
+        .select_related("event")
+        .order_by("event__start")
+    )
     covered_events = [
         {"name": link.event.name, "start": format_event_datetime(link.event.start, link.event)} for link in links
     ]

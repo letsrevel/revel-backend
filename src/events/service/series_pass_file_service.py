@@ -45,7 +45,8 @@ def compute_content_hash(held_pass: HeldSeriesPass) -> str:
     ]
     links = held_pass.series_pass.tier_links.select_related("event").order_by("event_id")
     for link in links:
-        parts.append(f"{link.event_id}:{link.event.updated_at.isoformat()}")
+        # Status by value (#1494): a cancel saves with update_fields, so updated_at does not change.
+        parts.append(f"{link.event_id}:{link.event.updated_at.isoformat()}:{link.event.status}")
     # Brand colors (#1157): hashed by value, only when set, so a branding change invalidates the
     # cache while unbranded hashes stay valid.
     if brand := get_pass_brand_colors(held_pass.series_pass.event_series.organization):

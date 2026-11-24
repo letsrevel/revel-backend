@@ -20,7 +20,7 @@ class SeriesPass(TimeStampedModel, VisibilityMixin):
     """A season-ticket product on an EventSeries.
 
     Covers the events mapped via SeriesPassTierLink. Price decreases by
-    ``pro_rata_discount`` for each covered event that has already started.
+    ``pro_rata_discount`` for each covered event that has already started or is CANCELLED.
     """
 
     event_series = models.ForeignKey(EventSeries, on_delete=models.CASCADE, related_name="series_passes")
