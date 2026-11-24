@@ -141,6 +141,7 @@ class TestGetThumbnailPath:
     def test_sources_with_the_same_stem_get_different_paths(self) -> None:
         """A later ``avatar.jpg`` must not reuse the derived files of ``avatar.png``."""
         assert get_thumbnail_path("p/avatar.png", "thumbnail") != get_thumbnail_path("p/avatar.jpg", "thumbnail")
+        assert get_thumbnail_path("p/avatar.PNG", "thumbnail") != get_thumbnail_path("p/avatar.png", "thumbnail")
 
     def test_complex_filename_with_multiple_dots(self) -> None:
         """Test path generation with filename containing multiple dots."""

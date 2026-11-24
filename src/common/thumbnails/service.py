@@ -12,9 +12,11 @@ from pathlib import Path
 import structlog
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from django.db import transaction
+from django.db.models import Q
 from PIL import Image, ImageOps
 
-from .config import ModelThumbnailConfig, ThumbnailSpec
+from .config import THUMBNAIL_CONFIGS, ModelThumbnailConfig, ThumbnailSpec
 
 
 @dataclass
@@ -64,7 +66,7 @@ def get_thumbnail_path(original_path: str, field_name: str) -> str:
         'protected/profile-pictures/user/img_png_preview.jpg'
     """
     path = Path(original_path)
-    extension = path.suffix.lstrip(".").lower()
+    extension = path.suffix.lstrip(".")  # not lowered: "a.PNG" and "a.png" are two files
     stem = f"{path.stem}_{extension}" if extension else path.stem
     parent = path.parent
 
@@ -226,6 +228,58 @@ def delete_thumbnails_for_paths(paths: list[str]) -> None:
                 path=path,
                 error=str(e),
             )
+
+
+def write_paths_if_source_unchanged(
+    model_class: t.Any, pk: t.Any, field: str, original_path: str, thumbnails: dict[str, str]
+) -> tuple[bool, list[str]]:
+    """Under the row lock, write ``thumbnails`` if the row still holds ``original_path``.
+
+    The row can change while the files are made: a new upload, a removed source, a deletion.
+
+    Returns:
+        Whether the files must be discarded, and the derived paths that the write replaced (an older path
+        format, for example on a regeneration).
+    """
+    replaced: list[str] = []
+    with transaction.atomic():
+        locked = model_class.objects.select_for_update().filter(pk=pk).first()
+        current = getattr(locked, field, None) if locked is not None else None
+        if not current or current.name != original_path:
+            return True, replaced
+        update_fields = [name for name in thumbnails if hasattr(locked, name)]
+        for field_name in update_fields:
+            old = getattr(locked, field_name)
+            if old and old.name != thumbnails[field_name]:
+                replaced.append(old.name)
+            setattr(locked, field_name, thumbnails[field_name])
+        if update_fields:
+            locked.save(update_fields=update_fields)
+    return False, replaced
+
+
+def delete_unreferenced_thumbnails(paths: list[str]) -> None:
+    """Delete the derived files in ``paths`` that no row names any more.
+
+    Rows can share a source file (a duplicated event copies the logo and cover art path), so they can share
+    derived files too. Call it after the commit that removed the reference.
+
+    ponytail: the check takes no lock, so another row's task that writes the same path just after it loses
+    that file until its next regeneration. A copy of the source file for each duplicate would remove the sharing.
+    """
+    from django.apps import apps
+
+    if not paths:
+        return
+    in_use: set[str] = set()
+    for config in THUMBNAIL_CONFIGS.values():
+        names = [spec.field_name for spec in config.specs]
+        query = Q()
+        for name in names:
+            query |= Q(**{f"{name}__in": paths})
+        for row in apps.get_model(config.app_label, config.model_name).objects.filter(query).values_list(*names):
+            in_use.update(row)
+    delete_thumbnails_for_paths([path for path in paths if path not in in_use])
 
 
 def is_image_mime_type(mime_type: str) -> bool:
