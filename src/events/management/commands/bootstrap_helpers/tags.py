@@ -41,8 +41,9 @@ def create_tags(state: BootstrapState) -> None:
 
     for tag_name, tag_data in all_tags.items():
         tag, created = Tag.objects.get_or_create(
-            name=tag_name,
+            name__iexact=tag_name,
             defaults={
+                "name": tag_name,
                 "description": tag_data["description"],
                 "color": tag_data["color"],
             },

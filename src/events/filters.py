@@ -11,6 +11,7 @@ from django.utils import timezone
 from ninja import Field, FilterLookup, FilterSchema, Schema
 from pydantic import AwareDatetime
 
+from common.models import Tag
 from events.models import (
     AdditionalResource,
     Announcement,
@@ -53,7 +54,8 @@ class OrganizationFilterSchema(CityFilterMixin):
         """Helper to find tags only."""
         if not tags:
             return Q()
-        return Q(tags__tag__name__in=tags)
+        matching = Tag.matching(tags)
+        return Q(tags__tag__in=matching)
 
 
 class EventFilterSchema(CityFilterMixin):
@@ -120,10 +122,11 @@ class EventFilterSchema(CityFilterMixin):
         """Helper to find tags only."""
         if not tags:
             return Q()
+        matching = Tag.matching(tags)
         return (
-            Q(tags__tag__name__in=tags)
-            | Q(organization__tags__tag__name__in=tags)
-            | Q(event_series__tags__tag__name__in=tags)
+            Q(tags__tag__in=matching)
+            | Q(organization__tags__tag__in=matching)
+            | Q(event_series__tags__tag__in=matching)
         )
 
 
@@ -135,7 +138,8 @@ class EventSeriesFilterSchema(FilterSchema):
         """Helper to find tags only."""
         if not tags:
             return Q()
-        return Q(tags__tag__name__in=tags) | Q(organization__tags__tag__name__in=tags)
+        matching = Tag.matching(tags)
+        return Q(tags__tag__in=matching) | Q(organization__tags__tag__in=matching)
 
 
 class ResourceFilterSchema(FilterSchema):

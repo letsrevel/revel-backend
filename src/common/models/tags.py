@@ -5,6 +5,8 @@ import typing as t
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
+from django.db.models import Q, Value
+from django.db.models.functions import Lower
 
 from common.models.base import TimeStampedModel
 
@@ -16,10 +18,22 @@ class Tag(TimeStampedModel):
     icon = models.CharField(max_length=64, blank=True, null=True, help_text="Optional icon name")
     parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="children")
 
+    class Meta:
+        constraints = [models.UniqueConstraint(Lower("name"), name="common_tag_name_ci_unique")]
+
     @staticmethod
     def normalize_name(name: str) -> str:
         """Strip surrounding whitespace and leading ``#`` (hashtag) characters."""
         return name.strip().lstrip("#").strip()
+
+    @classmethod
+    def matching(cls, names: t.Iterable[str]) -> models.QuerySet["Tag"]:
+        """Return the tags whose name equals one of ``names``, ignoring case, ``#`` and surrounding spaces."""
+        # Fold only in the database (same ``LOWER`` as the unique constraint); Python's ``lower()`` differs.
+        match = Q()
+        for key in {key for name in names if (key := cls.normalize_name(name))}:
+            match |= Q(_key=Lower(Value(key)))
+        return cls.objects.annotate(_key=Lower("name")).filter(match) if match else cls.objects.none()
 
     def clean(self) -> None:
         """Normalize the name before validation."""
@@ -59,7 +73,6 @@ class TagManager:
     def add(self, *names: str) -> None:
         """Add the tags."""
         from django.contrib.contenttypes.models import ContentType  # local import to avoid circularity
-        from django.db.models import Q
 
         from common.utils import get_or_create_with_race_protection
 
@@ -68,7 +81,9 @@ class TagManager:
             name = Tag.normalize_name(name)
             if not name:
                 continue  # skip blanks
-            tag, _ = get_or_create_with_race_protection(Tag, Q(name=name), {"name": name})
+            tag, _ = get_or_create_with_race_protection(
+                Tag, Q(pk__in=Tag.matching([name]).values("pk")), {"name": name}
+            )
             TagAssignment.objects.get_or_create(
                 tag=tag,
                 content_type=ct,
@@ -81,7 +96,7 @@ class TagManager:
 
         ct = ContentType.objects.get_for_model(self.instance.__class__)
         TagAssignment.objects.filter(
-            tag__name__in=names,
+            tag__in=Tag.matching(names),
             content_type=ct,
             object_id=self.instance.pk,
         ).delete()

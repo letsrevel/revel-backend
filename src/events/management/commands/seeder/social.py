@@ -47,7 +47,7 @@ class SocialSeeder(BaseSeeder):
         self.log("Creating tags...")
 
         # Check for existing tags
-        existing_names = set(Tag.objects.values_list("name", flat=True))
+        existing_names = {name.lower() for name in Tag.objects.values_list("name", flat=True)}
 
         tags_to_create = [
             Tag(
@@ -56,7 +56,7 @@ class SocialSeeder(BaseSeeder):
                 color=f"#{self.rand.randint(0, 0xFFFFFF):06x}",
             )
             for name in TAG_NAMES
-            if name not in existing_names
+            if name.lower() not in existing_names
         ]
 
         if tags_to_create:
