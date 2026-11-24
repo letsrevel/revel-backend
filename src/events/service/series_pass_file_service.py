@@ -18,7 +18,7 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 
 from events.models import HeldSeriesPass
-from events.service.ticket_file_service import get_apple_pass_generator
+from events.service.ticket_file_service import drop_stale_siblings, get_apple_pass_generator
 from events.utils.pass_branding import get_pass_brand_colors
 
 logger = structlog.get_logger(__name__)
@@ -165,8 +165,11 @@ def _persist_and_update(
 
         if update_fields:
             content_hash = compute_content_hash(held_pass)
+            if content_hash != held_pass.file_content_hash:
+                old_files += drop_stale_siblings(held_pass, update_fields, pdf_bytes, pkpass_bytes)
             update_fields["file_content_hash"] = content_hash
             HeldSeriesPass.objects.filter(pk=held_pass.pk).update(**update_fields)
+            held_pass.file_content_hash = content_hash
 
         # Phase 2: Clean up old files (best-effort, orphans cleaned by daily task)
         for old_name in old_files:

@@ -276,6 +276,35 @@ def test_cancel_invalidates_cached_pass_files(
     assert series_pass_file_service.compute_content_hash(held_pass) != before
 
 
+class TestSiblingFormatInvalidation:
+    """PDF and pkpass share ``file_content_hash``: a new hash must not vouch for the other cached format."""
+
+    @staticmethod
+    def _fresh(held_pass: HeldSeriesPass) -> HeldSeriesPass:
+        return HeldSeriesPass.objects.select_related("series_pass__event_series__organization", "user").get(
+            pk=held_pass.pk
+        )
+
+    def test_pdf_regeneration_after_a_cancel_drops_the_stale_pkpass(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        held = SeriesPassPurchaseService(series_pass, revel_user).purchase()
+        assert isinstance(held, HeldSeriesPass)
+        series_pass_file_service._persist_and_update(self._fresh(held), pdf_bytes=b"%PDF-old", pkpass_bytes=b"PK-old")
+        _cancel(three_upcoming[0])
+        generator = MagicMock()
+        generator.generate_series_pass.return_value = b"PK-new"
+
+        with patch("events.utils.create_series_pass_pdf", return_value=b"%PDF-new"):
+            assert series_pass_file_service.get_or_generate_pass_pdf(self._fresh(held)) == b"%PDF-new"
+        stale_dropped = self._fresh(held)
+        assert not stale_dropped.pkpass_file
+        with patch("events.service.series_pass_file_service.get_apple_pass_generator", return_value=generator):
+            assert series_pass_file_service.get_or_generate_pass_pkpass(stale_dropped) == b"PK-new"
+
+        generator.generate_series_pass.assert_called_once()
+
+
 class TestUncancel:
     """Un-cancelling a covered event issues its ticket to the holders (owner decision on #1494)."""
 
@@ -359,16 +388,60 @@ class TestUncancel:
 
         task.delay.assert_called_once_with(str(series_pass.id), [str(event.id)])
 
-    @pytest.mark.parametrize("target", [Event.EventStatus.DRAFT, Event.EventStatus.CLOSED])
-    def test_no_dispatch_when_the_target_is_not_open(
+    @pytest.mark.parametrize("target", [Event.EventStatus.CLOSED, Event.EventStatus.DRAFT])
+    def test_dispatches_when_the_event_leaves_cancelled_for_any_status(
         self,
         series_pass: SeriesPass,
         three_upcoming: list[Event],
         target: Event.EventStatus,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
+        """CANCELLED to CLOSED: the event still happens, so the holders need the ticket."""
         event = three_upcoming[0]
         _cancel(event)
+
+        with (
+            patch("events.service.event_update_service.materialize_series_pass_holders") as task,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            event_update_service.update_status(Event.objects.get(pk=event.pk), target)
+
+        task.delay.assert_called_once_with(str(series_pass.id), [str(event.id)])
+
+    def test_closed_event_ticket_is_issued_to_the_holder(
+        self,
+        series_pass: SeriesPass,
+        three_upcoming: list[Event],
+        revel_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        cancelled = three_upcoming[1]
+        _cancel(cancelled)
+        held_pass = SeriesPassPurchaseService(series_pass, revel_user).purchase()
+        assert isinstance(held_pass, HeldSeriesPass)
+
+        with (
+            patch("notifications.signals.series_pass.send_series_pass_extended"),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            event_update_service.update_status(Event.objects.get(pk=cancelled.pk), Event.EventStatus.CLOSED)
+
+        assert Ticket.objects.get(held_pass=held_pass, event=cancelled).status == Ticket.TicketStatus.ACTIVE
+
+    @pytest.mark.parametrize(
+        ("start", "target"),
+        [(OPEN, Event.EventStatus.CLOSED), (Event.EventStatus.DRAFT, OPEN), (OPEN, CANCELLED)],
+    )
+    def test_no_dispatch_when_the_event_does_not_leave_cancelled(
+        self,
+        series_pass: SeriesPass,
+        three_upcoming: list[Event],
+        start: Event.EventStatus,
+        target: Event.EventStatus,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        event = three_upcoming[0]
+        Event.objects.filter(pk=event.pk).update(status=start)
 
         with (
             patch("events.service.event_update_service.materialize_series_pass_holders") as task,

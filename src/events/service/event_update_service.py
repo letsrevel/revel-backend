@@ -225,9 +225,9 @@ def update_event(
     return updated_event
 
 
-def _dispatch_series_pass_coverage(event: models.Event, new_status: models.Event.EventStatus) -> None:
-    """After commit, issue a re-opened, not yet started event's tickets to the holders of each covering pass."""
-    if new_status != models.Event.EventStatus.OPEN or event.start < timezone.now():
+def _dispatch_series_pass_coverage(event: models.Event) -> None:
+    """After commit, issue an un-cancelled, not yet started event's tickets to the holders of each covering pass."""
+    if event.start < timezone.now():
         return
     pass_ids = models.SeriesPassTierLink.objects.filter(event_id=event.id).values_list("series_pass_id", flat=True)
     for pass_id in sorted(str(pass_id) for pass_id in pass_ids):
@@ -266,11 +266,12 @@ def update_status(
         enqueues a waitlist processing pass so the freshly real seats can be
         taken by waitlisted users. Raises ``EventRefundsStartedError`` if the
         bulk refund sweep already started — that process is irreversible.
-        When the target is OPEN and the event has not started, also dispatches
+        When the event has not started, also dispatches
         ``materialize_series_pass_holders`` (on commit) for every series pass
-        that covers the event: a pass bought while the event was CANCELLED has
-        no ticket for it (#1494). The task skips holders that already have one
-        and checks capacity.
+        that covers the event, whatever the new status is (OPEN, CLOSED or
+        DRAFT): a pass bought while the event was CANCELLED has no ticket for
+        it (#1494). The task skips holders that already have one and checks
+        capacity. A transition between two other statuses does not dispatch.
       * On transition to CANCELLED with ``refund_tickets=True``, ALWAYS
         dispatches the bulk cancel-and-refund sweep on commit —
         ``tickets_refund_started_at`` is stamped only the first time (a no-op
@@ -333,7 +334,7 @@ def update_status(
         revoke_all_pending_offers(event.id)
     elif old_status == models.Event.EventStatus.CANCELLED:
         enqueue_waitlist_processing(event.id)
-        _dispatch_series_pass_coverage(event, new_status)
+        _dispatch_series_pass_coverage(event)
 
     if new_status == models.Event.EventStatus.CANCELLED and refund_tickets:
         if event.tickets_refund_started_at is None:
