@@ -103,6 +103,9 @@ def merge_case_duplicate_tags(apps: t.Any, schema_editor: t.Any) -> None:
         canonical, duplicates = members[0], members[1:]
         duplicate_ids = [dup.pk for dup in duplicates]
 
+        # A tag that old code created after the first lock can join a group unlocked. Locked rows are a no-op.
+        list(Tag.objects.select_for_update().filter(pk__in=[m.pk for m in members]).order_by("pk").values_list("pk", flat=True))
+
         _fill_empty_fields(Tag, canonical, duplicates)
         _repoint_children(Tag, canonical, members)
 

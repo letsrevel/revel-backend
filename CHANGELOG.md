@@ -18,13 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 3. Run the same command without `--dry-run`. It updates the existing endpoints only: it creates no endpoint and does not change the signing secrets.
 
 Running the command again is harmless.
-
-**Tags that differ only by case.** Migrations `common` 0024 and 0025 merge these tags and add a case-insensitive unique index. During the deploy, an old instance can create a tag that differs only by case after 0024 has run. Then 0025 fails. To recover, run these two commands:
-`docker compose exec web python manage.py migrate common 0023`
-`docker compose exec web python manage.py migrate`
-The second command runs the merge again and installs the index. Until the rollout finishes, an old instance can answer 500 when a user adds a new case variant of an existing tag.
-
 These two events now also settle every ticket and membership refund: a pending refund that succeeds later, or a refund that fails later.
+
+**Tags that differ only by case.** Migrations `common` 0024 and 0025 merge these tags and add a case-insensitive unique index. During the deploy, an old instance can create a tag that differs only by case after 0024 has run. Then 0025 fails, and the rollout keeps the old container. Do not run the recovery in that container, because it does not know migration 0024. Run these two commands in a new container:
+`docker compose run --rm --no-deps web python manage.py migrate common 0023`
+`docker compose run --rm --no-deps web python manage.py migrate`
+The second command runs the merge again and installs the index. Then finish the rollout with `docker rollout -t 120 web`, or with `docker compose up -d web` if the instance does not use docker-rollout. Do not run the deploy script again: the image is already pulled, so it rolls out nothing. A deploy that fails on this migration because of a lock conflict (deadlock) rolls back completely, and the next rollout tries it again. Until the rollout finishes, an old instance can answer 500 when a user adds a new case variant of an existing tag.
 
 ### Added
 - Operators can register one-time post-deploy tasks. `manage.py run_post_deploy` runs each pending task once per instance, and `manage.py post_deploy_status` lists them. This is off by default behind `FEATURE_POST_DEPLOY_TASKS`. The first task syncs the Stripe webhook event types.
