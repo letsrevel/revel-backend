@@ -268,7 +268,9 @@ deferred foreign-key checks of other transactions (`FOR KEY SHARE` at commit) ar
   and `DiscountCode` locks therefore come before the `EventSeries` and `Event` locks, the reverse of the global
   order. The `Payment` lock is always first.
 - The image-path locks (`common/thumbnails`: upload, derived-path write, image delete, admin image change) take one
-  row of one model and change only image columns. An admin change form keeps that lock until the form saves,
+  row of one model and change only image columns. The malware quarantine (`files.detach_image_everywhere`) locks
+  every row that names a flagged image, model by model in this order (`RevelUser`, `Organization`, `EventSeries`,
+  `Event`, then the rest) and in pk order within a model. An admin change form keeps that lock until the form saves,
   including its inlines. The path-level advisory locks (`common.thumbnails.files.lock_image_paths`) come last: no
   row lock is taken after a path lock (the reference check after them only reads).
 

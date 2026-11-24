@@ -7,11 +7,14 @@ commit that removed the reference (a rollback cannot restore a deleted file).
 This module has no service imports, so models can use it too.
 """
 
+import typing as t
+
 import structlog
 from django.apps import apps
 from django.core.files.storage import default_storage
 from django.db import connection, transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from .config import THUMBNAIL_CONFIGS
 
@@ -55,17 +58,23 @@ def delete_unreferenced_files(paths: list[str]) -> None:
     paths = [path for path in paths if path]
     if not paths:
         return
-    in_use: set[str] = set()
     with transaction.atomic():
         lock_image_paths(paths)
-        for config in THUMBNAIL_CONFIGS.values():
-            names = [config.source_field, *(spec.field_name for spec in config.specs)]
-            query = Q()
-            for name in names:
-                query |= Q(**{f"{name}__in": paths})
-            for row in apps.get_model(config.app_label, config.model_name).objects.filter(query).values_list(*names):
-                in_use.update(row)
+        in_use = named_paths(paths)
         delete_thumbnails_for_paths([path for path in paths if path not in in_use])
+
+
+def named_paths(paths: list[str]) -> set[str]:
+    """The paths in ``paths`` that a row names in a source or derived image field."""
+    in_use: set[str] = set()
+    for config in THUMBNAIL_CONFIGS.values():
+        names = [config.source_field, *(spec.field_name for spec in config.specs)]
+        query = Q()
+        for name in names:
+            query |= Q(**{f"{name}__in": paths})
+        for row in apps.get_model(config.app_label, config.model_name).objects.filter(query).values_list(*names):
+            in_use.update(row)
+    return in_use & set(paths)
 
 
 # The first key of the two-key advisory lock: it keeps these locks apart from other advisory-lock users.
@@ -111,3 +120,34 @@ def stored_image_paths(model_class: type, pk: object, source_field: str) -> list
     rows = model_class.objects.select_for_update(no_key=True).filter(pk=pk)  # type: ignore[attr-defined]
     row = rows.values_list(*names).first()
     return [name for name in row or () if name]
+
+
+# The documented lock order (docs/engineering-notes.md, "Lock order"): RevelUser first, then
+# Organization -> EventSeries -> Event, then the rest.
+_LOCK_RANK = {"reveluser": -1, "organization": 0, "eventseries": 1, "event": 2}
+
+
+def detach_image_everywhere(source_path: str) -> list[str]:
+    """Clear ``source_path`` and its derived images on every row that names it as a source; return their paths.
+
+    A duplicated event shares its image paths with the template, so an image that must go is removed from every
+    row that names it. Only rows that still name the path change: a newer upload stays. Only nullable source
+    fields are cleared. Call it inside a transaction, and delete the returned paths after commit
+    (:func:`delete_unreferenced_files_after_commit`).
+    """
+    paths = [source_path]
+    configs = sorted(THUMBNAIL_CONFIGS.values(), key=lambda config: _LOCK_RANK.get(config.model_name, 3))
+    for config in configs:
+        model = apps.get_model(config.app_label, config.model_name)
+        if not model._meta.get_field(config.source_field).null:
+            continue
+        derived = [spec.field_name for spec in config.specs]
+        rows = model._default_manager.filter(**{config.source_field: source_path})
+        locked = rows.select_for_update(no_key=True).order_by("pk")  # pk order: no deadlock between two of these
+        for row in locked.values_list(*derived):
+            paths += [name for name in row if name]
+        cleared: dict[str, t.Any] = dict.fromkeys([config.source_field, *derived])
+        if any(field.name == "updated_at" for field in model._meta.concrete_fields):
+            cleared["updated_at"] = timezone.now()  # cached files built from the row (ticket PDFs) are made again
+        rows.update(**cleared)
+    return paths

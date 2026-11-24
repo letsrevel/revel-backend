@@ -121,6 +121,7 @@ def upload_questionnaire_file(user: RevelUser, file: UploadedFile) -> Questionna
         field="file",
         file_hash=file_hash,
         uploader_email=user.email,
+        file_path=questionnaire_file.file.name or "",
     )
 
     # Trigger thumbnail generation for image files

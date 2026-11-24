@@ -46,6 +46,10 @@ class FileUploadAudit(TimeStampedModel):
     field = models.CharField(max_length=64, db_index=True)
     file_hash = models.CharField(max_length=64, db_index=True)
     uploader = models.EmailField(db_index=True)
+    # The storage path of the uploaded file. The scan reads this file, not the file the row names when the scan
+    # runs: the row can get a new file, or be deleted, while a copy (a duplicated event) still names this one.
+    # Empty on audits created before the column existed.
+    file_path = models.CharField(max_length=500, blank=True, default="", db_default="")
     status = models.CharField(
         choices=FileUploadAuditStatus.choices, max_length=20, db_index=True, default=FileUploadAuditStatus.PENDING
     )

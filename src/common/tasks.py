@@ -16,6 +16,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import FieldDoesNotExist
 from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
@@ -28,6 +29,8 @@ from django.utils.translation import gettext_lazy as _
 from accounts.models import RevelUser
 from common.email_backend import is_erased_address
 from common.models import EmailLog, FileExport, FileUploadAudit, QuarantinedFile, SiteSettings
+from common.thumbnails.config import THUMBNAIL_CONFIGS
+from common.thumbnails.files import delete_unreferenced_files_after_commit, detach_image_everywhere, named_paths
 from common.thumbnails.tasks import (  # noqa: F401
     delete_orphaned_thumbnails_task,
     generate_thumbnails_task,
@@ -290,30 +293,97 @@ def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dic
     if not cd.ping():
         raise RuntimeError("ClamAV daemon is not reachable")
     model_class = apps.get_model(app, model)
-    instance = model_class.objects.get(pk=pk)
-    file_field = getattr(instance, field)
-    file_bytes = file_field.read()
-    findings = cd.scan_stream(file_bytes)
+    instance = model_class.objects.filter(pk=pk).first()
+    # The files to scan: the path of each pending audit (the row can have a new file, or be gone, while a copy such
+    # as a duplicated event still names the audited file), and the file that the row names now (audits from before
+    # ``file_path`` existed).
+    paths = set(
+        FileUploadAudit.objects.filter(
+            app=app, model=model, field=field, instance_pk=pk, status=FileUploadAudit.FileUploadAuditStatus.PENDING
+        )
+        .exclude(file_path="")
+        .values_list("file_path", flat=True)
+    )
+    current = getattr(instance, field, None) if instance is not None else None
+    if current:
+        paths.add(current.name)
+    if instance is None and not paths:
+        raise model_class.DoesNotExist(f"{app}.{model} pk={pk} not found")
+    result: dict[str, t.Any] | None = None
+    missing = 0
+    for path in sorted(paths):  # every path, even when one of them is missing
+        try:
+            findings = _scan_path(cd, model_class, app=app, model=model, pk=pk, field=field, path=path)
+        except FileNotFoundError:
+            missing += 1
+            continue
+        result = findings or result
+    if missing:
+        # The audits of the missing files stay pending, so the sweep tries again.
+        raise FileNotFoundError(f"{missing} uploaded file(s) named by a row are missing from storage.")
+    return result
+
+
+def _scan_path(
+    cd: t.Any, model_class: t.Any, *, app: str, model: str, pk: str, field: str, path: str
+) -> dict[str, t.Any] | None:
+    """Scan one stored file of the upload ``(app, model, pk, field)``; quarantine it and detach it when flagged."""
+    observed = list(
+        FileUploadAudit.objects.filter(
+            app=app,
+            model=model,
+            field=field,
+            instance_pk=pk,
+            file_path=path,
+            status=FileUploadAudit.FileUploadAuditStatus.PENDING,
+        ).values_list("pk", "file_hash")
+    )
+    # Only the audits read here are closed below: an audit that commits later belongs to a later scan.
+    path_audits = FileUploadAudit.objects.filter(
+        pk__in=[audit_pk for audit_pk, _ in observed], status=FileUploadAudit.FileUploadAuditStatus.PENDING
+    )
+    if not default_storage.exists(path):
+        if named_paths([path]) or model_class.objects.filter(pk=pk, **{field: path}).exists():
+            # A row still names a file that storage does not have (a storage fault?): keep the audit pending.
+            raise FileNotFoundError("An uploaded file named by a row is missing from storage.")
+        # Deleted meanwhile (for example replaced by a newer upload): nothing names or serves it. Close its audits,
+        # so the rescan sweep does not queue them again.
+        closed = path_audits.update(status=FileUploadAudit.FileUploadAuditStatus.CLEAN, updated_at=timezone.now())
+        logger.info("upload_scan_file_gone", app=app, model=model, field=field, pk=pk, audits=closed)
+        return None
+    with default_storage.open(path, "rb") as stored:
+        file_bytes = stored.read()
     file_hash = hashlib.sha256(file_bytes).hexdigest()
+    audited_hashes = {audited_hash for _, audited_hash in observed}
+    if audited_hashes and file_hash not in audited_hashes:
+        # The path now holds another upload's bytes (a freed name was reused): the audited bytes are gone. That
+        # upload's own scan handles these bytes; close the audits of this one.
+        closed = path_audits.update(status=FileUploadAudit.FileUploadAuditStatus.CLEAN, updated_at=timezone.now())
+        logger.info("upload_scan_path_reused", app=app, model=model, field=field, pk=pk, audits=closed)
+        return None
+    findings = cd.scan_stream(file_bytes)
     # Scope to this upload's audit rows: never quarantine another instance's file that happens
     # to share the same bytes, and never re-match an already-quarantined audit on re-upload.
-    audit_qs = FileUploadAudit.objects.filter(app=app, model=model, field=field, file_hash=file_hash, instance_pk=pk)
+    # Only the audits of this path, or audits without a recorded path: another path with the same bytes keeps its own.
+    audit_qs = FileUploadAudit.objects.filter(
+        Q(file_path=path) | Q(file_path=""), app=app, model=model, field=field, file_hash=file_hash, instance_pk=pk
+    )
     if not findings:
         audit_qs.filter(status=FileUploadAudit.FileUploadAuditStatus.PENDING).update(
             status=FileUploadAudit.FileUploadAuditStatus.CLEAN, updated_at=timezone.now()
         )
         return None
-    quarantined = []
-    filename = getattr(file_field, "name", file_hash)
-    name = Path(filename).name
+    name = Path(path).name
     # Only audits with no QuarantinedFile yet: a re-upload of identical bytes to the same
     # instance re-matches earlier audits whose quarantine row already exists, and bulk_create
     # writes each ContentFile to storage *before* the INSERT — including them would leave an
     # orphan blob per conflict. The status update is scoped to these same rows so an audit
     # inserted meanwhile is never marked MALICIOUS without a quarantine row to notify from.
     pending = list(audit_qs.filter(quarantinedfile__isnull=True))
-    for audit in pending:
-        quarantined.append(QuarantinedFile(audit=audit, file=ContentFile(file_bytes, name), findings=findings))
+    quarantined = [
+        QuarantinedFile(audit=audit, file=ContentFile(file_bytes, name), findings=findings) for audit in pending
+    ]
+    meta = model_class._meta
     with transaction.atomic():
         audit_qs.filter(pk__in=[audit.pk for audit in pending]).update(
             status=FileUploadAudit.FileUploadAuditStatus.MALICIOUS, updated_at=timezone.now()
@@ -322,20 +392,25 @@ def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dic
         # OneToOne; without this the IntegrityError would roll back the detachment below and
         # leave the malicious file live.
         QuarantinedFile.objects.bulk_create(quarantined, ignore_conflicts=True)
-        if instance._meta.get_field(field).null:
-            # Nullable field: blank the reference so the live file is dropped.
-            # Only that column, and only while it still names the scanned file: ``instance`` was loaded before the
-            # scan, so a full save would write every other field back as it was then, undoing writes made meanwhile
-            # (e.g. ``Organization.custom_domain``, #1199). A file uploaded meanwhile must stay.
-            # ``.update`` skips save()/full_clean, which is wanted here.
-            model_class.objects.filter(pk=pk, **{field: filename}).update(**{field: None})
+        if meta.get_field(field).null:
+            # Nullable field: blank the reference, and delete the file after commit (the quarantine row holds the
+            # bytes). Only the image columns, and only while they still name the scanned file: a full save would
+            # write stale fields back (e.g. ``Organization.custom_domain``, #1199), and a file uploaded meanwhile
+            # must stay. An image with derived images is removed with them from every row that names it (a
+            # duplicated event shares the template's images).
+            if THUMBNAIL_CONFIGS.get((meta.app_label, str(meta.model_name), field)):
+                paths = detach_image_everywhere(path)
+            else:
+                model_class.objects.filter(pk=pk, **{field: path}).update(**{field: None})
+                paths = [path]
+            delete_unreferenced_files_after_commit(paths)
         else:
             # Non-nullable field: full_clean() would reject a blank value and roll back the
             # quarantine, so remove the file and the row outright instead. The row goes only while it still
             # names the scanned file: a replacement uploaded meanwhile keeps it. Lock and reload the row, then use the
             # instance's own delete(): some models clean up more there (QuestionnaireFile drops its thumbnails).
-            file_field.delete(save=False)
-            current = model_class.objects.select_for_update().filter(pk=pk, **{field: filename}).first()
+            default_storage.delete(path)
+            current = model_class.objects.select_for_update().filter(pk=pk, **{field: path}).first()
             if current is not None:
                 current.delete()
     # Notify users about malware detection
@@ -361,9 +436,10 @@ def rescan_pending_uploads() -> int:
 
     The upload path queues the scan after commit. If the broker is down at that time, the file is
     stored but not scanned. This sweep picks the latest audit of each
-    ``(app, model, instance_pk, field)`` that is still pending after ``RESCAN_GRACE``. A newer
-    audit for the same field means that the file was replaced, so the sweep skips the older one.
-    It also skips uploads whose model, field, instance or file is gone.
+    ``(app, model, instance_pk, field)`` that is still pending after ``RESCAN_GRACE``. For an audit
+    without a stored path, a newer audit for the same field means that the file was replaced, so the
+    sweep skips the older one, and it skips an instance or file that is gone. An audit with a stored
+    path is always queued: the scan reads that path. Unknown models and fields are skipped.
 
     Returns:
         The number of scans queued.
@@ -385,12 +461,17 @@ def rescan_pending_uploads() -> int:
             created_at__lte=now - RESCAN_GRACE,
             created_at__gte=now - RESCAN_LOOKBACK,
         )
-        .exclude(Exists(newer))
-        .values_list("app", "model", "instance_pk", "field")
+        # An audit with its own path is scanned even when superseded or when its row is gone: a copy such as a
+        # duplicated event can still name that file. Older audits without a path keep the latest-only rule.
+        .exclude(Q(file_path="") & Exists(newer))
+        .values_list("app", "model", "instance_pk", "field", "file_path")
         .distinct()
     )
     queued = 0
-    for app, model, pk, field in candidates:
+    seen: set[tuple[t.Any, ...]] = set()
+    for app, model, pk, field, file_path in candidates:
+        if (app, model, pk, field) in seen:
+            continue  # one scan covers every pending path of the upload
         try:
             model_class = apps.get_model(app, model)
             model_class._meta.get_field(field)
@@ -398,8 +479,9 @@ def rescan_pending_uploads() -> int:
             logger.warning("rescan_pending_upload_unknown_field", app=app, model=model, field=field)
             continue
         empty_file = Q(**{f"{field}__isnull": True}) | Q(**{field: ""})
-        if not model_class.objects.filter(pk=pk).exclude(empty_file).exists():
+        if not file_path and not model_class.objects.filter(pk=pk).exclude(empty_file).exists():
             continue
+        seen.add((app, model, pk, field))
         scan_for_malware.delay(app=app, model=model, pk=str(pk), field=field)
         queued += 1
     if queued:

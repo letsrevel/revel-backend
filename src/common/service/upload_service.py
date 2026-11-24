@@ -54,6 +54,7 @@ def create_file_audit_and_scan(
     field: str,
     file_hash: str,
     uploader_email: str,
+    file_path: str = "",
 ) -> None:
     """Create audit record and schedule malware scan for an uploaded file.
 
@@ -68,6 +69,7 @@ def create_file_audit_and_scan(
         field: Field name containing the file
         file_hash: SHA-256 hash of the file content
         uploader_email: Email of the user who uploaded the file
+        file_path: Storage path of the uploaded file; the scan reads this file
 
     When ``FEATURE_MALWARE_SCAN`` is disabled the file is recorded as ``CLEAN``
     immediately and no ClamAV scan is dispatched (self-host without an AV daemon).
@@ -82,6 +84,7 @@ def create_file_audit_and_scan(
         field=field,
         file_hash=file_hash,
         uploader=uploader_email,
+        file_path=file_path,
     )
     if not settings.FEATURE_MALWARE_SCAN:
         audit.status = FileUploadAudit.FileUploadAuditStatus.CLEAN
@@ -177,6 +180,7 @@ def safe_save_uploaded_file(
         field=field,
         file_hash=file_hash,
         uploader_email=uploader.email,
+        file_path=file_field.name,
     )
 
     # Schedule thumbnail generation if configured for this model/field
