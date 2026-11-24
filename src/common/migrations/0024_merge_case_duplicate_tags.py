@@ -87,6 +87,17 @@ def _lock_duplicate_groups(Tag: t.Any) -> None:
     list(Tag.objects.select_for_update().filter(pk__in=list(ids)).order_by("pk").values_list("pk", flat=True))
 
 
+def _locked_group(Tag: t.Any, key: str, members: list[t.Any]) -> list[t.Any]:
+    """Lock the group's rows again and return those still named ``key``, in the canonical order of ``members``.
+
+    A tag that old code created after the first lock can join a group unlocked, and it can be renamed before
+    this lock. Locked rows are a no-op. The fields come from the locked rows, not from the copies read before.
+    """
+    group = Tag.objects.select_for_update().annotate(key=Lower("name")).filter(pk__in=[m.pk for m in members])
+    locked = {tag.pk: tag for tag in group.order_by("pk") if tag.key == key}
+    return [locked[m.pk] for m in members if m.pk in locked]
+
+
 def merge_case_duplicate_tags(apps: t.Any, schema_editor: t.Any) -> None:
     """Merge case-duplicate tags into one canonical tag per group."""
     Tag = apps.get_model("common", "Tag")
@@ -99,18 +110,15 @@ def merge_case_duplicate_tags(apps: t.Any, schema_editor: t.Any) -> None:
     for tag in tags:
         groups[tag.key].append(tag)
 
-    for members in groups.values():
-        if len(members) < 2:
+    for key, members in groups.items():
+        current = _locked_group(Tag, key, members) if len(members) > 1 else []
+        if len(current) < 2:
             continue
-        # A tag that old code created after the first lock can join a group unlocked: lock the group again
-        # (locked rows are a no-op) and fill from the locked rows, not from the copies read before the lock.
-        group = Tag.objects.select_for_update().filter(pk__in=[m.pk for m in members]).order_by("pk")
-        locked = {tag.pk: tag for tag in group}
-        canonical, duplicates = locked[members[0].pk], [locked[m.pk] for m in members[1:]]
+        canonical, duplicates = current[0], current[1:]
         duplicate_ids = [dup.pk for dup in duplicates]
 
         _fill_empty_fields(Tag, canonical, duplicates)
-        _repoint_children(Tag, canonical, members)
+        _repoint_children(Tag, canonical, current)
 
         _move_assignments(TagAssignment, canonical, duplicate_ids)
 
