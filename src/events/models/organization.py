@@ -22,6 +22,7 @@ from events.utils.small_business import SmallBusinessScheme
 from events.utils.visibility import get_excluded_org_ids, get_valid_member_org_ids
 
 from .mixins import (
+    IMAGE_PATH_FIELDS,
     LocationMixin,
     LogoCoverValidationMixin,
     SlugFromNameMixin,
@@ -478,6 +479,20 @@ class Organization(
 
     class Meta:
         ordering = ["name"]
+
+    def cascaded_image_paths(self) -> list[str]:
+        """The image paths of the events and series that the organization delete removes by cascade."""
+        from .event import Event
+        from .event_series import EventSeries
+
+        paths: list[str] = []
+        for model in (EventSeries, Event):  # series before events, the order of a series delete
+            # Locked, so a thumbnail write on a child cannot replace a path after this read.
+            rows = (
+                model.objects.select_for_update(no_key=True).filter(organization=self).values_list(*IMAGE_PATH_FIELDS)
+            )
+            paths += [name for row in rows for name in row if name]
+        return paths
 
     def __str__(self) -> str:
         return self.name

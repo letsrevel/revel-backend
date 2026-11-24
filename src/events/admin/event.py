@@ -14,6 +14,7 @@ from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
+from common.thumbnails.admin_mixins import ImageSourceAdminMixin
 from events import models
 from events.admin.base import (
     EventInvitationInline,
@@ -54,7 +55,7 @@ class EventOriginFilter(admin.SimpleListFilter):
 
 
 @admin.register(models.Event)
-class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+class EventAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin model for Events."""
 
     def get_readonly_fields(self, request: HttpRequest, obj: models.Event | None = None) -> t.Sequence[str]:
@@ -196,14 +197,14 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
 
 
 @admin.register(models.EventSeries)
-class EventSeriesAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+class EventSeriesAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     list_display = ["name", "slug", "organization_link", "is_active", "auto_publish"]
     list_select_related = ["organization"]
     list_filter = ["is_active", "auto_publish"]
     search_fields = ["name", "slug", "organization__name"]
     autocomplete_fields = ["organization", "template_event", "recurrence_rule"]
     prepopulated_fields = {"slug": ("name",)}
-    readonly_fields = ["last_generated_until"]
+    readonly_fields = ["last_generated_until", "logo_thumbnail", "cover_art_thumbnail", "cover_art_social"]
 
 
 @admin.register(models.RecurrenceRule)

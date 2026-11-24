@@ -18,6 +18,7 @@ from django.db import models, transaction
 from common import tasks
 from common.models import FileUploadAudit
 from common.thumbnails.config import THUMBNAIL_CONFIGS, get_thumbnail_field_names
+from common.thumbnails.files import stored_image_paths
 from common.thumbnails.tasks import (
     delete_orphaned_thumbnails_task,
     generate_thumbnails_task,
@@ -129,7 +130,7 @@ def safe_save_uploaded_file(
     """Safely save an uploaded file passing it to malware scan.
 
     Validates the file against field validators before saving.
-    Deletes the old file if one exists before saving the new file.
+    After commit, deletes the old file and its derived images, if no other row names them.
     Schedules thumbnail generation for image files.
 
     Raises:
@@ -143,31 +144,16 @@ def safe_save_uploaded_file(
     config_key = (app, model, field)
     config = THUMBNAIL_CONFIGS.get(config_key)
 
-    # Collect old thumbnail paths for deletion
-    old_thumbnail_paths: list[str] = []
-    thumbnail_field_names: list[str] = []
-    if config:
-        thumbnail_field_names = get_thumbnail_field_names(config)
-        for thumb_field in thumbnail_field_names:
-            if hasattr(instance, thumb_field):
-                thumb_file = getattr(instance, thumb_field, None)
-                # ImageField returns an ImageFieldFile - get path via .name
-                if thumb_file and hasattr(thumb_file, "name") and thumb_file.name:
-                    old_thumbnail_paths.append(thumb_file.name)
-                # Clear the field (None for ImageField)
-                setattr(instance, thumb_field, None)
-
-    # Delete old file if it exists
-    old_file = getattr(instance, field)
-    if old_file:
-        old_file.delete(save=False)
-
-    # Schedule deletion of old thumbnails
-    if old_thumbnail_paths:
-        # robust: a broker failure must not fail the stored upload (#1446); orphaned thumbnails are harmless.
-        transaction.on_commit(
-            lambda: delete_orphaned_thumbnails_task.delay(thumbnail_paths=old_thumbnail_paths), robust=True
-        )
+    # The stored files of this image, read under the row lock; they are deleted after commit, and only when
+    # no other row names them (a duplicated event shares its images). A rollback keeps them.
+    thumbnail_field_names = get_thumbnail_field_names(config) if config else []
+    if instance.pk is not None:
+        old_paths = stored_image_paths(type(instance), instance.pk, field)
+        if old_paths:
+            # robust: a broker failure must not fail the stored upload (#1446); orphaned files are harmless.
+            transaction.on_commit(lambda: delete_orphaned_thumbnails_task.delay(thumbnail_paths=old_paths), robust=True)
+    for thumb_field in thumbnail_field_names:
+        setattr(instance, thumb_field, None)
 
     setattr(instance, field, file)
 
@@ -180,11 +166,8 @@ def safe_save_uploaded_file(
     instance.refresh_from_db()
     file_field = getattr(instance, field)
     file_field.open()
-    # NOTE: Race condition possible if user uploads twice in rapid succession.
-    # File A upload: deletes old thumbnails async, schedules thumbnail generation
-    # File B upload (before A's thumbnails exist): deletes nothing, schedules generation
-    # Result: A's thumbnails may be orphaned. Accepted risk - orphaned files are harmless
-    # and a cleanup task can handle them periodically if needed.
+    # Two uploads in quick succession: B reads A's stored paths under the row lock (they are deleted after B
+    # commits), and A's thumbnail task finds that its source changed and discards its files.
     file_hash = hashlib.sha256(file_field.read()).hexdigest()
     file_field.seek(0)
     create_file_audit_and_scan(

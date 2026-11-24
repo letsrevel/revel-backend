@@ -209,11 +209,8 @@ class Command(BaseCommand):
         Returns:
             Number of instances processed (including skipped).
         """
-        from common.thumbnails.service import (
-            delete_unreferenced_thumbnails,
-            generate_and_save_thumbnails,
-            write_paths_if_source_unchanged,
-        )
+        from common.thumbnails.files import delete_unreferenced_files
+        from common.thumbnails.service import generate_and_save_thumbnails, write_paths_if_source_unchanged
 
         count = 0
         for instance in queryset.iterator():
@@ -232,7 +229,7 @@ class Command(BaseCommand):
                 discard, replaced = write_paths_if_source_unchanged(
                     type(instance), pk, field_name, original_path, result.thumbnails
                 )
-                delete_unreferenced_thumbnails(list(result.thumbnails.values()) if discard else replaced)
+                delete_unreferenced_files(list(result.thumbnails.values()) if discard else replaced)
                 if discard:
                     stats.skipped += 1
                     continue
@@ -249,8 +246,8 @@ class Command(BaseCommand):
                     self.stdout.write(f"  Generated thumbnails for {model_name} pk={pk}")
             except Exception as e:
                 # ponytail: files made before the failure stay in storage (orphans, harmless); a cleanup here
-                # would need the database that may have failed. A later run for the same source writes them
-                # again; the orphans of a source that changed stay.
+                # would need the database that may have failed. A later run saves new files at free names, so
+                # these orphans stay until a storage sweep removes them.
                 self.stdout.write(self.style.ERROR(f"  Failed to generate thumbnails for pk={pk}: {e}"))
                 stats.skipped += 1
         return count

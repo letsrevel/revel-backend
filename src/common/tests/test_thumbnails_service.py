@@ -18,10 +18,10 @@ from common.thumbnails.config import (
     get_thumbnail_config,
     get_thumbnail_field_names,
 )
+from common.thumbnails.files import delete_thumbnails_for_paths
 from common.thumbnails.service import (
     ThumbnailResult,
     delete_image_with_derivatives,
-    delete_thumbnails_for_paths,
     generate_and_save_thumbnails,
     generate_thumbnail,
     get_thumbnail_path,
@@ -288,27 +288,30 @@ class TestGenerateAndSaveThumbnails:
             generate_and_save_thumbnails("nonexistent.jpg", test_thumbnail_config)
         assert "not found" in str(exc_info.value).lower()
 
-    def test_replaces_existing_thumbnail(
+    def test_a_regeneration_saves_a_new_file_and_keeps_the_existing_one(
         self,
         rgb_image_bytes: bytes,
         test_thumbnail_config: ModelThumbnailConfig,
     ) -> None:
-        """Test that existing thumbnails are replaced during regeneration."""
+        """Other rows can name the existing file (shared images): the task deletes it later, if no row names it."""
         original_path = "test-thumbnails/original-replace.jpg"
         default_storage.save(original_path, ContentFile(rgb_image_bytes))
+        result1 = result2 = None
 
         try:
             result1 = generate_and_save_thumbnails(original_path, test_thumbnail_config)
             thumb_path = result1.thumbnails["logo_thumbnail"]
             result2 = generate_and_save_thumbnails(original_path, test_thumbnail_config)
 
-            assert result2.thumbnails["logo_thumbnail"] == thumb_path
+            assert result2.thumbnails["logo_thumbnail"] != thumb_path
             assert default_storage.exists(thumb_path)
+            assert default_storage.exists(result2.thumbnails["logo_thumbnail"])
         finally:
             default_storage.delete(original_path)
-            for path in result1.thumbnails.values():
-                if default_storage.exists(path):
-                    default_storage.delete(path)
+            for result in (result1, result2):
+                for path in result.thumbnails.values() if result else ():
+                    if default_storage.exists(path):
+                        default_storage.delete(path)
 
 
 # =============================================================================
@@ -591,6 +594,15 @@ class TestPartialFailureHandling:
 class TestDeleteImageWithDerivatives:
     """Tests for the delete_image_with_derivatives function."""
 
+    @pytest.fixture(autouse=True)
+    def _capture(self, django_capture_on_commit_callbacks: t.Any) -> None:
+        self.capture = django_capture_on_commit_callbacks
+
+    def _delete(self, instance: t.Any, field: str) -> None:
+        """The files go after commit: run the callbacks."""
+        with self.capture(execute=True):
+            delete_image_with_derivatives(instance, field)
+
     def test_deletes_source_and_derivatives(
         self,
         rgb_image_bytes: bytes,
@@ -615,7 +627,7 @@ class TestDeleteImageWithDerivatives:
         assert default_storage.exists(thumb_path)
 
         # Delete with derivatives
-        delete_image_with_derivatives(organization, "logo")
+        self._delete(organization, "logo")
 
         # Verify all files deleted
         assert not default_storage.exists(source_path)
@@ -640,7 +652,7 @@ class TestDeleteImageWithDerivatives:
         assert not organization.logo_thumbnail  # No thumbnail
 
         # Delete with derivatives
-        delete_image_with_derivatives(organization, "logo")
+        self._delete(organization, "logo")
 
         # Verify source deleted
         assert not default_storage.exists(source_path)
@@ -657,7 +669,7 @@ class TestDeleteImageWithDerivatives:
         assert not organization.logo  # No logo
 
         # Should not raise any errors
-        delete_image_with_derivatives(organization, "logo")
+        self._delete(organization, "logo")
 
         # Model unchanged
         organization.refresh_from_db()
@@ -685,7 +697,7 @@ class TestDeleteImageWithDerivatives:
             "common.thumbnails.config.get_thumbnail_config",
             return_value=None,
         ):
-            delete_image_with_derivatives(user, "profile_picture")
+            self._delete(user, "profile_picture")
 
         # Source file should still be deleted
         assert not default_storage.exists(source_path)
@@ -719,7 +731,7 @@ class TestDeleteImageWithDerivatives:
         assert default_storage.exists(social_path)
 
         # Delete with derivatives
-        delete_image_with_derivatives(organization, "cover_art")
+        self._delete(organization, "cover_art")
 
         # Verify all files deleted
         assert not default_storage.exists(source_path)
@@ -743,7 +755,7 @@ def test_the_unreferenced_delete_waits_for_a_path_lock() -> None:
 
     from django.db import connection, transaction
 
-    from common.thumbnails.service import _lock_paths, delete_unreferenced_thumbnails
+    from common.thumbnails.files import delete_unreferenced_files, lock_image_paths
 
     path = "protected/locked/a_jpg_thumbnail.jpg"
     locked, release, done = threading.Event(), threading.Event(), threading.Event()
@@ -751,7 +763,7 @@ def test_the_unreferenced_delete_waits_for_a_path_lock() -> None:
     def hold_the_lock() -> None:
         try:
             with transaction.atomic():
-                _lock_paths([path])
+                lock_image_paths([path])
                 locked.set()
                 release.wait(10)
         finally:
@@ -759,7 +771,7 @@ def test_the_unreferenced_delete_waits_for_a_path_lock() -> None:
 
     def delete() -> None:
         try:
-            delete_unreferenced_thumbnails([path])
+            delete_unreferenced_files([path])
             done.set()
         finally:
             connection.close()

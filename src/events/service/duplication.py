@@ -6,15 +6,18 @@ from datetime import datetime
 from django.db import transaction
 
 from events.models import Event, PotluckItem, TicketTier
+from events.models.mixins import IMAGE_PATH_FIELDS
 from events.suppression import suppress_default_tier_creation
 
 # Fields that are NOT copied from the template. These fall into three groups:
 # 1. Primary key / timestamps — auto-managed by Django.
 # 2. Slug — regenerated via SlugFromNameMixin based on the new name.
 # 3. Per-occurrence state that must never leak from template to occurrence
-#    (is_template, is_modified, attendee_count, auto-generated thumbnails).
+#    (is_template, is_modified, attendee_count).
 # 4. Fields explicitly overridden or shifted by this function
 #    (name, status, start, end, occurrence_index, date windows).
+# The logo, the cover art and their derived images are shared by path with the template: the files are
+# deleted only when no row names them (common.thumbnails.files).
 _EXCLUDED_FROM_COPY: frozenset[str] = frozenset(
     {
         # primary key / timestamps
@@ -23,9 +26,6 @@ _EXCLUDED_FROM_COPY: frozenset[str] = frozenset(
         "updated_at",
         # auto-generated
         "slug",
-        "logo_thumbnail",
-        "cover_art_thumbnail",
-        "cover_art_social",
         # per-occurrence state
         "attendee_count",
         "is_template",
@@ -125,6 +125,7 @@ def duplicate_event(
     - Ticket tiers (with date shifts, reset quantity_sold)
     - Potluck items (without assignments; all become host suggestions)
     - Tags
+    - Logo, cover art and their derived images, shared by path (read under the template's row lock)
 
     Links to same:
     - Organization questionnaires (M2M)
@@ -134,7 +135,6 @@ def duplicate_event(
     - Tickets, RSVPs, invitations, tokens, waitlist
     - Potluck item assignees/creators
     - Per-occurrence state (is_template, is_modified, attendee_count)
-    - Auto-generated thumbnails
 
     Args:
         template_event: Event to copy from
@@ -155,6 +155,12 @@ def duplicate_event(
 
     # Collect all copyable fields from the template via model introspection.
     copy_kwargs = _collect_copyable_field_values(template_event)
+    # The image paths come from the locked row: an upload or a thumbnail write on the template takes this lock
+    # too, so the copy never names a file that a replace deletes in the meantime.
+    # NO KEY: the copy's deferred foreign-key checks (KEY SHARE at commit) must not wait for it. A template that
+    # was deleted meanwhile raises Event.DoesNotExist: its files may already be gone.
+    stored = Event.objects.select_for_update(no_key=True).values_list(*IMAGE_PATH_FIELDS).get(pk=template_event.pk)
+    copy_kwargs.update(zip(IMAGE_PATH_FIELDS, stored, strict=True))
 
     # Apply shifted date fields.
     for field_name in _SHIFTED_DATE_FIELDS:

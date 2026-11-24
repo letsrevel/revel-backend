@@ -10,7 +10,7 @@ from common.fields import MarkdownField
 from common.models import TagAssignment, TaggableMixin, TimeStampedModel
 from events.utils.visibility import owner_or_staff_q
 
-from .mixins import LogoCoverValidationMixin, SlugFromNameMixin
+from .mixins import IMAGE_PATH_FIELDS, LogoCoverValidationMixin, SlugFromNameMixin
 from .organization import Organization
 
 # Cap the rolling generation horizon at one year to keep the daily Celery beat task bounded.
@@ -165,6 +165,14 @@ class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin,
     def __str__(self) -> str:
         return self.name
 
+    def cascaded_image_paths(self) -> list[str]:
+        """The image paths of the events that the series delete removes (template and occurrences)."""
+        from .event import Event
+
+        # Locked, so a thumbnail write on an event cannot replace a path after this read (see delete() for the order).
+        rows = Event.objects.select_for_update(no_key=True).filter(event_series=self).values_list(*IMAGE_PATH_FIELDS)
+        return [name for row in rows for name in row if name]
+
     def delete(self, *args: t.Any, **kwargs: t.Any) -> tuple[int, dict[str, int]]:
         """Delete the series and cascade-delete its events, including the template.
 
@@ -182,11 +190,20 @@ class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin,
         ``template_event`` and pinned by
         ``test_deleting_series_cascades_to_template_and_occurrences``.
         """
-        if self.pk is not None and (self.template_event_id or self.recurrence_rule_id):
-            type(self).objects.filter(pk=self.pk).update(
-                template_event=None,
-                recurrence_rule=None,
-            )
-            self.template_event = None
-            self.recurrence_rule = None
-        return super().delete(*args, **kwargs)
+        from django.db import transaction
+
+        with transaction.atomic():
+            # Lock order: the series (NO KEY), its events, then the UPDATE below. That UPDATE changes unique columns,
+            # so it takes FOR UPDATE: a duplicate that holds an event lock needs KEY SHARE on the series at commit,
+            # which NO KEY allows, so the events are locked before the upgrade. Recurrence materialisation also
+            # locks the series first. An organization delete locks series before events too.
+            list(type(self).objects.select_for_update(no_key=True).filter(pk=self.pk).values_list("pk"))
+            self.cascaded_image_paths()
+            if self.pk is not None and (self.template_event_id or self.recurrence_rule_id):
+                type(self).objects.filter(pk=self.pk).update(
+                    template_event=None,
+                    recurrence_rule=None,
+                )
+                self.template_event = None
+                self.recurrence_rule = None
+            return super().delete(*args, **kwargs)

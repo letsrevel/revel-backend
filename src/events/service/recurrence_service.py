@@ -159,7 +159,8 @@ def generate_series_events(
         # need to serialize on the series row; the related rows are read
         # under the same transaction but not locked.
         locked_series = (
-            EventSeries.objects.select_for_update(of=("self",))
+            # NO KEY: only non-key columns change here; a duplicate's deferred FK check (KEY SHARE) must not wait.
+            EventSeries.objects.select_for_update(of=("self",), no_key=True)
             .select_related("recurrence_rule", "template_event")
             .get(pk=series.pk)
         )
@@ -361,7 +362,8 @@ def cancel_occurrence(series: EventSeries, occurrence_date: datetime) -> None:
 
     # Re-fetch under a row lock so the append-and-save is atomic with any
     # concurrent cancellation against the same series.
-    locked_series = EventSeries.objects.select_for_update().get(pk=series.pk)
+    # NO KEY: ``exdates`` is not a key; a duplicate of an occurrence (KEY SHARE at commit) must not deadlock.
+    locked_series = EventSeries.objects.select_for_update(no_key=True).get(pk=series.pk)
     existing_normalized = _normalize_exdate_set(locked_series.exdates)
     if normalized not in existing_normalized:
         locked_series.exdates = [*locked_series.exdates, normalized]
