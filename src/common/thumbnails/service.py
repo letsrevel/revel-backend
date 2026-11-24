@@ -262,7 +262,8 @@ def delete_unreferenced_thumbnails(paths: list[str]) -> None:
     """Delete the derived files in ``paths`` that no row names any more.
 
     Rows can share a source file (a duplicated event copies the logo and cover art path), so they can share
-    derived files too. Call it after the commit that removed the reference.
+    derived files too. Call it after the commit that removed the reference. The thumbnail task and the
+    ``generate_thumbnails`` command use it; the upload and image-delete helpers do not check references yet.
 
     ponytail: the check takes no lock, so another row's task that writes the same path just after it loses
     that file until its next regeneration. A copy of the source file for each duplicate would remove the sharing.

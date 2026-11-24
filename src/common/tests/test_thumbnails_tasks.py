@@ -410,6 +410,7 @@ class TestThumbnailIntegration:
         with patch("common.thumbnails.tasks.generate_and_save_thumbnails", make_then_change):
             generate_thumbnails_task(app="accounts", model="reveluser", pk=str(user.pk), field="profile_picture")
 
+        assert made
         assert all(default_storage.exists(path) for path in made.values())
 
     def test_a_sync_regeneration_deletes_the_derived_files_that_it_replaces(
@@ -428,6 +429,33 @@ class TestThumbnailIntegration:
         assert not set(stored) & set(old)
         assert all(path and default_storage.exists(path) for path in stored)
         assert not any(default_storage.exists(path) for path in old)
+
+    def test_a_sync_run_for_a_source_that_changed_meanwhile_writes_nothing_and_deletes_its_files(
+        self, revel_user_factory: RevelUserFactory, rgb_image_bytes: bytes, settings: t.Any, tmp_path: t.Any
+    ) -> None:
+        from django.core.management import call_command
+
+        from accounts.models import RevelUser
+        from common.thumbnails.service import generate_and_save_thumbnails as real
+
+        settings.MEDIA_ROOT = str(tmp_path)
+        user, old = self._user_with_old_format_files(revel_user_factory, rgb_image_bytes)
+        made: dict[str, str] = {}
+
+        def make_then_remove(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            result = real(*args, **kwargs)
+            made.update(result.thumbnails)
+            RevelUser.objects.filter(pk=user.pk).update(profile_picture=None)
+            return result
+
+        with patch("common.thumbnails.service.generate_and_save_thumbnails", make_then_remove):
+            call_command("generate_thumbnails", model="accounts.RevelUser", sync=True, force=True, stdout=MagicMock())
+
+        assert made
+        assert not any(default_storage.exists(path) for path in made.values())
+        stored = RevelUser.objects.values_list("profile_picture_thumbnail", "profile_picture_preview").get(pk=user.pk)
+        assert list(stored) == old  # the write did not happen
+        assert all(default_storage.exists(path) for path in old)  # still named by the row
 
     def test_questionnaire_file_thumbnail_generation(
         self,
