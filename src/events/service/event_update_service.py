@@ -35,6 +35,7 @@ from events.schema import EventCreateSchema, EventEditSchema, SeriesPassLinkInpu
 from events.service import day_membership_service, discount_code_service, series_pass_service
 from events.service.pending_checkout import expire_pending_sessions_on_commit
 from events.service.waitlist_service import enqueue_waitlist_processing, revoke_all_pending_offers
+from events.tasks import materialize_series_pass_holders
 from events.utils.schedule import EventScheduleSession
 from events.utils.visibility_settings import build_visibility_settings_update, validate_visibility_settings
 
@@ -224,6 +225,23 @@ def update_event(
     return updated_event
 
 
+def _dispatch_series_pass_coverage(event: models.Event) -> None:
+    """After commit, issue an un-cancelled, not yet started event's tickets to the holders of each covering pass."""
+    if event.start < timezone.now():
+        return
+    pass_ids = models.SeriesPassTierLink.objects.filter(event_id=event.id).values_list("series_pass_id", flat=True)
+    for pass_id in sorted(str(pass_id) for pass_id in pass_ids):
+        transaction.on_commit(_series_pass_materialization(pass_id, str(event.id)), robust=True)
+
+
+def _series_pass_materialization(series_pass_id: str, event_id: str) -> t.Callable[[], None]:
+    # A named closure, not a partial: a robust on_commit logs failures via ``__qualname__``.
+    def dispatch_series_pass_materialization() -> None:
+        materialize_series_pass_holders.delay(series_pass_id, [event_id])
+
+    return dispatch_series_pass_materialization
+
+
 @transaction.atomic
 def update_status(
     event: models.Event,
@@ -248,6 +266,12 @@ def update_status(
         enqueues a waitlist processing pass so the freshly real seats can be
         taken by waitlisted users. Raises ``EventRefundsStartedError`` if the
         bulk refund sweep already started — that process is irreversible.
+        When the event has not started, also dispatches
+        ``materialize_series_pass_holders`` (on commit) for every series pass
+        that covers the event, whatever the new status is (OPEN, CLOSED or
+        DRAFT): a pass bought while the event was CANCELLED has no ticket for
+        it (#1494). The task skips holders that already have one and checks
+        capacity. A transition between two other statuses does not dispatch.
       * On transition to CANCELLED with ``refund_tickets=True``, ALWAYS
         dispatches the bulk cancel-and-refund sweep on commit —
         ``tickets_refund_started_at`` is stamped only the first time (a no-op
@@ -310,6 +334,7 @@ def update_status(
         revoke_all_pending_offers(event.id)
     elif old_status == models.Event.EventStatus.CANCELLED:
         enqueue_waitlist_processing(event.id)
+        _dispatch_series_pass_coverage(event)
 
     if new_status == models.Event.EventStatus.CANCELLED and refund_tickets:
         if event.tickets_refund_started_at is None:

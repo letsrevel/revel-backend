@@ -18,7 +18,7 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 
 from events.models import HeldSeriesPass
-from events.service.ticket_file_service import get_apple_pass_generator
+from events.service.ticket_file_service import drop_stale_siblings, get_apple_pass_generator
 from events.utils.pass_branding import get_pass_brand_colors
 
 logger = structlog.get_logger(__name__)
@@ -45,7 +45,8 @@ def compute_content_hash(held_pass: HeldSeriesPass) -> str:
     ]
     links = held_pass.series_pass.tier_links.select_related("event").order_by("event_id")
     for link in links:
-        parts.append(f"{link.event_id}:{link.event.updated_at.isoformat()}")
+        # Status by value (#1494): a cancel saves with update_fields, so updated_at does not change.
+        parts.append(f"{link.event_id}:{link.event.updated_at.isoformat()}:{link.event.status}")
     # Brand colors (#1157): hashed by value, only when set, so a branding change invalidates the
     # cache while unbranded hashes stay valid.
     if brand := get_pass_brand_colors(held_pass.series_pass.event_series.organization):
@@ -164,8 +165,11 @@ def _persist_and_update(
 
         if update_fields:
             content_hash = compute_content_hash(held_pass)
+            if content_hash != held_pass.file_content_hash:
+                old_files += drop_stale_siblings(held_pass, update_fields, pdf_bytes, pkpass_bytes)
             update_fields["file_content_hash"] = content_hash
             HeldSeriesPass.objects.filter(pk=held_pass.pk).update(**update_fields)
+            held_pass.file_content_hash = content_hash
 
         # Phase 2: Clean up old files (best-effort, orphans cleaned by daily task)
         for old_name in old_files:

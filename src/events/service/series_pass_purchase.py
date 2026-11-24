@@ -2,13 +2,14 @@
 
 import functools
 import typing as t
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 import structlog
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import F
+from django.db.models import F, QuerySet
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -18,6 +19,7 @@ from accounts.service.account_erasure import lock_account_for_checkout
 from events.compliance import enforcement as compliance
 from events.exceptions import SeriesPassNotPurchasableError
 from events.models import (
+    Event,
     HeldSeriesPass,
     SeriesPass,
     SeriesPassTierLink,
@@ -116,6 +118,12 @@ class SeriesPassPurchaseService:
         if not self._is_owner_or_staff:
             series_pass_event_checks.assert_events_eligible(self.user, [link.event for link in future_links])
 
+    def _future_links(self, now: datetime) -> "QuerySet[SeriesPassTierLink]":
+        """The covered events not yet started, without CANCELLED ones: they get no ticket (#1494)."""
+        return self.series_pass.tier_links.filter(event__start__gte=now).exclude(
+            event__status=Event.EventStatus.CANCELLED
+        )
+
     def _has_active_held_pass(self) -> bool:
         return (
             HeldSeriesPass.objects.filter(series_pass=self.series_pass, user=self.user)
@@ -178,9 +186,7 @@ class SeriesPassPurchaseService:
         # Light, lock-free checks first: the covered future events and the per-event gates run before the
         # pass row lock so a refused buyer never holds it. The links are re-queried under the lock below.
         now = timezone.now()
-        pre_links: list[SeriesPassTierLink] = list(
-            self.series_pass.tier_links.filter(event__start__gte=now).select_related("event")
-        )
+        pre_links: list[SeriesPassTierLink] = list(self._future_links(now).select_related("event"))
         self._assert_covered_events_eligible(pre_links)
 
         # Re-assert the total_quantity cap under a row lock — the quote above checked
@@ -202,7 +208,7 @@ class SeriesPassPurchaseService:
             raise SeriesPassNotPurchasableError(str(_("This pass is sold out.")))
 
         future_links: list[SeriesPassTierLink] = list(
-            self.series_pass.tier_links.filter(event__start__gte=now).select_related("event").order_by("tier_id")
+            self._future_links(now).select_related("event").order_by("tier_id")
         )
         self._assert_late_links_eligible(pre_links, future_links)
         if not future_links:

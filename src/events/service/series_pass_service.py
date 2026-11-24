@@ -80,10 +80,16 @@ def get_quote(
     A pass is not purchasable while any upcoming covered event is not OPEN (``EventStatusGate``'s
     condition). The purchase passes ``check_event_status=False`` because it runs the real gate
     per event itself (richer payload, owners/staff exempt). Per-user gates are never part of the quote.
+
+    A CANCELLED covered event (#1494) counts like a started one: it gives one pro-rata discount
+    step (once, also when it is in the past), it is not remaining and it does not block the sale.
+    Every other non-OPEN status of an upcoming covered event blocks.
     """
     now = now or timezone.now()
     links = series_pass.tier_links.select_related("event__venue__city", "event__city", "event__organization")
-    upcoming = [link.event for link in links if link.event.start >= now]
+    upcoming = [
+        link.event for link in links if link.event.start >= now and link.event.status != Event.EventStatus.CANCELLED
+    ]
     passed = len(links) - len(upcoming)
     remaining = len(upcoming)
     price = max(series_pass.price - passed * series_pass.pro_rata_discount, _ZERO).quantize(Decimal("0.01"))
@@ -379,7 +385,7 @@ def rebuild_attendee_visibility(event_ids: t.Iterable[UUID | str]) -> None:
 
 
 def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
-    """Grant tickets for covered future events the pass missed while PENDING.
+    """Grant tickets for covered future events the pass missed while PENDING (CANCELLED events skipped).
 
     A pass extension (``materialize_series_pass_holders``) only processes ACTIVE
     holders, so a buyer mid-checkout misses any event linked to the pass between
@@ -412,6 +418,7 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
     )
     missing_links = list(
         SeriesPassTierLink.objects.filter(series_pass_id=held_pass.series_pass_id, event__start__gte=now)
+        .exclude(event__status=Event.EventStatus.CANCELLED)  # No ticket for a cancelled event (#1494).
         .exclude(event_id__in=ticketed_event_ids)
         .select_related("event")
     )

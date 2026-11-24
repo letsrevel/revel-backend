@@ -240,7 +240,12 @@ def _check(
     if owner_or_staff:
         return None, []
     now = timezone.now()
-    links = list(series_pass.tier_links.filter(event__start__gte=now).select_related("event"))
+    # CANCELLED covered events get no ticket, so their questionnaires are not required (#1494).
+    links = list(
+        series_pass.tier_links.filter(event__start__gte=now)
+        .exclude(event__status=Event.EventStatus.CANCELLED)
+        .select_related("event")
+    )
     anchor = _anchor_event(links, now)
     if anchor is None:
         return None, []

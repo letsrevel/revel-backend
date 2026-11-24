@@ -311,8 +311,11 @@ def test_anchor_skips_non_open_event(
     questionnaire: Questionnaire,
     covered_events: list[Event],
 ) -> None:
-    """A cancelled first covered event is not the anchor; the next open one is."""
-    Event.objects.filter(pk=covered_events[0].pk).update(status=Event.EventStatus.CANCELLED)
+    """A non-open (DRAFT) first covered event is not the anchor; the next open one is.
+
+    A CANCELLED one is not a covered upcoming event at all (#1494).
+    """
+    Event.objects.filter(pk=covered_events[0].pk).update(status=Event.EventStatus.DRAFT)
 
     _assert_blocked(free_pass, revel_user, questionnaire, covered_events[1])
 
@@ -351,14 +354,14 @@ def test_all_covered_events_past_apply_before_is_dead_end(
     _assert_dead_end(free_pass, revel_user)
 
 
-def test_only_cancelled_upcoming_event_is_dead_end(
+def test_only_non_open_upcoming_events_is_dead_end(
     free_pass: SeriesPass,
     revel_user: RevelUser,
     series_questionnaire: OrganizationQuestionnaire,
     covered_events: list[Event],
 ) -> None:
-    """Only cancelled covered events remain: the questionnaire cannot be submitted."""
-    Event.objects.filter(pk__in=[e.pk for e in covered_events]).update(status=Event.EventStatus.CANCELLED)
+    """Only non-open (DRAFT) covered events remain: the questionnaire cannot be submitted."""
+    Event.objects.filter(pk__in=[e.pk for e in covered_events]).update(status=Event.EventStatus.DRAFT)
 
     _assert_dead_end(free_pass, revel_user)
 
