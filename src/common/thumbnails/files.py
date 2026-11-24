@@ -7,11 +7,14 @@ commit that removed the reference (a rollback cannot restore a deleted file).
 This module has no service imports, so models can use it too.
 """
 
+import typing as t
+
 import structlog
 from django.apps import apps
 from django.core.files.storage import default_storage
 from django.db import connection, transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from .config import THUMBNAIL_CONFIGS
 
@@ -113,8 +116,9 @@ def stored_image_paths(model_class: type, pk: object, source_field: str) -> list
     return [name for name in row or () if name]
 
 
-# The documented lock order (docs/engineering-notes.md, "Lock order"): Organization -> EventSeries -> Event.
-_LOCK_RANK = {"organization": 0, "eventseries": 1, "event": 2}
+# The documented lock order (docs/engineering-notes.md, "Lock order"): RevelUser first, then
+# Organization -> EventSeries -> Event, then the rest.
+_LOCK_RANK = {"reveluser": -1, "organization": 0, "eventseries": 1, "event": 2}
 
 
 def detach_image_everywhere(source_path: str) -> list[str]:
@@ -132,8 +136,12 @@ def detach_image_everywhere(source_path: str) -> list[str]:
         if not model._meta.get_field(config.source_field).null:
             continue
         derived = [spec.field_name for spec in config.specs]
-        rows = model._default_manager.select_for_update(no_key=True).filter(**{config.source_field: source_path})
-        for row in rows.values_list(*derived):
+        rows = model._default_manager.filter(**{config.source_field: source_path})
+        locked = rows.select_for_update(no_key=True).order_by("pk")  # pk order: no deadlock between two of these
+        for row in locked.values_list(*derived):
             paths += [name for name in row if name]
-        rows.update(**dict.fromkeys([config.source_field, *derived]))
+        cleared: dict[str, t.Any] = dict.fromkeys([config.source_field, *derived])
+        if any(field.name == "updated_at" for field in model._meta.concrete_fields):
+            cleared["updated_at"] = timezone.now()  # cached files built from the row (ticket PDFs) are made again
+        rows.update(**cleared)
     return paths

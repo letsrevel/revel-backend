@@ -84,6 +84,7 @@ def create_resource(
             field="file",
             file_hash=file_hash,
             uploader_email=uploader.email,
+            file_path=resource.file.name or "",
         )
 
     if m2m_data["events"]:
