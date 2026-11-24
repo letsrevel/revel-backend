@@ -38,7 +38,9 @@ def _repoint_children(Tag: t.Any, canonical: t.Any, members: list[t.Any]) -> Non
     parent = _parent_of(Tag, canonical.pk)
     if parent in duplicate_ids:
         grandparent = _parent_of(Tag, parent)
-        Tag.objects.filter(pk=canonical.pk).update(parent_id=None if grandparent in [m.pk for m in members] else grandparent)
+        Tag.objects.filter(pk=canonical.pk).update(
+            parent_id=None if grandparent in [m.pk for m in members] else grandparent
+        )
 
     Tag.objects.filter(parent_id__in=duplicate_ids).update(parent_id=canonical.pk)
 
@@ -100,11 +102,12 @@ def merge_case_duplicate_tags(apps: t.Any, schema_editor: t.Any) -> None:
     for members in groups.values():
         if len(members) < 2:
             continue
-        canonical, duplicates = members[0], members[1:]
+        # A tag that old code created after the first lock can join a group unlocked: lock the group again
+        # (locked rows are a no-op) and fill from the locked rows, not from the copies read before the lock.
+        group = Tag.objects.select_for_update().filter(pk__in=[m.pk for m in members]).order_by("pk")
+        locked = {tag.pk: tag for tag in group}
+        canonical, duplicates = locked[members[0].pk], [locked[m.pk] for m in members[1:]]
         duplicate_ids = [dup.pk for dup in duplicates]
-
-        # A tag that old code created after the first lock can join a group unlocked. Locked rows are a no-op.
-        list(Tag.objects.select_for_update().filter(pk__in=[m.pk for m in members]).order_by("pk").values_list("pk", flat=True))
 
         _fill_empty_fields(Tag, canonical, duplicates)
         _repoint_children(Tag, canonical, members)
@@ -115,7 +118,6 @@ def merge_case_duplicate_tags(apps: t.Any, schema_editor: t.Any) -> None:
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("common", "0023_post_deploy_task_run"),
     ]
