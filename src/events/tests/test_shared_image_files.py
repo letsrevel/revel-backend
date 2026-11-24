@@ -353,8 +353,11 @@ def test_a_series_delete_locks_the_series_then_its_events_then_updates(template:
     assert series_lock < event_lock < first("events_eventseries", "UPDATE")
 
 
-def test_recurrence_locks_on_a_series_let_key_checks_pass(template: Event) -> None:
+@pytest.mark.parametrize("operation", ["cancel_occurrence", "generate_series_events"])
+def test_recurrence_locks_on_a_series_let_key_checks_pass(template: Event, operation: str) -> None:
     """A duplicate of an occurrence checks its series key at commit (KEY SHARE): a FOR UPDATE would deadlock."""
+    import uuid
+
     from django.db import connection
     from django.test.utils import CaptureQueriesContext
 
@@ -362,7 +365,12 @@ def test_recurrence_locks_on_a_series_let_key_checks_pass(template: Event) -> No
 
     series = t.cast(EventSeries, template.event_series)
     with CaptureQueriesContext(connection) as queries:
-        recurrence_service.cancel_occurrence(series, template.start)
+        if operation == "cancel_occurrence":
+            recurrence_service.cancel_occurrence(series, template.start)
+        else:
+            # Pass the cheap in-memory pre-check; the locked re-read then finds no rule and stops.
+            series.is_active, series.recurrence_rule_id, series.template_event_id = True, uuid.uuid4(), template.pk
+            recurrence_service.generate_series_events(series)
 
     locks = [q["sql"] for q in queries.captured_queries if '"events_eventseries"' in q["sql"] and " FOR " in q["sql"]]
     assert locks and all("FOR NO KEY UPDATE" in sql for sql in locks)
