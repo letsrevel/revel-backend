@@ -426,7 +426,7 @@ class TestThumbnailIntegration:
 
         stored = RevelUser.objects.values_list("profile_picture_thumbnail", "profile_picture_preview").get(pk=user.pk)
         assert not set(stored) & set(old)
-        assert all(default_storage.exists(path) for path in stored)
+        assert all(path and default_storage.exists(path) for path in stored)
         assert not any(default_storage.exists(path) for path in old)
 
     def test_questionnaire_file_thumbnail_generation(
