@@ -169,7 +169,8 @@ class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin,
         """The image paths of the events that the series delete removes (template and occurrences)."""
         from .event import Event
 
-        # Locked, so a thumbnail write on an event cannot replace a path after this read (the parent is locked first).
+        # Locked, so a thumbnail write on an event cannot replace a path after this read. delete() takes these
+        # locks before the series row lock, in the same order as an organization delete (events, then series).
         rows = Event.objects.select_for_update(no_key=True).filter(event_series=self).values_list(*IMAGE_PATH_FIELDS)
         return [name for row in rows for name in row if name]
 
@@ -190,11 +191,17 @@ class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin,
         ``template_event`` and pinned by
         ``test_deleting_series_cascades_to_template_and_occurrences``.
         """
-        if self.pk is not None and (self.template_event_id or self.recurrence_rule_id):
-            type(self).objects.filter(pk=self.pk).update(
-                template_event=None,
-                recurrence_rule=None,
-            )
-            self.template_event = None
-            self.recurrence_rule = None
-        return super().delete(*args, **kwargs)
+        from django.db import transaction
+
+        with transaction.atomic():
+            # The events first: the UPDATE below changes unique columns, so it locks the series FOR UPDATE, and a
+            # duplicate that holds an event lock needs KEY SHARE on the series at commit. Events first, no cycle.
+            self.cascaded_image_paths()
+            if self.pk is not None and (self.template_event_id or self.recurrence_rule_id):
+                type(self).objects.filter(pk=self.pk).update(
+                    template_event=None,
+                    recurrence_rule=None,
+                )
+                self.template_event = None
+                self.recurrence_rule = None
+            return super().delete(*args, **kwargs)

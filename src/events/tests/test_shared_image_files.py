@@ -325,3 +325,24 @@ class TestAdmin:
 
         delete.delay.assert_not_called()
         generate.delay.assert_called_once_with(app="events", model="event", pk=str(new.pk), field="logo")
+
+
+def test_a_series_delete_locks_its_events_before_the_series_row(template: Event) -> None:
+    """A duplicate holds an event lock and needs KEY SHARE on the series at commit: events first, no deadlock."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    series = t.cast(EventSeries, template.event_series)
+    EventSeries.objects.filter(pk=series.pk).update(template_event=template)  # a real series has a template
+    series.refresh_from_db()
+    with CaptureQueriesContext(connection) as queries:
+        series.delete()
+
+    sqls = [query["sql"] for query in queries.captured_queries]
+    event_lock = next(
+        i
+        for i, sql in enumerate(sqls)
+        if sql.startswith("SELECT") and '"events_event"' in sql and "FOR NO KEY UPDATE" in sql
+    )
+    series_update = next(i for i, sql in enumerate(sqls) if sql.startswith('UPDATE "events_eventseries"'))
+    assert event_lock < series_update
