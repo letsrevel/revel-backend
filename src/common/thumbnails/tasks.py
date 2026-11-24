@@ -92,19 +92,24 @@ def generate_thumbnails_task(
 
     # Write the paths only while the row still holds this source. The row can change while the files are made:
     # a new upload, a removed picture, a deletion. Then the files made here belong to nothing.
+    # ponytail: the check compares file names, so a new upload with the same stored name is not detected; its own
+    # task then writes the paths again. A source token (for example the file hash) would close that gap.
+    in_use: set[str] = set()
     with transaction.atomic():
         locked = model_class.objects.select_for_update().filter(pk=pk).first()
         current = getattr(locked, field, None) if locked is not None else None
-        if not current or current.name != original_path:
-            locked = None
-        else:
+        discard = not current or current.name != original_path
+        if discard and locked is not None:
+            # A derived path depends on the source stem only, so a newer source can use the same paths.
+            in_use = {file.name for name in result.thumbnails if (file := getattr(locked, name, None))}
+        elif not discard:
             update_fields = [name for name in result.thumbnails if hasattr(locked, name)]
             for field_name in update_fields:
                 setattr(locked, field_name, result.thumbnails[field_name])
             if update_fields:
                 locked.save(update_fields=update_fields)
-    if locked is None:
-        delete_thumbnails_for_paths(list(result.thumbnails.values()))
+    if discard:
+        delete_thumbnails_for_paths([path for path in result.thumbnails.values() if path not in in_use])
         logger.info("thumbnails_discarded_source_changed", app=app, model=model, pk=pk, field=field)
         return {}
 

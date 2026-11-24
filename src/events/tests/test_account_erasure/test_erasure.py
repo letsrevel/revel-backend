@@ -557,6 +557,22 @@ class TestProfileFiles:
 
         assert not any(storage.exists(name) for name in names)
 
+    def test_a_failed_full_delete_keeps_the_files(
+        self, holder: RevelUser, settings: t.Any, tmp_path: t.Any, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        settings.MEDIA_ROOT = str(tmp_path)
+        names = self._save_files(holder)
+        storage = RevelUser._meta.get_field("profile_picture").storage
+        with (
+            patch("accounts.service.gdpr.purge_user_history", side_effect=RuntimeError("x")),
+            django_capture_on_commit_callbacks(execute=True),
+            pytest.raises(RuntimeError),
+        ):
+            delete_user_account(str(holder.pk))
+
+        assert RevelUser.objects.filter(pk=holder.pk).exists()
+        assert all(storage.exists(name) for name in names)
+
     @pytest.mark.parametrize("kept_ticket", [True, False], ids=["erasure", "full-delete"])
     def test_the_data_export_file_is_deleted_after_commit(
         self,

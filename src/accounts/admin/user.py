@@ -173,10 +173,14 @@ _PICTURE_FILES = ("profile_picture", "profile_picture_thumbnail", "profile_pictu
 
 def _replace_picture_files_after_commit(user: RevelUser, old_files: list[str]) -> None:
     """After commit, delete the old picture files and make the derived images of the new picture."""
+    from common.thumbnails.service import get_thumbnail_path
     from common.thumbnails.tasks import delete_orphaned_thumbnails_task, generate_thumbnails_task
 
     user_id = str(user.pk)
-    old_files = [name for name in old_files if name != user.profile_picture.name]
+    new_name = user.profile_picture.name
+    # A derived path depends on the source stem only: the new picture can reuse the old derived paths.
+    new_files = {new_name, *(get_thumbnail_path(new_name, name) for name in _PICTURE_FILES[1:])} if new_name else set()
+    old_files = [name for name in old_files if name not in new_files]
     if old_files:
         # robust: a broker failure must not fail the saved change; the old files then stay (harmless).
         transaction.on_commit(lambda: delete_orphaned_thumbnails_task.delay(thumbnail_paths=old_files), robust=True)
