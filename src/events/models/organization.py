@@ -486,7 +486,7 @@ class Organization(
         from .event_series import EventSeries
 
         paths: list[str] = []
-        for model in (Event, EventSeries):
+        for model in (EventSeries, Event):  # series before events, the order of a series delete
             # Locked, so a thumbnail write on a child cannot replace a path after this read.
             rows = (
                 model.objects.select_for_update(no_key=True).filter(organization=self).values_list(*IMAGE_PATH_FIELDS)

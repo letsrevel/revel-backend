@@ -327,8 +327,8 @@ class TestAdmin:
         generate.delay.assert_called_once_with(app="events", model="event", pk=str(new.pk), field="logo")
 
 
-def test_a_series_delete_locks_its_events_before_the_series_row(template: Event) -> None:
-    """A duplicate holds an event lock and needs KEY SHARE on the series at commit: events first, no deadlock."""
+def test_a_series_delete_locks_the_series_then_its_events_then_updates(template: Event) -> None:
+    """The lock order of recurrence materialisation and of an organization delete: no deadlock between them."""
     from django.db import connection
     from django.test.utils import CaptureQueriesContext
 
@@ -339,10 +339,15 @@ def test_a_series_delete_locks_its_events_before_the_series_row(template: Event)
         series.delete()
 
     sqls = [query["sql"] for query in queries.captured_queries]
-    event_lock = next(
-        i
-        for i, sql in enumerate(sqls)
-        if sql.startswith("SELECT") and '"events_event"' in sql and "FOR NO KEY UPDATE" in sql
+
+    def first(table: str, start: str) -> int:
+        return next(i for i, sql in enumerate(sqls) if sql.startswith(start) and f'"{table}"' in sql)
+
+    series_lock = next(
+        i for i, sql in enumerate(sqls) if sql.startswith('SELECT "events_eventseries"') and "FOR NO KEY UPDATE" in sql
     )
-    series_update = next(i for i, sql in enumerate(sqls) if sql.startswith('UPDATE "events_eventseries"'))
-    assert event_lock < series_update
+    event_lock = next(
+        i for i, sql in enumerate(sqls) if sql.startswith('SELECT "events_event"') and "FOR NO KEY UPDATE" in sql
+    )
+    # The series first (as recurrence materialisation), then its events, then the unique-column UPDATE.
+    assert series_lock < event_lock < first("events_eventseries", "UPDATE")
