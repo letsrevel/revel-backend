@@ -10,7 +10,9 @@ from django.db.models import ProtectedError
 from django.utils.translation import gettext_lazy as _
 
 from events.exceptions import SeriesPassHasHoldersError
-from events.models import EventSeries
+from events.models import EventSeries, Ticket
+from events.service import discount_code_service
+from events.service.pending_checkout import expire_pending_sessions_on_commit
 
 
 def delete_event_series(series: EventSeries) -> None:
@@ -21,6 +23,9 @@ def delete_event_series(series: EventSeries) -> None:
     held pass, even a CANCELLED one, raises ``ProtectedError`` deep in the cascade. Surfaced
     here as the same 409 ``series_pass_service.delete_series_pass`` raises for the
     single-pass case, instead of an unhandled 500.
+
+    The cascade also removes the PENDING tickets of the series' events, so their discount code
+    uses are given back and their open Stripe Checkout sessions are expired after commit.
 
     Args:
         series: The EventSeries to delete.
@@ -34,6 +39,11 @@ def delete_event_series(series: EventSeries) -> None:
         # cascade; atomic() keeps both as one unit so a ProtectedError mid-cascade can't
         # leave the series stripped of template_event/recurrence_rule outside ATOMIC_REQUESTS.
         with transaction.atomic():
+            # The cascade also removes the events' PENDING tickets: expire their open Stripe sessions
+            # (after commit; a ProtectedError discards it) and give back their discount code uses.
+            tickets = Ticket.objects.filter(event__event_series=series)
+            expire_pending_sessions_on_commit(tickets)
+            discount_code_service.release_uses_of_pending_tickets(tickets)
             series.delete()
     except ProtectedError as exc:
         raise SeriesPassHasHoldersError(

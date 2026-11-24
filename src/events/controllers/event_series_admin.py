@@ -59,7 +59,8 @@ class EventSeriesAdminController(UserAwareController):
     def delete_event_series(self, series_id: UUID) -> tuple[int, None]:
         """Permanently delete an event series (admin only).
 
-        Removes the series. Events in the series are not deleted but become standalone.
+        Removes the series and, by cascade, its events and their tickets. The open Stripe
+        Checkout sessions of their pending checkouts are expired.
         409s if any of the series' passes has a held-pass record (even a cancelled one) —
         cancel or delete its passes first. Requires 'delete_event_series' permission
         (typically organization owners only).

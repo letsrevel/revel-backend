@@ -33,6 +33,7 @@ from events import models
 from events.exceptions import EventRefundsStartedError
 from events.schema import EventCreateSchema, EventEditSchema, SeriesPassLinkInputSchema
 from events.service import day_membership_service, discount_code_service, series_pass_service
+from events.service.pending_checkout import expire_pending_sessions_on_commit
 from events.service.waitlist_service import enqueue_waitlist_processing, revoke_all_pending_offers
 from events.utils.schedule import EventScheduleSession
 from events.utils.visibility_settings import build_visibility_settings_update, validate_visibility_settings
@@ -377,6 +378,11 @@ SLUG_ALREADY_EXISTS_MESSAGE = _("An event with this slug already exists in your 
 
 @transaction.atomic
 def delete_event(event: models.Event) -> None:
-    """Delete an event; its PENDING tickets cascade, so their discount code uses are given back first."""
-    discount_code_service.release_uses_of_pending_tickets(event=event)
+    """Delete an event; its PENDING tickets cascade, so their discount code uses are given back first.
+
+    The open Stripe Checkout sessions of the cascaded PENDING payments are expired after commit.
+    """
+    tickets = models.Ticket.objects.filter(event=event)
+    expire_pending_sessions_on_commit(tickets)
+    discount_code_service.release_uses_of_pending_tickets(tickets)
     event.delete()

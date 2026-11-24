@@ -841,3 +841,22 @@ Rules for new code:
   OIDC login does not convert or reactivate a pending guest (`convert_guest(reactivate=True)`).
 - Never send mail to `user.email` of an erased account: the email backend guard drops it (see
   [Email Sending](architecture/email-sending.md#the-erased-recipient-guard)).
+
+## Deletes that cascade pending checkouts (#1490)
+
+Deleting an event, a ticket tier or an event series cascade-deletes its tickets and their `Payment`
+rows. A PENDING payment is an unfinished checkout, so each delete service ends it first, inside
+the same transaction and before the delete:
+
+1. `pending_checkout.expire_pending_sessions_on_commit(tickets)` locks all `Payment` rows of the
+   tickets in one statement (`of=("self",)`, pk order). It reads the session ids of the PENDING
+   rows, and of the FAILED rows whose session has not expired yet. (The event-cancel sweep marks a
+   pending checkout FAILED and leaves its session open.) After commit, a named closure expires
+   each session at Stripe, per Stripe account (best effort, `robust=True`). A rollback discards it.
+   Admin deletes do not do this yet (#1499).
+2. `discount_code_service.release_uses_of_pending_tickets(tickets)` gives back the discount code
+   uses. It locks Payment, then TicketTier, then Ticket, then DiscountCode, so the order stays canonical.
+
+The services are `event_update_service.delete_event`, `ticket_service.delete_ticket_tier` and
+`event_series_service.delete_event_series`. Call them, never `.delete()` on these models directly.
+A tier delete still hard-deletes its issued tickets and their `Payment` and `Refund` rows.

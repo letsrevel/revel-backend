@@ -178,13 +178,10 @@ class EventAdminTicketsController(EventAdminBaseController):
         response={204: None},
     )
     def delete_ticket_tier(self, event_id: UUID, tier_id: UUID) -> tuple[int, None]:
-        """Delete a ticket tier.
-
-        Note this might raise a 400 if ticket with this tier where already bought.
-        """
+        """Delete a ticket tier and, by cascade, its tickets and their payments."""
         event = self.get_one(event_id)
         tier = get_object_or_404(models.TicketTier, pk=tier_id, event=event)
-        tier.delete()
+        ticket_service.delete_ticket_tier(tier)
         return 204, None
 
     @route.patch(

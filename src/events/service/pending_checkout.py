@@ -6,7 +6,7 @@ so callers keep using ``stripe_service.resume_pending_checkout`` etc.
 
 import functools
 import typing as t
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -14,7 +14,7 @@ import stripe
 import structlog
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F, Q, Value
+from django.db.models import F, Q, QuerySet, Value
 from django.db.models.functions import Greatest
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -177,6 +177,48 @@ def expire_stripe_sessions_best_effort(session_ids: list[str], stripe_account_id
             Session.expire(session_id, **expire_kwargs)
         except stripe.error.StripeError as exc:
             logger.warning("pending_checkout_session_expire_failed", session_id=session_id, error=str(exc))
+
+
+def expire_pending_sessions_on_commit(tickets: QuerySet[Ticket]) -> None:
+    """After commit, expire the open Stripe Checkout sessions of the unfinished payments of ``tickets``.
+
+    For deletes that cascade the tickets and their Payment rows away (event, ticket tier, series):
+    without its Payment rows a later ``checkout.session.completed`` has nothing to reconcile, so the
+    session must not stay payable. Unfinished means PENDING, or FAILED with a session that has not
+    expired yet: the event-cancel sweep marks a pending checkout FAILED and leaves its session open
+    (a late payment is then refunded, but only while the row exists).
+
+    Call it inside the deleting transaction, before the delete and before other locks. It locks ALL
+    Payment rows of ``tickets`` in one pk-ordered statement (the delete removes them all anyway) and
+    reads the statuses under that lock. A session stamp on a locked row waits for the delete, matches
+    no row and expires the session itself (``stamp_session_or_expire``). The later Payment lock of
+    ``release_uses_of_pending_tickets`` takes no new rows. A rollback discards the callback. Best
+    effort: a failed expire is logged and the other sessions still go.
+    """
+    # ponytail: a reserve that commits its rows after this statement AND stamps its Stripe session before
+    # the cascade reads them is not covered (a window of milliseconds that must also fit a Stripe round
+    # trip). Close it by locking the tier/event rows first, if the lock order is reworked for that.
+    sessions_by_account: dict[str | None, set[str]] = defaultdict(set)
+    locked = (
+        Payment.objects.select_for_update(of=("self",))
+        .filter(ticket__in=tickets)
+        .order_by("pk")
+        .values_list("status", "expires_at", "stripe_session_id", "ticket__event__organization__stripe_account_id")
+    )
+    now = timezone.now()
+    for status, expires_at, session_id, account_id in locked:
+        open_failed = status == Payment.PaymentStatus.FAILED and expires_at > now
+        if session_id and (status == Payment.PaymentStatus.PENDING or open_failed):
+            sessions_by_account[account_id].add(session_id)
+    if not sessions_by_account:
+        return
+
+    # A named closure, not functools.partial: the robust on_commit path logs a failure by __qualname__.
+    def expire_deleted_checkout_sessions() -> None:
+        for account_id, session_ids in sessions_by_account.items():
+            expire_stripe_sessions_best_effort(sorted(session_ids), account_id)
+
+    transaction.on_commit(expire_deleted_checkout_sessions, robust=True)
 
 
 def _live_reservation_payments(reservation_id: UUID, *related: str) -> list[Payment]:
