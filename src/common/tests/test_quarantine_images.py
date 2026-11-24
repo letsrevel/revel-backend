@@ -387,3 +387,29 @@ def test_a_clean_scan_keeps_the_pending_audit_of_another_path_with_the_same_byte
         paths[0]: FileUploadAudit.FileUploadAuditStatus.PENDING,
         other: FileUploadAudit.FileUploadAuditStatus.CLEAN,
     }
+
+
+@mock.patch("common.tasks.notify_malware_detected.delay")
+@mock.patch("common.tasks.pyclamd.ClamdNetworkSocket")
+def test_a_flagged_scan_keeps_the_pending_audit_of_another_path_with_the_same_bytes(
+    mock_clamd: MagicMock,
+    mock_notify: MagicMock,
+    flagged: tuple[Event, Event, list[str]],
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """A flagged "z.png" must not mark the audit of the missing "a.png" MALICIOUS: that file was not scanned."""
+    event, _copy, paths = flagged
+    same = default_storage.open(paths[0], "rb").read()
+    other = default_storage.save(f"logos/{event.pk}/z.png", ContentFile(same))
+    Event.objects.filter(pk=event.pk).update(logo=other, logo_thumbnail=None)
+    _new_audit(event, other, hashlib.sha256(same).hexdigest())
+    default_storage.delete(paths[0])
+
+    with django_capture_on_commit_callbacks(execute=True), pytest.raises(FileNotFoundError):
+        _scan(event, mock_clamd, same)
+
+    statuses = dict(FileUploadAudit.objects.filter(instance_pk=event.pk).values_list("file_path", "status"))
+    assert statuses == {
+        paths[0]: FileUploadAudit.FileUploadAuditStatus.PENDING,
+        other: FileUploadAudit.FileUploadAuditStatus.MALICIOUS,
+    }
