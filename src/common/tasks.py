@@ -328,13 +328,19 @@ def _scan_path(
     cd: t.Any, model_class: t.Any, *, app: str, model: str, pk: str, field: str, path: str
 ) -> dict[str, t.Any] | None:
     """Scan one stored file of the upload ``(app, model, pk, field)``; quarantine it and detach it when flagged."""
+    observed = list(
+        FileUploadAudit.objects.filter(
+            app=app,
+            model=model,
+            field=field,
+            instance_pk=pk,
+            file_path=path,
+            status=FileUploadAudit.FileUploadAuditStatus.PENDING,
+        ).values_list("pk", "file_hash")
+    )
+    # Only the audits read here are closed below: an audit that commits later belongs to a later scan.
     path_audits = FileUploadAudit.objects.filter(
-        app=app,
-        model=model,
-        field=field,
-        instance_pk=pk,
-        file_path=path,
-        status=FileUploadAudit.FileUploadAuditStatus.PENDING,
+        pk__in=[audit_pk for audit_pk, _ in observed], status=FileUploadAudit.FileUploadAuditStatus.PENDING
     )
     if not default_storage.exists(path):
         if named_paths([path]) or model_class.objects.filter(pk=pk, **{field: path}).exists():
@@ -348,7 +354,7 @@ def _scan_path(
     with default_storage.open(path, "rb") as stored:
         file_bytes = stored.read()
     file_hash = hashlib.sha256(file_bytes).hexdigest()
-    audited_hashes = set(path_audits.values_list("file_hash", flat=True))
+    audited_hashes = {audited_hash for _, audited_hash in observed}
     if audited_hashes and file_hash not in audited_hashes:
         # The path now holds another upload's bytes (a freed name was reused): the audited bytes are gone. That
         # upload's own scan handles these bytes; close the audits of this one.
@@ -358,7 +364,10 @@ def _scan_path(
     findings = cd.scan_stream(file_bytes)
     # Scope to this upload's audit rows: never quarantine another instance's file that happens
     # to share the same bytes, and never re-match an already-quarantined audit on re-upload.
-    audit_qs = FileUploadAudit.objects.filter(app=app, model=model, field=field, file_hash=file_hash, instance_pk=pk)
+    # Only the audits of this path, or audits without a recorded path: another path with the same bytes keeps its own.
+    audit_qs = FileUploadAudit.objects.filter(
+        Q(file_path=path) | Q(file_path=""), app=app, model=model, field=field, file_hash=file_hash, instance_pk=pk
+    )
     if not findings:
         audit_qs.filter(status=FileUploadAudit.FileUploadAuditStatus.PENDING).update(
             status=FileUploadAudit.FileUploadAuditStatus.CLEAN, updated_at=timezone.now()

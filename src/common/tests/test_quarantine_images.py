@@ -303,3 +303,87 @@ def test_a_missing_file_does_not_stop_the_scan_of_the_other_files(
         paths[0]: FileUploadAudit.FileUploadAuditStatus.PENDING,  # the sweep tries again
         later: FileUploadAudit.FileUploadAuditStatus.MALICIOUS,
     }
+
+
+def _new_audit(event: Event, path: str, file_hash: str) -> FileUploadAudit:
+    return FileUploadAudit.objects.create(
+        app="events",
+        model="Event",
+        instance_pk=event.pk,
+        field="logo",
+        file_hash=file_hash,
+        uploader="x@example.com",
+        file_path=path,
+    )
+
+
+@mock.patch("common.tasks.notify_malware_detected.delay")
+@mock.patch("common.tasks.pyclamd.ClamdNetworkSocket")
+def test_a_gone_file_closes_only_the_audits_read_before_the_check(
+    mock_clamd: MagicMock, mock_notify: MagicMock, flagged: tuple[Event, Event, list[str]]
+) -> None:
+    """An audit that commits while the scan runs belongs to a later scan: the scan must not close it."""
+    event, copy, paths = flagged
+    Event.objects.filter(pk__in=[event.pk, copy.pk]).update(logo=None, logo_thumbnail=None)
+    default_storage.delete(paths[0])
+    later: list[FileUploadAudit] = []
+
+    def no_row_names_it(_paths: t.Any) -> set[str]:
+        later.append(_new_audit(event, paths[0], "b" * 64))
+        return set()
+
+    with mock.patch("common.tasks.named_paths", side_effect=no_row_names_it):
+        _scan(event, mock_clamd)
+
+    statuses = dict(FileUploadAudit.objects.filter(instance_pk=event.pk).values_list("pk", "status"))
+    assert statuses.pop(later[0].pk) == FileUploadAudit.FileUploadAuditStatus.PENDING
+    assert list(statuses.values()) == [FileUploadAudit.FileUploadAuditStatus.CLEAN]
+
+
+@mock.patch("common.tasks.notify_malware_detected.delay")
+@mock.patch("common.tasks.pyclamd.ClamdNetworkSocket")
+def test_a_reused_path_closes_only_the_audits_read_before_the_file(
+    mock_clamd: MagicMock, mock_notify: MagicMock, flagged: tuple[Event, Event, list[str]]
+) -> None:
+    """The path holds other bytes; an audit for the path that commits while the file is read stays pending."""
+    event, copy, paths = flagged
+    Event.objects.filter(pk__in=[event.pk, copy.pk]).update(logo=None, logo_thumbnail=None)
+    default_storage.delete(paths[0])
+    default_storage.save(paths[0], ContentFile(_png() + b"another upload"))
+    later: list[FileUploadAudit] = []
+    real_open = default_storage.open
+
+    def open_and_commit_an_audit(name: str, mode: str = "rb") -> t.Any:
+        later.append(_new_audit(event, paths[0], "b" * 64))
+        return real_open(name, mode)
+
+    with mock.patch.object(default_storage, "open", side_effect=open_and_commit_an_audit):
+        _scan(event, mock_clamd)
+
+    statuses = dict(FileUploadAudit.objects.filter(instance_pk=event.pk).values_list("pk", "status"))
+    assert statuses.pop(later[0].pk) == FileUploadAudit.FileUploadAuditStatus.PENDING
+    assert list(statuses.values()) == [FileUploadAudit.FileUploadAuditStatus.CLEAN]
+    mock_clamd.return_value.scan_stream.assert_not_called()
+
+
+@mock.patch("common.tasks.notify_malware_detected.delay")
+@mock.patch("common.tasks.pyclamd.ClamdNetworkSocket")
+def test_a_clean_scan_keeps_the_pending_audit_of_another_path_with_the_same_bytes(
+    mock_clamd: MagicMock, mock_notify: MagicMock, flagged: tuple[Event, Event, list[str]]
+) -> None:
+    """ "a.png" is missing but the copy names it; a clean scan of "z.png" with the same bytes must not close it."""
+    event, _copy, paths = flagged
+    same = default_storage.open(paths[0], "rb").read()
+    other = default_storage.save(f"logos/{event.pk}/z.png", ContentFile(same))
+    Event.objects.filter(pk=event.pk).update(logo=other, logo_thumbnail=None)
+    _new_audit(event, other, hashlib.sha256(same).hexdigest())
+    default_storage.delete(paths[0])
+
+    with pytest.raises(FileNotFoundError):
+        _scan(event, mock_clamd, b"no bytes match")
+
+    statuses = dict(FileUploadAudit.objects.filter(instance_pk=event.pk).values_list("file_path", "status"))
+    assert statuses == {
+        paths[0]: FileUploadAudit.FileUploadAuditStatus.PENDING,
+        other: FileUploadAudit.FileUploadAuditStatus.CLEAN,
+    }
