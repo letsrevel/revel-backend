@@ -218,6 +218,26 @@ def test_a_failed_send_does_not_stop_the_other_organizations(
     assert sorted(calls) == sorted([str(organization.pk), str(other.pk)])
 
 
+def test_a_failed_staff_notice_does_not_stop_the_person_notice(
+    organization: Organization,
+    make_record: RecordFactory,
+    django_user_model: type[RevelUser],
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """The person gets no MEMBERSHIP_GRANTED here, so a staff failure must not swallow their only notice."""
+    make_record()
+    user = _user(django_user_model)
+
+    with (
+        patch("events.service.member_register_linking.notify_org_staff", side_effect=RuntimeError("boom")),
+        patch(SEND) as send,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        auto_link_records_for_user(user.pk)
+
+    assert [n["context"]["organization_id"] for n in _person_notifications(send)] == [str(organization.pk)]
+
+
 def test_notification_renders_in_recipient_language_with_organization_link(
     organization: Organization,
     make_record: RecordFactory,

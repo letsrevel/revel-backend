@@ -469,11 +469,14 @@ def _notify_staff_of_auto_link(record: MembershipRecord, user: RevelUser) -> Non
         "member_email": user.email,
         "frontend_url": f"{frontend_base_url_for(organization)}/org/{organization.slug}/admin/members?tab=register",
     }
-    transaction.on_commit(
-        lambda: notify_org_staff(
+
+    def notify_staff() -> None:
+        notify_org_staff(
             organization_id=organization.id,
             notification_type=NotificationType.STAFF_MEMBER_RECORD_AUTO_LINKED,
             context=context,
             sender=MembershipRecord,
         )
-    )
+
+    # Robust (named closure): a failed staff send must not stop the person's notice registered after it.
+    transaction.on_commit(notify_staff, robust=True)
