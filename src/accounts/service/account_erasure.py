@@ -143,11 +143,8 @@ def erase_account_keeping_holdings(user: RevelUser, kept: "KeptHoldings") -> Non
 def _anonymise(user: RevelUser) -> None:
     """Clear every personal field of ``user``, make it unable to sign in, and set ``erased_at``."""
     now = timezone.now()
-    files: list[tuple[str, Storage, str]] = []  # deleted after commit, see _profile_file_cleanup
+    delete_profile_files_after_commit(user)
     for name in _PROFILE_FILES:
-        file = getattr(user, name)
-        if file:
-            files.append((name, file.storage, file.name))
         setattr(user, name, None)
     user.username = user.email = erased_placeholder_email(user.pk.hex)
     user.first_name = user.last_name = user.preferred_name = user.pronouns = user.bio = ""
@@ -197,6 +194,15 @@ def _anonymise(user: RevelUser) -> None:
             "deletion_requested_at",
         ]
     )
+
+
+def delete_profile_files_after_commit(user: RevelUser) -> None:
+    """After commit, delete the profile picture of ``user`` and its derived images from storage.
+
+    Call it before the erasure clears the fields, or before ``user.delete()``: a row delete does not delete the
+    files. The caller holds the account row lock, so the fields hold the stored files.
+    """
+    files = [(name, file.storage, file.name) for name in _PROFILE_FILES if (file := getattr(user, name))]
     if files:
         transaction.on_commit(_profile_file_cleanup(str(user.pk), files), robust=True)
 
@@ -206,15 +212,22 @@ def _profile_file_cleanup(user_id: str, files: list[tuple[str, Storage, str]]) -
 
     The delete runs after commit: a rollback restores the file references, but it cannot restore a deleted
     file. A failed delete is logged with the account id and the field name only (the file name holds the id
-    too), and the other files are still deleted.
+    too), the other files are still deleted, and a retrying task deletes the failed ones later.
     """
 
     def delete_erased_profile_files() -> None:
+        failed: list[tuple[str, str]] = []
         for field_name, storage, file_name in files:
             try:
                 storage.delete(file_name)
             except Exception:
                 logger.error("account_erasure_profile_file_delete_failed", user_id=user_id, field=field_name)
+                failed.append((field_name, file_name))
+        if failed:
+            from accounts.tasks.gdpr import retry_account_file_delete
+
+            # A failed dispatch is logged by the robust on-commit handler; the error log above stays.
+            retry_account_file_delete.delay(user_id=user_id, files=failed)
 
     return delete_erased_profile_files
 

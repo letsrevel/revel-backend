@@ -167,9 +167,9 @@ class TestBootstrapDemoVideo:
         """Storage must not accumulate ``<slug>_A1b2C3.jpg`` copies on every reseed."""
         _run()
         logos, covers = _stored(LOGO_STORAGE_PREFIX), _stored(COVER_STORAGE_PREFIX)
-        assert logos == sorted(f"{slug}{suffix}.jpg" for slug in DEMO_ORG_SLUGS for suffix in ("", "_thumbnail"))
+        assert logos == sorted(f"{slug}{suffix}.jpg" for slug in DEMO_ORG_SLUGS for suffix in ("", "_jpg_thumbnail"))
         assert covers == sorted(
-            f"{slug}{suffix}.jpg" for slug in DEMO_EVENT_SLUGS for suffix in ("", "_thumbnail", "_social")
+            f"{slug}{suffix}.jpg" for slug in DEMO_EVENT_SLUGS for suffix in ("", "_jpg_thumbnail", "_jpg_social")
         )
 
         _run()

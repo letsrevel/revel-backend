@@ -167,14 +167,6 @@ class RevelUser(ExifStripMixin, StripeConnectMixin, AbstractUser):
                 setattr(self, field, value.strip())
         super().save(*args, **kwargs)
 
-    def delete(self, *args: t.Any, **kwargs: t.Any) -> tuple[int, dict[str, int]]:
-        """Delete profile picture thumbnails from storage when user is deleted."""
-        if self.profile_picture_thumbnail:
-            self.profile_picture_thumbnail.delete(save=False)
-        if self.profile_picture_preview:
-            self.profile_picture_preview.delete(save=False)
-        return super().delete(*args, **kwargs)
-
     @property
     def display_name(self) -> str:
         """Display name."""

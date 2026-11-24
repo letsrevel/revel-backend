@@ -11,7 +11,12 @@ from celery import shared_task
 from django.apps import apps
 
 from .config import THUMBNAIL_CONFIGS
-from .service import delete_thumbnails_for_paths, generate_and_save_thumbnails
+from .service import (
+    delete_thumbnails_for_paths,
+    delete_unreferenced_thumbnails,
+    generate_and_save_thumbnails,
+    write_paths_if_source_unchanged,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -89,15 +94,17 @@ def generate_thumbnails_task(
     # OSError for storage issues will trigger automatic retry
     result = generate_and_save_thumbnails(original_path, config)
 
-    # Update model with thumbnail paths on separate fields
-    update_fields = []
-    for field_name, path in result.thumbnails.items():
-        if hasattr(instance, field_name):
-            setattr(instance, field_name, path)
-            update_fields.append(field_name)
-
-    if update_fields:
-        instance.save(update_fields=update_fields)
+    # Write the paths only while the row still holds this source. The row can change while the files are made:
+    # a new upload, a removed picture, a deletion. Then the files made here belong to nothing.
+    # ponytail: the check compares file names, so a new upload with the same stored name is not detected; its own
+    # task then writes the paths again. A source token (for example the file hash) would close that gap.
+    discard, replaced = write_paths_if_source_unchanged(model_class, pk, field, original_path, result.thumbnails)
+    if discard:
+        delete_unreferenced_thumbnails(list(result.thumbnails.values()))
+        logger.info("thumbnails_discarded_source_changed", app=app, model=model, pk=pk, field=field)
+        return {}
+    if replaced:  # after the commit above: the row no longer names these files
+        delete_unreferenced_thumbnails(replaced)
 
     logger.info(
         "thumbnails_generated_and_saved",
