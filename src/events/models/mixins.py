@@ -257,7 +257,7 @@ class LogoCoverValidationMixin(ExifStripMixin):
         with transaction.atomic():
             stored = (
                 type(self)
-                ._default_manager.select_for_update()
+                ._default_manager.select_for_update(no_key=True)  # a deferred FK check (KEY SHARE) must not wait
                 .filter(pk=self.pk)
                 .values_list(*IMAGE_PATH_FIELDS)
                 .first()

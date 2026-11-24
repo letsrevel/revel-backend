@@ -487,7 +487,10 @@ class Organization(
 
         paths: list[str] = []
         for model in (Event, EventSeries):
-            rows = model.objects.filter(organization=self).values_list(*IMAGE_PATH_FIELDS)
+            # Locked, so a thumbnail write on a child cannot replace a path after this read.
+            rows = (
+                model.objects.select_for_update(no_key=True).filter(organization=self).values_list(*IMAGE_PATH_FIELDS)
+            )
             paths += [name for row in rows for name in row if name]
         return paths
 

@@ -156,8 +156,10 @@ def duplicate_event(
     copy_kwargs = _collect_copyable_field_values(template_event)
     # The image paths come from the locked row: an upload or a thumbnail write on the template takes this lock
     # too, so the copy never names a file that a replace deletes in the meantime.
-    stored = Event.objects.select_for_update().filter(pk=template_event.pk).values_list(*IMAGE_PATH_FIELDS).first()
-    copy_kwargs.update(zip(IMAGE_PATH_FIELDS, stored or (), strict=False))
+    # NO KEY: the copy's deferred foreign-key checks (KEY SHARE at commit) must not wait for it. A template that
+    # was deleted meanwhile raises Event.DoesNotExist: its files may already be gone.
+    stored = Event.objects.select_for_update(no_key=True).values_list(*IMAGE_PATH_FIELDS).get(pk=template_event.pk)
+    copy_kwargs.update(zip(IMAGE_PATH_FIELDS, stored, strict=True))
 
     # Apply shifted date fields.
     for field_name in _SHIFTED_DATE_FIELDS:

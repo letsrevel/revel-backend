@@ -169,7 +169,8 @@ class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin,
         """The image paths of the events that the series delete removes (template and occurrences)."""
         from .event import Event
 
-        rows = Event.objects.filter(event_series=self).values_list(*IMAGE_PATH_FIELDS)
+        # Locked, so a thumbnail write on an event cannot replace a path after this read (the parent is locked first).
+        rows = Event.objects.select_for_update(no_key=True).filter(event_series=self).values_list(*IMAGE_PATH_FIELDS)
         return [name for row in rows for name in row if name]
 
     def delete(self, *args: t.Any, **kwargs: t.Any) -> tuple[int, dict[str, int]]:

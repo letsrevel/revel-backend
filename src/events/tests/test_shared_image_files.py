@@ -44,6 +44,26 @@ def test_a_duplicate_shares_the_images_and_their_derived_images(template: Event)
     assert _paths(copy) == _paths(template)
 
 
+def test_a_duplicate_names_the_stored_paths_not_the_loaded_ones(template: Event) -> None:
+    """A template loaded before a thumbnail write: the copy names the file that the row names now."""
+    loaded = Event.objects.get(pk=template.pk)
+    newer = default_storage.save(f"shared/{template.pk}/newer_thumbnail.jpg", ContentFile(b"image"))
+    Event.objects.filter(pk=template.pk).update(logo_thumbnail=newer)
+
+    copy = duplicate_event(loaded, "Copy", template.start + timedelta(days=7))
+
+    assert Event.objects.get(pk=copy.pk).logo_thumbnail.name == newer
+
+
+def test_a_duplicate_of_a_deleted_template_is_refused(template: Event) -> None:
+    """Its files may already be gone: the copy must not name them."""
+    loaded = Event.objects.get(pk=template.pk)
+    Event.objects.filter(pk=template.pk).delete()
+
+    with pytest.raises(Event.DoesNotExist):
+        duplicate_event(loaded, "Copy", template.start + timedelta(days=7))
+
+
 def test_removing_the_logo_of_a_copy_keeps_the_shared_files(
     template: Event, django_capture_on_commit_callbacks: t.Any
 ) -> None:
