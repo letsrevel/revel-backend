@@ -11,8 +11,8 @@ from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from common.service.upload_service import safe_save_uploaded_file
-from common.thumbnails.files import delete_unreferenced_files
-from common.thumbnails.service import delete_image_with_derivatives
+from common.thumbnails.files import delete_unreferenced_files, stored_image_paths
+from common.thumbnails.service import delete_image_with_derivatives, write_paths_if_source_unchanged
 from events.admin.event import EventAdmin, EventSeriesAdmin
 from events.models import Event, EventSeries, Organization
 from events.service.duplication import duplicate_event
@@ -391,6 +391,8 @@ def test_image_path_locks_let_key_checks_pass(template: Event, rgb_image_bytes: 
             MagicMock(), template, MagicMock(changed_data=["logo"], initial={}), change=True
         )
         delete_image_with_derivatives(template, "cover_art")
+        stored_image_paths(Event, template.pk, "logo")
+        write_paths_if_source_unchanged(Event, template.pk, "logo", "elsewhere.jpg", {})
 
     locks = [q["sql"] for q in queries.captured_queries if '"events_event"' in q["sql"] and " FOR " in q["sql"]]
-    assert len(locks) >= 2 and all("FOR NO KEY UPDATE" in sql for sql in locks)
+    assert len(locks) >= 4 and all("FOR NO KEY UPDATE" in sql for sql in locks)

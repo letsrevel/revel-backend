@@ -33,7 +33,7 @@ class ImageSourceAdminMixin:
         if change and configs:
             names = {config.source_field: _image_fields(config) for config in configs}
             flat = [name for fields in names.values() for name in fields]
-            # NO KEY: the related inlines and other writers' foreign-key checks (KEY SHARE) must not wait.
+            # NO KEY: other transactions' foreign-key checks (KEY SHARE) must not wait.
             rows = type(obj)._default_manager.select_for_update(no_key=True).filter(pk=obj.pk)
             row = rows.values_list(*flat).first()
             stored = dict(zip(flat, row or (), strict=False))
