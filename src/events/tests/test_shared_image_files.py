@@ -351,3 +351,18 @@ def test_a_series_delete_locks_the_series_then_its_events_then_updates(template:
     )
     # The series first (as recurrence materialisation), then its events, then the unique-column UPDATE.
     assert series_lock < event_lock < first("events_eventseries", "UPDATE")
+
+
+def test_recurrence_locks_on_a_series_let_key_checks_pass(template: Event) -> None:
+    """A duplicate of an occurrence checks its series key at commit (KEY SHARE): a FOR UPDATE would deadlock."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from events.service import recurrence_service
+
+    series = t.cast(EventSeries, template.event_series)
+    with CaptureQueriesContext(connection) as queries:
+        recurrence_service.cancel_occurrence(series, template.start)
+
+    locks = [q["sql"] for q in queries.captured_queries if '"events_eventseries"' in q["sql"] and " FOR " in q["sql"]]
+    assert locks and all("FOR NO KEY UPDATE" in sql for sql in locks)
