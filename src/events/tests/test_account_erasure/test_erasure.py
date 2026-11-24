@@ -634,11 +634,16 @@ class TestProfileFiles:
         storage = RevelUser._meta.get_field("profile_picture").storage
         names = RevelUser.objects.values_list(*account_erasure._PROFILE_FILES).get(pk=holder_with_files.pk)
         files = [("profile_picture", names[0]), ("profile_picture_preview", names[2])]
+        assert retry_account_file_delete.ignore_result  # no result row with the paths
         with (
             patch.object(FileSystemStorage, "delete", side_effect=OSError(f"storage down: {names[0]}")),
+            patch("accounts.tasks.gdpr.logger") as log,
             pytest.raises(OSError, match="could not be deleted") as failure,
         ):
             retry_account_file_delete.run(user_id=str(holder_with_files.pk), files=files)
+        log.warning.assert_called_once_with(
+            "account_file_delete_retry_failed", user_id=str(holder_with_files.pk), field="profile_picture"
+        )
         assert names[0] not in str(failure.value)  # the path can hold the uploaded file name
         assert failure.value.__cause__ is None and failure.value.__suppress_context__
         assert storage.exists(names[0])
