@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Running the command again is harmless.
 
+**Tags that differ only by case.** Migrations `common` 0024 and 0025 merge these tags and add a case-insensitive unique index. During the deploy, an old instance can create a tag that differs only by case after 0024 has run. Then 0025 fails. To recover, run these two commands:
+`docker compose exec web python manage.py migrate common 0023`
+`docker compose exec web python manage.py migrate`
+The second command runs the merge again and installs the index. Until the rollout finishes, an old instance can answer 500 when a user adds a new case variant of an existing tag.
+
 These two events now also settle every ticket and membership refund: a pending refund that succeeds later, or a refund that fails later.
 
 ### Added

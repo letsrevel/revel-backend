@@ -68,10 +68,29 @@ def _move_assignments(TagAssignment: t.Any, canonical: t.Any, duplicate_ids: lis
             taken.add(key)
 
 
+def _lock_duplicate_groups(Tag: t.Any) -> None:
+    """Lock every tag that has a case duplicate, in pk order, for the rest of the migration transaction.
+
+    An insert of a TagAssignment that points at a locked tag waits, then fails its foreign key check
+    once the duplicate is deleted. Without the lock, the cascade would delete it silently.
+    """
+    keys = (
+        Tag.objects.annotate(key=Lower("name"))
+        .values("key")
+        .annotate(n=Count("pk"))
+        .filter(n__gt=1)
+        .values_list("key", flat=True)
+    )
+    ids = Tag.objects.annotate(key=Lower("name")).filter(key__in=list(keys)).values_list("pk", flat=True)
+    list(Tag.objects.select_for_update().filter(pk__in=list(ids)).order_by("pk").values_list("pk", flat=True))
+
+
 def merge_case_duplicate_tags(apps: t.Any, schema_editor: t.Any) -> None:
     """Merge case-duplicate tags into one canonical tag per group."""
     Tag = apps.get_model("common", "Tag")
     TagAssignment = apps.get_model("common", "TagAssignment")
+
+    _lock_duplicate_groups(Tag)
 
     tags = Tag.objects.annotate(key=Lower("name"), usage=Count("assignments")).order_by("-usage", "created_at", "pk")
     groups: dict[str, list[t.Any]] = defaultdict(list)
