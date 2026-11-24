@@ -12,7 +12,7 @@ from pathlib import Path
 import structlog
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q
 from PIL import Image, ImageOps
 
@@ -248,6 +248,11 @@ def write_paths_if_source_unchanged(
         if not current or current.name != original_path:
             return True, replaced
         update_fields = [name for name in thumbnails if hasattr(locked, name)]
+        _lock_paths([thumbnails[name] for name in update_fields])
+        # A delete of unreferenced files (another row's discard) can have removed a file made here. The retry of
+        # the task makes it again.
+        if missing := [name for name in update_fields if not default_storage.exists(thumbnails[name])]:
+            raise OSError(f"Derived files deleted meanwhile: {missing}")
         for field_name in update_fields:
             old = getattr(locked, field_name)
             if old and old.name != thumbnails[field_name]:
@@ -265,22 +270,32 @@ def delete_unreferenced_thumbnails(paths: list[str]) -> None:
     derived files too. Call it after the commit that removed the reference. The thumbnail task and the
     ``generate_thumbnails`` command use it; the upload and image-delete helpers do not check references yet.
 
-    ponytail: the check takes no lock, so another row's task that writes the same path just after it loses
-    that file until its next regeneration. A copy of the source file for each duplicate would remove the sharing.
+    The check and the delete hold an advisory lock on each path, as the path write in
+    :func:`write_paths_if_source_unchanged` does: a write either commits first (the file is kept) or finds
+    its file gone (the task retries).
     """
     from django.apps import apps
 
     if not paths:
         return
     in_use: set[str] = set()
-    for config in THUMBNAIL_CONFIGS.values():
-        names = [spec.field_name for spec in config.specs]
-        query = Q()
-        for name in names:
-            query |= Q(**{f"{name}__in": paths})
-        for row in apps.get_model(config.app_label, config.model_name).objects.filter(query).values_list(*names):
-            in_use.update(row)
-    delete_thumbnails_for_paths([path for path in paths if path not in in_use])
+    with transaction.atomic():
+        _lock_paths(paths)
+        for config in THUMBNAIL_CONFIGS.values():
+            names = [spec.field_name for spec in config.specs]
+            query = Q()
+            for name in names:
+                query |= Q(**{f"{name}__in": paths})
+            for row in apps.get_model(config.app_label, config.model_name).objects.filter(query).values_list(*names):
+                in_use.update(row)
+        delete_thumbnails_for_paths([path for path in paths if path not in in_use])
+
+
+def _lock_paths(paths: list[str]) -> None:
+    """Take a transaction-level advisory lock for each derived path (sorted, so two callers cannot deadlock)."""
+    with connection.cursor() as cursor:
+        for path in sorted(set(paths)):
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [path])
 
 
 def is_image_mime_type(mime_type: str) -> bool:

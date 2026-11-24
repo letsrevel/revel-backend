@@ -212,15 +212,22 @@ def _profile_file_cleanup(user_id: str, files: list[tuple[str, Storage, str]]) -
 
     The delete runs after commit: a rollback restores the file references, but it cannot restore a deleted
     file. A failed delete is logged with the account id and the field name only (the file name holds the id
-    too), and the other files are still deleted.
+    too), the other files are still deleted, and a retrying task deletes the failed ones later.
     """
 
     def delete_erased_profile_files() -> None:
+        failed: list[tuple[str, str]] = []
         for field_name, storage, file_name in files:
             try:
                 storage.delete(file_name)
             except Exception:
                 logger.error("account_erasure_profile_file_delete_failed", user_id=user_id, field=field_name)
+                failed.append((field_name, file_name))
+        if failed:
+            from accounts.tasks.gdpr import retry_account_file_delete
+
+            # A failed dispatch is logged by the robust on-commit handler; the error log above stays.
+            retry_account_file_delete.delay(user_id=user_id, files=failed)
 
     return delete_erased_profile_files
 

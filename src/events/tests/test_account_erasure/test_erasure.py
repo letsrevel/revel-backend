@@ -616,6 +616,7 @@ class TestProfileFiles:
         with (
             patch.object(FileSystemStorage, "delete", fail_first),
             patch("accounts.service.account_erasure.logger") as log,
+            patch("accounts.tasks.gdpr.retry_account_file_delete") as retry,
             django_capture_on_commit_callbacks(execute=True),
         ):
             delete_user_account(str(holder_with_files.pk))
@@ -624,6 +625,22 @@ class TestProfileFiles:
             "account_erasure_profile_file_delete_failed", user_id=str(holder_with_files.pk), field="profile_picture"
         )
         assert [storage.exists(name) for name in names] == [True, False, False]
+        retry.delay.assert_called_once_with(user_id=str(holder_with_files.pk), files=[("profile_picture", names[0])])
+
+    def test_the_retry_deletes_the_files_and_raises_on_a_storage_failure(self, holder_with_files: RevelUser) -> None:
+        """A raise lets Celery try again with backoff (``autoretry_for``)."""
+        from accounts.tasks.gdpr import retry_account_file_delete
+
+        storage = RevelUser._meta.get_field("profile_picture").storage
+        names = RevelUser.objects.values_list(*account_erasure._PROFILE_FILES).get(pk=holder_with_files.pk)
+        files = [("profile_picture", names[0]), ("profile_picture_preview", names[2])]
+        with patch.object(FileSystemStorage, "delete", side_effect=OSError("storage down")), pytest.raises(OSError):
+            retry_account_file_delete.run(user_id=str(holder_with_files.pk), files=files)
+        assert storage.exists(names[0])
+
+        retry_account_file_delete.run(user_id=str(holder_with_files.pk), files=files)
+
+        assert [storage.exists(name) for name in names] == [False, True, False]
 
     def test_a_picture_saved_after_the_first_lookup_is_deleted_too(
         self, holder_with_files: RevelUser, django_capture_on_commit_callbacks: t.Any

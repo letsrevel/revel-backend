@@ -457,6 +457,32 @@ class TestThumbnailIntegration:
         assert list(stored) == old  # the write did not happen
         assert all(default_storage.exists(path) for path in old)  # still named by the row
 
+    def test_a_derived_file_deleted_before_the_write_makes_the_task_retry(
+        self, revel_user_factory: RevelUserFactory, rgb_image_bytes: bytes, settings: t.Any, tmp_path: t.Any
+    ) -> None:
+        """Another row's cleanup can delete a shared file before this write: the row must not name a lost file."""
+        from accounts.models import RevelUser
+        from common.thumbnails.service import generate_and_save_thumbnails as real
+
+        settings.MEDIA_ROOT = str(tmp_path)
+        user = revel_user_factory()
+        source = default_storage.save(f"protected/profile-pictures/{user.pk}/a.jpg", ContentFile(rgb_image_bytes))
+        RevelUser.objects.filter(pk=user.pk).update(profile_picture=source)
+
+        def make_then_lose_one(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            result = real(*args, **kwargs)
+            default_storage.delete(result.thumbnails["profile_picture_preview"])
+            return result
+
+        with (
+            patch("common.thumbnails.tasks.generate_and_save_thumbnails", make_then_lose_one),
+            pytest.raises(OSError, match="deleted meanwhile"),
+        ):
+            generate_thumbnails_task.run(app="accounts", model="reveluser", pk=str(user.pk), field="profile_picture")
+
+        stored = RevelUser.objects.values_list("profile_picture_thumbnail", "profile_picture_preview").get(pk=user.pk)
+        assert not any(stored)
+
     def test_questionnaire_file_thumbnail_generation(
         self,
         revel_user_factory: RevelUserFactory,

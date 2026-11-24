@@ -16,6 +16,7 @@ against its allowlist — it must stay importable from this package.
 from accounts.tasks.bans import process_domain_ban_task
 from accounts.tasks.email import AccountEmail, send_account_email
 from accounts.tasks.gdpr import (
+    retry_account_file_delete,
     DATA_EXPORT_URL_EXPIRES_IN,
     cleanup_expired_data_exports,
     delete_user_account,
@@ -40,6 +41,7 @@ from accounts.tasks.verification_reminders import (
 )
 
 __all__ = [
+    "retry_account_file_delete",
     "DATA_EXPORT_URL_EXPIRES_IN",
     "AccountEmail",
     "cleanup_expired_data_exports",
