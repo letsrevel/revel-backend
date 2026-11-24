@@ -731,3 +731,48 @@ class TestDeleteImageWithDerivatives:
         assert not organization.cover_art
         assert not organization.cover_art_thumbnail
         assert not organization.cover_art_social
+
+
+@pytest.mark.django_db(transaction=True)
+def test_the_unreferenced_delete_waits_for_a_path_lock() -> None:
+    """The check and the delete wait while a path write holds the lock of that path.
+
+    ``transaction=True``: the lock must be held by a second database connection, in another thread.
+    """
+    import threading
+
+    from django.db import connection, transaction
+
+    from common.thumbnails.service import _lock_paths, delete_unreferenced_thumbnails
+
+    path = "protected/locked/a_jpg_thumbnail.jpg"
+    locked, release, done = threading.Event(), threading.Event(), threading.Event()
+
+    def hold_the_lock() -> None:
+        try:
+            with transaction.atomic():
+                _lock_paths([path])
+                locked.set()
+                release.wait(10)
+        finally:
+            connection.close()
+
+    def delete() -> None:
+        try:
+            delete_unreferenced_thumbnails([path])
+            done.set()
+        finally:
+            connection.close()
+
+    holder = threading.Thread(target=hold_the_lock)
+    holder.start()
+    assert locked.wait(10)
+    deleter = threading.Thread(target=delete)
+    deleter.start()
+    try:
+        assert not done.wait(1)  # blocked by the lock
+    finally:
+        release.set()
+        holder.join(10)
+    deleter.join(10)
+    assert done.is_set()

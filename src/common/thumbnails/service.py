@@ -272,7 +272,7 @@ def delete_unreferenced_thumbnails(paths: list[str]) -> None:
 
     The check and the delete hold an advisory lock on each path, as the path write in
     :func:`write_paths_if_source_unchanged` does: a write either commits first (the file is kept) or finds
-    its file gone (the task retries).
+    its file gone (the task retries; the ``generate_thumbnails --sync`` command reports the row as failed).
     """
     from django.apps import apps
 
@@ -291,11 +291,22 @@ def delete_unreferenced_thumbnails(paths: list[str]) -> None:
         delete_thumbnails_for_paths([path for path in paths if path not in in_use])
 
 
+# The first key of the two-key advisory lock: it keeps these locks apart from other advisory-lock users.
+_DERIVED_PATH_LOCK_CLASS = 7_314_001
+
+
 def _lock_paths(paths: list[str]) -> None:
-    """Take a transaction-level advisory lock for each derived path (sorted, so two callers cannot deadlock)."""
+    """Take a transaction-level advisory lock for each derived path.
+
+    The locks are taken in the order of their keys (not of the paths), so two callers cannot deadlock, even
+    when two paths share a key. A shared key only makes the callers wait for each other.
+    """
+    if not paths:
+        return
     with connection.cursor() as cursor:
-        for path in sorted(set(paths)):
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [path])
+        cursor.execute("SELECT DISTINCT hashtext(p) AS h FROM unnest(%s::text[]) AS p ORDER BY h", [sorted(set(paths))])
+        for (key,) in cursor.fetchall():
+            cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_DERIVED_PATH_LOCK_CLASS, key])
 
 
 def is_image_mime_type(mime_type: str) -> bool:

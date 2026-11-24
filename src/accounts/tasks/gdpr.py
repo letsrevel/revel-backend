@@ -587,20 +587,26 @@ def cleanup_expired_data_exports() -> dict[str, int]:
 
 @shared_task(
     name="accounts.retry_account_file_delete",
-    autoretry_for=(Exception,),
+    autoretry_for=(OSError,),
     max_retries=6,
     retry_backoff=60,
     retry_backoff_max=3600,
+    retry_jitter=False,
+    ignore_result=True,  # no result row: the arguments hold storage paths
 )
 def retry_account_file_delete(*, user_id: str, files: list[tuple[str, str]]) -> None:
     """Delete the stored files of a deleted or erased account that the first delete after commit could not delete.
 
-    ``files`` holds (field name, storage path) pairs in the default storage. A failure raises, so Celery tries
-    again with backoff (about 2 hours in all); the last failure is logged by Celery with the task arguments,
-    which hold ids and paths only.
+    ``files`` holds (field name, storage path) pairs in the default storage. A path can hold the name of the
+    uploaded file, so it is never logged: a failure logs the account id and the field name, and raises an
+    error without the path. Celery then tries again, after 1, 2, 4, 8, 16 and 32 minutes (about 1 hour in all).
     """
     from django.core.files.storage import default_storage
 
-    for _field_name, file_name in files:
-        default_storage.delete(file_name)
+    for field_name, file_name in files:
+        try:
+            default_storage.delete(file_name)
+        except Exception:
+            logger.warning("account_file_delete_retry_failed", user_id=user_id, field=field_name)
+            raise OSError("An account file could not be deleted.") from None
     logger.info("account_file_delete_retried", user_id=user_id, count=len(files))
