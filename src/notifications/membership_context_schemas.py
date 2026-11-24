@@ -52,6 +52,13 @@ class MembershipOfflineJoinedContext(BaseNotificationContext):
     plan_name: str
 
 
+class MemberRecordLinkedContext(BaseNotificationContext):
+    """Context for MEMBER_RECORD_LINKED notification (to the person whose account was linked)."""
+
+    organization_id: str
+    organization_name: str
+
+
 class StaffMemberRecordAutoLinkedContext(BaseNotificationContext):
     """Context for STAFF_MEMBER_RECORD_AUTO_LINKED notification (to org staff/owners)."""
 

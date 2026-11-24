@@ -52,7 +52,9 @@ def test_verification_links_and_alerts_staff(
     assert (record.linked_via, record.linked_at is not None) == (MembershipRecord.LinkMethod.AUTO_EMAIL, True)
     assert OrganizationMember.objects.filter(organization=organization, user=user).exists()
     sent = {c.kwargs["notification_type"]: c.kwargs for c in send.call_args_list}
-    assert NotificationType.MEMBERSHIP_GRANTED in sent
+    # One message to the person (#1495): the link notice replaces MEMBERSHIP_GRANTED on this path.
+    assert NotificationType.MEMBERSHIP_GRANTED not in sent
+    assert sent[NotificationType.MEMBER_RECORD_LINKED]["user"] == user
     alert = sent[NotificationType.STAFF_MEMBER_RECORD_AUTO_LINKED]
     assert alert["user"] == organization_owner_user
     assert alert["context"]["record_id"] == str(record.pk)

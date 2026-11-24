@@ -345,8 +345,12 @@ def handle_membership_granted(
     sender: type[OrganizationMember], instance: OrganizationMember, created: bool, **kwargs: t.Any
 ) -> None:
     """Send notification when user is granted membership to an organization."""
+    from events.suppression import is_membership_granted_suppressed
+
     if not created or instance.status == OrganizationMember.MembershipStatus.AWAITING_PAYMENT:
         # An awaiting member is granted nothing yet: activation on first payment sends the notification.
+        return
+    if is_membership_granted_suppressed():  # the verified-email auto-link sends MEMBER_RECORD_LINKED instead
         return
 
     transaction.on_commit(lambda: notify_membership_granted(instance))
@@ -502,6 +506,10 @@ def handle_membership_tier_changed(
         getattr(instance, "_old_member_status", None)
     ):
         return  # no card yet; on activation MEMBERSHIP_GRANTED is the notification
+    from events.suppression import is_membership_granted_suppressed
+
+    if is_membership_granted_suppressed():  # an auto-link reactivation: MEMBER_RECORD_LINKED is the one message
+        return
 
     def send_card_updated_notification() -> None:
         frontend_base_url = frontend_base_url_for(instance.organization)

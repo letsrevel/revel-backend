@@ -9005,3 +9005,20 @@ msgstr "Solo chi possiede l'organizzazione può mettere nella blacklist un membr
 
 msgid "A blacklisted person cannot be made staff."
 msgstr "Una persona nella blacklist non può diventare membro dello staff."
+
+msgid "Member register entry linked"
+msgstr "Voce del registro dei membri collegata"
+
+#, python-format
+msgid "Your account is now linked to the member register of %(org)s"
+msgstr "Il tuo account è ora collegato al registro dei membri di %(org)s"
+
+#, python-format
+msgid "%(org)s keeps a member register. It has an entry with your email address. You verified this address, so we linked the entry to your account."
+msgstr "%(org)s tiene un registro dei membri. Contiene una voce con il tuo indirizzo email. Hai verificato questo indirizzo, quindi abbiamo collegato la voce al tuo account."
+
+msgid "If this entry is not yours, or you do not want to be a member, contact the organization."
+msgstr "Se questa voce non è tua, o non vuoi essere membro, contatta l'organizzazione."
+
+msgid "Open the organization page"
+msgstr "Apri la pagina dell'organizzazione"

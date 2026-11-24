@@ -57,6 +57,7 @@ These two events now also settle every ticket and membership refund: a pending r
   - Admin: superusers can fully delete an erased account, and the admin change form and password change refuse an edit of an erased account.
 - Deleting an event, a ticket tier or an event series ends the unfinished (pending) checkouts that the delete removes: their open Stripe Checkout sessions are expired, so they can no longer be paid. Deleting a ticket tier or an event series also gives back the discount code uses of those checkouts, as deleting an event already did.
 - A cancelled event no longer stops the sale of a series pass that covers it. The pass price drops by one pro-rata discount step for each cancelled event, as for an event that has started, and the buyer gets no ticket for it. If the organizer un-cancels the event, pass holders without a ticket for it get one. A draft event still stops the sale.
+- When a verified email links a person to member-register entries, the person now gets one notification per organization where the link gives an active membership (new type `member_record_linked`; in-app, email and Telegram, per their preferences). It replaces `membership_granted` on this path and links to the organization page. Links that touch only ended or temporary entries send nothing to the person.
 
 ## [3.0.0] - 2026-11-20
 

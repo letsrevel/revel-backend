@@ -12,13 +12,17 @@ from contextvars import ContextVar
 __all__ = [
     "is_default_tier_creation_suppressed",
     "is_event_notifications_suppressed",
+    "is_membership_granted_suppressed",
     "suppress_default_tier_creation",
     "suppress_event_notifications",
+    "suppress_membership_granted",
 ]
 
 _suppress_default_tier_creation: ContextVar[bool] = ContextVar("_suppress_default_tier_creation", default=False)
 
 _suppress_event_notifications: ContextVar[bool] = ContextVar("_suppress_event_notifications", default=False)
+
+_suppress_membership_granted: ContextVar[bool] = ContextVar("_suppress_membership_granted", default=False)
 
 
 def is_default_tier_creation_suppressed() -> bool:
@@ -29,6 +33,11 @@ def is_default_tier_creation_suppressed() -> bool:
 def is_event_notifications_suppressed() -> bool:
     """Return whether event notifications are suppressed in this context."""
     return _suppress_event_notifications.get()
+
+
+def is_membership_granted_suppressed() -> bool:
+    """Return whether MEMBERSHIP_GRANTED is suppressed for access rows saved in this context."""
+    return _suppress_membership_granted.get()
 
 
 @contextmanager
@@ -56,3 +65,16 @@ def suppress_event_notifications() -> t.Iterator[None]:
         yield
     finally:
         _suppress_event_notifications.reset(token)
+
+
+@contextmanager
+def suppress_membership_granted() -> t.Iterator[None]:
+    """Suppress MEMBERSHIP_GRANTED (and MEMBERSHIP_CARD_UPDATED) for access rows written in this context.
+
+    Used by the verified-email auto-link, which sends MEMBER_RECORD_LINKED instead (one message per organization).
+    """
+    token = _suppress_membership_granted.set(True)
+    try:
+        yield
+    finally:
+        _suppress_membership_granted.reset(token)

@@ -11,6 +11,7 @@ and the verified-email match (:func:`auto_link_records_for_user`).
 import enum
 import hashlib
 import secrets
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -28,10 +29,15 @@ from common.utils import get_or_create_with_race_protection
 from events.models import MembershipRecord, MembershipRecordLinkMethod, Organization, OrganizationMember
 from events.service import blacklist_service
 from events.service.user_note_transfer import transfer_record_note
+from events.suppression import is_membership_granted_suppressed, suppress_membership_granted
 from events.utils import format_organization_datetime
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
-from notifications.membership_context_schemas import MembershipContext, StaffMemberRecordAutoLinkedContext
+from notifications.membership_context_schemas import (
+    MemberRecordLinkedContext,
+    MembershipContext,
+    StaffMemberRecordAutoLinkedContext,
+)
 from notifications.service.notification_helpers import notify_org_staff
 from notifications.signals import notification_requested
 
@@ -100,7 +106,8 @@ def _make_access_row_agree(
         member.status = Status.ACTIVE
         member.tier = record.tier
         member.save(update_fields=["status", "tier", "updated_at"])
-        transaction.on_commit(lambda: notify_membership_granted(member))
+        if not is_membership_granted_suppressed():
+            transaction.on_commit(lambda: notify_membership_granted(member))
         return member
     if member.status == Status.AWAITING_PAYMENT:
         # Held until the first payment: the claim keeps the linked record open and never touches the access row
@@ -185,7 +192,10 @@ def link_record(
         )
         transfer_record_note(locked, to_user_id=user.pk)
         if open_standard:
-            member = _make_access_row_agree(locked, user, member)
+            # The verified-email auto-link tells the person with MEMBER_RECORD_LINKED, not MEMBERSHIP_GRANTED.
+            auto = via == MembershipRecordLinkMethod.AUTO_EMAIL
+            with suppress_membership_granted() if auto else nullcontext():
+                member = _make_access_row_agree(locked, user, member)
         else:
             member = None  # closed / TEMPORARY records grant nothing: no access row is touched
         return LinkResult(LinkOutcome.LINKED, locked, member)
@@ -398,7 +408,9 @@ def claim_invite(token: str, user: RevelUser) -> LinkResult | None:
 def auto_link_records_for_user(user_id: UUID) -> list[LinkResult]:
     """Link every unlinked record whose email equals (``iexact``) the user's verified email.
 
-    Never for guests or unverified emails. Staff are told about each successful link.
+    Never for guests or unverified emails. Staff are told about each successful link; the person gets one
+    MEMBER_RECORD_LINKED notification per organization where a link leaves them an ACTIVE membership
+    (links that touch only closed or TEMPORARY entries send nothing). MEMBERSHIP_GRANTED is not sent on this path.
     """
     user = RevelUser.objects.filter(pk=user_id).first()
     if user is None or user.guest or not user.email_verified or not user.email:
@@ -411,13 +423,39 @@ def auto_link_records_for_user(user_id: UUID) -> list[LinkResult]:
         .order_by("valid_from", "created_at")
     )
     results: list[LinkResult] = []
+    linked_organizations: dict[UUID, Organization] = {}
     for record in records:
         result = link_record(record, user, require_verified_email=True, via=MembershipRecord.LinkMethod.AUTO_EMAIL)
         results.append(result)
         logger.info("member_register_auto_link", record_id=str(record.pk), user_id=str(user.pk), outcome=result.outcome)
         if result.outcome == LinkOutcome.LINKED:
             _notify_staff_of_auto_link(result.record, user)
+            if result.member is not None and result.member.status == Status.ACTIVE:
+                linked_organizations.setdefault(result.record.organization_id, result.record.organization)
+    for organization in linked_organizations.values():
+        _notify_person_of_auto_link(organization, user)
     return results
+
+
+def _notify_person_of_auto_link(organization: Organization, user: RevelUser) -> None:
+    """Tell ``user`` after commit that a register entry of ``organization`` was linked to their account."""
+    context: MemberRecordLinkedContext = {
+        "organization_id": str(organization.id),
+        "organization_name": organization.name,
+        # ponytail: no self-service "leave" route exists yet; the organization page has the contact button.
+        "frontend_url": f"{frontend_base_url_for(organization)}/org/{organization.slug}",
+    }
+
+    def notify_member_record_linked() -> None:
+        notification_requested.send(
+            sender=MembershipRecord,
+            user=user,
+            notification_type=NotificationType.MEMBER_RECORD_LINKED,
+            context=context,
+        )
+
+    # Robust: a failed send must not stop the notifications for the other organizations.
+    transaction.on_commit(notify_member_record_linked, robust=True)
 
 
 def _notify_staff_of_auto_link(record: MembershipRecord, user: RevelUser) -> None:

@@ -1,0 +1,10 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+<p>{% blocktranslate with org=context.organization_name %}{{ org }} keeps a member register. It has an entry with your email address. You verified this address, so we linked the entry to your account.{% endblocktranslate %}</p>
+<p>{% trans "If this entry is not yours, or you do not want to be a member, contact the organization." %}</p>
+<center>
+    <a href="{{ context.frontend_url }}" class="button">{% trans "Open the organization page" %}</a>
+</center>
+{% endblock %}

@@ -62,6 +62,7 @@ The following notification types are supported across all channels:
 | `membership_payment_requested` | A membership on an offline plan is awaiting payment (to the member). Transactional and mandatory |
 | `membership_invitation_received` | Staff invited the user's account to become a member; it carries the personal accept link (valid 14 days). Delivered immediately, can be turned off |
 | `membership_offline_joined` | Staff heads-up: someone joined an offline plan directly and now owes a payment |
+| `member_record_linked` | To the person: a verified email linked their account to an organization's member-register entries and they now hold an ACTIVE membership there (one per organization; replaces `membership_granted` on this path). Links to the organization page. See [Member register](member-register.md) |
 | `staff_member_record_auto_linked` | Staff heads-up: a member-register entry was linked to an account by verified-email match. See [Member register](member-register.md) |
 
 `membership_payment_requested` and `membership_offline_joined` belong to the offline-paid flow
