@@ -487,6 +487,36 @@ class TestThumbnailIntegration:
         assert not any(stored)
         assert made and not default_storage.exists(made["profile_picture_thumbnail"])  # the attempt left nothing
 
+    def test_a_failed_attempt_keeps_the_files_that_another_row_names(
+        self, revel_user_factory: RevelUserFactory, rgb_image_bytes: bytes, settings: t.Any, tmp_path: t.Any
+    ) -> None:
+        """Rows with one source make the same paths: the clean-up of a failed attempt keeps the other row's files."""
+        from accounts.models import RevelUser
+        from common.thumbnails.service import generate_and_save_thumbnails as real
+
+        settings.MEDIA_ROOT = str(tmp_path)
+        user, other = revel_user_factory(), revel_user_factory()
+        source = default_storage.save("protected/shared/b.jpg", ContentFile(rgb_image_bytes))
+        RevelUser.objects.filter(pk__in=[user.pk, other.pk]).update(profile_picture=source)
+        made: dict[str, str] = {}
+
+        def make_then_lose_one(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            result = real(*args, **kwargs)
+            made.update(result.thumbnails)
+            RevelUser.objects.filter(pk=other.pk).update(
+                profile_picture_thumbnail=result.thumbnails["profile_picture_thumbnail"]
+            )
+            default_storage.delete(result.thumbnails["profile_picture_preview"])
+            return result
+
+        with (
+            patch("common.thumbnails.tasks.generate_and_save_thumbnails", make_then_lose_one),
+            pytest.raises(OSError, match="deleted meanwhile"),
+        ):
+            generate_thumbnails_task.run(app="accounts", model="reveluser", pk=str(user.pk), field="profile_picture")
+
+        assert made and default_storage.exists(made["profile_picture_thumbnail"])  # the other row names it
+
     def test_questionnaire_file_thumbnail_generation(
         self,
         revel_user_factory: RevelUserFactory,
