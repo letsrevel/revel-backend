@@ -290,7 +290,7 @@ def test_a_missing_file_does_not_stop_the_scan_of_the_other_files(
         uploader="x@example.com",
         file_path=later,
     )
-    default_storage.delete(paths[0])  # the copy still names it
+    default_storage.delete(paths[0])  # the copy still names it; "a.png" sorts before "z.png", so it is scanned first
 
     with django_capture_on_commit_callbacks(execute=True), pytest.raises(FileNotFoundError):
         _scan(event, mock_clamd, later_bytes)
@@ -298,3 +298,8 @@ def test_a_missing_file_does_not_stop_the_scan_of_the_other_files(
     assert not Event.objects.get(pk=event.pk).logo
     assert not default_storage.exists(later)
     mock_notify.assert_called_once()
+    statuses = dict(FileUploadAudit.objects.filter(instance_pk=event.pk).values_list("file_path", "status"))
+    assert statuses == {
+        paths[0]: FileUploadAudit.FileUploadAuditStatus.PENDING,  # the sweep tries again
+        later: FileUploadAudit.FileUploadAuditStatus.MALICIOUS,
+    }
