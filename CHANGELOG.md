@@ -18,8 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 3. Run the same command without `--dry-run`. It updates the existing endpoints only: it creates no endpoint and does not change the signing secrets.
 
 Running the command again is harmless.
-
 These two events now also settle every ticket and membership refund: a pending refund that succeeds later, or a refund that fails later.
+
+**Tags that differ only by case.** Migrations `common` 0024 and 0025 merge these tags and add a case-insensitive unique index. During the deploy, an old instance can create a tag that differs only by case after 0024 has run. Then 0025 fails, and the rollout keeps the old container. Do not run the recovery in that container, because it does not know migration 0024. Run these two commands in a new container:
+`docker compose run --rm --no-deps web python manage.py migrate common 0023`
+`docker compose run --rm --no-deps web python manage.py migrate`
+The second command runs the merge again and installs the index. The old container still runs during these commands, so it can create another case variant in the same short window. If the second command fails again for that reason, run both commands again. Then finish the rollout with `docker rollout -t 120 web`, or with `docker compose up -d web` if the instance does not use docker-rollout. Do not run the deploy script again: the image is already pulled, so it rolls out nothing. A deploy that fails on this migration because of a lock conflict (deadlock) rolls back completely, and the next rollout tries it again. Until the rollout finishes, an old instance can answer 500 when a user adds a new case variant of an existing tag.
 
 ### Added
 - Operators can register one-time post-deploy tasks. `manage.py run_post_deploy` runs each pending task once per instance, and `manage.py post_deploy_status` lists them. This is off by default behind `FEATURE_POST_DEPLOY_TASKS`. The first task syncs the Stripe webhook event types.
@@ -59,6 +63,7 @@ These two events now also settle every ticket and membership refund: a pending r
 - Deleting an event, a ticket tier or an event series ends the unfinished (pending) checkouts that the delete removes: their open Stripe Checkout sessions are expired, so they can no longer be paid. Deleting a ticket tier or an event series also gives back the discount code uses of those checkouts, as deleting an event already did.
 - A cancelled event no longer stops the sale of a series pass that covers it. The pass price drops by one pro-rata discount step for each cancelled event, as for an event that has started, and the buyer gets no ticket for it. If the organizer un-cancels the event, pass holders without a ticket for it get one. A draft event still stops the sale.
 - When a verified email links a person to member-register entries, the person now gets one notification per organization where the link gives an active membership (new type `member_record_linked`; in-app, email and Telegram, per their preferences). It replaces `membership_granted` on this path and links to the organization page. Links that touch only ended or temporary entries send nothing to the person.
+- Tags are now matched regardless of letter case when they are added, removed and used as a filter (`?tags=`). The `?tags=` filter also ignores a leading `#` and surrounding spaces. Existing tags that differ only by case (for example `Fun` and `fun`) are merged into the most used one (ties: the oldest), with their assignments, and the database no longer accepts two tags that differ only by case.
 
 ## [3.0.0] - 2026-11-20
 

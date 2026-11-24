@@ -185,8 +185,8 @@ class Command(BaseCommand):
         events_models.OrganizationMember.objects.create(organization=self.org, user=self.member_user, tier=default_tier)
 
         # Add some tags
-        Tag.objects.get_or_create(name="tech", defaults={"color": "#6C5CE7"})
-        Tag.objects.get_or_create(name="test", defaults={"color": "#FF6B6B"})
+        Tag.objects.get_or_create(name__iexact="tech", defaults={"name": "tech", "color": "#6C5CE7"})
+        Tag.objects.get_or_create(name__iexact="test", defaults={"name": "test", "color": "#FF6B6B"})
         self.org.add_tags("tech", "test")
 
         # Update organization settings
