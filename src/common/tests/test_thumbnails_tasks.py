@@ -3,6 +3,7 @@
 This module tests the Celery tasks and integration workflows.
 """
 
+import typing as t
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -292,6 +293,47 @@ class TestThumbnailIntegration:
             if default_storage.exists(saved_path):
                 default_storage.delete(saved_path)
             for path in (result or {}).values():
+                if default_storage.exists(path):
+                    default_storage.delete(path)
+
+    @pytest.mark.parametrize("change", ["removed", "replaced", "deleted"])
+    def test_a_source_that_changed_meanwhile_gets_no_paths_and_the_files_are_deleted(
+        self, revel_user_factory: RevelUserFactory, rgb_image_bytes: bytes, change: str
+    ) -> None:
+        """The row changes while the task makes the files: nothing is written back, nothing stays in storage."""
+        from accounts.models import RevelUser
+        from common.thumbnails.service import generate_and_save_thumbnails as real
+
+        user = revel_user_factory()
+        saved_path = default_storage.save(f"protected/profile-pictures/{user.pk}/old.jpg", ContentFile(rgb_image_bytes))
+        RevelUser.objects.filter(pk=user.pk).update(profile_picture=saved_path)
+        made: dict[str, str] = {}
+
+        def make_then_change(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            result = real(*args, **kwargs)
+            made.update(result.thumbnails)
+            rows = RevelUser.objects.filter(pk=user.pk)
+            if change == "deleted":
+                rows.delete()
+            else:
+                rows.update(profile_picture=None if change == "removed" else "protected/other.jpg")
+            return result
+
+        try:
+            with patch("common.thumbnails.tasks.generate_and_save_thumbnails", make_then_change):
+                result = generate_thumbnails_task(
+                    app="accounts", model="reveluser", pk=str(user.pk), field="profile_picture"
+                )
+
+            assert result == {}
+            assert len(made) == 2
+            assert not any(default_storage.exists(path) for path in made.values())
+            stored = RevelUser.objects.filter(pk=user.pk).values_list(
+                "profile_picture_thumbnail", "profile_picture_preview"
+            )
+            assert all(not name for row in stored for name in row)
+        finally:
+            for path in [saved_path, *made.values()]:
                 if default_storage.exists(path):
                     default_storage.delete(path)
 

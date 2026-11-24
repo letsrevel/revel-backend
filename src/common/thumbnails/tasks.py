@@ -9,6 +9,7 @@ import typing as t
 import structlog
 from celery import shared_task
 from django.apps import apps
+from django.db import transaction
 
 from .config import THUMBNAIL_CONFIGS
 from .service import delete_thumbnails_for_paths, generate_and_save_thumbnails
@@ -89,15 +90,23 @@ def generate_thumbnails_task(
     # OSError for storage issues will trigger automatic retry
     result = generate_and_save_thumbnails(original_path, config)
 
-    # Update model with thumbnail paths on separate fields
-    update_fields = []
-    for field_name, path in result.thumbnails.items():
-        if hasattr(instance, field_name):
-            setattr(instance, field_name, path)
-            update_fields.append(field_name)
-
-    if update_fields:
-        instance.save(update_fields=update_fields)
+    # Write the paths only while the row still holds this source. The row can change while the files are made:
+    # a new upload, a removed picture, a deletion. Then the files made here belong to nothing.
+    with transaction.atomic():
+        locked = model_class.objects.select_for_update().filter(pk=pk).first()
+        current = getattr(locked, field, None) if locked is not None else None
+        if not current or current.name != original_path:
+            locked = None
+        else:
+            update_fields = [name for name in result.thumbnails if hasattr(locked, name)]
+            for field_name in update_fields:
+                setattr(locked, field_name, result.thumbnails[field_name])
+            if update_fields:
+                locked.save(update_fields=update_fields)
+    if locked is None:
+        delete_thumbnails_for_paths(list(result.thumbnails.values()))
+        logger.info("thumbnails_discarded_source_changed", app=app, model=model, pk=pk, field=field)
+        return {}
 
     logger.info(
         "thumbnails_generated_and_saved",

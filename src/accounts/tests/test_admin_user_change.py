@@ -7,6 +7,8 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import Group
+from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db.models.signals import post_save
 from django.test.client import Client
 from django.urls import reverse
@@ -252,3 +254,74 @@ class TestChangeFormOpenedBeforeAChange:
 
         assert response.status_code == 302
         assert list(person.groups.values_list("name", flat=True)) == ["Added on the page"]
+
+
+class TestProfilePicture:
+    """A new or removed picture in the admin replaces the derived images, as an upload through the API does."""
+
+    FILES = ("profile_picture", "profile_picture_thumbnail", "profile_picture_preview")
+
+    @pytest.fixture
+    def old_files(self, person: RevelUser, settings: t.Any, tmp_path: t.Any) -> list[str]:
+        settings.MEDIA_ROOT = str(tmp_path)
+        storage = RevelUser._meta.get_field("profile_picture").storage
+        names = {
+            field: storage.save(f"protected/profile-pictures/{person.pk}/{field}.png", ContentFile(b"image"))
+            for field in self.FILES
+        }
+        RevelUser.objects.filter(pk=person.pk).update(**names)
+        return list(names.values())
+
+    def _post(self, client: Client, person: RevelUser, capture: t.Any, **overrides: t.Any) -> t.Any:
+        url = reverse("admin:accounts_reveluser_change", args=[person.pk])
+        data = _browser_post_data(client, person)
+        data.pop("profile_picture", None)  # a browser sends a file only when the admin picks one
+        data.update(overrides)
+        with (
+            patch("common.thumbnails.tasks.delete_orphaned_thumbnails_task") as delete,
+            patch("common.thumbnails.tasks.generate_thumbnails_task") as generate,
+            capture(execute=True),
+        ):
+            response = client.post(url, data)
+            assert response.status_code == 302, response.context["adminform"].form.errors
+        return delete, generate
+
+    def test_a_new_picture_clears_the_derived_images_and_replaces_the_old_files_after_commit(
+        self,
+        admin_client: Client,
+        person: RevelUser,
+        old_files: list[str],
+        rgb_image_bytes: bytes,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        upload = SimpleUploadedFile("new.jpg", rgb_image_bytes, content_type="image/jpeg")
+
+        delete, generate = self._post(admin_client, person, django_capture_on_commit_callbacks, profile_picture=upload)
+
+        picture, thumbnail, preview = RevelUser.objects.values_list(*self.FILES).get(pk=person.pk)
+        assert picture.endswith(".jpg") and picture not in old_files
+        assert not thumbnail and not preview
+        delete.delay.assert_called_once_with(thumbnail_paths=old_files)
+        generate.delay.assert_called_once_with(
+            app="accounts", model="reveluser", pk=str(person.pk), field="profile_picture"
+        )
+
+    def test_a_removed_picture_clears_all_fields_and_deletes_the_files_after_commit(
+        self, admin_client: Client, person: RevelUser, old_files: list[str], django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        delete, generate = self._post(
+            admin_client, person, django_capture_on_commit_callbacks, **{"profile_picture-clear": "on"}
+        )
+
+        assert not any(RevelUser.objects.values_list(*self.FILES).get(pk=person.pk))
+        delete.delay.assert_called_once_with(thumbnail_paths=old_files)
+        generate.delay.assert_not_called()
+
+    def test_an_edit_that_keeps_the_picture_keeps_the_files(
+        self, admin_client: Client, person: RevelUser, old_files: list[str], django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        delete, generate = self._post(admin_client, person, django_capture_on_commit_callbacks, bio="Edited")
+
+        assert list(RevelUser.objects.values_list(*self.FILES).get(pk=person.pk)) == old_files
+        delete.delay.assert_not_called()
+        generate.delay.assert_not_called()

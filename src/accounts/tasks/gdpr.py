@@ -339,7 +339,11 @@ def _delete_or_erase(user_id: str, force_full_delete: bool, mark: datetime | Non
         return
     # Deliberately no email here: this log outlives the erasure it records.
     logger.info("account_deletion_started", user_id=str(user.id))
-    from accounts.service.account_erasure import delete_data_export_file_after_commit, erase_account_keeping_holdings
+    from accounts.service.account_erasure import (
+        delete_data_export_file_after_commit,
+        delete_profile_files_after_commit,
+        erase_account_keeping_holdings,
+    )
     from events.service.member_register_service import suppress_mirror
 
     # ``delete()`` nulls the instance pk, so keep it for the history purge.
@@ -377,6 +381,7 @@ def _delete_or_erase(user_id: str, force_full_delete: bool, mark: datetime | Non
         if kept:
             erase_account_keeping_holdings(user, kept)
         else:
+            delete_profile_files_after_commit(user)
             user.delete()
         gdpr.purge_user_history(pk)
     logger.info("account_deletion_completed", user_id=user_id, erased_in_place=bool(kept))

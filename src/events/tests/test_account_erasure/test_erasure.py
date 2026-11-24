@@ -495,13 +495,18 @@ class TestProfileFiles:
     ) -> RevelUser:
         settings.MEDIA_ROOT = str(tmp_path)
         make_ticket(holder, ended_event_factory(-timedelta(days=2)))
+        self._save_files(holder)
+        return holder
+
+    @staticmethod
+    def _save_files(user: RevelUser) -> list[str]:
         storage = RevelUser._meta.get_field("profile_picture").storage
         names = {
-            field: storage.save(f"protected/profile-pictures/{holder.pk}/{field}.png", ContentFile(b"image"))
+            field: storage.save(f"protected/profile-pictures/{user.pk}/{field}.png", ContentFile(b"image"))
             for field in account_erasure._PROFILE_FILES
         }
-        RevelUser.objects.filter(pk=holder.pk).update(**names)
-        return holder
+        RevelUser.objects.filter(pk=user.pk).update(**names)
+        return list(names.values())
 
     @staticmethod
     def _stored(user: RevelUser) -> list[bool]:
@@ -535,6 +540,22 @@ class TestProfileFiles:
 
         assert not any(storage.exists(name) for name in names)
         assert RevelUser.objects.get(pk=holder_with_files.pk).erased_at is not None
+
+    def test_a_full_delete_deletes_the_picture_and_its_derived_images_after_commit(
+        self, holder: RevelUser, settings: t.Any, tmp_path: t.Any, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        settings.MEDIA_ROOT = str(tmp_path)
+        names = self._save_files(holder)
+        storage = RevelUser._meta.get_field("profile_picture").storage
+        with django_capture_on_commit_callbacks() as callbacks:
+            delete_user_account(str(holder.pk))
+        assert not RevelUser.objects.filter(pk=holder.pk).exists()
+        assert all(storage.exists(name) for name in names)  # not before the commit
+
+        for callback in callbacks:
+            callback()
+
+        assert not any(storage.exists(name) for name in names)
 
     @pytest.mark.parametrize("kept_ticket", [True, False], ids=["erasure", "full-delete"])
     def test_the_data_export_file_is_deleted_after_commit(

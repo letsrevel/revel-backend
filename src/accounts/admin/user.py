@@ -168,6 +168,27 @@ def _lock_and_refuse_erased(pk: t.Any) -> None:
         raise ValidationError(_("This account was erased. An erased account cannot be edited."), code="erased")
 
 
+_PICTURE_FILES = ("profile_picture", "profile_picture_thumbnail", "profile_picture_preview")
+
+
+def _replace_picture_files_after_commit(user: RevelUser, old_files: list[str]) -> None:
+    """After commit, delete the old picture files and make the derived images of the new picture."""
+    from common.thumbnails.tasks import delete_orphaned_thumbnails_task, generate_thumbnails_task
+
+    user_id = str(user.pk)
+    old_files = [name for name in old_files if name != user.profile_picture.name]
+    if old_files:
+        # robust: a broker failure must not fail the saved change; the old files then stay (harmless).
+        transaction.on_commit(lambda: delete_orphaned_thumbnails_task.delay(thumbnail_paths=old_files), robust=True)
+    if user.profile_picture:
+        transaction.on_commit(
+            lambda: generate_thumbnails_task.delay(
+                app="accounts", model="reveluser", pk=user_id, field="profile_picture"
+            ),
+            robust=True,
+        )
+
+
 class RevelUserChangeForm(UserChangeForm):  # type: ignore[type-arg]
     """The change form refuses a post for an erased account, for example from a page opened before the erasure.
 
@@ -412,19 +433,31 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
 
         The save writes only the fields that the admin changed. The other fields of ``obj`` can be older than
         the row (from the page, or loaded before the row lock), so they are read again under the lock.
+
+        A new or removed picture also clears the derived images. The old files are deleted after commit, and
+        a new picture gets its derived images after commit, as an upload through the API does.
         """
         if not change:
             super().save_model(request, obj, form, change)
             return
-        stored_active = RevelUser.objects.select_for_update().values_list("is_active", flat=True).get(pk=obj.pk)
+        stored_active, *stored_files = (
+            RevelUser.objects.select_for_update().values_list("is_active", *_PICTURE_FILES).get(pk=obj.pk)
+        )
         concrete = {field.name for field in obj._meta.concrete_fields}
         update_fields = {name for name in form.changed_data if name in concrete} - {"is_active"}
         if _is_active_changed_by_admin(form, obj, stored_active):
             obj.deletion_requested_at = None
             update_fields |= {"is_active", "deletion_requested_at"}
+        picture_changed = "profile_picture" in update_fields
+        if picture_changed:
+            update_fields |= set(_PICTURE_FILES)
         # The save signals and the admin log then see the stored values of the fields that the admin did not change.
         obj.refresh_from_db(fields=sorted(concrete - update_fields - {obj._meta.pk.name}))
+        if picture_changed:
+            obj.profile_picture_thumbnail = obj.profile_picture_preview = None
         obj.save(update_fields=sorted(update_fields))
+        if picture_changed:
+            _replace_picture_files_after_commit(obj, [name for name in stored_files if name])
 
     def save_related(self, request: HttpRequest, form: t.Any, formsets: t.Any, change: bool) -> None:
         """On a change, set only the relations that the admin changed, like the fields in :meth:`save_model`."""
