@@ -296,7 +296,7 @@ class TestThumbnailIntegration:
                 if default_storage.exists(path):
                     default_storage.delete(path)
 
-    @pytest.mark.parametrize("change", ["removed", "replaced", "replaced-same-stem", "deleted"])
+    @pytest.mark.parametrize("change", ["removed", "replaced", "deleted"])
     def test_a_source_that_changed_meanwhile_gets_no_paths_and_the_files_are_deleted(
         self,
         revel_user_factory: RevelUserFactory,
@@ -305,10 +305,7 @@ class TestThumbnailIntegration:
         tmp_path: t.Any,
         change: str,
     ) -> None:
-        """The row changes while the task makes the files: nothing is written back, nothing stays in storage.
-
-        A new source with the same stem has the same derived paths; the files that its row uses stay.
-        """
+        """The row changes while the task makes the files: nothing is written back, nothing stays in storage."""
         from accounts.models import RevelUser
         from common.thumbnails.service import generate_and_save_thumbnails as real
 
@@ -326,10 +323,8 @@ class TestThumbnailIntegration:
                 rows.delete()
             elif change == "removed":
                 rows.update(profile_picture=None)
-            elif change == "replaced":
-                rows.update(profile_picture="protected/other.jpg")
-            else:  # the newer upload's own task already wrote the same derived paths
-                rows.update(profile_picture=saved_path.replace(".jpg", ".png"), **result.thumbnails)
+            else:
+                rows.update(profile_picture=saved_path.replace(".jpg", ".png"))  # the same stem
             return result
 
         with patch("common.thumbnails.tasks.generate_and_save_thumbnails", make_then_change):
@@ -339,14 +334,36 @@ class TestThumbnailIntegration:
 
         assert result == {}
         assert len(made) == 2
-        kept = change == "replaced-same-stem"
-        assert [default_storage.exists(path) for path in made.values()] == [kept, kept]
+        assert not any(default_storage.exists(path) for path in made.values())
         stored = RevelUser.objects.filter(pk=user.pk).values_list(
             "profile_picture_thumbnail", "profile_picture_preview"
         )
-        assert [list(row) for row in stored] == (
-            [list(made.values())] if kept else [] if change == "deleted" else [["", ""]]
+        assert [list(row) for row in stored] == ([] if change == "deleted" else [["", ""]])
+
+    def test_a_regeneration_deletes_the_derived_files_that_it_replaces(
+        self, revel_user_factory: RevelUserFactory, rgb_image_bytes: bytes, settings: t.Any, tmp_path: t.Any
+    ) -> None:
+        """A row from an older path format gets new paths; the files at the old paths go."""
+        from accounts.models import RevelUser
+
+        settings.MEDIA_ROOT = str(tmp_path)
+        user = revel_user_factory()
+        folder = f"protected/profile-pictures/{user.pk}"
+        source = default_storage.save(f"{folder}/avatar.jpg", ContentFile(rgb_image_bytes))
+        old = [
+            default_storage.save(f"{folder}/avatar_{kind}.jpg", ContentFile(b"old"))
+            for kind in ("thumbnail", "preview")
+        ]
+        RevelUser.objects.filter(pk=user.pk).update(
+            profile_picture=source, profile_picture_thumbnail=old[0], profile_picture_preview=old[1]
         )
+
+        result = generate_thumbnails_task(app="accounts", model="reveluser", pk=str(user.pk), field="profile_picture")
+
+        stored = RevelUser.objects.values_list("profile_picture_thumbnail", "profile_picture_preview").get(pk=user.pk)
+        assert list(stored) == list(result.values())
+        assert all(default_storage.exists(path) for path in result.values())
+        assert not any(default_storage.exists(path) for path in old)
 
     def test_questionnaire_file_thumbnail_generation(
         self,

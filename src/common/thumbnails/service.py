@@ -47,7 +47,8 @@ def get_thumbnail_path(original_path: str, field_name: str) -> str:
     """Generate thumbnail path from original path.
 
     Thumbnails are always stored as JPEG regardless of source format.
-    The path is based on the target field name suffix.
+    The path is based on the source stem and extension and on the target field name suffix. The extension keeps
+    the paths of two sources with the same stem apart (``avatar.png`` and a later ``avatar.jpg``).
 
     Args:
         original_path: Path to the original file in storage.
@@ -58,12 +59,13 @@ def get_thumbnail_path(original_path: str, field_name: str) -> str:
 
     Example:
         >>> get_thumbnail_path("logos/abc123.heic", "logo_thumbnail")
-        'logos/abc123_thumbnail.jpg'
+        'logos/abc123_heic_thumbnail.jpg'
         >>> get_thumbnail_path("protected/profile-pictures/user/img.png", "profile_picture_preview")
-        'protected/profile-pictures/user/img_preview.jpg'
+        'protected/profile-pictures/user/img_png_preview.jpg'
     """
     path = Path(original_path)
-    stem = path.stem
+    extension = path.suffix.lstrip(".").lower()
+    stem = f"{path.stem}_{extension}" if extension else path.stem
     parent = path.parent
 
     # Extract suffix from field name (e.g., "logo_thumbnail" -> "thumbnail")

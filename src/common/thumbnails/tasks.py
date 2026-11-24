@@ -94,24 +94,13 @@ def generate_thumbnails_task(
     # a new upload, a removed picture, a deletion. Then the files made here belong to nothing.
     # ponytail: the check compares file names, so a new upload with the same stored name is not detected; its own
     # task then writes the paths again. A source token (for example the file hash) would close that gap.
-    in_use: set[str] = set()
-    with transaction.atomic():
-        locked = model_class.objects.select_for_update().filter(pk=pk).first()
-        current = getattr(locked, field, None) if locked is not None else None
-        discard = not current or current.name != original_path
-        if discard and locked is not None:
-            # A derived path depends on the source stem only, so a newer source can use the same paths.
-            in_use = {file.name for name in result.thumbnails if (file := getattr(locked, name, None))}
-        elif not discard:
-            update_fields = [name for name in result.thumbnails if hasattr(locked, name)]
-            for field_name in update_fields:
-                setattr(locked, field_name, result.thumbnails[field_name])
-            if update_fields:
-                locked.save(update_fields=update_fields)
+    discard, replaced = _write_paths_if_source_unchanged(model_class, pk, field, original_path, result.thumbnails)
     if discard:
-        delete_thumbnails_for_paths([path for path in result.thumbnails.values() if path not in in_use])
+        delete_thumbnails_for_paths(list(result.thumbnails.values()))
         logger.info("thumbnails_discarded_source_changed", app=app, model=model, pk=pk, field=field)
         return {}
+    if replaced:  # after the commit above: the row no longer names these files
+        delete_thumbnails_for_paths(replaced)
 
     logger.info(
         "thumbnails_generated_and_saved",
@@ -126,6 +115,30 @@ def generate_thumbnails_task(
         raise ThumbnailGenerationError(f"Failed to generate thumbnails for {app}.{model} pk={pk}: {result.failures}")
 
     return result.thumbnails
+
+
+def _write_paths_if_source_unchanged(
+    model_class: t.Any, pk: str, field: str, original_path: str, thumbnails: dict[str, str]
+) -> tuple[bool, list[str]]:
+    """Under the row lock, write ``thumbnails`` if the row still holds ``original_path``.
+
+    Returns whether the files must be discarded, and the derived paths that the write replaced.
+    """
+    replaced: list[str] = []
+    with transaction.atomic():
+        locked = model_class.objects.select_for_update().filter(pk=pk).first()
+        current = getattr(locked, field, None) if locked is not None else None
+        if not current or current.name != original_path:
+            return True, replaced
+        update_fields = [name for name in thumbnails if hasattr(locked, name)]
+        for field_name in update_fields:
+            old = getattr(locked, field_name)
+            if old and old.name != thumbnails[field_name]:
+                replaced.append(old.name)  # an older path format, for example on a regeneration
+            setattr(locked, field_name, thumbnails[field_name])
+        if update_fields:
+            locked.save(update_fields=update_fields)
+    return False, replaced
 
 
 @shared_task(name="common.thumbnails.tasks.delete_orphaned_thumbnails_task")

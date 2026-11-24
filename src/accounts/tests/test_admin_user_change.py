@@ -8,7 +8,6 @@ import pytest
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import Group
 from django.core.files.base import ContentFile
-from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db.models.signals import post_save
 from django.test.client import Client
@@ -344,28 +343,3 @@ class TestProfilePicture:
         assert RevelUser.objects.get(pk=person.pk).profile_picture
         delete.delay.assert_not_called()
         generate.delay.assert_called_once()
-
-    def test_a_new_picture_with_the_same_stem_keeps_the_derived_paths_that_it_reuses(
-        self,
-        admin_client: Client,
-        person: RevelUser,
-        settings: t.Any,
-        tmp_path: t.Any,
-        rgb_image_bytes: bytes,
-        django_capture_on_commit_callbacks: t.Any,
-    ) -> None:
-        """Derived paths come from the source stem: ``avatar.png`` and ``avatar.jpg`` share them."""
-        from common.thumbnails.service import get_thumbnail_path
-
-        settings.MEDIA_ROOT = str(tmp_path)
-        folder = f"protected/profile-pictures/{person.pk}"
-        old = default_storage.save(f"{folder}/avatar.png", ContentFile(b"image"))
-        derived = [get_thumbnail_path(old, name) for name in self.FILES[1:]]
-        RevelUser.objects.filter(pk=person.pk).update(
-            profile_picture=old, profile_picture_thumbnail=derived[0], profile_picture_preview=derived[1]
-        )
-        upload = SimpleUploadedFile("avatar.jpg", rgb_image_bytes, content_type="image/jpeg")
-
-        delete, _ = self._post(admin_client, person, django_capture_on_commit_callbacks, profile_picture=upload)
-
-        delete.delay.assert_called_once_with(thumbnail_paths=[old])

@@ -115,33 +115,37 @@ class TestGetThumbnailPath:
     def test_simple_path_with_underscore_field_name(self) -> None:
         """Test path generation with a field name containing underscore."""
         result = get_thumbnail_path("logos/abc123.png", "logo_thumbnail")
-        assert result == "logos/abc123_thumbnail.jpg"
+        assert result == "logos/abc123_png_thumbnail.jpg"
 
     def test_simple_field_name_without_underscore(self) -> None:
         """Test path generation with a simple field name without underscore."""
         result = get_thumbnail_path("images/photo.jpeg", "thumbnail")
-        assert result == "images/photo_thumbnail.jpg"
+        assert result == "images/photo_jpeg_thumbnail.jpg"
 
     def test_heic_source_converts_to_jpg(self) -> None:
         """Test that HEIC source files result in JPG thumbnails."""
         result = get_thumbnail_path("uploads/image.heic", "cover_art_thumbnail")
-        assert result == "uploads/image_thumbnail.jpg"
+        assert result == "uploads/image_heic_thumbnail.jpg"
         assert result.endswith(".jpg")
 
     def test_nested_directory_path(self) -> None:
         """Test path generation with deeply nested directory structure."""
         result = get_thumbnail_path("protected/profile-pictures/user/abc123.png", "profile_picture_preview")
-        assert result == "protected/profile-pictures/user/abc123_preview.jpg"
+        assert result == "protected/profile-pictures/user/abc123_png_preview.jpg"
 
     def test_multiple_underscores_in_field_name(self) -> None:
         """Test path generation with multiple underscores in field name."""
         result = get_thumbnail_path("files/doc.webp", "cover_art_social")
-        assert result == "files/doc_social.jpg"
+        assert result == "files/doc_webp_social.jpg"
+
+    def test_sources_with_the_same_stem_get_different_paths(self) -> None:
+        """A later ``avatar.jpg`` must not reuse the derived files of ``avatar.png``."""
+        assert get_thumbnail_path("p/avatar.png", "thumbnail") != get_thumbnail_path("p/avatar.jpg", "thumbnail")
 
     def test_complex_filename_with_multiple_dots(self) -> None:
         """Test path generation with filename containing multiple dots."""
         result = get_thumbnail_path("uploads/image.backup.2024.png", "thumbnail")
-        assert result == "uploads/image.backup.2024_thumbnail.jpg"
+        assert result == "uploads/image.backup.2024_png_thumbnail.jpg"
 
 
 # =============================================================================
@@ -470,13 +474,13 @@ class TestProtectedThumbnailPaths:
         """Test that thumbnails for protected files stay in protected directory."""
         result = get_thumbnail_path("protected/profile-pictures/user/abc.jpg", "profile_picture_thumbnail")
         assert result.startswith("protected/")
-        assert result == "protected/profile-pictures/user/abc_thumbnail.jpg"
+        assert result == "protected/profile-pictures/user/abc_jpg_thumbnail.jpg"
 
     def test_protected_path_with_preview_suffix(self) -> None:
         """Test protected path with preview suffix."""
         result = get_thumbnail_path("protected/questionnaire-files/abc.png", "preview")
         assert result.startswith("protected/")
-        assert result == "protected/questionnaire-files/abc_preview.jpg"
+        assert result == "protected/questionnaire-files/abc_png_preview.jpg"
 
     def test_nested_protected_path(self) -> None:
         """Test deeply nested protected paths."""
@@ -517,13 +521,13 @@ class TestHeicHeifSupport:
         """Test that HEIC source files result in JPG thumbnails."""
         result = get_thumbnail_path("uploads/photo.heic", "thumbnail")
         assert result.endswith(".jpg")
-        assert result == "uploads/photo_thumbnail.jpg"
+        assert result == "uploads/photo_heic_thumbnail.jpg"
 
     def test_heif_path_converts_to_jpg(self) -> None:
         """Test that HEIF source files result in JPG thumbnails."""
         result = get_thumbnail_path("uploads/photo.heif", "preview")
         assert result.endswith(".jpg")
-        assert result == "uploads/photo_preview.jpg"
+        assert result == "uploads/photo_heif_preview.jpg"
 
     def test_thumbnail_always_outputs_jpeg(
         self,
