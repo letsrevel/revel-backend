@@ -254,19 +254,23 @@ nothing. The data-export task takes the same lock for the whole export.
   The threaded tests are in `events/tests/test_account_erasure/test_serialization.py`.
 
 **`Organization` and `EventSeries` (image files and recurrence).** They sit immediately before `Event`:
-`Organization` → `EventSeries` → `Event`. All of these are `FOR NO KEY UPDATE`, so the deferred foreign-key checks of
-other transactions (`FOR KEY SHARE` at commit) are not blocked.
+`Organization` → `EventSeries` → `Event`. In the paths below, these row locks are `FOR NO KEY UPDATE`, so the
+deferred foreign-key checks of other transactions (`FOR KEY SHARE` at commit) are not blocked. Some other paths
+(the custom-domain, contact and membership services) still lock `Organization` with a plain `FOR UPDATE`.
 
 - Recurrence (`recurrence_service.generate_series_events`, `cancel_occurrence`) locks the series, then the template
   (`duplicate_event`) or an occurrence.
 - A series delete (`EventSeries.delete`) locks the series, then its events, and only then updates the series' unique
   `template_event`/`recurrence_rule` columns (that `UPDATE` takes `FOR UPDATE`). An organization delete locks the
-  organization, then its series, then its events. `delete_event_series` and `delete_event` run their `Payment`,
-  `TicketTier`, `Ticket` and `DiscountCode` steps before the model `delete()`, so these locks come after them.
+  organization, then its series, then its events.
+- Known exception: `delete_event_series` and `delete_event` run their `Payment`, `TicketTier`, `Ticket` and
+  `DiscountCode` steps before the model `delete()`. When pending tickets with discount codes exist, their `Ticket`
+  and `DiscountCode` locks therefore come before the `EventSeries` and `Event` locks, the reverse of the global
+  order. The `Payment` lock is always first.
 - The image-path locks (`common/thumbnails`: upload, derived-path write, image delete, admin image change) take one
-  row of one model and change only image columns. The path-level advisory locks
-  (`common.thumbnails.files.lock_image_paths`) come last: no row lock is taken after a path lock (the reference
-  check after them only reads).
+  row of one model and change only image columns. An admin change form keeps that lock until the form saves,
+  including its inlines. The path-level advisory locks (`common.thumbnails.files.lock_image_paths`) come last: no
+  row lock is taken after a path lock (the reference check after them only reads).
 
 **Ticket-ownership lemma.** Every transaction that touches an existing ticket that has a `Payment`
 locks that `Payment` first. So, once a transaction holds the `Payment`, no other path can cancel,
