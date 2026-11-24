@@ -111,3 +111,29 @@ def stored_image_paths(model_class: type, pk: object, source_field: str) -> list
     rows = model_class.objects.select_for_update(no_key=True).filter(pk=pk)  # type: ignore[attr-defined]
     row = rows.values_list(*names).first()
     return [name for name in row or () if name]
+
+
+# The documented lock order (docs/engineering-notes.md, "Lock order"): Organization -> EventSeries -> Event.
+_LOCK_RANK = {"organization": 0, "eventseries": 1, "event": 2}
+
+
+def detach_image_everywhere(source_path: str) -> list[str]:
+    """Clear ``source_path`` and its derived images on every row that names it as a source; return their paths.
+
+    A duplicated event shares its image paths with the template, so an image that must go is removed from every
+    row that names it. Only rows that still name the path change: a newer upload stays. Only nullable source
+    fields are cleared. Call it inside a transaction, and delete the returned paths after commit
+    (:func:`delete_unreferenced_files_after_commit`).
+    """
+    paths = [source_path]
+    configs = sorted(THUMBNAIL_CONFIGS.values(), key=lambda config: _LOCK_RANK.get(config.model_name, 3))
+    for config in configs:
+        model = apps.get_model(config.app_label, config.model_name)
+        if not model._meta.get_field(config.source_field).null:
+            continue
+        derived = [spec.field_name for spec in config.specs]
+        rows = model._default_manager.select_for_update(no_key=True).filter(**{config.source_field: source_path})
+        for row in rows.values_list(*derived):
+            paths += [name for name in row if name]
+        rows.update(**dict.fromkeys([config.source_field, *derived]))
+    return paths

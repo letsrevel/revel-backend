@@ -28,6 +28,8 @@ from django.utils.translation import gettext_lazy as _
 from accounts.models import RevelUser
 from common.email_backend import is_erased_address
 from common.models import EmailLog, FileExport, FileUploadAudit, QuarantinedFile, SiteSettings
+from common.thumbnails.config import THUMBNAIL_CONFIGS
+from common.thumbnails.files import delete_unreferenced_files_after_commit, detach_image_everywhere
 from common.thumbnails.tasks import (  # noqa: F401
     delete_orphaned_thumbnails_task,
     generate_thumbnails_task,
@@ -323,12 +325,18 @@ def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dic
         # leave the malicious file live.
         QuarantinedFile.objects.bulk_create(quarantined, ignore_conflicts=True)
         if instance._meta.get_field(field).null:
-            # Nullable field: blank the reference so the live file is dropped.
-            # Only that column, and only while it still names the scanned file: ``instance`` was loaded before the
-            # scan, so a full save would write every other field back as it was then, undoing writes made meanwhile
-            # (e.g. ``Organization.custom_domain``, #1199). A file uploaded meanwhile must stay.
-            # ``.update`` skips save()/full_clean, which is wanted here.
-            model_class.objects.filter(pk=pk, **{field: filename}).update(**{field: None})
+            # Nullable field: blank the reference, and delete the live file after commit (the quarantine row holds
+            # the bytes). Only the image columns, and only while they still name the scanned file: ``instance`` was
+            # loaded before the scan, so a full save would write every other field back as it was then, undoing
+            # writes made meanwhile (e.g. ``Organization.custom_domain``, #1199). A file uploaded meanwhile must stay.
+            # ``.update`` skips save()/full_clean, which is wanted here. An image with derived images is removed with
+            # them from every row that names it (a duplicated event shares the template's images).
+            if THUMBNAIL_CONFIGS.get((instance._meta.app_label, str(instance._meta.model_name), field)):
+                paths = detach_image_everywhere(filename)
+            else:
+                model_class.objects.filter(pk=pk, **{field: filename}).update(**{field: None})
+                paths = [filename]
+            delete_unreferenced_files_after_commit(paths)
         else:
             # Non-nullable field: full_clean() would reject a blank value and roll back the
             # quarantine, so remove the file and the row outright instead. The row goes only while it still
