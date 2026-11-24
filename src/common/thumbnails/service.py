@@ -177,10 +177,8 @@ def generate_and_save_thumbnails(
 
             thumb_path = get_thumbnail_path(original_path, spec.field_name)
 
-            # Delete existing thumbnail if present (for regeneration)
-            if default_storage.exists(thumb_path):
-                default_storage.delete(thumb_path)
-
+            # No delete first: other rows can name the file at this path (duplicated events share images).
+            # The storage picks a free name; the task deletes the old path after its write, if no row names it.
             saved_path = default_storage.save(
                 thumb_path,
                 ContentFile(thumb_data, name=Path(thumb_path).name),

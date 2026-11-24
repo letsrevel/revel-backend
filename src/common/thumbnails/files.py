@@ -48,8 +48,9 @@ def delete_unreferenced_files(paths: list[str]) -> None:
     ``write_paths_if_source_unchanged`` does: a write either commits first (the file is kept) or finds its file
     gone (the task retries; the ``generate_thumbnails --sync`` command reports the row as failed).
 
-    ponytail: a source path that a duplication copies is not locked, so a duplication at the moment of the
-    check can lose its source file. Reference counting would close that gap.
+    A duplication reads the template's image paths under the template's row lock, which every write of image
+    paths (upload, thumbnail write, image delete) also takes, so a copy is committed before the check or reads
+    the new paths.
     """
     paths = [path for path in paths if path]
     if not paths:

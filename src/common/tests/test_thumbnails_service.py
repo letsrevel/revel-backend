@@ -288,27 +288,30 @@ class TestGenerateAndSaveThumbnails:
             generate_and_save_thumbnails("nonexistent.jpg", test_thumbnail_config)
         assert "not found" in str(exc_info.value).lower()
 
-    def test_replaces_existing_thumbnail(
+    def test_a_regeneration_saves_a_new_file_and_keeps_the_existing_one(
         self,
         rgb_image_bytes: bytes,
         test_thumbnail_config: ModelThumbnailConfig,
     ) -> None:
-        """Test that existing thumbnails are replaced during regeneration."""
+        """Other rows can name the existing file (shared images): the task deletes it later, if no row names it."""
         original_path = "test-thumbnails/original-replace.jpg"
         default_storage.save(original_path, ContentFile(rgb_image_bytes))
+        result1 = result2 = None
 
         try:
             result1 = generate_and_save_thumbnails(original_path, test_thumbnail_config)
             thumb_path = result1.thumbnails["logo_thumbnail"]
             result2 = generate_and_save_thumbnails(original_path, test_thumbnail_config)
 
-            assert result2.thumbnails["logo_thumbnail"] == thumb_path
+            assert result2.thumbnails["logo_thumbnail"] != thumb_path
             assert default_storage.exists(thumb_path)
+            assert default_storage.exists(result2.thumbnails["logo_thumbnail"])
         finally:
             default_storage.delete(original_path)
-            for path in result1.thumbnails.values():
-                if default_storage.exists(path):
-                    default_storage.delete(path)
+            for result in (result1, result2):
+                for path in result.thumbnails.values() if result else ():
+                    if default_storage.exists(path):
+                        default_storage.delete(path)
 
 
 # =============================================================================

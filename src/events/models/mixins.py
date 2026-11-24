@@ -189,6 +189,9 @@ class LocationMixin(models.Model):
         return ""
 
 
+IMAGE_PATH_FIELDS = ("logo", "logo_thumbnail", "cover_art", "cover_art_thumbnail", "cover_art_social")
+
+
 class LogoCoverValidationMixin(ExifStripMixin):
     IMAGE_FIELDS = (
         "logo",
@@ -234,15 +237,34 @@ class LogoCoverValidationMixin(ExifStripMixin):
         help_text="1200x630 social preview for cover art (auto-generated).",
     )
 
+    def cascaded_image_paths(self) -> list[str]:
+        """The image paths of other rows that a delete of this row removes by cascade.
+
+        The collector does not call ``delete()`` on cascaded rows, so their files are collected here.
+        """
+        return []
+
     def delete(self, *args: t.Any, **kwargs: t.Any) -> tuple[int, dict[str, int]]:
-        """After commit, delete the image files of this row that no other row names (events share them)."""
+        """After commit, delete the image files of this row (and of cascaded rows) that no other row names.
+
+        The paths are read under the row lock: the instance can be older than the row (a thumbnail task or an
+        upload can have written new paths since it was loaded). Events made by duplication share their images.
+        """
+        from django.db import transaction
+
         from common.thumbnails.files import delete_unreferenced_files_after_commit
 
-        image_fields = ("logo", "logo_thumbnail", "cover_art", "cover_art_thumbnail", "cover_art_social")
-        paths = [file.name for name in image_fields if (file := getattr(self, name))]
-        deleted = super().delete(*args, **kwargs)
-        # After the row delete: outside a transaction the callback runs at once, and the row must be gone.
-        delete_unreferenced_files_after_commit(paths)
+        with transaction.atomic():
+            stored = (
+                type(self)
+                ._default_manager.select_for_update()
+                .filter(pk=self.pk)
+                .values_list(*IMAGE_PATH_FIELDS)
+                .first()
+            )
+            paths = [name for name in stored or () if name] + self.cascaded_image_paths()
+            deleted = super().delete(*args, **kwargs)
+            delete_unreferenced_files_after_commit(paths)  # runs after the commit of this block, row gone
         return deleted
 
 

@@ -10,7 +10,7 @@ from common.fields import MarkdownField
 from common.models import TagAssignment, TaggableMixin, TimeStampedModel
 from events.utils.visibility import owner_or_staff_q
 
-from .mixins import LogoCoverValidationMixin, SlugFromNameMixin
+from .mixins import IMAGE_PATH_FIELDS, LogoCoverValidationMixin, SlugFromNameMixin
 from .organization import Organization
 
 # Cap the rolling generation horizon at one year to keep the daily Celery beat task bounded.
@@ -164,6 +164,13 @@ class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin,
 
     def __str__(self) -> str:
         return self.name
+
+    def cascaded_image_paths(self) -> list[str]:
+        """The image paths of the events that the series delete removes (template and occurrences)."""
+        from .event import Event
+
+        rows = Event.objects.filter(event_series=self).values_list(*IMAGE_PATH_FIELDS)
+        return [name for row in rows for name in row if name]
 
     def delete(self, *args: t.Any, **kwargs: t.Any) -> tuple[int, dict[str, int]]:
         """Delete the series and cascade-delete its events, including the template.
