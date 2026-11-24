@@ -108,7 +108,7 @@ def test_the_confirmed_post_clears_the_self_service_deletion_mark(
 
 
 def test_the_change_form_carries_the_shown_is_active(admin_client: Client, member: RevelUser) -> None:
-    """The admin compares ``is_active`` with this hidden value (see ``RevelUserAdmin.get_form``)."""
+    """The admin compares ``is_active`` with this hidden value (see ``RevelUserChangeForm``)."""
     response = admin_client.get(reverse("admin:accounts_reveluser_change", args=[member.pk]))
 
     assert response.status_code == 200

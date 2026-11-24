@@ -29,6 +29,7 @@ These two events now also settle every ticket and membership refund: a pending r
 - A blacklisted person cannot be made staff. `POST /organization-admin/{slug}/staff/{user_id}` answers 400 for a person who is on the organization's blacklist.
 
 ### Fixed
+- Django admin: an admin password change (or "disable password sign-in") now ends every session of the account, like a password reset. The user change form saves only the fields, groups and permissions that the admin changed on the page. A value that changed in the database after the page was opened is kept.
 - Confirming or reverting an offline payment (`POST /event-admin/{event_id}/tickets/{ticket_id}/confirm-payment` and `.../unconfirm-payment`) answers 409 when the ticket changes while the request runs, for example by a cancellation. A ticket that is already in another status still gets 404, as before.
 - A payment that completes after its ticket was cancelled is refunded automatically (the platform fee is kept, as for every refund), and no payment confirmation is sent. Refund rows can have the new source `late_payment`.
 - A refund that is processed before its sale's attendee invoice exists now gets its credit note when the invoice is generated, if the invoice (or the skipped invoice record) shows the refunded payment. A skipped invoice gets a skipped credit-note record, and a draft invoice is deleted, as for a refund that comes after the draft. Before, the invoice showed the full amount and no credit note was issued.
