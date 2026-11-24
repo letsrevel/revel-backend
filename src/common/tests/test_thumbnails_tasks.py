@@ -469,8 +469,11 @@ class TestThumbnailIntegration:
         source = default_storage.save(f"protected/profile-pictures/{user.pk}/a.jpg", ContentFile(rgb_image_bytes))
         RevelUser.objects.filter(pk=user.pk).update(profile_picture=source)
 
+        made: dict[str, str] = {}
+
         def make_then_lose_one(*args: t.Any, **kwargs: t.Any) -> t.Any:
             result = real(*args, **kwargs)
+            made.update(result.thumbnails)
             default_storage.delete(result.thumbnails["profile_picture_preview"])
             return result
 
@@ -482,6 +485,7 @@ class TestThumbnailIntegration:
 
         stored = RevelUser.objects.values_list("profile_picture_thumbnail", "profile_picture_preview").get(pk=user.pk)
         assert not any(stored)
+        assert made and not default_storage.exists(made["profile_picture_thumbnail"])  # the attempt left nothing
 
     def test_questionnaire_file_thumbnail_generation(
         self,

@@ -252,6 +252,8 @@ def write_paths_if_source_unchanged(
         # A delete of unreferenced files (another row's discard) can have removed a file made here. The retry of
         # the task makes it again.
         if missing := [name for name in update_fields if not default_storage.exists(thumbnails[name])]:
+            # The other files of this attempt go too (if no row names them); the retry makes them all again.
+            delete_unreferenced_thumbnails([thumbnails[name] for name in update_fields])
             raise OSError(f"Derived files deleted meanwhile: {missing}")
         for field_name in update_fields:
             old = getattr(locked, field_name)

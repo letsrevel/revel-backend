@@ -603,10 +603,13 @@ def retry_account_file_delete(*, user_id: str, files: list[tuple[str, str]]) -> 
     """
     from django.core.files.storage import default_storage
 
-    for field_name, file_name in files:
+    failed = False
+    for field_name, file_name in files:  # every file, so one failing file does not keep the others
         try:
             default_storage.delete(file_name)
         except Exception:
             logger.warning("account_file_delete_retry_failed", user_id=user_id, field=field_name)
-            raise OSError("An account file could not be deleted.") from None
+            failed = True
+    if failed:
+        raise OSError("An account file could not be deleted.")
     logger.info("account_file_delete_retried", user_id=user_id, count=len(files))

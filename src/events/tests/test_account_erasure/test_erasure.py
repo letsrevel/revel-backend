@@ -635,8 +635,15 @@ class TestProfileFiles:
         names = RevelUser.objects.values_list(*account_erasure._PROFILE_FILES).get(pk=holder_with_files.pk)
         files = [("profile_picture", names[0]), ("profile_picture_preview", names[2])]
         assert retry_account_file_delete.ignore_result  # no result row with the paths
+        real_delete = FileSystemStorage.delete
+
+        def fail_first(self: t.Any, name: str) -> None:
+            if name == names[0]:
+                raise OSError(f"storage down: {name}")
+            real_delete(self, name)
+
         with (
-            patch.object(FileSystemStorage, "delete", side_effect=OSError(f"storage down: {names[0]}")),
+            patch.object(FileSystemStorage, "delete", fail_first),
             patch("accounts.tasks.gdpr.logger") as log,
             pytest.raises(OSError, match="could not be deleted") as failure,
         ):
@@ -645,8 +652,9 @@ class TestProfileFiles:
             "account_file_delete_retry_failed", user_id=str(holder_with_files.pk), field="profile_picture"
         )
         assert names[0] not in str(failure.value)  # the path can hold the uploaded file name
-        assert failure.value.__cause__ is None and failure.value.__suppress_context__
-        assert storage.exists(names[0])
+        assert failure.value.__cause__ is None and failure.value.__context__ is None
+        # The failing first file does not keep the second one.
+        assert [storage.exists(name) for name in (names[0], names[2])] == [True, False]
 
         retry_account_file_delete.run(user_id=str(holder_with_files.pk), files=files)
 
