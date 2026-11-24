@@ -60,7 +60,9 @@ def _move_assignments(TagAssignment: t.Any, canonical: t.Any, duplicate_ids: lis
     taken = set(
         TagAssignment.objects.filter(tag=canonical).values_list("content_type_id", "object_id"),
     )
-    for assignment in TagAssignment.objects.filter(tag_id__in=duplicate_ids).order_by("created_at", "pk"):
+    # Locked: TagManager.clear() deletes assignments without a Tag lock, so a row could vanish before its save.
+    moving = TagAssignment.objects.select_for_update().filter(tag_id__in=duplicate_ids).order_by("created_at", "pk")
+    for assignment in moving:
         key = (assignment.content_type_id, assignment.object_id)
         if key in taken:
             assignment.delete()
