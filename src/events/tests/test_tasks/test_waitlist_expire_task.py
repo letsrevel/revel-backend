@@ -1,6 +1,7 @@
 """Tests for expire_waitlist_offers_task."""
 
 import datetime as dt
+import typing as t
 import uuid
 from unittest import mock
 
@@ -38,7 +39,9 @@ def test_flips_expired_pending_offers(event: Event, revel_user_factory: RevelUse
     assert result["expired"] == 1
 
 
-def test_enqueues_next_batch_per_event(event: Event, revel_user_factory: RevelUserFactory) -> None:
+def test_enqueues_next_batch_per_event(
+    event: Event, revel_user_factory: RevelUserFactory, django_capture_on_commit_callbacks: t.Any
+) -> None:
     """Each event with expiring offers triggers exactly one process call."""
     u = revel_user_factory()
     WaitlistOffer.objects.create(
@@ -47,7 +50,10 @@ def test_enqueues_next_batch_per_event(event: Event, revel_user_factory: RevelUs
         expires_at=timezone.now() - dt.timedelta(minutes=1),
         batch_id=uuid.uuid4(),
     )
-    with mock.patch("events.tasks.process_waitlist_for_event_task.delay") as mocked:
+    with (
+        mock.patch("events.tasks.process_waitlist_for_event_task.delay") as mocked,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
         expire_waitlist_offers_task()
     assert mocked.call_count == 1
     mocked.assert_called_with(str(event.id))

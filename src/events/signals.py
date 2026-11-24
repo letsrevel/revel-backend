@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
+from common.utils import on_commit_independent
 from events.models import (
     DEFAULT_TICKET_TIER_NAME,
     Blacklist,
@@ -219,6 +220,17 @@ def reset_event_address_cache(sender: type[Ticket], instance: Ticket, **kwargs: 
         cached_event.__dict__.pop("_address_visibility_cache", None)
 
 
+def _dispatch_ticket_visibility_flags(ticket: Ticket) -> None:
+    """Rebuild the event's visibility flags at commit; a failure does not skip the later callbacks (#1488)."""
+    event_id = str(ticket.event_id)
+    on_commit_independent(
+        lambda: build_attendee_visibility_flags.delay(event_id),
+        "visibility_flags_dispatch_failed",
+        event_id=event_id,
+        ticket_id=str(ticket.pk),
+    )
+
+
 @receiver(post_save, sender=Ticket)
 def handle_ticket_visibility_and_potluck(
     sender: type[Ticket], instance: Ticket, created: bool, **kwargs: t.Any
@@ -236,8 +248,7 @@ def handle_ticket_visibility_and_potluck(
     - notifications.signals.ticket.handle_ticket_notifications: Sends notifications
     - notifications.signals.waitlist.handle_ticket_waitlist_logic: Manages waitlist removal
     """
-    event_id = str(instance.event_id)
-    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
+    _dispatch_ticket_visibility_flags(instance)
 
     old_status = getattr(instance, "_potluck_old_status", None)
     new_status = instance.status
@@ -281,8 +292,7 @@ def handle_ticket_delete(sender: type[Ticket], instance: Ticket, **kwargs: t.Any
     Claims are released unless the user is still entitled to hold them (e.g. another attending
     ticket, a YES RSVP, or org owner/staff).
     """
-    event_id = str(instance.event_id)
-    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
+    _dispatch_ticket_visibility_flags(instance)
     release_potluck_claims_unless_entitled(instance.event_id, instance.user_id)
 
 

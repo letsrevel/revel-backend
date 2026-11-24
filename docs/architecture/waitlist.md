@@ -245,7 +245,7 @@ Every code path that can **free capacity** explicitly calls `enqueue_waitlist_pr
 | Waitlist join (self-heal) | `controllers/event_public/attendance.py::join_waitlist` | Race with concurrent cancellation could leave the joiner first in line with seats already free |
 | Leave-waitlist while holding an offer | `controllers/event_public/attendance.py::leave_waitlist` | EXPIRES the offer, then enqueues |
 | Offer claim (defensive nudge) | `service/event_manager/manager.py::_claim_active_offer` and `service/batch_ticket_service/tickets.py::claim_waitlist_offer_if_any` | Other unclaimed offers in the batch could otherwise strand seats |
-| Offer expiry sweeper | `tasks/waitlist.py::expire_waitlist_offers_task` | Per affected event after bulk EXPIRE (dispatches `process_waitlist_for_event_task` directly) |
+| Offer expiry sweeper | `tasks/waitlist.py::expire_waitlist_offers_task` | Per affected event after bulk EXPIRE (calls `enqueue_waitlist_processing` outside the atomic block, so a failed dispatch for one event does not stop the loop) |
 | Hourly safety net | `tasks/waitlist.py::nudge_open_waitlists_task` | See [Soft-lock defense](#soft-lock-defense) |
 | Admin revokes a pending offer | `controllers/event_admin/waitlist_offers.py::revoke_waitlist_offer` | Returns the seat |
 | `EventWaitList` row deleted | `signals.py::handle_waitlist_entry_deleted` (`post_delete`) | REVOKES the matching PENDING offer and enqueues |
@@ -298,7 +298,7 @@ The advanced waitlist reuses the existing `WAITLIST_SPOT_AVAILABLE` notification
 
 ### Dispatch
 
-`process_waitlist_for_event` calls `_dispatch_offer_notifications(offer_ids)` on commit, which enqueues `events.send_waitlist_offer_notification` once per offer. The task (`tasks/waitlist.py::send_waitlist_offer_notification_task`):
+`process_waitlist_for_event` calls `_dispatch_offer_notifications(offer_ids)`, which registers one commit callback per offer (`common.utils.on_commit_independent`). Each callback enqueues `events.send_waitlist_offer_notification` for its offer. A failed dispatch is logged as `waitlist_offer_notification_dispatch_failed` (ERROR, with `offer_id`), and the other offers still get their notification. The task (`tasks/waitlist.py::send_waitlist_offer_notification_task`):
 
 1. Reloads the offer with `select_related("user", "event__organization")`.
 2. **Skips** if status is no longer PENDING (race with sweeper/claim/revoke) or if `expires_at <= now`.

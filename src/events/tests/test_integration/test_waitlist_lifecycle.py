@@ -6,6 +6,7 @@ behavior, not just individual unit boundaries.
 """
 
 import datetime as dt
+import typing as t
 import uuid
 from unittest import mock
 
@@ -154,6 +155,7 @@ class TestOfferExpiryTriggersNextBatch:
         self,
         event: Event,
         revel_user_factory: RevelUserFactory,
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         from events.tasks import expire_waitlist_offers_task
 
@@ -168,7 +170,10 @@ class TestOfferExpiryTriggersNextBatch:
             batch_id=uuid.uuid4(),
         )
 
-        with mock.patch("events.tasks.process_waitlist_for_event_task.delay") as mocked:
+        with (
+            mock.patch("events.tasks.process_waitlist_for_event_task.delay") as mocked,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
             result = expire_waitlist_offers_task()
 
         assert result["expired"] == 1

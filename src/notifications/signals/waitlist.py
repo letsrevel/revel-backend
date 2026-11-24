@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
+from common.utils import on_commit_independent
 from events.models import Event, EventRSVP, EventWaitList, Ticket
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
@@ -201,7 +202,10 @@ def handle_ticket_waitlist_logic(sender: type[Ticket], instance: Ticket, created
         if hasattr(instance, "_old_attendee_count") and instance.status == Ticket.TicketStatus.CANCELLED:
             _check_and_notify_waitlist(instance.event_id, instance._old_attendee_count)
 
-    transaction.on_commit(process_waitlist)
+    # Independent of the other commit callbacks (#1488): a failure is logged and the later ones still run.
+    on_commit_independent(
+        process_waitlist, "ticket_waitlist_logic_failed", ticket_id=str(instance.pk), event_id=str(instance.event_id)
+    )
 
 
 @receiver(post_delete, sender=Ticket)
@@ -212,7 +216,9 @@ def handle_ticket_deletion_waitlist(sender: type[Ticket], instance: Ticket, **kw
         # For deletions, we don't have the old count, so just check if spots are available
         _check_and_notify_waitlist(instance.event_id)
 
-    transaction.on_commit(process_waitlist)
+    on_commit_independent(
+        process_waitlist, "ticket_waitlist_logic_failed", ticket_id=str(instance.pk), event_id=str(instance.event_id)
+    )
 
 
 # ===== RSVP Signal Handlers =====

@@ -8,17 +8,16 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import functools
 import random
 import typing as t
 import uuid
 
-import structlog
 from django.db import transaction
 from django.utils import timezone
 
+from common.utils import on_commit_independent
 from events.models import Event, EventRSVP, EventWaitList, Ticket, WaitlistOffer
-
-logger = structlog.get_logger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -138,8 +137,7 @@ def process_waitlist_for_event(event_id: uuid.UUID) -> ProcessResult:
         ]
     )
 
-    offer_ids = [o.id for o in offers]
-    transaction.on_commit(lambda: _dispatch_offer_notifications(offer_ids))
+    _dispatch_offer_notifications([o.id for o in offers])
 
     return ProcessResult(
         status="ok",
@@ -281,34 +279,36 @@ def enqueue_waitlist_processing(event_id: uuid.UUID) -> None:
     is idempotent via the Event row lock.
 
     The dispatch is independent of the other commit callbacks: a dispatch that fails is
-    logged as an error with the event id, and the callbacks after it still run. It is a
-    named function, not a lambda or a ``partial``, so Django's robust handling can name it.
+    logged as ``waitlist_dispatch_failed`` with the event id, and the callbacks after it
+    still run (``common.utils.on_commit_independent``).
 
     Args:
         event_id: UUID of the event to process.
     """
     from events.tasks import process_waitlist_for_event_task
 
-    def dispatch_waitlist_processing() -> None:
-        try:
-            process_waitlist_for_event_task.delay(str(event_id))
-        except Exception:
-            logger.error("waitlist_dispatch_failed", event_id=str(event_id), exc_info=True)
-
-    # The callback logs its own failure; robust is a backstop so one callback can never skip the others.
-    transaction.on_commit(dispatch_waitlist_processing, robust=True)
+    event_id_str = str(event_id)
+    on_commit_independent(
+        functools.partial(process_waitlist_for_event_task.delay, event_id_str),
+        "waitlist_dispatch_failed",
+        event_id=event_id_str,
+    )
 
 
 def _dispatch_offer_notifications(offer_ids: list[uuid.UUID]) -> None:
-    """Dispatch WAITLIST_SPOT_AVAILABLE notifications for fresh offers.
+    """Dispatch WAITLIST_SPOT_AVAILABLE notifications for fresh offers at commit.
 
-    The notification task is fully implemented in Task 20. Until then,
-    `send_waitlist_offer_notification_task` is a no-op stub added in Task 7.
+    Each offer has its own commit callback: a failed dispatch is logged with the offer id,
+    and the other offers in the batch still get their notification (#1488).
 
     Args:
         offer_ids: UUIDs of the WaitlistOffer rows to notify about.
     """
     from events.tasks import send_waitlist_offer_notification_task
 
-    for offer_id in offer_ids:
-        send_waitlist_offer_notification_task.delay(str(offer_id))
+    for offer_id in map(str, offer_ids):
+        on_commit_independent(
+            functools.partial(send_waitlist_offer_notification_task.delay, offer_id),
+            "waitlist_offer_notification_dispatch_failed",
+            offer_id=offer_id,
+        )
