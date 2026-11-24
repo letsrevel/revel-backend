@@ -879,3 +879,22 @@ the same transaction and before the delete:
 The services are `event_update_service.delete_event`, `ticket_service.delete_ticket_tier` and
 `event_series_service.delete_event_series`. Call them, never `.delete()` on these models directly.
 A tier delete still hard-deletes its issued tickets and their `Payment` and `Refund` rows.
+
+## Independent commit callbacks: `on_commit_independent` (#1488)
+
+Django runs the commit callbacks in sequence. A callback that raises stops the callbacks
+after it, unless it is registered with `robust=True`. A failure after commit cannot roll
+back data, so a dispatch that other dispatches follow must not stop them.
+
+- Use `common.utils.on_commit_independent(callback, "<failure_event>", **ids)`. It logs a
+  failure at ERROR with the ids, does not raise, and registers with `robust=True`.
+- Outside an atomic block, the callback runs at once, and a failure is logged in the same way.
+- Do not pass a `functools.partial` or a lambda directly to `on_commit(..., robust=True)`.
+  Django logs `__qualname__`, which a `partial` does not have. The helper wraps the callback
+  in a named function, so a `partial` is safe as its argument.
+- For a loop, register one callback for each item, so one failed item does not stop the others.
+- The Ticket `post_save`/`post_delete` receivers, the bulk-create side effects of
+  `BatchTicketService`, `enqueue_waitlist_processing`, the offer notifications and the offer
+  expiry loop use this pattern. Most other `on_commit` sites do not use it yet.
+- Test it: make the first dispatch raise inside
+  `django_capture_on_commit_callbacks(execute=True)`, and assert that the second still runs.

@@ -306,7 +306,7 @@ def test_one_failed_waitlist_dispatch_does_not_skip_the_other_events(
     first, second = uuid.uuid4(), uuid.uuid4()
     with (
         mock.patch("events.tasks.process_waitlist_for_event_task") as task,
-        mock.patch("events.service.waitlist_service.logger") as log,
+        mock.patch("common.utils.logger") as log,
     ):
         task.delay.side_effect = [RuntimeError("broker down"), None]
         with django_capture_on_commit_callbacks(execute=True):

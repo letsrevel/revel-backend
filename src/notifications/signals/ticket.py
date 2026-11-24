@@ -3,11 +3,11 @@
 import typing as t
 
 import structlog
-from django.db import transaction
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 from accounts.models import RevelUser
+from common.utils import on_commit_independent
 from events.models import Event, Ticket, TicketTier
 from events.service.holder_visibility import is_known_holder
 from events.utils.erased_holder import holder_email
@@ -467,7 +467,10 @@ def handle_ticket_notifications(sender: type[Ticket], instance: Ticket, created:
             if hasattr(instance, "_old_status"):
                 _handle_ticket_status_change(instance, instance._old_status)
 
-    transaction.on_commit(send_notifications)
+    # Independent of the other commit callbacks (#1488): a failure is logged and the later ones still run.
+    on_commit_independent(
+        send_notifications, "ticket_notifications_failed", ticket_id=str(instance.pk), event_id=str(instance.event_id)
+    )
 
 
 # Note: TICKET_REFUNDED notifications are handled by Payment model signals

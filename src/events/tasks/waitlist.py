@@ -30,6 +30,7 @@ def expire_waitlist_offers_task() -> dict[str, t.Any]:
     so the flip cadence affects only the timing of the next-batch enqueue.
     """
     from events.models import WaitlistOffer
+    from events.service.waitlist_service import enqueue_waitlist_processing
 
     now = timezone.now()
     with transaction.atomic():
@@ -41,8 +42,9 @@ def expire_waitlist_offers_task() -> dict[str, t.Any]:
         event_ids = list(set(expiring.values_list("event_id", flat=True)))
         count = expiring.update(status=WaitlistOffer.WaitlistOfferStatus.EXPIRED)
 
+    # Outside the atomic block, so each dispatch runs at once; a failed one is logged and the loop goes on.
     for event_id in event_ids:
-        process_waitlist_for_event_task.delay(str(event_id))
+        enqueue_waitlist_processing(event_id)
 
     logger.info("expire_waitlist_offers_done", expired=count, events_processed=len(event_ids))
     return {"expired": count, "events_processed": len(event_ids)}

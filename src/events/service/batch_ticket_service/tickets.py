@@ -7,8 +7,7 @@ post_save side effects ``bulk_create`` does not.
 
 import copy
 
-from django.db import transaction
-
+from common.utils import on_commit_independent
 from events.models import Ticket, TicketSaleSource, TicketTier, VenueSeat
 from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
@@ -171,18 +170,23 @@ class TicketWriterMixin(BatchTicketContext):
         - Send ticket created notifications
         - Remove user from waitlist
 
+        Each step has its own commit callback, as with the per-ticket receivers: a failed step
+        is logged with its ids, and the other steps and the later callbacks still run (#1488).
+
         Args:
             tickets: List of tickets created via bulk_create.
         """
-
-        def on_commit() -> None:
-            # Update attendee_count (once per batch, not per ticket)
-            build_attendee_visibility_flags.delay(str(self.event.id))
-
-            # Send notifications for all tickets in batch (fetches shared data once)
-            send_batch_ticket_created_notifications(tickets)
-
-            # Remove user from waitlist (once per batch)
-            remove_user_from_waitlist(self.event.id, self.user.id)
-
-        transaction.on_commit(on_commit)
+        event_id, user_id = self.event.id, self.user.id
+        ids = {"event_id": str(event_id), "user_id": str(user_id)}
+        # Update attendee_count (once per batch, not per ticket)
+        on_commit_independent(
+            lambda: build_attendee_visibility_flags.delay(str(event_id)), "visibility_flags_dispatch_failed", **ids
+        )
+        # Send notifications for all tickets in batch (fetches shared data once)
+        on_commit_independent(
+            lambda: send_batch_ticket_created_notifications(tickets), "batch_ticket_notifications_failed", **ids
+        )
+        # Remove user from waitlist (once per batch)
+        on_commit_independent(
+            lambda: remove_user_from_waitlist(event_id, user_id), "batch_ticket_waitlist_removal_failed", **ids
+        )

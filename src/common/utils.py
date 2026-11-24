@@ -4,6 +4,7 @@ import typing as t
 from email.utils import make_msgid, parseaddr
 from io import BytesIO
 
+import structlog
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.files import File
@@ -17,6 +18,8 @@ from PIL import Image
 from pydantic import BaseModel
 
 from common.fields import MAX_IMAGE_PIXELS
+
+logger = structlog.get_logger(__name__)
 
 # ``Image.info`` keys that carry metadata (EXIF incl. GPS, XMP, JPEG comments). Pillow's
 # built-in encoders only write what is passed to ``save()``, but plugins such as
@@ -332,3 +335,27 @@ def render_plain_text(template_name: str, context: dict[str, t.Any] | None = Non
     """
     template = t.cast(t.Any, get_template(template_name)).template  # django backend wrapper -> django.template.Template
     return str(template.render(Context(context or {}, autoescape=False)))
+
+
+def on_commit_independent(callback: t.Callable[[], object], failure_event: str, **log_ids: str) -> None:
+    """Run ``callback`` at commit, independent of the other commit callbacks.
+
+    A failure is logged at ERROR as ``failure_event`` with ``log_ids`` and does not raise, so the
+    commit callbacks after it still run. Outside an atomic block the callback runs at once, and a
+    failure is logged the same way. The wrapper is a named function because Django's robust
+    handling logs ``__qualname__``, which a ``partial`` does not have.
+
+    Args:
+        callback: The work to do after commit.
+        failure_event: The log event name for a failure.
+        **log_ids: The ids to log with a failure (for example, ``event_id``).
+    """
+
+    def run_independently() -> None:
+        try:
+            callback()
+        except Exception:
+            logger.error(failure_event, exc_info=True, **log_ids)
+
+    # The wrapper logs its own failure; robust is a backstop so one callback can never skip the others.
+    transaction.on_commit(run_independently, robust=True)
