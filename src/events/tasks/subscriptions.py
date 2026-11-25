@@ -250,10 +250,10 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
     and also a run that was missed while the beat was down.
 
     Idempotency: ``renewal_reminded_for`` records the period end already reminded,
-    so each period is reminded once across sequential runs. Two runs that overlap
-    can both select a subscription before either records it, and then both send the
-    reminder. After a missed day, the next run sends the reminder, as long as the
-    period has not ended.
+    so a period is not reminded again once it is recorded. The record is written
+    after the notification, so two runs that overlap, or a run that stops between
+    the notification and the record, can send the reminder twice. After a missed
+    day, the next run sends the reminder, as long as the period has not ended.
 
     Returns:
         Counters dict: {"sent": N}.
