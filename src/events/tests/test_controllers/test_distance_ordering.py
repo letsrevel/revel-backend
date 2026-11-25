@@ -69,7 +69,7 @@ class TestEventDistanceOrdering:
     def test_events_without_a_user_location_come_back_soonest_first(
         self, client: Client, public_organization: Organization
     ) -> None:
-        """With no user location, the distance ordering falls back to start, not to no order."""
+        """With no user location, the distance ordering falls back to start (Event.Meta.ordering does too)."""
         events = _public_events_at(public_organization, BERLIN, [30, 10, 20])
 
         ids = _event_ids(client, None, order_by="distance")
@@ -83,8 +83,8 @@ class TestEventDistanceOrdering:
         events = _public_events_at(public_organization, BERLIN, [5, 6, 7])
         Event.objects.filter(pk__in=[e.pk for e in events]).update(start=events[0].start)
 
-        for order_by in ("distance", "start", "-start"):
-            assert _event_ids(client, BERLIN, order_by=order_by) == sorted(str(e.id) for e in events)
+        for location, order_by in ((BERLIN, "distance"), (None, "distance"), (BERLIN, "start"), (BERLIN, "-start")):
+            assert _event_ids(client, location, order_by=order_by) == sorted(str(e.id) for e in events)
 
 
 class TestOrganizationDistanceOrdering:

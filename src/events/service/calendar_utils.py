@@ -115,7 +115,8 @@ def order_by_distance(point: Point | None, queryset: QuerySet[T], *tie_break: st
     field, so that pagination is stable.
 
     Args:
-        point: The reference point to measure distance from. ``None`` orders by ``tie_break`` only.
+        point: The reference point to measure distance from. ``None`` orders by ``tie_break`` only, or keeps
+            the queryset order when there is no ``tie_break``.
         queryset: A queryset of models with a location field.
         *tie_break: The fields that order rows at the same distance (e.g. ``"start", "id"``).
 
@@ -123,7 +124,8 @@ def order_by_distance(point: Point | None, queryset: QuerySet[T], *tie_break: st
         The ordered queryset.
     """
     if point is None:
-        return queryset.order_by(*tie_break)
+        # order_by() with no fields would clear the model's Meta.ordering.
+        return queryset.order_by(*tie_break) if tie_break else queryset
 
     return queryset.annotate(  # type: ignore[return-value]
         distance=Distance("location", point),

@@ -64,6 +64,16 @@ def test_order_by_distance_with_none_point() -> None:
     assert result_queryset == queryset.order_by.return_value
 
 
+def test_order_by_distance_without_point_or_tie_break_keeps_the_queryset_order() -> None:
+    """With no point and no tie-break, the queryset keeps its order (order_by() would clear Meta.ordering)."""
+    queryset: Mock = Mock(spec=["annotate", "order_by"])
+
+    result_queryset: "QuerySet[LocationMixin]" = event_service.order_by_distance(None, queryset)
+
+    queryset.order_by.assert_not_called()
+    assert result_queryset == queryset
+
+
 def test_create_event_token_creates_token(event: Event, organization_owner_user: RevelUser) -> None:
     """Test that the function creates an EventToken."""
     # Act
