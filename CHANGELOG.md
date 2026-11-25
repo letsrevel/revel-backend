@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Attendee invoices: an edit or issue of a draft invoice that is deleted at the same moment (for example by a refund) now answers 404, not 500. A PDF download that makes the PDF of such a draft also answers 404.
 - Event and organization lists: "Nearest first" (`order_by=distance`, the default) now orders events at the same place by start time, and organizations at the same place by name. Every order of these lists now ends with the id, so a row no longer repeats or goes missing between pages.
 - Blacklist: a manual entry by email now answers "An entry with this email already exists." when an entry for an erased account keeps that email. Before, it created a second entry for the same person.
 - Calendars (`GET /events/calendar` and `GET /dashboard/calendar`): a week, month or year now holds the events whose start date, in the event's own timezone, falls in it. Before, the API cut the period in UTC. An event that started near midnight UTC could be missing from the period where the calendar shows it.

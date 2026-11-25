@@ -12,6 +12,7 @@ from decimal import Decimal, DivisionByZero, InvalidOperation
 
 import structlog
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -355,10 +356,11 @@ def _apply_draft_update(invoice: AttendeeInvoice, update_data: dict[str, t.Any])
         The locked, updated invoice -- not the instance passed in.
 
     Raises:
+        Http404: If the row was deleted after the caller read it (#1498).
         HttpError 409: If the locked row is no longer a draft.
     """
     with transaction.atomic():
-        invoice = AttendeeInvoice.objects.select_for_update().get(pk=invoice.pk)
+        invoice = get_object_or_404(AttendeeInvoice.objects.select_for_update(), pk=invoice.pk)
         if invoice.status != AttendeeInvoice.InvoiceStatus.DRAFT:
             raise HttpError(409, str(_("Only draft invoices can be edited.")))
 
@@ -397,6 +399,7 @@ def update_draft_invoice(
         The updated invoice, re-read under the lock -- not the instance passed in.
 
     Raises:
+        Http404: If the draft was deleted after the caller read it (#1498).
         HttpError 409: If the invoice is not a draft, as fetched or once locked.
         HttpError 422: If update_data contains disallowed fields (including a
             derived total), or an explicit null for a field that is not one of
@@ -473,6 +476,7 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
         The issued invoice, re-read under the lock -- not the instance passed in.
 
     Raises:
+        Http404: If the row was deleted after the caller read it (#1498).
         HttpError 409: If the invoice is CANCELLED.
         CountryComplianceError: If a DRAFT may no longer be issued under the country policy.
         HttpError 422: If a DRAFT's header totals do not reconcile with its line
@@ -483,7 +487,7 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
         # become a legal document, so it must judge the committed row. Unlocked, a
         # PATCH landing after the controller's fetch was validated in absentia and
         # then rendered into a PDF contradicting what the database holds.
-        invoice = AttendeeInvoice.objects.select_for_update().get(pk=invoice.pk)
+        invoice = get_object_or_404(AttendeeInvoice.objects.select_for_update(), pk=invoice.pk)
 
         if invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED:
             raise HttpError(409, str(_("Cancelled invoices cannot be issued.")))

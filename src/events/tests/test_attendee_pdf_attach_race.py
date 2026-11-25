@@ -77,6 +77,26 @@ def test_render_discarded_when_status_changed_without_pdf(
     assert not AttendeeInvoice.objects.get(pk=invoice.pk).pdf_file
 
 
+def test_render_discarded_when_draft_deleted(organization: Organization, event: Event, member_user: RevelUser) -> None:
+    """A draft deleted mid-render (refund, organizer delete) gets no PDF and raises nothing (#1498)."""
+    invoice = _draft(organization, event, member_user, "gone")
+
+    def delete_during_render(*args: t.Any, **kwargs: t.Any) -> bytes:
+        AttendeeInvoice.objects.filter(pk=invoice.pk).delete()
+        return b"draft-pdf"
+
+    with (
+        patch(MOCK_RENDER_PDF, side_effect=delete_during_render),
+        patch("events.service.attendee_invoice_service.logger") as log,
+    ):
+        _generate_and_save_pdf(invoice)  # must not raise
+
+    log.info.assert_called_once_with("attendee_invoice_pdf_discarded_row_gone", invoice_id=str(invoice.pk))
+    # Nothing is attached to the caller's instance, and no save() re-inserts the deleted draft.
+    assert not invoice.pdf_file
+    assert not AttendeeInvoice.objects.filter(pk=invoice.pk).exists()
+
+
 def test_render_attaches_when_unchanged(organization: Organization, event: Event, member_user: RevelUser) -> None:
     invoice = _draft(organization, event, member_user, "3")
 
