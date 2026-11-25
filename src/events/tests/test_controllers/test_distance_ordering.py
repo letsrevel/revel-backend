@@ -79,7 +79,7 @@ class TestEventDistanceOrdering:
     def test_events_with_the_same_start_have_a_stable_order(
         self, client: Client, public_organization: Organization
     ) -> None:
-        """Events that tie on start are ordered by id, so pages do not repeat or skip rows."""
+        """Events that tie on start are ordered by id, with and without a user location, so pages are stable."""
         events = _public_events_at(public_organization, BERLIN, [5, 6, 7])
         Event.objects.filter(pk__in=[e.pk for e in events]).update(start=events[0].start)
 
