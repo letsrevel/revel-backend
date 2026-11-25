@@ -477,7 +477,10 @@ def _generate_and_save_pdf(invoice: AttendeeInvoice) -> None:
     with transaction.atomic():
         # The render is slow and unlocked: the invoice may have been issued (or re-rendered) meanwhile, so
         # only attach to a row still in the state this PDF was rendered for; never overwrite an issued PDF.
-        locked = AttendeeInvoice.objects.select_for_update().get(pk=invoice.pk)
+        # A draft deleted meanwhile (refund, organizer delete) gets nothing; a download then answers 404 (#1498).
+        locked = AttendeeInvoice.objects.select_for_update().filter(pk=invoice.pk).first()
+        if locked is None:
+            return
         if locked.status != rendered_status or locked.pdf_file:
             invoice.status = locked.status
             invoice.pdf_file = locked.pdf_file
