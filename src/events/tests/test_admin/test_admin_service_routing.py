@@ -15,6 +15,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from events.models import Event, EventSeries, HeldSeriesPass, Organization, Payment, SeriesPass, Ticket, TicketTier
 from events.models.discount_code import DiscountCode
+from events.service import discount_code_service
 
 pytestmark = pytest.mark.django_db
 
@@ -253,7 +254,14 @@ class TestAdminDeletes:
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         _checkout(tier, member_user, "cs_org", code=code)
-        with patch(EXPIRE) as expire, django_capture_on_commit_callbacks(execute=True):
+        with (
+            patch(EXPIRE) as expire,
+            patch(
+                "events.admin.ticket.discount_code_service.release_uses_of_pending_tickets",
+                wraps=discount_code_service.release_uses_of_pending_tickets,
+            ) as release,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
             if via == "delete_view":
                 _delete_view(admin_client, "organization", connected_org.pk)
             else:
@@ -261,7 +269,8 @@ class TestAdminDeletes:
 
         assert not Organization.objects.filter(pk=connected_org.pk).exists()
         expire.assert_called_once_with("cs_org", stripe_account="acct_connected")
-        # The code cascades away with the organization; the point is that the release ran without error.
+        # The code cascades away with the organization, so assert on the release call itself.
+        release.assert_called_once()
 
 
 class TestPendingPaymentDelete:
@@ -277,17 +286,39 @@ class TestPendingPaymentDelete:
         assert pending_page.context["show_delete"] is False
         assert done_page.context["show_delete"] is True
 
-    def test_bulk_delete_keeps_pending_and_warns(
+    def test_change_view_with_malformed_id_is_not_a_500(self, admin_client: Client) -> None:
+        response = admin_client.get(reverse("admin:events_payment_change", args=["not-a-uuid"]))
+
+        assert response.status_code == 302
+
+    def test_bulk_delete_of_pending_payment_shows_protected_page(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        pending = _checkout(tier, member_user, "cs_p").payment
+
+        response = _bulk(admin_client, "payment", "delete_selected", [pending.pk], post="yes")
+
+        assert Payment.objects.filter(pk=pending.pk).exists()
+        assert b"pending payment" in response.content
+
+    def test_bulk_delete_with_a_pending_payment_deletes_nothing(
         self, admin_client: Client, tier: TicketTier, member_user: RevelUser
     ) -> None:
         pending = _checkout(tier, member_user, "cs_p").payment
         done = _checkout(tier, member_user, "cs_d", status=Payment.PaymentStatus.SUCCEEDED).payment
 
-        response = _bulk(admin_client, "payment", "delete_selected", [pending.pk, done.pk], post="yes")
+        _bulk(admin_client, "payment", "delete_selected", [pending.pk, done.pk], post="yes")
 
-        assert Payment.objects.filter(pk=pending.pk).exists()
+        assert Payment.objects.filter(pk__in=[pending.pk, done.pk]).count() == 2
+
+    def test_bulk_delete_of_settled_payment_works(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        done = _checkout(tier, member_user, "cs_d", status=Payment.PaymentStatus.SUCCEEDED).payment
+
+        _bulk(admin_client, "payment", "delete_selected", [done.pk], post="yes")
+
         assert not Payment.objects.filter(pk=done.pk).exists()
-        assert any("pending" in m.lower() for m in _messages(response))
 
     def test_delete_view_of_pending_payment_is_refused(
         self, admin_client: Client, tier: TicketTier, member_user: RevelUser
@@ -297,7 +328,32 @@ class TestPendingPaymentDelete:
         response = _delete_view(admin_client, "payment", pending.pk)
 
         assert Payment.objects.filter(pk=pending.pk).exists()
-        assert any("pending payment" in m.lower() for m in _messages(response))
+        assert b"pending payment" in response.content
+
+    def test_pending_checkout_does_not_block_deleting_its_ticket(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        """The guard must not live in ``has_delete_permission``: cascades would 403."""
+        ticket = _checkout(tier, member_user, "cs_p")
+
+        with patch(EXPIRE):
+            response = _delete_view(admin_client, "ticket", ticket.pk)
+
+        assert response.status_code == 200
+        assert not Ticket.objects.filter(pk=ticket.pk).exists()
+
+
+class TestInlinesCannotDelete:
+    def test_tier_and_series_inlines_have_no_delete(self, rf: t.Any, superuser: RevelUser, event: Event) -> None:
+        from django.contrib.admin.sites import site
+
+        request = rf.get("/")
+        request.user = superuser
+        for model, parent in ((Event, event), (Organization, event.organization)):
+            model_admin = site._registry[model]
+            for inline in model_admin.get_inline_instances(request, parent):
+                if inline.model in (TicketTier, EventSeries):
+                    assert inline.get_formset(request, parent)().can_delete is False
 
 
 class TestAdminStatus:
@@ -346,4 +402,69 @@ class TestAdminStatus:
 
         event.refresh_from_db()
         assert event.status == Event.EventStatus.CANCELLED
+        assert any(event.name in m for m in _messages(response))
+
+    def test_actions_need_change_permission(self, rf: t.Any, member_user: RevelUser) -> None:
+        from django.contrib.admin.sites import site
+        from django.contrib.auth.models import Permission
+
+        member_user.is_staff = True
+        member_user.user_permissions.add(Permission.objects.get(codename="view_event"))
+        request = rf.get("/")
+        request.user = RevelUser.objects.get(pk=member_user.pk)
+        model_admin = site._registry[Event]
+
+        assert not {"open_events", "close_events", "draft_events", "cancel_events"} & set(
+            model_admin.get_actions(request)
+        )
+
+        member_user.user_permissions.add(Permission.objects.get(codename="change_event"))
+        request.user = RevelUser.objects.get(pk=member_user.pk)
+
+        assert {"open_events", "close_events", "draft_events", "cancel_events"} <= set(model_admin.get_actions(request))
+
+    def test_cancel_keeps_the_typed_reason(self, admin_client: Client, event: Event) -> None:
+        Event.objects.filter(pk=event.pk).update(cancellation_reason="Venue flooded")
+
+        _bulk(admin_client, "event", "cancel_events", [event.pk])
+
+        event.refresh_from_db()
+        assert event.status == Event.EventStatus.CANCELLED
+        assert event.cancellation_reason == "Venue flooded"
+
+    def test_cancel_of_cancelled_event_is_skipped(self, admin_client: Client, event: Event) -> None:
+        Event.objects.filter(pk=event.pk).update(status=Event.EventStatus.CANCELLED, cancellation_reason="Flood")
+
+        with patch("events.admin.event.event_update_service.update_status") as update_status:
+            response = _bulk(admin_client, "event", "cancel_events", [event.pk])
+
+        update_status.assert_not_called()
+        event.refresh_from_db()
+        assert event.cancellation_reason == "Flood"
+        assert not any("Set 0" in m for m in _messages(response))
+
+    def test_invalid_event_is_reported_and_others_still_change(
+        self, admin_client: Client, event: Event, organization: Organization
+    ) -> None:
+        other = Event.objects.create(
+            organization=organization,
+            name="Other",
+            slug="other-ev",
+            start=event.start,
+            end=event.end,
+            status=Event.EventStatus.DRAFT,
+            requires_ticket=False,
+        )
+        Event.objects.filter(pk=event.pk).update(
+            status=Event.EventStatus.DRAFT, waitlist_cutoff_date=event.start + timedelta(days=1)
+        )
+        Event.objects.filter(pk=other.pk).update(status=Event.EventStatus.DRAFT)
+
+        response = _bulk(admin_client, "event", "open_events", [event.pk, other.pk])
+
+        assert response.status_code == 200
+        event.refresh_from_db()
+        other.refresh_from_db()
+        assert event.status == Event.EventStatus.DRAFT
+        assert other.status == Event.EventStatus.OPEN
         assert any(event.name in m for m in _messages(response))

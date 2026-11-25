@@ -4,6 +4,7 @@
 import typing as t
 
 from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
 from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest
@@ -15,6 +16,7 @@ from unfold.admin import ModelAdmin
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from accounts.models import RevelUser
+from common.exception_handlers import format_validation_error
 from common.thumbnails.admin_mixins import ImageSourceAdminMixin
 from events import models
 from events.admin.base import (
@@ -81,27 +83,33 @@ class EventAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # t
     ) -> None:
         changed = 0
         for event in queryset.exclude(status=status):  # same-status cancel would wipe the cancellation reason
+            reason = event.cancellation_reason if status == models.Event.EventStatus.CANCELLED else None
             try:
-                event_update_service.update_status(event, status, initiated_by=t.cast(RevelUser, request.user))
+                event_update_service.update_status(
+                    event, status, cancellation_reason=reason, initiated_by=t.cast(RevelUser, request.user)
+                )
             except EventRefundsStartedError as exc:
                 self.message_user(request, f"{event}: {exc}", messages.ERROR)
+            except ValidationError as exc:
+                self.message_user(request, f"{event}: {format_validation_error(exc)}", messages.ERROR)
             else:
                 changed += 1
-        self.message_user(request, f"Set {changed} event(s) to {status.label}.", messages.SUCCESS)
+        if changed:
+            self.message_user(request, f"Set {changed} event(s) to {status.label}.", messages.SUCCESS)
 
-    @admin.action(description="Open selected events")
+    @admin.action(description="Open selected events", permissions=["change"])
     def open_events(self, request: HttpRequest, queryset: QuerySet[models.Event]) -> None:
         self._set_status(request, queryset, models.Event.EventStatus.OPEN)
 
-    @admin.action(description="Close selected events")
+    @admin.action(description="Close selected events", permissions=["change"])
     def close_events(self, request: HttpRequest, queryset: QuerySet[models.Event]) -> None:
         self._set_status(request, queryset, models.Event.EventStatus.CLOSED)
 
-    @admin.action(description="Set selected events to draft")
+    @admin.action(description="Set selected events to draft", permissions=["change"])
     def draft_events(self, request: HttpRequest, queryset: QuerySet[models.Event]) -> None:
         self._set_status(request, queryset, models.Event.EventStatus.DRAFT)
 
-    @admin.action(description="Cancel selected events (no refunds)")
+    @admin.action(description="Cancel selected events (no refunds)", permissions=["change"])
     def cancel_events(self, request: HttpRequest, queryset: QuerySet[models.Event]) -> None:
         self._set_status(request, queryset, models.Event.EventStatus.CANCELLED)
 

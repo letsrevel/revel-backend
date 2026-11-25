@@ -13,9 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Event and organization lists: "Nearest first" (`order_by=distance`, the default) now orders events at the same place by start time, and organizations at the same place by name. Every order of these lists now ends with the id, so a row no longer repeats or goes missing between pages.
 - Blacklist: a manual entry by email now answers "An entry with this email already exists." when an entry for an erased account keeps that email. Before, it created a second entry for the same person.
 - Calendars (`GET /events/calendar` and `GET /dashboard/calendar`): a week, month or year now holds the events whose start date, in the event's own timezone, falls in it. Before, the API cut the period in UTC. An event that started near midnight UTC could be missing from the period where the calendar shows it.
-- Django admin: deleting an event, ticket tier, event series, ticket or organization now ends the unfinished checkouts it removes, as the API does. The open Stripe Checkout sessions expire and the discount code uses go back.
-- Django admin: a pending payment can no longer be deleted there. Deleting it left its pending ticket with no payment, so the seat was never released. A bulk delete keeps the pending payments and shows a warning.
-- Django admin: the event status is read-only on existing events. Four actions (open, close, set to draft, cancel without refunds) change it through the same service as the API, with the same refund guard, waitlist handling and series pass issuance.
+- Django admin: deleting an event, ticket tier, event series, ticket or organization now ends the unfinished checkouts it removes, as the API does. The open Stripe Checkout sessions expire and the discount code uses go back. The tier and series inlines on the event and organization pages can no longer delete rows, because an inline delete skipped this cleanup.
+- Django admin: a pending payment can no longer be deleted there. Deleting it left its pending ticket with no payment, so the seat was never released. The admin refuses the delete, for one payment and for a bulk delete.
+- Django admin: the event status is read-only on existing events. Four actions (open, close, set to draft, cancel without refunds) need the change permission and change it through the same service as the API, with the same refund guard, waitlist handling and series pass issuance.
 
 ## [3.1.0] - 2026-11-25
 

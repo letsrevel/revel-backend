@@ -224,6 +224,8 @@ class EventSeriesInline(TabularInline):  # type: ignore[misc]
     model = models.EventSeries
     extra = 1
     show_change_link = True
+    # No inline delete: it would call ``obj.delete()`` and skip ``event_series_service.delete_event_series`` (#1499).
+    can_delete = False
     fields = ["name", "slug"]
     prepopulated_fields = {"slug": ("name",)}
 
@@ -288,6 +290,8 @@ class TicketTierInline(GrantsTemporaryTierMixin, TabularInline):  # type: ignore
     model = models.TicketTier
     formset = TicketTierFormSet
     extra = 1
+    # No inline delete: it would call ``obj.delete()`` and skip ``ticket_service.delete_ticket_tier`` (#1499).
+    can_delete = False
     # raw_id: plain <select>s here enumerate every venue/sector/membership-tier in the DB
     # and fire one __str__ query per <option>, per row + empty form (#880).
     raw_id_fields = [
