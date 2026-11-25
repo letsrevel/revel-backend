@@ -5,6 +5,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
+from django.contrib.gis.geos import Point
 from django.test.client import Client
 from django.urls import reverse
 from freezegun import freeze_time
@@ -16,6 +17,7 @@ from events.models import (
     EventRSVP,
     Organization,
 )
+from geo.models import City
 
 pytestmark = pytest.mark.django_db
 
@@ -337,3 +339,34 @@ class TestDashboardCalendar:
         # Invalid year
         response = dashboard_client.get(url, {"year": "1899"})
         assert response.status_code == 422
+
+
+def test_dashboard_calendar_matches_events_on_their_local_day(
+    dashboard_user: RevelUser, dashboard_client: Client, organization: Organization
+) -> None:
+    """The dashboard year holds the events whose start date in the event's own timezone is in it (#1520)."""
+    vienna = City.objects.create(
+        name="Vienna",
+        ascii_name="Vienna",
+        country="Austria",
+        iso2="AT",
+        iso3="AUT",
+        city_id=912_001,
+        location=Point(16.3738, 48.2082, srid=4326),
+        timezone="Europe/Vienna",
+    )
+    # 2027-01-01 00:30 in Vienna is 2026-12-31T23:30Z; without a city the same instant is local to 2026.
+    instant = datetime(2027, 1, 1, 0, 30, tzinfo=ZoneInfo("Europe/Vienna"))
+    in_vienna = Event.objects.create(
+        organization=organization, name="Vienna", slug="vienna-ny", status="open", start=instant, city=vienna
+    )
+    no_city = Event.objects.create(organization=organization, name="UTC", slug="utc-eve", status="open", start=instant)
+    for event in (in_vienna, no_city):
+        EventRSVP.objects.create(event=event, user=dashboard_user, status=EventRSVP.RsvpStatus.YES)
+
+    response_2027 = dashboard_client.get(reverse("api:dashboard_calendar"), {"year": 2027})
+    response_2026 = dashboard_client.get(reverse("api:dashboard_calendar"), {"year": 2026})
+
+    assert response_2027.status_code == response_2026.status_code == 200
+    assert [e["id"] for e in response_2027.json()] == [str(in_vienna.id)]
+    assert [e["id"] for e in response_2026.json()] == [str(no_city.id)]

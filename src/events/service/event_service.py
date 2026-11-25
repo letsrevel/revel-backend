@@ -9,7 +9,11 @@ This module serves as a facade, re-exporting functions from:
 - duplication: Event duplication
 """
 
-from events.service.calendar_utils import calculate_calendar_date_range, order_by_distance
+from events.service.calendar_utils import (
+    calculate_calendar_date_range,
+    filter_to_calendar_period,
+    order_by_distance,
+)
 from events.service.dietary import get_event_dietary_summary
 from events.service.duplication import duplicate_event
 from events.service.event_update_service import (
@@ -47,6 +51,7 @@ __all__ = [
     "create_invitation_request",
     "delete_event",
     "duplicate_event",
+    "filter_to_calendar_period",
     "get_event_dietary_summary",
     "get_event_pronoun_distribution",
     "get_event_token",

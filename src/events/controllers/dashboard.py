@@ -114,7 +114,7 @@ class DashboardController(UserAwareController):
         self,
         params: t.Annotated[filters.DashboardEventsFiltersSchema, Query(...)],
         calendar_params: t.Annotated[filters.CalendarParamsSchema, Query(...)],
-    ) -> QuerySet[models.Event]:
+    ) -> list[models.Event]:
         """View events in a calendar view filtered by your relationship to them.
 
         Returns events for the specified time period (week, month, or year) that you have a
@@ -138,18 +138,15 @@ class DashboardController(UserAwareController):
         - `got_ticket`, `got_invitation` - Events you have tickets or invitations for
 
         Results include both past and future events within the time range, ordered by start time.
-        """
-        # Calculate the date range for calendar view
-        start_datetime, end_datetime = event_service.calculate_calendar_date_range(**calendar_params.model_dump())
 
+        The period is matched on local dates: an event is returned when its start date, in the event's own
+        timezone (``timezone``), falls in the period.
+        """
         # Get base queryset of user-related events
         qs = self.get_user_related_events(params, include_past=True)
 
-        # Filter to events within the calendar date range
-        qs = qs.filter(start__gte=start_datetime, start__lt=end_datetime)
-
         # No .distinct() needed - get_user_related_events already filters by unique IDs
-        return qs.order_by("start")
+        return event_service.filter_to_calendar_period(qs.order_by("start"), **calendar_params.model_dump())
 
     @route.get(
         "/event_series",

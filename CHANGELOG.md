@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Blacklist: a manual entry by email now answers "An entry with this email already exists." when an entry for an erased account keeps that email. Before, it created a second entry for the same person.
+- Calendars (`GET /events/calendar` and `GET /dashboard/calendar`): a week, month or year now holds the events whose start date, in the event's own timezone, falls in it. Before, the API cut the period in UTC. An event that started near midnight UTC could be missing from the period where the calendar shows it.
 
 ## [3.1.0] - 2026-11-25
 
