@@ -9,9 +9,15 @@ from django.contrib.gis.geos import Point
 from django.db.models import QuerySet
 from django.utils import timezone
 
+from events.models import Event
 from events.models.mixins import LocationMixin
+from events.utils import get_event_timezone
 
 T = t.TypeVar("T", bound=LocationMixin)
+
+# UTC offsets in use run from -12 to +14 hours, so an event whose local start date is in a period starts at most
+# 14 hours outside the period's UTC bounds (#1520).
+CALENDAR_EDGE_PADDING = timedelta(hours=14)
 
 
 def calculate_calendar_date_range(
@@ -65,6 +71,40 @@ def calculate_calendar_date_range(
     next_month = 1 if now.month == 12 else now.month + 1
     end_datetime = datetime(next_month_year, next_month, 1, tzinfo=utc)
     return start_datetime, end_datetime
+
+
+def filter_to_calendar_period(
+    queryset: QuerySet[Event],
+    *,
+    week: int | None = None,
+    month: int | None = None,
+    year: int | None = None,
+) -> list[Event]:
+    """Return the events whose start date, in the event's own timezone, falls in the calendar period.
+
+    The frontend places each event on its local day, so the period is matched on local dates, not on UTC
+    bounds. The database query takes the UTC period padded by ``CALENDAR_EDGE_PADDING`` (an indexed range);
+    the local-date check then drops the events of the neighbouring periods. The queryset order is kept.
+
+    Args:
+        queryset: The events to filter, already filtered and ordered by the caller.
+        week: ISO week number, as for ``calculate_calendar_date_range``.
+        month: Month number, as for ``calculate_calendar_date_range``.
+        year: Year, as for ``calculate_calendar_date_range``.
+
+    Returns:
+        The matching events, in queryset order.
+    """
+    start, end = calculate_calendar_date_range(week=week, month=month, year=year)
+    first_day, end_day = start.date(), end.date()
+    candidates = queryset.filter(
+        start__gte=start - CALENDAR_EDGE_PADDING, start__lt=end + CALENDAR_EDGE_PADDING
+    ).select_related("city")
+    # ponytail: the local-date check runs in Python over the padded result (at most one year of events).
+    # Upgrade path if a year view grows too large: compare the start date at the city timezone in SQL.
+    return [
+        event for event in candidates if first_day <= event.start.astimezone(get_event_timezone(event)).date() < end_day
+    ]
 
 
 def order_by_distance(point: Point | None, queryset: QuerySet[T]) -> QuerySet[T]:

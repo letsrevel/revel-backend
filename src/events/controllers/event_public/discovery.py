@@ -83,11 +83,14 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         self,
         params: t.Annotated[filters.EventFilterSchema, Query(...)],
         calendar_params: t.Annotated[filters.CalendarParamsSchema, Query(...)],
-    ) -> QuerySet[models.Event]:
+    ) -> list[models.Event]:
         """Get events for a calendar view (week, month, or year).
 
         Returns a flat list of events for the specified time period. If no time parameters are
         provided, defaults to the current month.
+
+        The period is matched on local dates: an event is returned when its start date, in the event's own
+        timezone (``timezone``), falls in the period.
 
         **Time Parameters:**
         - `week`: ISO week number (1-53) - uses current year if year parameter not provided.
@@ -108,13 +111,12 @@ class EventPublicDiscoveryController(EventPublicBaseController):
 
         Results are ordered by start time ascending.
         """
-        start_datetime, end_datetime = event_service.calculate_calendar_date_range(**calendar_params.model_dump())
-        qs = self.get_discovery_queryset(include_past=True).filter(start__gte=start_datetime, start__lt=end_datetime)
+        qs = self.get_discovery_queryset(include_past=True)
         # Disable next_events default filter for calendar views since date range is explicit.
         # Users can still filter using start_after/start_before if needed.
         params.next_events = None
         qs = params.filter(qs).distinct()
-        return qs.order_by("start")
+        return event_service.filter_to_calendar_period(qs.order_by("start"), **calendar_params.model_dump())
 
     @route.get(
         "/tokens/{token_id}",
