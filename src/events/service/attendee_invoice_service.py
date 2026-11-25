@@ -480,6 +480,7 @@ def _generate_and_save_pdf(invoice: AttendeeInvoice) -> None:
         # A draft deleted meanwhile (refund, organizer delete) gets nothing; a download then answers 404 (#1498).
         locked = AttendeeInvoice.objects.select_for_update().filter(pk=invoice.pk).first()
         if locked is None:
+            logger.info("attendee_invoice_pdf_discarded_row_gone", invoice_id=str(invoice.pk))
             return
         if locked.status != rendered_status or locked.pdf_file:
             invoice.status = locked.status

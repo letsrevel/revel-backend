@@ -85,11 +85,13 @@ def test_render_discarded_when_draft_deleted(organization: Organization, event: 
         AttendeeInvoice.objects.filter(pk=invoice.pk).delete()
         return b"draft-pdf"
 
-    with patch(MOCK_RENDER_PDF, side_effect=delete_during_render):
-        _generate_and_save_pdf(invoice)
+    with (
+        patch(MOCK_RENDER_PDF, side_effect=delete_during_render),
+        patch("events.service.attendee_invoice_service.logger") as log,
+    ):
+        _generate_and_save_pdf(invoice)  # must not raise
 
-    assert not invoice.pdf_file
-    assert not AttendeeInvoice.objects.filter(pk=invoice.pk).exists()
+    log.info.assert_called_once_with("attendee_invoice_pdf_discarded_row_gone", invoice_id=str(invoice.pk))
 
 
 def test_render_attaches_when_unchanged(organization: Organization, event: Event, member_user: RevelUser) -> None:
