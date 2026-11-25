@@ -15,6 +15,7 @@ import pytest
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from common.email_backend import erased_placeholder_email
 from events.models import Blacklist, Organization, OrganizationMember
 from events.service import blacklist_service
 from telegram.models import TelegramUser
@@ -238,6 +239,37 @@ class TestAddToBlacklistManualMode:
             )
         assert exc_info.value.status_code == 400
         assert "already exists" in str(exc_info.value.message)
+
+    def test_raises_error_email_of_entry_linked_to_erased_account(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        target_user: RevelUser,
+    ) -> None:
+        """A manual entry by the email that a linked entry keeps is a duplicate, also after erasure (#1543).
+
+        Erasure replaces the account email with a placeholder, so the verified-email lookup no longer
+        finds the account, but the linked entry keeps the original email and still bans it.
+        """
+        linked = blacklist_service.add_to_blacklist(
+            organization=blacklist_org, created_by=blacklist_admin, user=target_user
+        )
+        RevelUser.objects.filter(pk=target_user.pk).update(
+            email=erased_placeholder_email(target_user.pk.hex), is_active=False
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            blacklist_service.add_to_blacklist(
+                organization=blacklist_org,
+                created_by=blacklist_admin,
+                email="TARGET@example.com",
+            )
+
+        assert (exc_info.value.status_code, str(exc_info.value.message)) == (
+            400,
+            "An entry with this email already exists.",
+        )
+        assert list(Blacklist.objects.filter(organization=blacklist_org)) == [linked]
 
 
 # --- add_to_blacklist tests (Quick Mode) ---
