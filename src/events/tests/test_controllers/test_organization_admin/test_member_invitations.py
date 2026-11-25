@@ -428,6 +428,32 @@ class TestListAndRevoke:
         assert organization_owner_client.delete(url).status_code == 404
         assert OrganizationToken.objects.filter(pk=token_id).exists()
 
+    def test_invitation_of_another_organization_is_invisible_to_this_one(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        nonmember_user: RevelUser,
+        django_user_model: t.Type[RevelUser],
+    ) -> None:
+        """A pending invitation of the same account in a second organization never shows in the first."""
+        other_owner = django_user_model.objects.create_user(
+            username="other_owner", email="other_owner@example.com", password="pass", email_verified=True
+        )
+        other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=other_owner)
+        other_tier = MembershipTier.objects.create(organization=other_org, name="Silver")
+        other_token_id = _invite(_client(other_owner), other_org, nonmember_user, other_tier).json()["id"]
+        expires_at = OrganizationToken.objects.get(pk=other_token_id).expires_at
+
+        assert organization_owner_client.get(_list_url(organization)).json()["count"] == 0
+        url = reverse(
+            "api:revoke_member_invitation", kwargs={"slug": organization.slug, "invitation_id": other_token_id}
+        )
+        assert organization_owner_client.delete(url).status_code == 404
+        assert OrganizationToken.objects.get(pk=other_token_id).expires_at == expires_at
+        lookup = reverse("api:lookup_organization_user", kwargs={"slug": organization.slug})
+        body = organization_owner_client.get(lookup, {"email": nonmember_user.email}).json()
+        assert body["pending_invitation_id"] is None
+
     def test_revoke_rejects_generic_token_of_same_org(
         self,
         organization_owner_client: Client,

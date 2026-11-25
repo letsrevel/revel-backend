@@ -110,10 +110,14 @@ class TestBlacklistingANonMember:
         nonmember_user: RevelUser,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        """A row created after the blacklist check but before the entry committed is still flipped."""
+        """A row created after the blacklist check but before the entry committed is still flipped.
+
+        ``bulk_create`` sends no ``post_save``, so the membership-side recheck does not run: only the
+        blacklist-side on-commit step can flip the row.
+        """
         with django_capture_on_commit_callbacks(execute=True):
             blacklist_service.add_to_blacklist(organization, organization_owner_user, user=nonmember_user)
-            OrganizationMember.objects.create(organization=organization, user=nonmember_user)
+            OrganizationMember.objects.bulk_create([OrganizationMember(organization=organization, user=nonmember_user)])
 
         assert _row(organization, nonmember_user).status == Status.BANNED
 

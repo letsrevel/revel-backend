@@ -44,11 +44,11 @@ def event_seats_available(
         exclude_own_offer: Whether the buyer's own pending offer is left out of the count. True only
             for flows that go on to claim that offer (batch checkout); the series pass flows pass
             False so the offer counts like anyone else's.
-        lock_rows: Whether the counted ticket and offer rows are row-locked too (batch checkout keeps
-            its existing behaviour). The series pass flows pass False: every writer that adds a ticket
-            or an offer serializes on the Event row lock the caller already holds, and a concurrent
-            cancellation can only lower the count, so locking each row adds deadlock exposure with
-            the cancellation and expiry routes without adding safety.
+        lock_rows: Whether the two count queries use ``select_for_update`` (batch checkout keeps its
+            existing behaviour). Both queries end in ``.count()``, and Django drops ``FOR UPDATE`` from
+            aggregate queries, so no ticket or offer row is locked either way. The guard is the Event
+            row lock the caller holds: every writer that adds a ticket or an offer serializes on it,
+            and a concurrent cancellation can only lower the count. The parameter has no effect on the SQL.
 
     Returns:
         Free seats; zero or negative means the event is full.
@@ -110,8 +110,8 @@ class CapacityMixin(BatchTicketContext):
 
         Uses effective_capacity (min of max_attendees and venue.capacity) as the limit; unlike RSVPs,
         ticket checkout has no overrides_max_attendees bypass.
-        Uses select_for_update to prevent race conditions when multiple users
-        purchase tickets simultaneously.
+        Locks the Event row with select_for_update to prevent race conditions when
+        multiple users purchase tickets simultaneously.
 
         Counts committed tickets PLUS pending unexpired waitlist offers
         (excluding cutoff-batch offers which race FCFS against real seats,
@@ -153,10 +153,11 @@ class CapacityMixin(BatchTicketContext):
         per sector first, then each sector is locked-and-asserted once.
 
         **The lock is on the ``VenueSector`` rows, not on the tickets** (#846 review
-        fix). ``select_for_update`` over the ticket count locks the rows that already
-        exist, which is no guard at all against the phantom INSERT that actually
-        oversells: two carts buying from *different* tiers of the same sector share no
-        tier lock, so nothing serializes them and both read the same free space. Taking
+        fix). A ticket count takes no row lock at all (Django drops ``FOR UPDATE`` from
+        aggregate queries), and even a lock on the existing rows would be no guard
+        against the phantom INSERT that actually oversells: two carts buying from
+        *different* tiers of the same sector share no tier lock, so nothing serializes
+        them and both read the same free space. Taking
         the sector rows themselves — in one PK-ordered query, before any counting, so
         two carts touching the same sectors cannot lock-order-invert — gives those carts
         a common mutex, and the capacities are re-read off the locked rows.

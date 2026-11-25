@@ -266,11 +266,14 @@ def test_password_reset_dispatch_carries_the_hint_in_context(user: RevelUser) ->
     )
 
 
-def test_verification_dispatch_merges_return_url_and_hint_in_context(user: RevelUser) -> None:
+def test_verification_dispatch_merges_return_url_and_hint_in_context(
+    user: RevelUser, django_capture_on_commit_callbacks: t.Any
+) -> None:
     with patch("accounts.tasks.send_account_email.delay") as mock_delay:
-        _, token = account_service.send_verification_email_for_user(
-            user, defer=False, return_url="/oauth/authorize?client_id=x", return_host=HOST
-        )
+        with django_capture_on_commit_callbacks(execute=True):
+            _, token = account_service.send_verification_email_for_user(
+                user, return_url="/oauth/authorize?client_id=x", return_host=HOST
+            )
 
     mock_delay.assert_called_once_with(
         AccountEmail.VERIFICATION,

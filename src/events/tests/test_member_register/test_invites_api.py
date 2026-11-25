@@ -9,6 +9,7 @@ from datetime import timedelta
 from unittest.mock import ANY, patch
 
 import pytest
+from celery.exceptions import Retry
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
@@ -523,6 +524,38 @@ class TestInviteEmail:
 
     def test_marker_does_not_expose_the_token(self) -> None:
         assert "tok-secret-value" not in linking.invite_marker("tok-secret-value")
+
+    def test_failed_send_is_retried_and_keeps_the_slot(
+        self, organization: Organization, make_record: RecordFactory
+    ) -> None:
+        """A send error with retries left schedules a retry; the resend slot stays held meanwhile."""
+        record = make_record(invite_token="abc", invited_at=timezone.now())
+        assert linking._claim_invite_slot(organization, record.email)
+
+        with (
+            patch("events.tasks.member_register.send_email", side_effect=OSError("smtp down")) as send,
+            patch.object(send_member_register_invite, "retry", side_effect=Retry()) as retry,
+        ):
+            send_member_register_invite.apply(args=(str(record.pk),), retries=0, throw=False)
+
+        assert send.call_count == 1
+        retry.assert_called_once_with(exc=ANY, countdown=60)
+        assert not linking._claim_invite_slot(organization, record.email)  # slot still held
+
+    def test_exhausted_retries_release_the_resend_slot(
+        self, organization: Organization, make_record: RecordFactory
+    ) -> None:
+        """Regression: a send that kept failing left the one-hour resend slot held with no email sent."""
+        record = make_record(invite_token="abc", invited_at=timezone.now())
+        assert linking._claim_invite_slot(organization, record.email)
+
+        with patch("events.tasks.member_register.send_email", side_effect=OSError("smtp down")):
+            result = send_member_register_invite.apply(
+                args=(str(record.pk),), retries=send_member_register_invite.max_retries, throw=False
+            )
+
+        assert result.failed()
+        assert linking._claim_invite_slot(organization, record.email)  # slot was released: a resend is allowed
 
     def test_skips_when_no_token(self, make_record: RecordFactory) -> None:
         record = make_record()

@@ -317,7 +317,10 @@ class TestBackfillAndExtensionSkips:
         holder_pass: HeldSeriesPass,
         revel_user_factory: RevelUserFactory,
     ) -> None:
-        clean_user = revel_user_factory(username="clean@example.com", email="clean@example.com", first_name="Ann")
+        # A fixed last name: the blacklist also matches the last name alone, so a random "Smith" would match.
+        clean_user = revel_user_factory(
+            username="clean@example.com", email="clean@example.com", first_name="Ann", last_name="Clean"
+        )
         clean_pass = HeldSeriesPass.objects.create(
             series_pass=free_pass,
             user=clean_user,

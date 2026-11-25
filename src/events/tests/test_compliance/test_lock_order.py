@@ -137,15 +137,21 @@ def _locks(queries: list[dict[str, t.Any]]) -> list[str]:
     return locked
 
 
-def _assert_in_global_order(queries: list[dict[str, t.Any]]) -> list[str]:
-    """Assert the locks follow the global order; return each table once, in first-lock order.
+def _assert_in_global_order(queries: list[dict[str, t.Any]], repeats: tuple[str, ...] = ()) -> list[str]:
+    """Assert the whole lock sequence follows the global order; return each table once, in first-lock order.
 
-    A repeated lock on a row the transaction already holds (``issue_refund`` locks its Payment again) is a no-op.
+    Every lock counts, not only the first one per table: a later lock on a table that ranks below one
+    already taken is an inversion. Only the tables in ``repeats`` may be locked again out of order, and
+    only because the transaction already holds those rows (a no-op re-lock, e.g. ``issue_refund`` on its Payment).
     """
-    tables = list(dict.fromkeys(_locks(queries)))
-    ranks = [_RANK[name] for name in tables if name in _RANK]
-    assert ranks == sorted(ranks), f"locks out of global order: {tables}"
-    return tables
+    sequence = [name for name in _locks(queries) if name in _RANK]
+    highest = -1
+    for name in sequence:
+        if _RANK[name] < highest:
+            assert name in repeats, f"lock on {name} after a later table: {sequence}"
+        else:
+            highest = _RANK[name]
+    return list(dict.fromkeys(_locks(queries)))
 
 
 class _StripeSpy:
@@ -255,7 +261,8 @@ def test_series_pass_cancel_holds_only_payment_and_pass_across_stripe(
             online_pass_setup.held_pass, cancelled_by=organization_owner_user, reason="x"
         )
     )
-    tables = _assert_in_global_order(queries)
+    # The pass-cancel path locks its Payment again after the pass row; the transaction already holds it.
+    tables = _assert_in_global_order(queries, repeats=("events_payment",))
     assert tables[:2] == ["events_payment", "events_heldseriespass"]
     _assert_only_payment_locks_before_stripe(spy, ("events_payment", "events_heldseriespass"))
     assert len(spy.snapshots) == 2

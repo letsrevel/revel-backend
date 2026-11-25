@@ -244,13 +244,16 @@ def send_subscription_renewal_reminders() -> SubscriptionReminderCounters:
     Runs daily via Celery beat (see migration 0102). Processes only ACTIVE
     subscriptions with ``cancel_at_period_end=False`` (no point reminding about a
     subscription already scheduled to end) whose ``current_period_end`` falls
-    exactly REMINDER_DAYS from today, plus ONLINE ones whose period ends sooner
-    but has not ended yet: a calendar plan's first (stub) period can be shorter
-    than the window, and its first full charge still deserves a reminder.
+    exactly REMINDER_DAYS from today, plus any active subscription (ONLINE or
+    OFFLINE) whose period ends sooner but has not ended yet. That catch-up covers
+    a calendar plan's first (stub) period, which can be shorter than the window,
+    and also a run that was missed while the beat was down.
 
     Idempotency: ``renewal_reminded_for`` records the period end already reminded,
-    so each period is reminded once however often the beat runs. A missed day
-    (Celery downtime) means a missed reminder that day, acceptable for a nudge.
+    so a period is not reminded again once it is recorded. The record is written
+    after the notification, so two runs that overlap, or a run that stops between
+    the notification and the record, can send the reminder twice. After a missed
+    day, the next run sends the reminder, as long as the period has not ended.
 
     Returns:
         Counters dict: {"sent": N}.

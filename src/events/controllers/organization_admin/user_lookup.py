@@ -1,4 +1,7 @@
-"""Org-admin lookup of an account by exact verified email, to add them as a member or staff."""
+"""Org-admin lookup of an account by exact verified email.
+
+The lookup feeds the member-invitation flow (the result carries the pending invitation, if any) and the add-staff flow.
+"""
 
 import typing as t
 

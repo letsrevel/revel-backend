@@ -82,3 +82,4 @@ standing come only from acts of the account holder.
   staff-made rows are unmasked from then on.
 - Out of scope: a per-ticket contact snapshot, and an acknowledgement step that unmasks a holder.
   The Django admin (platform staff) is unaffected.
+- RSVPs that staff recorded before #1452 default to the `SELF` origin, so they count as the person's own acts. This is a closed set of old rows and is accepted.

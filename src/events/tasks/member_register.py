@@ -18,7 +18,7 @@ from events.utils.frontend_urls import frontend_base_url_for
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(name="events.send_member_register_invite", bind=True)
+@shared_task(name="events.send_member_register_invite", bind=True, max_retries=3)
 def send_member_register_invite(self: Task, record_id: str) -> None:  # type: ignore[type-arg]
     """Email the claim link of an account-less register record.
 
@@ -28,6 +28,9 @@ def send_member_register_invite(self: Task, record_id: str) -> None:  # type: ig
     simply makes the latest link win. Skipped when the record is gone, already linked or holds no token,
     and when the ``invite_marker`` message header (the invitation generation it was queued for) no longer matches
     the record's token: a later invitation superseded it. Without the header the email still sends.
+
+    A failed send is retried with backoff (1, 2 and 4 minutes). When the retries run out, the resend slot of the
+    address is released, so staff can resend at once instead of waiting for the cooldown.
     """
     marker = (self.request.headers or {}).get("invite_marker")
     record = MembershipRecord.objects.select_related("organization").filter(pk=record_id).first()
@@ -51,13 +54,19 @@ def send_member_register_invite(self: Task, record_id: str) -> None:  # type: ig
         subject = _("%(organization)s invites you to link your membership") % {"organization": org.name}
         body = render_plain_text("events/emails/member_register_invite_body.txt", ctx)
         html_body = render_to_string("events/emails/member_register_invite_body.html", ctx)
-    send_email(
-        to=record.email,
-        subject=subject,
-        body=body,
-        html_body=html_body,
-        **_tenant_sender(org, "member_register_invite"),
-    )
+    try:
+        send_email(
+            to=record.email,
+            subject=subject,
+            body=body,
+            html_body=html_body,
+            **_tenant_sender(org, "member_register_invite"),
+        )
+    except Exception as exc:
+        if self.request.retries < (self.max_retries or 0):
+            raise self.retry(exc=exc, countdown=2**self.request.retries * 60) from exc
+        member_register_linking.release_invite_slot(org, record.email)
+        raise
     logger.info("member_register_invite_sent", record_id=record_id)
 
 
