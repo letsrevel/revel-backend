@@ -41,27 +41,39 @@ def test_order_by_distance_with_point() -> None:
     queryset.annotate.return_value = annotated_queryset
 
     # Act
-    result_queryset: "QuerySet[LocationMixin]" = event_service.order_by_distance(point, queryset)
+    result_queryset: "QuerySet[LocationMixin]" = event_service.order_by_distance(point, queryset, "start", "id")
 
     # Assert
     queryset.annotate.assert_called_once()
-    annotated_queryset.order_by.assert_called_once_with("distance")
+    annotated_queryset.order_by.assert_called_once_with("distance", "start", "id")
     assert result_queryset == annotated_queryset.order_by.return_value
 
 
 def test_order_by_distance_with_none_point() -> None:
-    """Test that the queryset is returned as is when point is None."""
+    """Test that the queryset is ordered by the tie-break fields only when point is None."""
     # Arrange
     point = None
     queryset: Mock = Mock(spec=["annotate", "order_by"])
 
     # Act
-    result_queryset: "QuerySet[LocationMixin]" = event_service.order_by_distance(point, queryset)
+    result_queryset: "QuerySet[LocationMixin]" = event_service.order_by_distance(point, queryset, "start", "id")
 
     # Assert
     queryset.annotate.assert_not_called()
+    queryset.order_by.assert_called_once_with("start", "id")
+    assert result_queryset == queryset.order_by.return_value
+
+
+@pytest.mark.parametrize("point", [Point(1, 1, srid=4326), None])
+def test_order_by_distance_requires_a_tie_break(point: Point | None) -> None:
+    """An empty tie-break cannot end with a unique field, so pages would be unstable: refuse it."""
+    queryset: Mock = Mock(spec=["annotate", "order_by"])
+
+    with pytest.raises(ValueError, match="tie-break"):
+        event_service.order_by_distance(point, queryset)
+
+    queryset.annotate.assert_not_called()
     queryset.order_by.assert_not_called()
-    assert result_queryset == queryset
 
 
 def test_create_event_token_creates_token(event: Event, organization_owner_user: RevelUser) -> None:

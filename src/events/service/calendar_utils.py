@@ -108,19 +108,28 @@ def filter_to_calendar_period(
     ]
 
 
-def order_by_distance(point: Point | None, queryset: QuerySet[T]) -> QuerySet[T]:
-    """Order a queryset by distance from a point.
+def order_by_distance(point: Point | None, queryset: QuerySet[T], *tie_break: str) -> QuerySet[T]:
+    """Order a queryset by distance from a point, then by the tie-break fields.
+
+    Rows at the same distance (e.g. venues in one city) are ordered by ``tie_break``. End it with a unique
+    field, so that pagination is stable.
 
     Args:
-        point: The reference point to measure distance from.
+        point: The reference point to measure distance from. ``None`` orders by ``tie_break`` only.
         queryset: A queryset of models with a location field.
+        *tie_break: The fields that order rows at the same distance (e.g. ``"start", "id"``).
 
     Returns:
-        The queryset ordered by distance from the point.
+        The ordered queryset.
+
+    Raises:
+        ValueError: If ``tie_break`` is empty.
     """
+    if not tie_break:
+        raise ValueError("order_by_distance needs at least one tie-break field.")
     if point is None:
-        return queryset
+        return queryset.order_by(*tie_break)
 
     return queryset.annotate(  # type: ignore[return-value]
         distance=Distance("location", point),
-    ).order_by("distance")
+    ).order_by("distance", *tie_break)

@@ -127,13 +127,14 @@ class OrganizationController(UserAwareController):
         """Browse and search organizations visible to the current user.
 
         Results are filtered by visibility settings and user memberships. By default orders by
-        'distance' (nearest first based on user location). Can also sort alphabetically by 'name'
-        or reverse with '-name'. Supports text search and filtering.
+        'distance' (nearest first based on user location, then by name; by name only without a
+        location). Can also sort alphabetically by 'name' or reverse with '-name'. Supports text
+        search and filtering.
         """
         qs = params.filter(self.get_discovery_queryset()).distinct()
         if order_by == "distance":
-            return order_by_distance(self.user_location(), qs)
-        return qs.order_by(order_by)
+            return order_by_distance(self.user_location(), qs, "name", "id")
+        return qs.order_by(order_by, "id")
 
     @route.post(
         "/",

@@ -56,8 +56,9 @@ class EventPublicDiscoveryController(EventPublicBaseController):
 
         Results are filtered by visibility rules (public/private), event status, and user permissions.
         By default, shows only upcoming events; set include_past=true to see past events.
-        Ordering: 'distance' (default) shows nearest events based on user location, 'start' shows
-        soonest first, '-start' shows latest first. Supports filtering by organization, series,
+        Ordering: 'distance' (default) shows nearest events based on user location, and events at
+        the same distance soonest first. Without a user location, it shows soonest first. 'start'
+        shows soonest first, '-start' shows latest first. Supports filtering by organization, series,
         tags, and text search.
         """
         params.next_events = not include_past
@@ -75,8 +76,8 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         qs = models.Event.objects.full().filter(id__in=event_ids).with_user_bookmark(self.maybe_user())
 
         if order_by == "distance":
-            return event_service.order_by_distance(self.user_location(), qs)
-        return qs.order_by(order_by)
+            return event_service.order_by_distance(self.user_location(), qs, "start", "id")
+        return qs.order_by(order_by, "id")
 
     @route.get("/calendar", url_name="calendar_events", response=list[schema.EventInListSchema])
     def calendar_events(
