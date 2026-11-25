@@ -96,8 +96,49 @@ Stripe was probed in test mode (API `2026-03-25.dahlia`) before deciding:
    hour can therefore still complete after the boundary; such a session is a free stub
    (`proration_behavior="none"`), so a late completion just pays the first full period from the
    anchor. Because the free-stub decision covers the latest completion time, the free-stub window is
-   bounded by the session expiry (`PAYMENT_DEFAULT_EXPIRY_MINUTES`). That a subscription whose anchor has already passed at completion is charged the full
-   period from the anchor is Stripe's documented behavior; it was not probed. A session still open past the boundary it was
+   bounded by the session expiry (`PAYMENT_DEFAULT_EXPIRY_MINUTES`). Stripe documents that a
+   session paid after its anchor is charged the full period from the anchor
+   ([Set the billing cycle date](https://docs.stripe.com/payments/checkout/billing-cycle)). A probe
+   in Stripe test mode confirmed it on 2026-11-22 (API version `2026-03-25.dahlia`, hosted Checkout,
+   monthly price, anchor five minutes after creation, completion two to four minutes after the
+   anchor). `proration_behavior="none"` and `"create_prorations"` gave the same result:
+    - The page shows the stub total (0) until the member submits. Stripe refuses that first
+      submit, changes the session total to the full price, and asks the member to submit again.
+      The member thus sees the full price before the payment.
+    - The Subscription starts at the anchor (`start_date` = anchor), not at the completion time.
+      Its first period is anchor to anchor plus one interval, and `billing_cycle_anchor` moves
+      forward by one interval, so the next renewal is on the next boundary.
+    - The session completes with `payment_status="paid"` and an invoice, also for
+      `proration_behavior="none"`. The invoice (`billing_reason=subscription_create`) is paid at
+      once for the full price. It has one line for the full period, and Stripe flags that line as a
+      proration. `is_calendar_first_stub` is therefore true for this invoice: the ledger row gets
+      the full period and a `full_period_amount` equal to the amount paid.
+
+   The first probe ran on a platform account, without Connect and without an application fee.
+   A second probe ran on 2026-11-22 on a Stripe Standard connected account (test mode, same API
+   version, the Checkout Session created with the connected account and `application_fee_percent=4.5`,
+   a price of 30.00 EUR a month, anchor about three minutes after creation, both
+   `proration_behavior="none"` and `"create_prorations"`). Results:
+    - The page was open before the anchor. The first submit after the anchor was refused: the page
+      changed the total from 0.00 to 30.00 and showed "Your order has been updated. Please review the
+      updated total and submit payment again." The next submit paid. The probe made that next submit on a
+      page loaded again after the refusal, because the in-page second click missed the moved button.
+    - Both variants gave the same result. The session was `complete` and `paid`. The first invoice
+      (`billing_reason=subscription_create`) had total, subtotal and `amount_paid` of 30.00 EUR. It had one
+      line of 30.00 EUR, flagged as a proration under `parent.subscription_item_details.proration`, with the
+      Price id under `pricing.price_details.price`. The line period was the anchor to one month later.
+    - The application fee was 1.35 EUR. This is 4.5 percent of 30.00, the full amount paid. The fee is on the
+      charge of the invoice's PaymentIntent (`latest_charge.application_fee`). The PaymentIntent has
+      `application_fee_amount=135`.
+    - The Subscription had `start_date` equal to the anchor and `billing_cycle_anchor` one month after it.
+      The item period was the anchor to one month later. The next renewal is therefore on the next boundary.
+      `application_fee_percent` stayed 4.5.
+    - From the code, `record_stripe_payment_from_invoice` records one SUCCEEDED row with amount 30.00, a
+      platform fee of 1.35 split into net and VAT, and the period anchor to one month later. The row gets
+      `full_period_amount` of 30.00. This was not run against the captured payload.
+
+   Not proved: a payment with a real 3-D Secure challenge, a session in a currency other than EUR, a
+   different Connect account type, and the webhook handler run on the captured payload. A session still open past the boundary it was
    minted for is treated as stale: the next subscribe expires it and mints a fresh one, so a
    member is never sent back to a payable page with a stale anchor. The `sub-checkout:{pk}`
    idempotency key is only reused for the same create call, never across that replacement (the
