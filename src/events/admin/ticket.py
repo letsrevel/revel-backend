@@ -248,7 +248,8 @@ class PaymentAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[m
         protected = [
             *protected,
             *(
-                f"{payment} (pending payment: deleting it would strand its pending ticket)"
+                # The pk, not str(payment): __str__ reads the ticket, one query per row.
+                f"Payment {payment.pk} (pending payment: deleting it would strand its pending ticket)"
                 for payment in objs
                 if payment.status == pending
             ),

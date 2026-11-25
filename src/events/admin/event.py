@@ -5,6 +5,7 @@ import typing as t
 
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest
@@ -81,21 +82,31 @@ class EventAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # t
     def _set_status(
         self, request: HttpRequest, queryset: QuerySet[models.Event], status: models.Event.EventStatus
     ) -> None:
-        changed = 0
-        for event in queryset.exclude(status=status):  # same-status cancel would wipe the cancellation reason
-            reason = event.cancellation_reason if status == models.Event.EventStatus.CANCELLED else None
+        changed = failed = 0
+        user = t.cast(RevelUser, request.user)
+        for pk in queryset.values_list("pk", flat=True):
             try:
-                event_update_service.update_status(
-                    event, status, cancellation_reason=reason, initiated_by=t.cast(RevelUser, request.user)
-                )
+                with transaction.atomic():
+                    # Decide on the locked row, not the changelist snapshot: the event can change meanwhile.
+                    event = models.Event.objects.select_for_update().filter(pk=pk).first()
+                    if event is None or event.status == status:  # a same-status cancel would wipe the reason
+                        continue
+                    reason = event.cancellation_reason if status == models.Event.EventStatus.CANCELLED else None
+                    event_update_service.update_status(event, status, cancellation_reason=reason, initiated_by=user)
             except EventRefundsStartedError as exc:
+                failed += 1
                 self.message_user(request, f"{event}: {exc}", messages.ERROR)
             except ValidationError as exc:
+                failed += 1
                 self.message_user(request, f"{event}: {format_validation_error(exc)}", messages.ERROR)
             else:
                 changed += 1
         if changed:
             self.message_user(request, f"Set {changed} event(s) to {status.label}.", messages.SUCCESS)
+        elif not failed:
+            self.message_user(
+                request, f"No event changed: the selected events are already {status.label}.", messages.INFO
+            )
 
     @admin.action(description="Open selected events", permissions=["change"])
     def open_events(self, request: HttpRequest, queryset: QuerySet[models.Event]) -> None:

@@ -15,7 +15,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from events.models import Event, EventSeries, HeldSeriesPass, Organization, Payment, SeriesPass, Ticket, TicketTier
 from events.models.discount_code import DiscountCode
-from events.service import discount_code_service
+from events.service import discount_code_service, event_update_service
 
 pytestmark = pytest.mark.django_db
 
@@ -349,11 +349,14 @@ class TestInlinesCannotDelete:
 
         request = rf.get("/")
         request.user = superuser
+        seen = set()
         for model, parent in ((Event, event), (Organization, event.organization)):
             model_admin = site._registry[model]
             for inline in model_admin.get_inline_instances(request, parent):
                 if inline.model in (TicketTier, EventSeries):
+                    seen.add(inline.model)
                     assert inline.get_formset(request, parent)().can_delete is False
+        assert seen == {TicketTier, EventSeries}  # both inlines are still on their parent pages
 
 
 class TestAdminStatus:
@@ -442,6 +445,41 @@ class TestAdminStatus:
         event.refresh_from_db()
         assert event.cancellation_reason == "Flood"
         assert not any("Set 0" in m for m in _messages(response))
+        assert any("No event changed" in m for m in _messages(response))
+
+    def test_cancel_decides_on_the_current_row_not_the_changelist_snapshot(
+        self, admin_client: Client, event: Event, organization: Organization
+    ) -> None:
+        """An event cancelled elsewhere while the action runs keeps that cancellation and its reason."""
+        other = Event.objects.create(
+            organization=organization,
+            name="Other",
+            slug="other-race",
+            start=event.start,
+            end=event.end,
+            status=Event.EventStatus.OPEN,
+            requires_ticket=False,
+        )
+        Event.objects.filter(pk=event.pk).update(status=Event.EventStatus.OPEN)
+        real_update_status = event_update_service.update_status
+
+        cancelled_elsewhere: list[t.Any] = []
+
+        def cancel_the_other_meanwhile(target: Event, *args: t.Any, **kwargs: t.Any) -> Event:
+            result = real_update_status(target, *args, **kwargs)
+            if not cancelled_elsewhere:  # whichever runs first: an organizer cancels the other one meanwhile
+                pk = other.pk if target.pk == event.pk else event.pk
+                Event.objects.filter(pk=pk).update(
+                    status=Event.EventStatus.CANCELLED, cancellation_reason="Venue flooded"
+                )
+                cancelled_elsewhere.append(pk)
+            return result
+
+        with patch("events.admin.event.event_update_service.update_status", side_effect=cancel_the_other_meanwhile):
+            _bulk(admin_client, "event", "cancel_events", [event.pk, other.pk])
+
+        row = Event.objects.get(pk=cancelled_elsewhere[0])
+        assert (row.status, row.cancellation_reason) == (Event.EventStatus.CANCELLED, "Venue flooded")
 
     def test_invalid_event_is_reported_and_others_still_change(
         self, admin_client: Client, event: Event, organization: Organization
