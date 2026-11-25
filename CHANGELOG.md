@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-11-25
+
 ### ⚠️ Upgrade notes: action required after you deploy
 
 **Every instance that uses Stripe, including self-hosted ones, must update its Stripe webhook subscriptions after upgrading to this release.** Revel now listens to two more Stripe events, `refund.failed` and `refund.updated`. Stripe sends an event only when the webhook endpoint subscribes to it, and a deploy does not change that. If you skip this step, Revel does not learn that an automatic refund failed later, so nobody is told to refund the buyer by hand.
@@ -18,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 3. Run the same command without `--dry-run`. It updates the existing endpoints only: it creates no endpoint and does not change the signing secrets.
 
 Running the command again is harmless.
+
+Alternatively, set `FEATURE_POST_DEPLOY_TASKS=True` before the rollout and run `docker compose exec web python manage.py run_post_deploy` after it (first with `--dry-run`). It runs the same sync once per instance and records the run (`manage.py post_deploy_status`).
 These two events now also settle every ticket and membership refund: a pending refund that succeeds later, or a refund that fails later.
 
 **Tags that differ only by case.** Migrations `common` 0024 and 0025 merge these tags and add a case-insensitive unique index. During the deploy, an old instance can create a tag that differs only by case after 0024 has run. Then 0025 fails, and the rollout keeps the old container. Do not run the recovery in that container, because it does not know migration 0024. Run these two commands in a new container:
