@@ -345,6 +345,24 @@ class TestAddTierLinksDispatch:
 
         mock_delay.assert_called_once()
 
+    def test_failed_enqueue_does_not_fail_the_link(
+        self,
+        series_pass: SeriesPass,
+        series_pass_payload_links: list[TierLinkInput],
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """The dispatch is robust: the reconcile sweep issues the tickets later (#1536)."""
+        with patch(
+            "events.service.series_pass_service.materialize_series_pass_holders.delay",
+            side_effect=ConnectionError("broker down"),
+        ) as mock_delay:
+            with django_capture_on_commit_callbacks(execute=True):
+                created = series_pass_service.add_tier_links(series_pass, series_pass_payload_links, materialize=True)
+
+        mock_delay.assert_called_once()
+        assert len(created) == 1
+        assert SeriesPassTierLink.objects.filter(pk=created[0].pk).exists()
+
     def test_materialize_false_does_not_dispatch(
         self,
         series_pass: SeriesPass,

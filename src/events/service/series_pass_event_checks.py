@@ -65,8 +65,19 @@ def is_blocked_by_blacklist(user: RevelUser, event: Event) -> bool:
     return EligibilityService(user, event).check_gates((BlacklistGate,)) is not None
 
 
-def lock_events_and_find_full(events: t.Iterable[Event], user: RevelUser) -> set[UUID]:
-    """Row-lock the events pk-ordered and return the ids that cannot take one more ticket.
+class LockedEvents(t.NamedTuple):
+    """What the event row locks found: the events that cannot take one more ticket, and the cancelled ones."""
+
+    full: set[UUID]
+    cancelled: set[UUID]
+
+
+def lock_events_and_find_full(events: t.Iterable[Event], user: RevelUser) -> LockedEvents:
+    """Row-lock the events pk-ordered; return the ids that cannot take one more ticket and the CANCELLED ids.
+
+    The status is read under the lock: ``update_status`` locks the event row first, so it cannot change
+    until the caller commits. A status read before the lock can be stale (#1496). A cancelled event gets
+    no ticket, so its capacity is not counted.
 
     Must run inside a transaction, after the caller's pass and tier locks.
     """
@@ -76,8 +87,11 @@ def lock_events_and_find_full(events: t.Iterable[Event], user: RevelUser) -> set
         .filter(pk__in=[event.pk for event in events])
         .order_by("pk")
     )
-    full: set[UUID] = set()
+    result = LockedEvents(full=set(), cancelled=set())
     for event in locked:
+        if event.status == Event.EventStatus.CANCELLED:
+            result.cancelled.add(event.pk)
+            continue
         cap = event.effective_capacity
         # Counted without per-row locks: the Event row lock above serializes every writer that adds a
         # ticket or offer, and locking each ticket row of N events would deadlock with cancellations.
@@ -85,5 +99,5 @@ def lock_events_and_find_full(events: t.Iterable[Event], user: RevelUser) -> set
         # (conservative, never oversells). Claiming the offer would be the alternative; the buyer's waitlist
         # row is left as is.
         if cap and event_seats_available(event, user, cap, exclude_own_offer=False, lock_rows=False) <= 0:
-            full.add(event.pk)
-    return full
+            result.full.add(event.pk)
+    return result

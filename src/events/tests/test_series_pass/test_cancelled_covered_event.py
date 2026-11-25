@@ -13,6 +13,7 @@ import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
+from events.exceptions import SeriesPassNotPurchasableError
 from events.models import (
     Event,
     HeldSeriesPass,
@@ -29,7 +30,7 @@ from events.service.check_in_service import resolve_check_in_ticket_id
 from events.service.series_pass_purchase import SeriesPassPurchaseService
 from events.service.series_pass_questionnaires import check_series_questionnaires
 from events.service.series_pass_service import get_quote
-from events.tasks.series_pass import materialize_series_pass_holders
+from events.tasks.series_pass import materialize_series_pass_holders, reconcile_series_pass_tickets
 from questionnaires.models import Questionnaire
 from wallet.resolution import resolve_series_window
 
@@ -463,3 +464,193 @@ class TestUncancel:
             event_update_service.update_status(past, OPEN)
 
         task.delay.assert_not_called()
+
+
+def _status_change_before_the_event_lock(event: Event, status: Event.EventStatus) -> t.Any:
+    """Patch the event lock helper to change ``event``'s status first: a race after the lock-free reads (#1496)."""
+    from events.service import series_pass_event_checks
+
+    real = series_pass_event_checks.lock_events_and_find_full
+
+    def change_then_lock(*args: t.Any, **kwargs: t.Any) -> t.Any:
+        Event.objects.filter(pk=event.pk).update(status=status)
+        return real(*args, **kwargs)
+
+    return patch.object(series_pass_event_checks, "lock_events_and_find_full", side_effect=change_then_lock)
+
+
+class TestStatusChangeBeforeTheEventLock:
+    """The status is checked again under the event lock, the lock that ``update_status`` takes first (#1496)."""
+
+    def test_purchase_refuses_when_a_covered_event_is_cancelled(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        with (
+            _status_change_before_the_event_lock(three_upcoming[1], CANCELLED),
+            pytest.raises(SeriesPassNotPurchasableError),
+        ):
+            SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+        assert not HeldSeriesPass.objects.filter(series_pass=series_pass, user=revel_user).exists()
+        assert not Ticket.objects.filter(event__in=three_upcoming).exists()
+
+    def test_purchase_refuses_when_a_cancelled_covered_event_reopens(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        _cancel(three_upcoming[0])
+
+        with (
+            _status_change_before_the_event_lock(three_upcoming[0], OPEN),
+            pytest.raises(SeriesPassNotPurchasableError),
+        ):
+            SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+        # The lock-free quote gave a discount step for the cancelled event; the locked one does not.
+        assert not HeldSeriesPass.objects.filter(series_pass=series_pass, user=revel_user).exists()
+
+    def test_purchase_refuses_when_the_price_changed_after_the_quote(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        """A cancel between the quote and the covered-events read: the statuses agree, the price does not."""
+        real_quote = series_pass_service.get_quote
+        calls: list[int] = []
+
+        def quote_then_cancel(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            quote = real_quote(*args, **kwargs)
+            if not calls:
+                _cancel(three_upcoming[2])
+            calls.append(1)
+            return quote
+
+        with (
+            patch.object(series_pass_service, "get_quote", side_effect=quote_then_cancel),
+            pytest.raises(SeriesPassNotPurchasableError),
+        ):
+            SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+        assert len(calls) == 2
+        assert not HeldSeriesPass.objects.filter(series_pass=series_pass, user=revel_user).exists()
+
+    def test_purchase_without_a_status_change_still_succeeds(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        _cancel(three_upcoming[0])
+
+        with _status_change_before_the_event_lock(three_upcoming[0], CANCELLED):
+            held_pass = SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+        assert isinstance(held_pass, HeldSeriesPass)
+        assert held_pass.price_paid == Decimal("30.00")
+        ticketed = set(Ticket.objects.filter(held_pass=held_pass).values_list("event_id", flat=True))
+        assert ticketed == {three_upcoming[1].pk, three_upcoming[2].pk}
+
+    def test_extension_skips_an_event_cancelled_before_the_lock(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        held_pass = SeriesPassPurchaseService(series_pass, revel_user).purchase()
+        assert isinstance(held_pass, HeldSeriesPass)
+        new_event, new_tier = _cover(series_pass, "new", days=10)
+
+        with (
+            _status_change_before_the_event_lock(new_event, CANCELLED),
+            patch("notifications.signals.series_pass.send_series_pass_extended"),
+        ):
+            materialize_series_pass_holders(str(series_pass.id), [str(new_event.id)])
+
+        assert not Ticket.objects.filter(held_pass=held_pass, event=new_event).exists()
+        new_tier.refresh_from_db()
+        assert new_tier.quantity_sold == 0
+
+    def test_backfill_skips_an_event_cancelled_before_the_lock(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        series_pass.payment_method = TicketTier.PaymentMethod.OFFLINE
+        series_pass.save(update_fields=["payment_method"])
+        held_pass = SeriesPassPurchaseService(series_pass, revel_user).purchase()
+        assert isinstance(held_pass, HeldSeriesPass)
+        late, late_tier = _cover(series_pass, "late", days=10)
+
+        with (
+            _status_change_before_the_event_lock(late, CANCELLED),
+            patch("events.service.series_pass_service.send_series_pass_purchased"),
+        ):
+            series_pass_service.confirm_held_pass_payment(held_pass)
+
+        assert not Ticket.objects.filter(held_pass=held_pass, event=late).exists()
+        late_tier.refresh_from_db()
+        assert late_tier.quantity_sold == 0
+
+
+class TestReconcileSweep:
+    """``reconcile_series_pass_tickets`` issues what a failed materialization dispatch missed (#1536)."""
+
+    @pytest.fixture
+    def held_pass(self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser) -> HeldSeriesPass:
+        held = SeriesPassPurchaseService(series_pass, revel_user).purchase()
+        assert isinstance(held, HeldSeriesPass)
+        assert held.status == HeldSeriesPass.HeldSeriesPassStatus.ACTIVE
+        return held
+
+    @pytest.fixture(autouse=True)
+    def _no_extension_email(self) -> t.Iterator[None]:
+        with patch("notifications.signals.series_pass.send_series_pass_extended"):
+            yield
+
+    def test_issues_the_missing_ticket_once(self, series_pass: SeriesPass, held_pass: HeldSeriesPass) -> None:
+        # Linked without running the extension task: the state a failed enqueue leaves.
+        missed, missed_tier = _cover(series_pass, "missed", days=10)
+
+        assert reconcile_series_pass_tickets() == 1
+        assert reconcile_series_pass_tickets() == 0
+
+        ticket = Ticket.objects.get(held_pass=held_pass, event=missed)
+        assert ticket.status == Ticket.TicketStatus.ACTIVE
+        assert ticket.price_paid == Decimal("0.00")
+        missed_tier.refresh_from_db()
+        assert missed_tier.quantity_sold == 1
+
+    def test_never_reissues_an_organizer_cancelled_ticket(
+        self, held_pass: HeldSeriesPass, three_upcoming: list[Event]
+    ) -> None:
+        Ticket.objects.filter(held_pass=held_pass, event=three_upcoming[0]).update(status=Ticket.TicketStatus.CANCELLED)
+
+        assert reconcile_series_pass_tickets() == 0
+        assert Ticket.objects.filter(held_pass=held_pass, event=three_upcoming[0]).count() == 1
+
+    def test_skips_cancelled_and_past_events(self, series_pass: SeriesPass, held_pass: HeldSeriesPass) -> None:
+        cancelled, _ = _cover(series_pass, "cancelled", days=10, status=CANCELLED)
+        past, _ = _cover(series_pass, "past", days=-1)
+
+        assert reconcile_series_pass_tickets() == 0
+        assert not Ticket.objects.filter(held_pass=held_pass, event__in=[cancelled, past]).exists()
+
+    def test_skips_a_pass_that_is_not_active(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        series_pass.payment_method = TicketTier.PaymentMethod.OFFLINE
+        series_pass.save(update_fields=["payment_method"])
+        pending = SeriesPassPurchaseService(series_pass, revel_user).purchase()
+        assert isinstance(pending, HeldSeriesPass)
+        missed, _ = _cover(series_pass, "missed", days=10)
+
+        assert reconcile_series_pass_tickets() == 0
+        assert not Ticket.objects.filter(held_pass=pending, event=missed).exists()
+
+    def test_a_full_tier_is_tried_again_when_a_seat_frees(
+        self, series_pass: SeriesPass, held_pass: HeldSeriesPass
+    ) -> None:
+        missed, missed_tier = _cover(series_pass, "missed", days=10)
+        TicketTier.objects.filter(pk=missed_tier.pk).update(total_quantity=0)
+
+        assert reconcile_series_pass_tickets() == 0
+
+        TicketTier.objects.filter(pk=missed_tier.pk).update(total_quantity=1)
+        assert reconcile_series_pass_tickets() == 1
+        assert Ticket.objects.filter(held_pass=held_pass, event=missed).exists()
+
+    def test_beat_row_is_registered(self) -> None:
+        from django_celery_beat.models import PeriodicTask
+
+        row = PeriodicTask.objects.get(task="events.reconcile_series_pass_tickets")
+        assert row.enabled is True
+        assert row.interval is not None and (row.interval.every, row.interval.period) == (15, "minutes")
