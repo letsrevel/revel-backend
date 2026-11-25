@@ -3,7 +3,10 @@
 
 import typing as t
 
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.db.models import QuerySet
+from django.http import HttpRequest
+from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
@@ -17,6 +20,7 @@ from events.admin.base import (
     UserLinkMixin,
     VenueLinkMixin,
 )
+from events.service import discount_code_service, pending_checkout, ticket_service
 
 
 @admin.register(models.TicketTier)
@@ -49,6 +53,13 @@ class TicketTierAdmin(GrantsTemporaryTierMixin, ModelAdmin, EventLinkMixin, Venu
     autocomplete_fields = ["event", "venue", "sector", "grants_membership_tier"]
     filter_horizontal = ["restricted_to_membership_tiers", "excluded_membership_tiers"]
 
+    def delete_model(self, request: HttpRequest, obj: models.TicketTier) -> None:
+        ticket_service.delete_ticket_tier(obj)
+
+    def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.TicketTier]) -> None:
+        for tier in queryset:
+            self.delete_model(request, tier)
+
     @admin.display(description="Price", ordering="price")
     def price_display(self, obj: models.TicketTier) -> str:
         return f"{obj.price} {obj.currency}"
@@ -61,6 +72,12 @@ class TicketTierAdmin(GrantsTemporaryTierMixin, ModelAdmin, EventLinkMixin, Venu
     @admin.display(description="Sector")
     def sector_name(self, obj: models.TicketTier) -> str:
         return obj.sector.name if obj.sector else "—"
+
+
+def end_pending_checkouts(tickets: QuerySet[models.Ticket]) -> None:
+    """End the unfinished checkouts of ``tickets`` that a delete is about to remove (as ``delete_event`` does)."""
+    pending_checkout.expire_pending_sessions_on_commit(tickets)
+    discount_code_service.release_uses_of_pending_tickets(tickets)
 
 
 @admin.register(models.Ticket)
@@ -152,6 +169,14 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  #
     def seat_label(self, obj: models.Ticket) -> str | None:
         return obj.seat.label if obj.seat else "—"
 
+    def delete_model(self, request: HttpRequest, obj: models.Ticket) -> None:
+        end_pending_checkouts(models.Ticket.objects.filter(pk=obj.pk))
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.Ticket]) -> None:
+        end_pending_checkouts(queryset)
+        super().delete_queryset(request, queryset)
+
 
 @admin.register(models.Payment)
 class PaymentAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[misc]
@@ -212,6 +237,33 @@ class PaymentAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[m
     ]
     date_hierarchy = "created_at"
     ordering = ["-created_at"]
+
+    # Deleting a PENDING payment would leave its PENDING ticket with no payment, so the expiry sweep
+    # could never reclaim the seat. Not enforced in has_delete_permission: Django checks it for every
+    # object a cascade removes, so it would also make deleting an event, tier or ticket with a pending
+    # checkout a 403.
+    def change_view(
+        self, request: HttpRequest, object_id: str, form_url: str = "", extra_context: dict[str, t.Any] | None = None
+    ) -> t.Any:
+        pending = models.Payment.objects.filter(pk=object_id, status=models.Payment.PaymentStatus.PENDING).exists()
+        return super().change_view(request, object_id, form_url, {**(extra_context or {}), "show_delete": not pending})
+
+    def delete_view(self, request: HttpRequest, object_id: str, extra_context: dict[str, t.Any] | None = None) -> t.Any:
+        if models.Payment.objects.filter(pk=object_id, status=models.Payment.PaymentStatus.PENDING).exists():
+            self.message_user(request, "A pending payment cannot be deleted.", messages.ERROR)
+            return redirect(reverse("admin:events_payment_change", args=[object_id]))
+        return super().delete_view(request, object_id, extra_context)
+
+    def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.Payment]) -> None:
+        pending = models.Payment.PaymentStatus.PENDING
+        skipped = queryset.filter(status=pending).count()
+        if skipped:
+            self.message_user(
+                request,
+                f"Kept {skipped} pending payment(s): deleting one would strand its pending ticket.",
+                messages.WARNING,
+            )
+        super().delete_queryset(request, queryset.exclude(status=pending))
 
     fieldsets = [
         (None, {"fields": ["id", "user", "ticket", "status", "stripe_session_id"]}),
