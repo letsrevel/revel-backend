@@ -283,13 +283,10 @@ def add_to_blacklist(
     telegram_username = _normalize_telegram_username(telegram_username)
     phone_number = _normalize_phone(phone_number)
 
-    # Check for existing entry by email (when no user)
+    # Check for existing entry by email (when no user). Linked entries count too: the ban matches the email
+    # on every entry, and an erased account's linked entry keeps the email that no account holds now (#1543).
     if not user and email:
-        if Blacklist.objects.filter(
-            organization=organization,
-            user__isnull=True,
-            email__iexact=email,
-        ).exists():
+        if Blacklist.objects.filter(organization=organization, email__iexact=email).exists():
             raise HttpError(400, str(_("An entry with this email already exists.")))
 
     if created_by.pk != organization.owner_id and _matches_current_staff(

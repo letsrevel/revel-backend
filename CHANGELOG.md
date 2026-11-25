@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Blacklist: a manual entry by email now answers "An entry with this email already exists." when an entry for an erased account keeps that email. Before, it created a second entry for the same person. (#1543)
+
 ## [3.1.0] - 2026-11-25
 
 ### ⚠️ Upgrade notes: action required after you deploy
