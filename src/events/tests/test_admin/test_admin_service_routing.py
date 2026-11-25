@@ -299,8 +299,8 @@ class TestBulkTierDeleteLockOrder:
         first_tier_delete = next(i for i, q in enumerate(sql) if q.startswith('DELETE FROM "events_tickettier"'))
         assert first_payment_lock < first_tier_delete
         lock = sql[first_payment_lock]
-        # One lock for the payments of both tiers, ordered (Django renders values_list order as "ORDER BY 1").
-        assert tier.pk.hex in lock and other_tier.pk.hex in lock and "ORDER BY" in lock, lock
+        # One lock for the payments of both tiers, in ascending pk order (Django renders it as "ORDER BY 1 ASC").
+        assert tier.pk.hex in lock and other_tier.pk.hex in lock and "ORDER BY 1 ASC" in lock, lock
         assert not TicketTier.objects.filter(pk__in=[tier.pk, other_tier.pk]).exists()
 
 
