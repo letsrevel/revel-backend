@@ -57,6 +57,14 @@ class TicketTierAdmin(GrantsTemporaryTierMixin, ModelAdmin, EventLinkMixin, Venu
         ticket_service.delete_ticket_tier(obj)
 
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.TicketTier]) -> None:
+        # One checkout can span tiers, and each delete_ticket_tier locks only its tier's payments. Take all
+        # of them in pk order first, as cancel_pending_checkout does, so the loop cannot deadlock with it.
+        list(
+            models.Payment.objects.select_for_update(of=("self",))
+            .filter(ticket__tier__in=queryset)
+            .order_by("pk")
+            .values_list("pk", flat=True)
+        )
         for tier in queryset:
             self.delete_model(request, tier)
 

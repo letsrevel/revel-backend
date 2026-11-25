@@ -273,6 +273,37 @@ class TestAdminDeletes:
         release.assert_called_once()
 
 
+class TestBulkTierDeleteLockOrder:
+    def test_bulk_tier_delete_locks_all_their_payments_in_pk_order_first(
+        self, admin_client: Client, event: Event, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        """One checkout can span tiers: all its payments are locked at once, in pk order, before any delete.
+
+        Locking them tier by tier (inside each delete_ticket_tier) would not be in global pk order, so the
+        bulk delete could deadlock with cancel_pending_checkout, which locks the checkout's payments in pk order.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        other_tier = TicketTier.objects.create(
+            event=event, name="Second", price=Decimal("10.00"), payment_method=TicketTier.PaymentMethod.ONLINE
+        )
+        _checkout(tier, member_user, "cs_span")
+        _checkout(other_tier, member_user, "cs_span")
+
+        with patch(EXPIRE), CaptureQueriesContext(connection) as ctx:
+            _bulk(admin_client, "tickettier", "delete_selected", [tier.pk, other_tier.pk], post="yes")
+
+        sql = [q["sql"] for q in ctx.captured_queries]
+        first_payment_lock = next(i for i, q in enumerate(sql) if "FOR UPDATE" in q and '"events_payment"' in q)
+        first_tier_delete = next(i for i, q in enumerate(sql) if q.startswith('DELETE FROM "events_tickettier"'))
+        assert first_payment_lock < first_tier_delete
+        lock = sql[first_payment_lock]
+        # One lock for the payments of both tiers, ordered (Django renders values_list order as "ORDER BY 1").
+        assert tier.pk.hex in lock and other_tier.pk.hex in lock and "ORDER BY" in lock, lock
+        assert not TicketTier.objects.filter(pk__in=[tier.pk, other_tier.pk]).exists()
+
+
 class TestPendingPaymentDelete:
     def test_change_page_hides_delete_for_pending_only(
         self, admin_client: Client, tier: TicketTier, member_user: RevelUser
