@@ -92,6 +92,9 @@ def test_render_discarded_when_draft_deleted(organization: Organization, event: 
         _generate_and_save_pdf(invoice)  # must not raise
 
     log.info.assert_called_once_with("attendee_invoice_pdf_discarded_row_gone", invoice_id=str(invoice.pk))
+    # Nothing is attached to the caller's instance, and no save() re-inserts the deleted draft.
+    assert not invoice.pdf_file
+    assert not AttendeeInvoice.objects.filter(pk=invoice.pk).exists()
 
 
 def test_render_attaches_when_unchanged(organization: Organization, event: Event, member_user: RevelUser) -> None:

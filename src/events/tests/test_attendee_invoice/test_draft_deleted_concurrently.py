@@ -28,7 +28,13 @@ def test_edit_of_a_deleted_draft_is_not_found(vanished_draft: AttendeeInvoice) -
     with pytest.raises(Http404):
         update_draft_invoice(vanished_draft, {"buyer_name": "New Buyer"})
 
+    # save() on a stale instance whose row is gone would INSERT it again: the draft must stay deleted.
+    assert not AttendeeInvoice.objects.filter(pk=vanished_draft.pk).exists()
+
 
 def test_issue_of_a_deleted_draft_is_not_found(vanished_draft: AttendeeInvoice) -> None:
     with pytest.raises(Http404):
         issue_draft_invoice(vanished_draft)
+
+    # save() on a stale instance whose row is gone would INSERT it again: the draft must stay deleted.
+    assert not AttendeeInvoice.objects.filter(pk=vanished_draft.pk).exists()
