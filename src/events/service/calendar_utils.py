@@ -87,7 +87,8 @@ def filter_to_calendar_period(
     the local-date check then drops the events of the neighbouring periods. The queryset order is kept.
 
     Args:
-        queryset: The events to filter, already filtered and ordered by the caller.
+        queryset: The events to filter, already filtered and ordered by the caller. Select ``city`` on it
+            (``Event.objects.full()`` or ``with_city()`` do), or each event's timezone costs a query.
         week: ISO week number, as for ``calculate_calendar_date_range``.
         month: Month number, as for ``calculate_calendar_date_range``.
         year: Year, as for ``calculate_calendar_date_range``.
@@ -97,9 +98,7 @@ def filter_to_calendar_period(
     """
     start, end = calculate_calendar_date_range(week=week, month=month, year=year)
     first_day, end_day = start.date(), end.date()
-    candidates = queryset.filter(
-        start__gte=start - CALENDAR_EDGE_PADDING, start__lt=end + CALENDAR_EDGE_PADDING
-    ).select_related("city")
+    candidates = queryset.filter(start__gte=start - CALENDAR_EDGE_PADDING, start__lt=end + CALENDAR_EDGE_PADDING)
     # ponytail: the local-date check runs in Python over the padded result (at most one year of events).
     # Upgrade path if a year view grows too large: compare the start date at the city timezone in SQL.
     return [
