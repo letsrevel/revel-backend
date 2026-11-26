@@ -426,6 +426,7 @@ class TestNotPurchasable:
             purchasable=True,
             reason=None,
             online_payment=PaymentChannelCapability.ALLOWED,
+            upcoming_event_ids=frozenset(),
         )
         with patch.object(series_pass_service, "get_quote", return_value=stale_quote):
             with pytest.raises(SeriesPassNotPurchasableError):
@@ -507,6 +508,7 @@ class TestTotalQuantityCap:
             purchasable=True,
             reason=None,
             online_payment=PaymentChannelCapability.ALLOWED,
+            upcoming_event_ids=frozenset(),
         )
         # The winner committed between our quote and our locks.
         SeriesPass.objects.filter(pk=purchasable_free_pass.pk).update(quantity_sold=1)

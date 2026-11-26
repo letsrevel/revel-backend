@@ -68,7 +68,7 @@ class SeriesPassQuote:
     reason: str | None
     online_payment: PaymentChannelCapability
     # The covered events counted as remaining: not started and not cancelled.
-    upcoming_event_ids: frozenset[UUID] = frozenset()
+    upcoming_event_ids: frozenset[UUID]
 
 
 def get_quote(
@@ -452,7 +452,10 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
     }
     grantable: list[SeriesPassTierLink] = []
     for link in missing_links:
-        tier = locked[link.tier_id]
+        tier = locked.get(link.tier_id)
+        if tier is None:
+            # The covered event (and its tier) was deleted after the links query.
+            continue
         if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
             logger.info(
                 "series_pass_backfill_skipped_full_tier",
@@ -469,6 +472,7 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
     # Cancelled or started after the links query: the row read under the event lock wins (#1496).
     locked_now = timezone.now()
     gone = locked_events.cancelled | {eid for eid, start in locked_events.start.items() if start < locked_now}
+    gone |= {link.event_id for link in grantable if link.event_id not in locked_events.status}  # Deleted.
     for link in grantable:
         if link.event_id in gone:
             logger.info(

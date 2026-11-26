@@ -130,6 +130,31 @@ def reconcile_series_pass_tickets() -> int:
     return created
 
 
+def _lock_tiers_and_drop_full(
+    held_pass_id: UUID, links: list[SeriesPassTierLink], skipped: list[tuple[UUID, UUID]]
+) -> list[SeriesPassTierLink]:
+    """Lock the mapped tiers pk-ordered; return the links whose tier has room, reporting full ones as skipped.
+
+    A link whose tier is gone (its covered event was deleted after the links snapshot) is dropped.
+    """
+    locked = {
+        tier.pk: tier
+        for tier in TicketTier.objects.select_for_update()
+        .filter(pk__in=[link.tier_id for link in links])
+        .order_by("pk")
+    }
+    grantable: list[SeriesPassTierLink] = []
+    for link in links:
+        tier = locked.get(link.tier_id)
+        if tier is None:
+            continue
+        if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
+            skipped.append((held_pass_id, link.event_id))
+            continue
+        grantable.append(link)
+    return grantable
+
+
 def _extend_holder(holder_id: UUID, links: list[SeriesPassTierLink], skipped: list[tuple[UUID, UUID]]) -> list[Ticket]:
     """Materialize one ACTIVE holder's tickets in its own transaction; returns the created tickets."""
     from events.service import series_pass_event_checks, series_pass_service
@@ -160,19 +185,7 @@ def _extend_holder(holder_id: UUID, links: list[SeriesPassTierLink], skipped: li
             logger.info("series_pass_extension_skipped_blacklisted_holder", held_pass_id=str(held_pass.id))
             skipped.extend((held_pass.id, link.event_id) for link in pending_links)
             return []
-        locked = {
-            tier.pk: tier
-            for tier in TicketTier.objects.select_for_update()
-            .filter(pk__in=[link.tier_id for link in pending_links])
-            .order_by("pk")
-        }
-        grantable: list[SeriesPassTierLink] = []
-        for link in pending_links:
-            tier = locked[link.tier_id]
-            if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
-                skipped.append((held_pass.id, link.event_id))
-                continue
-            grantable.append(link)
+        grantable = _lock_tiers_and_drop_full(held_pass.id, pending_links, skipped)
         # Free of charge — holders paid for the season, so extended tickets never
         # inherit the mapped tier's price (keeps revenue/VAT reports honest, #644).
         # ponytail: holders never answered a questionnaire attached to the newly linked event; tickets are issued
@@ -185,6 +198,7 @@ def _extend_holder(holder_id: UUID, links: list[SeriesPassTierLink], skipped: li
         # gets no ticket, and no skip report (#1496).
         now = timezone.now()
         gone = locked_events.cancelled | {eid for eid, start in locked_events.start.items() if start < now}
+        gone |= {link.event_id for link in grantable if link.event_id not in locked_events.status}  # Deleted.
         for link in grantable:
             if link.event_id in gone:
                 logger.info(

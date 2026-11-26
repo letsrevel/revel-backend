@@ -6,6 +6,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
 from events.models import Event, EventSeries, Organization, RecurrenceRule, SeriesPass, TicketTier
+from events.tests.test_series_pass.covered_events import cover
 
 
 @pytest.fixture
@@ -163,3 +164,9 @@ def foreign_event(organization: Organization, foreign_series: EventSeries) -> Ev
         status=Event.EventStatus.OPEN,
         requires_ticket=True,
     )
+
+
+@pytest.fixture
+def three_upcoming(series_pass: SeriesPass) -> list[Event]:
+    """Three upcoming OPEN covered events. ``series_pass``: price 36.00, discount 6.00, FREE."""
+    return [cover(series_pass, f"up-{i}", days=i + 1)[0] for i in range(3)]

@@ -287,10 +287,9 @@ class SeriesPassPurchaseService:
         self._assert_late_links_eligible(pre_links, future_links)
         if not future_links:
             # Defense-in-depth (#632): get_quote's remaining<2 gate above already
-            # blocks this in the normal case, but it and this future_links query each
-            # take an independent now() snapshot — a TOCTOU race between the two
-            # could in theory let a stale-but-purchasable quote through after every
-            # covered event has tipped into the past. Without this guard the ONLINE
+            # blocks this in the normal case. The quote and this read share one ``now``,
+            # but they are two reads: covered events cancelled or moved between them
+            # could leave none here. Without this guard the ONLINE
             # path would increment quantity_sold and create a PENDING held pass with
             # no tickets and no Payment rows — unreclaimable, since the beat-task
             # cleanup keys off Payment rows.
