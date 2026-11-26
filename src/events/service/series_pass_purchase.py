@@ -62,14 +62,15 @@ class SeriesPassPurchaseService:
         self.org = series_pass.event_series.organization
         self.check_visibility = check_visibility
 
-    def _series_still_visible(self) -> bool:
+    def _series_still_visible(self, locked_pass: SeriesPass) -> bool:
         """The series part of the checkout route's visibility rule, read after the pass lock wait (#1566).
 
         ponytail: the series and organization rows are not locked, so a change of theirs that commits after this
-        read is not seen (a read after the lock wait still sees what committed during it). Upgrade: lock the
-        series and organization rows in the global lock order, before the pass.
+        read is not seen (a read after the lock wait still sees what committed during it). It runs under the pass
+        lock on purpose, which holds that lock for one more query: correctness over a shorter hold on a busy sale.
+        Upgrade: lock the series and organization rows in the global lock order, before the pass.
         """
-        return EventSeries.objects.for_user(self.user).filter(pk=self.series_pass.event_series_id).exists()
+        return EventSeries.objects.for_user(self.user).filter(pk=locked_pass.event_series_id).exists()
 
     def _pass_still_visible(self, locked_pass: SeriesPass) -> bool:
         """The pass part of the rule, on the locked row: a change of the pass waits for the lock, so it is exact."""
@@ -297,7 +298,9 @@ class SeriesPassPurchaseService:
         )
         # The checkout route's visibility rule again, after the lock wait (#1566). The lock-free gates above ran on
         # the route's read, so a pass hidden meanwhile can still get their answer (a 400 or 409) first.
-        if self.check_visibility and not (self._pass_still_visible(locked_pass) and self._series_still_visible()):
+        if self.check_visibility and not (
+            self._pass_still_visible(locked_pass) and self._series_still_visible(locked_pass)
+        ):
             raise NotFound()
         if locked_pass.total_quantity is not None and locked_pass.quantity_sold >= locked_pass.total_quantity:
             raise SeriesPassNotPurchasableError(str(_("This pass is sold out.")))
