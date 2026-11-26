@@ -520,6 +520,72 @@ class TestStatusChangeBeforeTheEventLock:
 
         assert not Ticket.objects.filter(event__in=three_upcoming).exists()
 
+    def test_purchase_refuses_an_event_closed_after_the_status_gate(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        """The change lands after the lock-free gate and before the locked re-read of the links."""
+        real_gate = SeriesPassPurchaseService._assert_covered_events_eligible
+
+        def gate_then_close(service: SeriesPassPurchaseService, links: list[SeriesPassTierLink]) -> None:
+            real_gate(service, links)
+            Event.objects.filter(pk=three_upcoming[1].pk).update(status=Event.EventStatus.CLOSED)
+
+        with (
+            patch.object(SeriesPassPurchaseService, "_assert_covered_events_eligible", gate_then_close),
+            pytest.raises(SeriesPassNotPurchasableError),
+        ):
+            SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+        assert not Ticket.objects.filter(event__in=three_upcoming).exists()
+
+    def test_owner_is_not_refused_when_a_covered_event_closes(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], organization: Organization
+    ) -> None:
+        """Owners and staff are exempt from the status gate, also under the lock."""
+        with _status_change_before_the_event_lock(three_upcoming[1], Event.EventStatus.CLOSED):
+            held_pass = SeriesPassPurchaseService(series_pass, organization.owner).purchase()
+
+        assert isinstance(held_pass, HeldSeriesPass)
+        assert Ticket.objects.filter(held_pass=held_pass).count() == 3
+
+    def test_purchase_gives_the_quote_reason_when_sales_stop(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        real_quote = series_pass_service.get_quote
+        calls: list[int] = []
+
+        def quote_then_stop_sales(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            quote = real_quote(*args, **kwargs)
+            if not calls:
+                SeriesPass.objects.filter(pk=series_pass.pk).update(is_active=False)
+            calls.append(1)
+            return quote
+
+        with (
+            patch.object(series_pass_service, "get_quote", side_effect=quote_then_stop_sales),
+            pytest.raises(SeriesPassNotPurchasableError, match="This pass is not on sale."),
+        ):
+            SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+    def test_purchase_refuses_when_the_payment_method_changes(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        real_quote = series_pass_service.get_quote
+        calls: list[int] = []
+
+        def quote_then_go_offline(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            quote = real_quote(*args, **kwargs)
+            if not calls:
+                SeriesPass.objects.filter(pk=series_pass.pk).update(payment_method=TicketTier.PaymentMethod.OFFLINE)
+            calls.append(1)
+            return quote
+
+        with (
+            patch.object(series_pass_service, "get_quote", side_effect=quote_then_go_offline),
+            pytest.raises(SeriesPassNotPurchasableError, match="The events of this pass changed"),
+        ):
+            SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
     def test_purchase_refuses_a_cancel_that_keeps_the_price(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
     ) -> None:

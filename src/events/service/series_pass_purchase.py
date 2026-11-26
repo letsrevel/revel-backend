@@ -90,28 +90,45 @@ class SeriesPassPurchaseService:
         quote: SeriesPassQuote,
         upcoming_links: list[SeriesPassTierLink],
     ) -> None:
-        """Lock every covered event not yet started, then assert nothing the lock-free reads saw has changed.
+        """Lock every covered event not yet started, then check the status rules and the price under the locks.
 
         The cancelled events are locked too: ``update_status`` locks the event row first, so no status
         can change until this purchase commits, and an un-cancel that waits for the lock then
-        dispatches its holder materialization after this pass exists (#1496). Any status change (to or
-        from CANCELLED, or an OPEN event that closes) is refused: the lock-free status gate saw the old
-        status. The quote is computed again under the locks, from the locked pass row, so the price
-        matches the tickets issued.
+        dispatches its holder materialization after this pass exists (#1496). Under the locks:
+
+        - the CANCELLED events must be the ones ``upcoming_links`` saw, so no ticket goes to a
+          cancelled event and every non-cancelled one gets its ticket;
+        - for a buyer who is not owner or staff, every non-cancelled event must still be OPEN (the
+          ``EventStatusGate`` rule, which ran lock-free before);
+        - the quote, computed again from the locked pass row, must still be purchasable, with the same
+          price, and the payment method must be the one the purchase started with.
 
         Same capacity counting rules as batch checkout. Must run after the tier locks: batch checkout
         locks tier -> event, so the events are locked last, pk-ordered among themselves.
 
         Raises:
-            SeriesPassNotPurchasableError: 409 if a covered event changed status or the price changed.
+            SeriesPassNotPurchasableError: 409 if a covered event changed status, the price or the
+                payment method changed, or the pass is no longer purchasable (with the quote's reason).
             HttpError: 429 if any covered event is at capacity.
         """
         locked_events = series_pass_event_checks.lock_events_and_find_full(
             [link.event for link in upcoming_links], self.user
         )
-        seen_status = {link.event_id: link.event.status for link in upcoming_links}
+        seen_cancelled = {link.event_id for link in upcoming_links if link.event.status == Event.EventStatus.CANCELLED}
+        not_open = {
+            event_id
+            for event_id, status in locked_events.status.items()
+            if status not in (Event.EventStatus.OPEN, Event.EventStatus.CANCELLED)
+        }
         locked_quote = series_pass_service.get_quote(locked_pass, now, check_event_status=False)
-        if locked_events.status != seen_status or not locked_quote.purchasable or locked_quote.price != quote.price:
+        if not locked_quote.purchasable:
+            raise SeriesPassNotPurchasableError(locked_quote.reason or str(_("This pass cannot be purchased.")))
+        if (
+            locked_events.cancelled != seen_cancelled
+            or (not_open and not self._is_owner_or_staff)
+            or locked_quote.price != quote.price
+            or locked_pass.payment_method != self.series_pass.payment_method
+        ):
             raise SeriesPassNotPurchasableError(str(_("The events of this pass changed. Please try again.")))
         for link in upcoming_links:
             if link.event_id in locked_events.full:
