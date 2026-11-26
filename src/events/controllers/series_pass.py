@@ -174,7 +174,7 @@ class SeriesPassController(UserAwareController):
         - 429: A covered future event's tier just sold out.
         """
         series_pass = self._get_visible_pass(pass_id)
-        result = SeriesPassPurchaseService(series_pass, self.user()).purchase(
+        result = SeriesPassPurchaseService(series_pass, self.user(), check_visibility=True).purchase(
             billing_info=payload.billing_info if payload else None,
             attribution=payload.attribution if payload else None,
         )

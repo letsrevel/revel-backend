@@ -671,3 +671,84 @@ class TestDownloadsPreloadRelations:
         ) as mock_save_url:
             assert revel_user_client.get(url).status_code == 302
         mock_save_url.assert_called_once()
+
+
+# ---- Visibility under the pass lock (#1566) ----
+
+
+class TestVisibilityUnderThePassLock:
+    """The checkout checks the series and the pass again after it locks the pass row.
+
+    The controller's check runs without a lock, so an organizer can hide the pass between that check and
+    the purchase. The service checks again on the locked row when the controller asks for it.
+    """
+
+    @staticmethod
+    def _stale(series_pass: SeriesPass) -> SeriesPass:
+        """The instance that the controller read before the change."""
+        return SeriesPass.objects.select_related("event_series__organization__city").get(pk=series_pass.pk)
+
+    @staticmethod
+    def _purchase(series_pass: SeriesPass, user: RevelUser) -> t.Any:
+        from events.service.series_pass_purchase import SeriesPassPurchaseService
+
+        return SeriesPassPurchaseService(series_pass, user, check_visibility=True).purchase()
+
+    @pytest.mark.parametrize(
+        "change",
+        [{"visibility": SeriesPass.Visibility.PRIVATE}, {"is_active": False}],
+        ids=["pass made private", "pass deactivated"],
+    )
+    def test_a_pass_hidden_after_the_controller_check_is_refused(
+        self, purchasable_free_pass: SeriesPass, revel_user: RevelUser, change: dict[str, t.Any]
+    ) -> None:
+        from ninja_extra.exceptions import NotFound
+
+        stale = self._stale(purchasable_free_pass)
+        SeriesPass.objects.filter(pk=purchasable_free_pass.pk).update(**change)
+
+        with pytest.raises(NotFound):
+            self._purchase(stale, revel_user)
+
+        assert not HeldSeriesPass.objects.filter(series_pass=purchasable_free_pass).exists()
+
+    def test_a_series_hidden_after_the_controller_check_is_refused(
+        self, purchasable_free_pass: SeriesPass, revel_user: RevelUser
+    ) -> None:
+        from ninja_extra.exceptions import NotFound
+
+        from events.models import Organization
+
+        stale = self._stale(purchasable_free_pass)
+        Organization.objects.filter(pk=stale.event_series.organization_id).update(
+            visibility=Organization.Visibility.PRIVATE
+        )
+
+        with pytest.raises(NotFound):
+            self._purchase(stale, revel_user)
+
+        assert not HeldSeriesPass.objects.filter(series_pass=purchasable_free_pass).exists()
+
+    def test_a_change_that_keeps_the_pass_visible_is_not_refused(
+        self, purchasable_free_pass: SeriesPass, revel_user: RevelUser
+    ) -> None:
+        stale = self._stale(purchasable_free_pass)
+        SeriesPass.objects.filter(pk=purchasable_free_pass.pk).update(visibility=SeriesPass.Visibility.UNLISTED)
+
+        held_pass = self._purchase(stale, revel_user)
+
+        assert isinstance(held_pass, HeldSeriesPass)
+
+    def test_the_checkout_route_asks_for_the_check(
+        self, revel_user_client: Client, purchasable_free_pass: SeriesPass
+    ) -> None:
+        from events.service.series_pass_purchase import SeriesPassPurchaseService
+
+        url = reverse("api:checkout_series_pass", kwargs={"pass_id": purchasable_free_pass.id})
+        with patch(
+            "events.controllers.series_pass.SeriesPassPurchaseService", wraps=SeriesPassPurchaseService
+        ) as service:
+            response = revel_user_client.post(url, data=b"", content_type="application/json")
+
+        assert response.status_code == 200, response.content
+        assert service.call_args.kwargs == {"check_visibility": True}

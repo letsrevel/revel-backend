@@ -423,9 +423,11 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
         The Tickets created (empty if the pass already covers every future event).
     """
     now = timezone.now()
+    # A ticket that someone cancelled (a cancellation_source is set) counts, so it is not issued again (#1565).
+    # Only a ticket cancelled with no source (an abandoned checkout) is replaced.
     ticketed_event_ids = set(
         Ticket.objects.filter(held_pass=held_pass)
-        .exclude(status=Ticket.TicketStatus.CANCELLED)
+        .exclude(status=Ticket.TicketStatus.CANCELLED, cancellation_source="")
         .values_list("event_id", flat=True)
     )
     missing_links = list(

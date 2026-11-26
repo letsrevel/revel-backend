@@ -13,6 +13,7 @@ from django.db.models import F, QuerySet
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
+from ninja_extra.exceptions import NotFound
 
 from accounts.models import RevelUser
 from accounts.service.account_erasure import lock_account_for_checkout
@@ -20,6 +21,7 @@ from events.compliance import enforcement as compliance
 from events.exceptions import SeriesPassNotPurchasableError
 from events.models import (
     Event,
+    EventSeries,
     HeldSeriesPass,
     SeriesPass,
     SeriesPassTierLink,
@@ -44,16 +46,32 @@ logger = structlog.get_logger(__name__)
 class SeriesPassPurchaseService:
     """Request-scoped workflow: eligibility, all-or-nothing capacity, materialization, payment dispatch."""
 
-    def __init__(self, series_pass: SeriesPass, user: RevelUser) -> None:
+    def __init__(self, series_pass: SeriesPass, user: RevelUser, *, check_visibility: bool = False) -> None:
         """Initialize the purchase service.
 
         Args:
             series_pass: The SeriesPass being purchased.
             user: The user purchasing the pass.
+            check_visibility: Check again, after the pass row is locked, that the buyer can still see the
+                series and the pass (404 if not). The checkout route sets it: its own check runs without a
+                lock (#1566). Off for the direct callers, which pass a pass they already chose.
         """
         self.series_pass = series_pass
         self.user = user
         self.org = series_pass.event_series.organization
+        self.check_visibility = check_visibility
+
+    def _still_visible(self, locked_pass: SeriesPass) -> bool:
+        """The checkout route's visibility rule, on the locked pass row (#1566).
+
+        A change of the pass waits for the lock, so this read is exact for the pass. The series and the
+        organization rows are not locked: a change of theirs that commits after this read is not seen.
+        """
+        if not locked_pass.is_active:
+            return False
+        if not EventSeries.objects.for_user(self.user).filter(pk=locked_pass.event_series_id).exists():
+            return False
+        return series_pass_service.pass_visible_to_user(locked_pass, self.user)
 
     @functools.cached_property
     def _is_owner_or_staff(self) -> bool:
@@ -275,6 +293,8 @@ class SeriesPassPurchaseService:
             .select_related("event_series__organization__city")
             .get(pk=self.series_pass.pk)
         )
+        if self.check_visibility and not self._still_visible(locked_pass):
+            raise NotFound()
         if locked_pass.total_quantity is not None and locked_pass.quantity_sold >= locked_pass.total_quantity:
             raise SeriesPassNotPurchasableError(str(_("This pass is sold out.")))
 
