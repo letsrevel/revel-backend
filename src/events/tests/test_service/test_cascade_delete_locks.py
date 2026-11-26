@@ -250,6 +250,7 @@ class TestLockOrder:
             group = EventSeries.objects.create(organization=organization, name=f"Bulk {i}", slug=f"bulk-{i}")
             Event.objects.filter(pk=target.pk).update(event_series=group)
             series.append(group)
+            _season_pass(group)
             tiers.append(TicketTier.objects.create(event=target, name="T", price=Decimal("5.00"), currency="EUR"))
             sessions.append(f"cs_bulk_{target.pk}")
             _reserve(tiers[-1], buyer, sessions[-1])
@@ -259,20 +260,22 @@ class TestLockOrder:
             "event": (
                 EventAdmin(Event, site),
                 Event.objects.filter(pk__in=[event.pk, public_event.pk]),
-                [Payment, TicketTier, Event, TicketTier],
+                [Payment, TicketTier, Event, TicketTier, Payment],
             ),
             "series": (
                 EventSeriesAdmin(EventSeries, site),
                 EventSeries.objects.filter(pk__in=[group.pk for group in series]),
-                [Payment, SeriesPass, TicketTier, EventSeries, Event, TicketTier],
+                [Payment, SeriesPass, TicketTier, EventSeries, Event, TicketTier, Payment],
             ),
             "tier": (
                 TicketTierAdmin(TicketTier, site),
                 TicketTier.objects.filter(pk__in=[x.pk for x in tiers]),
-                [Payment, TicketTier],
+                [Payment, TicketTier, Payment],
             ),
         }
         admin, queryset, expected = selected[kind]
+        selected_pks = list(queryset.values_list("pk", flat=True))
+        assert len(selected_pks) == 2
 
         with patch(EXPIRE) as expire, CaptureQueriesContext(connection) as ctx:
             with django_capture_on_commit_callbacks(execute=True):
@@ -280,9 +283,15 @@ class TestLockOrder:
 
         locks = [table for q in ctx.captured_queries if (table := _lock_table(q["sql"]))]
         assert locks[: len(expected)] == [f'"{model._meta.db_table}"' for model in expected], locks
-        first = next(q["sql"] for q in ctx.captured_queries if _lock_table(q["sql"]))
-        assert "ORDER BY" in first
+        lock_sql = [q["sql"] for q in ctx.captured_queries if _lock_table(q["sql"])]
+        assert "ORDER BY" in lock_sql[0]
+        # The bulk lock covers the whole selection; a per-row delete would name only its own row.
+        for sql in (lock_sql[0], next(sql for sql in lock_sql if _lock_table(sql) == '"events_tickettier"')):
+            for pk in selected_pks:
+                assert str(pk) in sql or pk.hex in sql, f"{pk} not in {sql}"
         assert not TicketTier.objects.filter(pk__in=[x.pk for x in tiers]).exists()
+        if kind == "series":
+            assert not SeriesPass.objects.filter(event_series__in=series).exists()
         expired = {sid for call in expire.call_args_list for sid in call.args[0]}
         assert expired == set(sessions)
 

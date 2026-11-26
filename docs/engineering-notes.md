@@ -267,7 +267,8 @@ deferred foreign-key checks of other transactions (`FOR KEY SHARE` at commit) ar
   the global order before the model `delete()`, with `pending_checkout.lock_for_cascade_delete` (#1538):
   `Payment` → `SeriesPass` (series and organization deletes) → every `TicketTier` in scope → `Organization`
   → `EventSeries` → `Event` (`FOR UPDATE`, because the rows are deleted) → `TicketTier` again → `Payment`
-  again → `Ticket` → `DiscountCode`. A series pass extension or backfill
+  again → `Ticket` → `DiscountCode`. The second `TicketTier` lock is out of order only for a tier that
+  committed before the event lock. A series pass extension or backfill
   locks the tier and then the event, so it and a delete of that event serialize on the tier: the delete sees
   the new ticket, or the extension sees the event gone and skips it. The second `Payment` lock is the one
   exception, for rows that a reservation committed between the first lock and the tier lock (see
@@ -899,13 +900,15 @@ After commit, a named closure expires each session at Stripe, per Stripe account
 
 Step 4 is out of the global lock order, but only for the rows that committed after step 1. If a
 cancel, an expiry or a webhook holds such a row and waits for a tier of step 3, Postgres detects the
-deadlock and stops one of the two transactions. A session that is then paid with no `Payment` row is
+deadlock and stops one of the two transactions. The second tier lock of step 3 has the same limit for a
+tier that committed before the event lock, and so has a series pass that committed after the pass lock:
+a checkout or a pass purchase on such a new row can deadlock with the delete. A session that is then paid with no `Payment` row is
 refunded in full (`refund_orphaned_checkout_session`, #1489).
 
 A loop that runs a delete service once per row in one transaction (the admin bulk deletes of events,
 tiers and series) first calls `pending_checkout.lock_for_bulk_delete` for the whole selection. It takes
-steps 1 to 3 for all the rows at once: the payments, the series passes, the tiers, then the parent rows
-and the tiers again, each in pk order.
+steps 1 to 4 for all the rows at once: the payments, the series passes, the tiers, then the parent rows,
+the tiers again and the payments again, each in pk order.
 Each service locks only the rows of its own delete, so the loop alone would not lock them in pk order.
 One checkout can span tiers and events, and a series pass locks the tiers of several events in pk
 order, so such a loop could deadlock with them. The bulk lock ends no checkout: each service in the

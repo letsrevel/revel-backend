@@ -218,8 +218,12 @@ def _lock_delete_scope(
     for rows in parents:
         _lock_rows(rows)
     if parents:
-        # A tier that committed between the two statements above is locked now. Once the parents are locked,
-        # no new tier can commit: its insert waits at the foreign-key check on the event.
+        # A tier that committed between the two statements above is locked now, so step 4 also sees the payments
+        # of its reservations. Once the parents are locked, no new tier can commit: its insert waits at the
+        # foreign-key check on the event. ponytail: this lock (and a pass that commits after the pass lock) is out
+        # of the global order for those new rows only; a checkout or a pass purchase on such a row that then
+        # waits for a row of this delete is a deadlock that Postgres detects. Closing it would need a lock on
+        # the parents before the tiers, against the global order of every other path.
         _lock_rows(tiers)
 
 
@@ -236,12 +240,14 @@ def lock_for_bulk_delete(
     run locks only the rows of its own delete, so the loop alone would lock the Payment, TicketTier and
     parent rows of the selection one delete at a time, not in pk order. One checkout can span tiers and
     events, and a series pass locks the tiers of several events in pk order, so that loop could deadlock
-    with them. This takes steps 1 to 3 of :func:`lock_for_cascade_delete` for the whole selection. It ends
+    with them. This takes steps 1 to 4 of :func:`lock_for_cascade_delete` for the whole selection. It ends
     no checkout: each delete service in the loop still does that for its own rows, so a delete that fails
     in its own savepoint expires nothing.
     """
     _lock_rows(Payment.objects.filter(ticket__in=tickets))
     _lock_delete_scope(passes, tiers, parents)
+    # Step 4 for the whole selection: the rows that a reservation committed before the tier lock.
+    _lock_rows(Payment.objects.filter(ticket__in=tickets))
 
 
 def lock_for_cascade_delete(
@@ -273,7 +279,8 @@ def lock_for_cascade_delete(
     row waits for the delete, matches no row and expires the session itself (``stamp_session_or_expire``).
     A rollback discards the callback. Best effort: a failed expire is logged and the other sessions still go.
 
-    Step 4 is out of the global order for the rows that committed after step 1. If a cancel, an expiry or a
+    Step 4, and the second tier lock of step 3, are out of the global order for the rows that committed
+    after the first lock of their model. If a cancel, an expiry or a
     webhook holds such a row and waits for a tier of step 3, Postgres detects the deadlock and stops one of
     the two transactions. A session that is then paid with no Payment row is refunded in full
     (``refund_orphaned_checkout_session``).
@@ -283,7 +290,8 @@ def lock_for_cascade_delete(
         tiers: The tiers that the delete removes. None when it removes no tier (a ticket delete): steps 2 to 4
             are then skipped.
         parents: The parent rows that the delete removes, in lock order.
-        passes: The series passes that the delete removes (a series or an organization delete).
+        passes: The series passes that the delete removes (a series or an organization delete). Only used
+            with ``tiers``.
     """
     sessions_by_account = _lock_unfinished_sessions(tickets)
     if tiers is not None:
