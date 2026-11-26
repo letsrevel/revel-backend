@@ -28,7 +28,9 @@ def _pass_lock(sql: str) -> bool:
 
 def _hold_the_pass_lock(series_pass_pk: t.Any) -> None:
     with transaction.atomic():
-        list(SeriesPass.objects.select_for_update().filter(pk=series_pass_pk).values_list("pk"))
+        # of=("self",) and no ordering: SeriesPass.Meta.ordering joins the series and the organization, and a plain
+        # FOR UPDATE would lock them too, so the organization update below would wait for this holder.
+        list(SeriesPass.objects.select_for_update(of=("self",)).filter(pk=series_pass_pk).order_by().values_list("pk"))
 
 
 def _purchase(series_pass_pk: t.Any, user_pk: t.Any) -> t.Any:
