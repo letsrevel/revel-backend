@@ -6,14 +6,18 @@ only for offline payment. It runs after commit.
 """
 
 import typing as t
+import uuid
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, EventWaitList, HeldSeriesPass, SeriesPass, Ticket, TicketTier
+from events.models import Event, EventWaitList, HeldSeriesPass, SeriesPass, Ticket, TicketTier, WaitlistOffer
 from events.service import series_pass_service
 from events.service.series_pass_purchase import SeriesPassPurchaseService
+from events.tasks.series_pass import materialize_series_pass_holders
 from events.tests.test_series_pass.covered_events import cover
 
 pytestmark = pytest.mark.django_db
@@ -121,3 +125,38 @@ def test_a_backfilled_ticket_removes_the_holder(
         series_pass_service.backfill_missing_tickets(held_pass)
 
     assert _waitlisted_event_ids(revel_user) == set()
+
+
+def test_the_extension_task_removes_the_holder(
+    series_pass: SeriesPass,
+    three_upcoming: list[Event],
+    revel_user: RevelUser,
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    _purchase(series_pass, revel_user, django_capture_on_commit_callbacks)
+    new_event, _ = cover(series_pass, "extension", days=9)
+    _waitlisted(revel_user, [new_event])
+
+    with django_capture_on_commit_callbacks(execute=True):
+        materialize_series_pass_holders(str(series_pass.pk), [str(new_event.pk)])
+
+    assert _waitlisted_event_ids(revel_user) == set()
+
+
+def test_a_pending_offer_of_the_holder_is_revoked(
+    series_pass: SeriesPass,
+    three_upcoming: list[Event],
+    revel_user: RevelUser,
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """The removed waitlist row revokes the holder's open offer, so its seat goes to the next person."""
+    _waitlisted(revel_user, three_upcoming[:1])
+    offer = WaitlistOffer.objects.create(
+        event=three_upcoming[0], user=revel_user, expires_at=timezone.now() + timedelta(hours=1), batch_id=uuid.uuid4()
+    )
+
+    with patch("events.service.waitlist_service.enqueue_waitlist_processing"):
+        _purchase(series_pass, revel_user, django_capture_on_commit_callbacks)
+
+    offer.refresh_from_db()
+    assert offer.status == WaitlistOffer.WaitlistOfferStatus.REVOKED
