@@ -13,6 +13,7 @@ from django.db.models import F, QuerySet
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
+from ninja_extra.exceptions import NotFound
 
 from accounts.models import RevelUser
 from accounts.service.account_erasure import lock_account_for_checkout
@@ -20,6 +21,7 @@ from events.compliance import enforcement as compliance
 from events.exceptions import SeriesPassNotPurchasableError
 from events.models import (
     Event,
+    EventSeries,
     HeldSeriesPass,
     SeriesPass,
     SeriesPassTierLink,
@@ -44,16 +46,35 @@ logger = structlog.get_logger(__name__)
 class SeriesPassPurchaseService:
     """Request-scoped workflow: eligibility, all-or-nothing capacity, materialization, payment dispatch."""
 
-    def __init__(self, series_pass: SeriesPass, user: RevelUser) -> None:
+    def __init__(self, series_pass: SeriesPass, user: RevelUser, *, check_visibility: bool = False) -> None:
         """Initialize the purchase service.
 
         Args:
             series_pass: The SeriesPass being purchased.
             user: The user purchasing the pass.
+            check_visibility: Check the checkout route's visibility rule again after the pass row is locked
+                (404 if the buyer can no longer see the series or the pass) (#1566). The checkout route sets
+                it, because its own check runs without a lock. The default is off so that the service tests,
+                which buy with fixtures the buyer cannot see, keep calling the service directly.
         """
         self.series_pass = series_pass
         self.user = user
         self.org = series_pass.event_series.organization
+        self.check_visibility = check_visibility
+
+    def _series_still_visible(self, locked_pass: SeriesPass) -> bool:
+        """The series part of the checkout route's visibility rule, read after the pass lock wait (#1566).
+
+        ponytail: the series and organization rows are not locked, so a change of theirs that commits after this
+        read is not seen (a read after the lock wait still sees what committed during it). It runs under the pass
+        lock on purpose, which holds that lock for one more query: correctness over a shorter hold on a busy sale.
+        Upgrade: lock the series and organization rows in the global lock order, before the pass.
+        """
+        return EventSeries.objects.for_user(self.user).filter(pk=locked_pass.event_series_id).exists()
+
+    def _pass_still_visible(self, locked_pass: SeriesPass) -> bool:
+        """The pass part of the rule, on the locked row: a change of the pass waits for the lock, so it is exact."""
+        return locked_pass.is_active and series_pass_service.pass_visible_to_user(locked_pass, self.user)
 
     @functools.cached_property
     def _is_owner_or_staff(self) -> bool:
@@ -129,7 +150,7 @@ class SeriesPassPurchaseService:
           ``EventStatusGate`` rule, which ran lock-free before);
         - the quote, computed again from the locked pass row, must still be purchasable, with the same
           price, and the payment method, the buyer rule and the currency must be the ones the purchase
-          started with. Visibility stays the controller's lock-free check (#1566).
+          started with. Visibility is checked in ``purchase()`` after the pass lock, not here (#1566).
 
         Same capacity counting rules as batch checkout. Must run after the tier locks: batch checkout
         locks tier -> event, so the events are locked last, pk-ordered among themselves.
@@ -275,6 +296,12 @@ class SeriesPassPurchaseService:
             .select_related("event_series__organization__city")
             .get(pk=self.series_pass.pk)
         )
+        # The checkout route's visibility rule again, after the lock wait (#1566). The lock-free gates above ran on
+        # the route's read, so a pass hidden meanwhile can still get their answer (a 400 or 409) first.
+        if self.check_visibility and not (
+            self._pass_still_visible(locked_pass) and self._series_still_visible(locked_pass)
+        ):
+            raise NotFound()
         if locked_pass.total_quantity is not None and locked_pass.quantity_sold >= locked_pass.total_quantity:
             raise SeriesPassNotPurchasableError(str(_("This pass is sold out.")))
 

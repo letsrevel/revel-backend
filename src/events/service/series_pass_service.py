@@ -423,11 +423,11 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
         The Tickets created (empty if the pass already covers every future event).
     """
     now = timezone.now()
-    ticketed_event_ids = set(
-        Ticket.objects.filter(held_pass=held_pass)
-        .exclude(status=Ticket.TicketStatus.CANCELLED)
-        .values_list("event_id", flat=True)
-    )
+    # A ticket of any status counts, as in the extension and the reconcile sweep: a cancelled pass ticket is never
+    # issued again (#1565). An abandoned checkout does not reach here (its pass is cancelled, or its PENDING tickets
+    # are deleted), and an event-cancellation ticket cannot meet an un-cancelled event (the un-cancel is refused
+    # once the refund sweep started).
+    ticketed_event_ids = set(Ticket.objects.filter(held_pass=held_pass).values_list("event_id", flat=True))
     missing_links = list(
         SeriesPassTierLink.objects.filter(series_pass_id=held_pass.series_pass_id, event__start__gte=now)
         .exclude(event__status=Event.EventStatus.CANCELLED)  # No ticket for a cancelled event (#1494).
