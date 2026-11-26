@@ -133,3 +133,8 @@ Policy-level intended behaviour that reviewers must not report as a finding. Eac
 - behaviour: when an account verifies its email, register entries with that email link to it automatically, and an open STANDARD entry gives an ACTIVE membership. This is intended: it migrates existing members into accounts. The person is notified (#1495) only when the link leaves an ACTIVE membership; a link that touches only closed or TEMPORARY entries sends the person nothing (see "Automatic member-register link on a verified email").
 - boundary: a membership created for an invitation before the invitee accepts is still a bug.
 - reference: owner decision 2026-11-21; #1495; `docs/architecture/member-register.md`.
+
+## Series pass holders come before the waitlist
+- behaviour: the reconcile sweep (`events.reconcile_series_pass_tickets`, every 15 minutes) issues a missing ticket to an ACTIVE pass holder when a seat is free, also when that seat became free after a cancellation and the waitlist has people on it. A pass holder paid for the season, so a holder who was skipped for capacity gets the freed seat before a waitlist offer exists for it.
+- boundary: the sweep still checks tier and event capacity under the locks and the holder's blacklist status, and it never issues a ticket again that the organizer cancelled. A sweep that takes a seat that a waitlist offer already holds, or that goes over capacity, is a valid finding.
+- reference: owner decision 2026-11-26 (#1536, PR #1567).
