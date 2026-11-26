@@ -52,11 +52,13 @@ def test_a_delete_waits_for_an_extension_in_flight_and_then_removes_its_ticket(
     runner = _Runner()
     pause = _Pause(_lock_of("events_tickettier"))
     runner.start("extension", lambda: materialize_series_pass_holders(str(series_pass.pk), [str(event.pk)]), pause)
-    assert pause.reached.wait(timeout=10), "the extension never reached its tier lock"
-    deletion = runner.start("delete", lambda: _delete(event.pk))
-    _assert_waits_on_lock(deletion)
-    pause.release.set()
-    runner.join()
+    try:
+        assert pause.reached.wait(timeout=10), "the extension never reached its tier lock"
+        deletion = runner.start("delete", lambda: _delete(event.pk))
+        _assert_waits_on_lock(deletion)
+    finally:
+        pause.release.set()
+        runner.join()
 
     assert runner.outcome["extension"][0] == "ok", runner.outcome["extension"]
     assert runner.outcome["delete"][0] == "ok", runner.outcome["delete"]
@@ -75,13 +77,15 @@ def test_an_extension_waits_for_a_delete_in_flight_and_then_skips_the_event(
     runner = _Runner()
     pause = _Pause(_lock_of("events_event"))
     runner.start("delete", lambda: _delete(event.pk), pause)
-    assert pause.reached.wait(timeout=10), "the delete never reached its event lock"
-    extension = runner.start(
-        "extension", lambda: materialize_series_pass_holders(str(series_pass.pk), [str(event.pk), str(kept.pk)])
-    )
-    _assert_waits_on_lock(extension)
-    pause.release.set()
-    runner.join()
+    try:
+        assert pause.reached.wait(timeout=10), "the delete never reached its event lock"
+        extension = runner.start(
+            "extension", lambda: materialize_series_pass_holders(str(series_pass.pk), [str(event.pk), str(kept.pk)])
+        )
+        _assert_waits_on_lock(extension)
+    finally:
+        pause.release.set()
+        runner.join()
 
     assert runner.outcome["delete"][0] == "ok", runner.outcome["delete"]
     assert runner.outcome["extension"][0] == "ok", runner.outcome["extension"]

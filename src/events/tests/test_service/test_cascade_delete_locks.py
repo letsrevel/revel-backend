@@ -130,6 +130,14 @@ def _assert_for_update(captured: list[dict[str, t.Any]], *models: type[t.Any]) -
         assert "FOR UPDATE" in sql and "NO KEY" not in sql, sql
 
 
+def _assert_no_key(captured: list[dict[str, t.Any]], *models: type[t.Any]) -> None:
+    """The first lock of each model's rows is ``FOR NO KEY UPDATE``: an event duplicate's KEY SHARE must not wait."""
+    for model in models:
+        table = f'"{model._meta.db_table}"'
+        sql = next(q["sql"] for q in captured if _lock_table(q["sql"]) == table)
+        assert "FOR NO KEY UPDATE" in sql, sql
+
+
 def _lock_table(sql: str) -> str | None:
     if "FOR UPDATE" not in sql and "FOR NO KEY UPDATE" not in sql:
         return None
@@ -210,7 +218,8 @@ class TestLockOrder:
             Ticket,
             DiscountCode,
         )
-        _assert_for_update(ctx.captured_queries, SeriesPass, TicketTier, EventSeries, Event)
+        _assert_for_update(ctx.captured_queries, SeriesPass, TicketTier, Event)
+        _assert_no_key(ctx.captured_queries, EventSeries)
         _assert_relocked_after(ctx.captured_queries, Event, SeriesPass, TicketTier)
         assert not SeriesPass.objects.filter(pk=season.pk).exists()
         _assert_locks_before_delete(ctx.captured_queries)
@@ -237,7 +246,8 @@ class TestLockOrder:
             Ticket,
             DiscountCode,
         )
-        _assert_for_update(ctx.captured_queries, SeriesPass, TicketTier, Organization, EventSeries, Event)
+        _assert_for_update(ctx.captured_queries, SeriesPass, TicketTier, Event)
+        _assert_no_key(ctx.captured_queries, Organization, EventSeries)
         _assert_relocked_after(ctx.captured_queries, Event, SeriesPass, TicketTier)
         _assert_locks_before_delete(ctx.captured_queries)
         assert not Organization.objects.filter(pk=organization.pk).exists()
@@ -337,10 +347,12 @@ def test_a_reservation_that_commits_during_the_delete_gets_its_session_expired(
 
     with patch(EXPIRE) as expire:
         runner.start("delete", delete, pause)
-        assert pause.reached.wait(timeout=10), "the delete never reached its first Payment lock"
-        _reserve(online_tier, buyer, "cs_late")  # commits at once: the delete holds no tier lock yet
-        pause.release.set()
-        runner.join()
+        try:
+            assert pause.reached.wait(timeout=10), "the delete never reached its first Payment lock"
+            _reserve(online_tier, buyer, "cs_late")  # commits at once: the delete holds no tier lock yet
+        finally:
+            pause.release.set()
+            runner.join()
 
     assert runner.outcome["delete"][0] == "ok", runner.outcome["delete"]
     expired = {sid for call in expire.call_args_list for sid in call.args[0]}

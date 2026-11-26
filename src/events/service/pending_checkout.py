@@ -23,7 +23,7 @@ from stripe.checkout import Session
 
 from accounts.models import RevelUser
 from common.service.stripe_config import configure_stripe
-from events.models import Payment, SeriesPass, Ticket, TicketTier
+from events.models import EventSeries, Organization, Payment, SeriesPass, Ticket, TicketTier
 from events.service import discount_code_service
 from events.service.waitlist_service import enqueue_waitlist_processing
 
@@ -201,9 +201,9 @@ def _lock_unfinished_sessions(tickets: QuerySet[Ticket]) -> dict[str | None, set
     return sessions_by_account
 
 
-def _lock_rows(rows: QuerySet[t.Any]) -> None:
-    """Lock ``rows`` (``FOR UPDATE``, only the rows of the model itself) in pk order."""
-    list(rows.select_for_update(of=("self",)).order_by("pk").values_list("pk", flat=True))
+def _lock_rows(rows: QuerySet[t.Any], *, no_key: bool = False) -> None:
+    """Lock ``rows`` (``FOR UPDATE``, or ``FOR NO KEY UPDATE``; only the rows of the model itself) in pk order."""
+    list(rows.select_for_update(no_key=no_key, of=("self",)).order_by("pk").values_list("pk", flat=True))
 
 
 def _lock_delete_scope(
@@ -216,7 +216,11 @@ def _lock_delete_scope(
         _lock_rows(passes)
     _lock_rows(tiers)
     for rows in parents:
-        _lock_rows(rows)
+        # NO KEY for an organization or a series, as their own delete() does: an event duplicate holds its
+        # template event and inserts a copy whose commit-time foreign-key checks take KEY SHARE on them, so
+        # FOR UPDATE here would wait for the duplicate while the duplicate waits for us. An event stays
+        # FOR UPDATE: nothing that holds a row of this delete inserts a child of it.
+        _lock_rows(rows, no_key=rows.model in (Organization, EventSeries))
     if parents:
         # A pass or a tier that committed between the first lock of its model and the parent locks is locked now:
         # a purchase cannot add a holder to such a pass meanwhile, and step 4 sees the payments of the tier's
@@ -268,10 +272,12 @@ def lock_for_cascade_delete(
     1. the Payment rows of ``tickets``, pk order, and the statuses under that lock;
     2. the ``passes`` rows (``FOR UPDATE``, pk order): the series passes that the delete removes, which come
        before the tiers because a pass purchase locks its pass and then the tiers;
-    3. every ``tiers`` row (``FOR UPDATE``, pk order), then the ``parents`` rows (``FOR UPDATE``, pk order) in
-       the order given: Organization, EventSeries, Event. ``FOR UPDATE`` because the delete removes them: a
-       transaction that inserts a child row meanwhile waits at its commit-time foreign-key check and then
-       fails, instead of the delete failing on it. With parents, the passes and the tiers are locked again
+    3. every ``tiers`` row (``FOR UPDATE``, pk order), then the ``parents`` rows (pk order) in the order
+       given: Organization, EventSeries, Event. The events and tiers take ``FOR UPDATE`` because the delete
+       removes them: a transaction that inserts a child row meanwhile waits at its commit-time foreign-key
+       check and then fails, instead of the delete failing on it. The organization and the series take
+       ``FOR NO KEY UPDATE``, as their own ``delete()`` does: an event duplicate inserts a copy that
+       references them while it holds its template event. With parents, the passes and the tiers are locked again
        after them, for a row that committed in between. A reservation locks its tier before it inserts, so
        after this no new Payment row can appear for these tiers;
     4. the Payment rows again, for the rows that a reservation committed between steps 1 and 3;
