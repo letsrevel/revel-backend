@@ -14,13 +14,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 from django.contrib.admin.sites import AdminSite
 from django.db import connection, transaction
+from django.db.models import QuerySet
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
-from events.admin.event import EventAdmin
+from events.admin.event import EventAdmin, EventSeriesAdmin
 from events.admin.organization import OrganizationAdmin
+from events.admin.ticket import TicketTierAdmin
 from events.models import Event, EventSeries, Organization, Payment, Ticket, TicketTier
 from events.models.discount_code import DiscountCode
 from events.service import discount_code_service, event_series_service, event_update_service, ticket_service
@@ -108,6 +110,20 @@ def _assert_in_order(locks: list[str], *models: type[t.Any]) -> None:
     assert positions == sorted(positions), f"lock order {locks}, expected {tables}"
 
 
+def _assert_for_update(captured: list[dict[str, t.Any]], *models: type[t.Any]) -> None:
+    """The first lock of each model's rows is ``FOR UPDATE``, not ``FOR NO KEY UPDATE``: the delete removes them."""
+    for model in models:
+        table = f'"{model._meta.db_table}"'
+        sql = next(q["sql"] for q in captured if _lock_table(q["sql"]) == table)
+        assert "FOR UPDATE" in sql and "NO KEY" not in sql, sql
+
+
+def _lock_table(sql: str) -> str | None:
+    if "FOR UPDATE" not in sql and "FOR NO KEY UPDATE" not in sql:
+        return None
+    return sql.split(" FROM ")[1].split()[0]
+
+
 def _assert_locks_before_delete(captured: list[dict[str, t.Any]]) -> None:
     first_delete = next(i for i, q in enumerate(captured) if q["sql"].startswith("DELETE"))
     last_lock = max(i for i, q in enumerate(captured) if "FOR UPDATE" in q["sql"] and "DELETE" not in q["sql"])
@@ -119,17 +135,22 @@ class TestLockOrder:
     """Each delete path takes Payment -> TicketTier -> parents -> Ticket -> DiscountCode, before any DELETE."""
 
     def test_event_delete(self, online_tier: TicketTier, organization: Organization, buyer: RevelUser) -> None:
-        _reserve(online_tier, buyer, "cs_event", _code(organization))
+        code = _code(organization)
+        _reserve(online_tier, buyer, "cs_event", code)
 
         with patch(EXPIRE), CaptureQueriesContext(connection) as ctx:
             event_update_service.delete_event(online_tier.event)
 
         _assert_in_order(_first_locks(ctx.captured_queries), Payment, TicketTier, Event, Ticket, DiscountCode)
+        _assert_for_update(ctx.captured_queries, TicketTier, Event)
         _assert_locks_before_delete(ctx.captured_queries)
         assert not Event.objects.filter(pk=online_tier.event_id).exists()
+        code.refresh_from_db()
+        assert code.times_used == 0  # the use of the pending checkout goes back
 
     def test_tier_delete(self, online_tier: TicketTier, organization: Organization, buyer: RevelUser) -> None:
-        _reserve(online_tier, buyer, "cs_tier", _code(organization))
+        code = _code(organization)
+        _reserve(online_tier, buyer, "cs_tier", code)
 
         with patch(EXPIRE), CaptureQueriesContext(connection) as ctx:
             ticket_service.delete_ticket_tier(online_tier)
@@ -137,7 +158,10 @@ class TestLockOrder:
         locks = _first_locks(ctx.captured_queries)
         _assert_in_order(locks, Payment, TicketTier, Ticket, DiscountCode)
         assert Event._meta.db_table not in locks  # the event stays: a tier delete does not lock it
+        _assert_for_update(ctx.captured_queries, TicketTier)
         _assert_locks_before_delete(ctx.captured_queries)
+        code.refresh_from_db()
+        assert code.times_used == 0
 
     def test_series_delete(
         self, online_tier: TicketTier, organization: Organization, buyer: RevelUser, event_series: EventSeries
@@ -151,6 +175,7 @@ class TestLockOrder:
         _assert_in_order(
             _first_locks(ctx.captured_queries), Payment, TicketTier, EventSeries, Event, Ticket, DiscountCode
         )
+        _assert_for_update(ctx.captured_queries, TicketTier, EventSeries, Event)
         _assert_locks_before_delete(ctx.captured_queries)
 
     def test_organization_admin_delete(
@@ -173,39 +198,56 @@ class TestLockOrder:
             Ticket,
             DiscountCode,
         )
+        _assert_for_update(ctx.captured_queries, TicketTier, Organization, EventSeries, Event)
         _assert_locks_before_delete(ctx.captured_queries)
         assert not Organization.objects.filter(pk=organization.pk).exists()
 
-    def test_bulk_event_admin_delete_locks_all_payments_first(
+    @pytest.mark.parametrize("kind", ["event", "series", "tier"])
+    def test_admin_bulk_delete_locks_the_whole_selection_first(
         self,
         organization: Organization,
         buyer: RevelUser,
         event: Event,
         public_event: Event,
+        kind: str,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        """One request deletes several events: all their Payment rows are locked in one pk-ordered statement first.
+        """One request deletes several rows: their Payment, tier and parent rows are locked together, in pk order.
 
-        Locking them event by event would not follow the pk order, so the loop could deadlock with a
-        cancel of a checkout that spans the events.
+        Each delete service locks only its own rows, so a loop alone would lock them one delete at a time and
+        not in pk order. One checkout can span events, and a series pass locks the tiers of several events in
+        pk order, so the loop could deadlock with them.
         """
-        sessions = []
-        for target in (event, public_event):
-            tier = TicketTier.objects.create(event=target, name="T", price=Decimal("5.00"), currency="EUR")
+        sessions, tiers, series = [], [], []
+        for i, target in enumerate((event, public_event)):
+            group = EventSeries.objects.create(organization=organization, name=f"Bulk {i}", slug=f"bulk-{i}")
+            Event.objects.filter(pk=target.pk).update(event_series=group)
+            series.append(group)
+            tiers.append(TicketTier.objects.create(event=target, name="T", price=Decimal("5.00"), currency="EUR"))
             sessions.append(f"cs_bulk_{target.pk}")
-            _reserve(tier, buyer, sessions[-1])
-        admin = EventAdmin(Event, AdminSite())
+            _reserve(tiers[-1], buyer, sessions[-1])
+        site = AdminSite()
+        selected: dict[str, tuple[t.Any, QuerySet[t.Any], list[type[t.Any]]]] = {
+            "event": (EventAdmin(Event, site), Event.objects.filter(pk__in=[event.pk, public_event.pk]), [Event]),
+            "series": (
+                EventSeriesAdmin(EventSeries, site),
+                EventSeries.objects.filter(pk__in=[group.pk for group in series]),
+                [EventSeries, Event],
+            ),
+            "tier": (TicketTierAdmin(TicketTier, site), TicketTier.objects.filter(pk__in=[x.pk for x in tiers]), []),
+        }
+        admin, queryset, parents = selected[kind]
 
         with patch(EXPIRE) as expire, CaptureQueriesContext(connection) as ctx:
             with django_capture_on_commit_callbacks(execute=True):
-                admin.delete_queryset(MagicMock(), Event.objects.filter(pk__in=[event.pk, public_event.pk]))
+                admin.delete_queryset(MagicMock(), queryset)
 
-        first = next(q["sql"] for q in ctx.captured_queries if "FOR UPDATE" in q["sql"])
-        assert _payment_lock(first)
+        locks = [table for q in ctx.captured_queries if (table := _lock_table(q["sql"]))]
+        expected: list[type[t.Any]] = [Payment, TicketTier, *parents]
+        assert locks[: len(expected)] == [f'"{model._meta.db_table}"' for model in expected], locks
+        first = next(q["sql"] for q in ctx.captured_queries if _lock_table(q["sql"]))
         assert "ORDER BY" in first
-        for target in (event, public_event):
-            assert str(target.pk) in first or target.pk.hex in first, "the first Payment lock must cover every event"
-        assert not Event.objects.filter(pk__in=[event.pk, public_event.pk]).exists()
+        assert not TicketTier.objects.filter(pk__in=[x.pk for x in tiers]).exists()
         expired = {sid for call in expire.call_args_list for sid in call.args[0]}
         assert expired == set(sessions)
 

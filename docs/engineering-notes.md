@@ -898,9 +898,13 @@ deadlock and stops one of the two transactions. A session that is then paid with
 refunded in full (`refund_orphaned_checkout_session`, #1489).
 
 A loop that runs a delete service once per row in one transaction (the admin bulk deletes of events,
-tiers and series) first calls `pending_checkout.lock_payments` on all the rows. Each service locks only
-the payments of its own row, and one checkout can span tiers and events, so the loop alone would not
-lock the payments in pk order.
+tiers and series) first calls `pending_checkout.lock_for_bulk_delete` for the whole selection. It takes
+steps 1 to 3 for all the rows at once: the payments, the tiers, then the parent rows, each in pk order.
+Each service locks only the rows of its own delete, so the loop alone would not lock them in pk order.
+One checkout can span tiers and events, and a series pass locks the tiers of several events in pk
+order, so such a loop could deadlock with them. The bulk lock ends no checkout: each service in the
+loop still expires the sessions of its own rows, so a series delete that fails in its own savepoint
+expires nothing.
 
 The services are `event_update_service.delete_event`, `ticket_service.delete_ticket_tier` and
 `event_series_service.delete_event_series`. Call them, never `.delete()` on these models directly.

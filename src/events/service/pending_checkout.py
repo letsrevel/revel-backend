@@ -179,16 +179,6 @@ def expire_stripe_sessions_best_effort(session_ids: list[str], stripe_account_id
             logger.warning("pending_checkout_session_expire_failed", session_id=session_id, error=str(exc))
 
 
-def lock_payments(tickets: QuerySet[Ticket]) -> None:
-    """Lock all Payment rows of ``tickets`` in one pk-ordered statement.
-
-    For a loop that runs a delete service once per row in one transaction: each run locks only the Payment
-    rows of its own row, so the loop alone would not lock them in pk order. One checkout can span tiers and
-    events, so that loop could deadlock with ``cancel_pending_checkout``. Call this before the loop.
-    """
-    list(Payment.objects.select_for_update(of=("self",)).filter(ticket__in=tickets).order_by("pk").values_list("pk"))
-
-
 def _lock_unfinished_sessions(tickets: QuerySet[Ticket]) -> dict[str | None, set[str]]:
     """Lock all Payment rows of ``tickets`` (pk order) and return the open sessions of the unfinished ones.
 
@@ -214,6 +204,28 @@ def _lock_unfinished_sessions(tickets: QuerySet[Ticket]) -> dict[str | None, set
 def _lock_rows(rows: QuerySet[t.Any]) -> None:
     """Lock ``rows`` (``FOR UPDATE``, only the rows of the model itself) in pk order."""
     list(rows.select_for_update(of=("self",)).order_by("pk").values_list("pk", flat=True))
+
+
+def lock_for_bulk_delete(
+    tickets: QuerySet[Ticket],
+    *,
+    tiers: QuerySet[TicketTier],
+    parents: t.Sequence[QuerySet[t.Any]] = (),
+) -> None:
+    """Lock the rows of several cascade deletes at once, in the global lock order, before a loop runs them.
+
+    For a loop that runs a delete service once per row in one transaction (the admin bulk deletes). Each
+    run locks only the rows of its own delete, so the loop alone would lock the Payment, TicketTier and
+    parent rows of the selection one delete at a time, not in pk order. One checkout can span tiers and
+    events, and a series pass locks the tiers of several events in pk order, so that loop could deadlock
+    with them. This takes steps 1 to 3 of :func:`lock_for_cascade_delete` for the whole selection. It ends
+    no checkout: each delete service in the loop still does that for its own rows, so a delete that fails
+    in its own savepoint expires nothing.
+    """
+    _lock_rows(Payment.objects.filter(ticket__in=tickets))
+    _lock_rows(tiers)
+    for rows in parents:
+        _lock_rows(rows)
 
 
 def lock_for_cascade_delete(
