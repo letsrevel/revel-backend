@@ -467,7 +467,12 @@ class TestStatusChangeBeforeTheEventLock:
     def test_extension_skips_an_event_deleted_after_the_snapshot(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser, before: str
     ) -> None:
-        """Before, a deleted tier raised KeyError and stopped the task."""
+        """Before, a deleted tier raised KeyError and stopped the task.
+
+        ``event_lock`` deletes in the same transaction, after the tier lock: it tests the defensive branch
+        for an event missing at the event lock. A delete from another connection waits for the tier lock
+        instead (the delete-service lock order, #1538).
+        """
         from events.service import series_pass_event_checks
 
         held_pass = SeriesPassPurchaseService(series_pass, revel_user).purchase()

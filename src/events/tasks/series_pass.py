@@ -147,6 +147,11 @@ def _lock_tiers_and_drop_full(
     for link in links:
         tier = locked.get(link.tier_id)
         if tier is None:
+            logger.info(
+                "series_pass_extension_skipped_deleted_event",
+                held_pass_id=str(held_pass_id),
+                event_id=str(link.event_id),
+            )
             continue
         if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
             skipped.append((held_pass_id, link.event_id))
@@ -197,12 +202,14 @@ def _extend_holder(holder_id: UUID, links: list[SeriesPassTierLink], skipped: li
         # Read under the lock, with a new ``now``: an event cancelled or started after the links snapshot
         # gets no ticket, and no skip report (#1496).
         now = timezone.now()
-        gone = locked_events.cancelled | {eid for eid, start in locked_events.start.items() if start < now}
-        gone |= {link.event_id for link in grantable if link.event_id not in locked_events.status}  # Deleted.
+        deleted = {link.event_id for link in grantable if link.event_id not in locked_events.status}
+        gone = locked_events.cancelled | {eid for eid, start in locked_events.start.items() if start < now} | deleted
         for link in grantable:
             if link.event_id in gone:
                 logger.info(
-                    "series_pass_extension_skipped_cancelled_or_started_event",
+                    "series_pass_extension_skipped_deleted_event"
+                    if link.event_id in deleted
+                    else "series_pass_extension_skipped_cancelled_or_started_event",
                     held_pass_id=str(held_pass.id),
                     event_id=str(link.event_id),
                 )
