@@ -123,8 +123,8 @@ class SeriesPassPurchaseService:
         - every event that was read must still exist, and the locked quote must count the same remaining
           events (a start moved into the past, or a link added, changes the count);
         - the quote, computed again from the locked pass row, must still be purchasable, with the same
-          price, and the payment method, the buyer rule, the currency and the visibility must be the ones
-          the purchase started with.
+          price, and the payment method, the buyer rule and the currency must be the ones the purchase
+          started with. Visibility stays the controller's lock-free check (#1566).
 
         Same capacity counting rules as batch checkout. Must run after the tier locks: batch checkout
         locks tier -> event, so the events are locked last, pk-ordered among themselves.
@@ -158,7 +158,6 @@ class SeriesPassPurchaseService:
             or locked_pass.payment_method != self.series_pass.payment_method
             or locked_pass.purchasable_by != self.series_pass.purchasable_by
             or locked_pass.currency != self.series_pass.currency
-            or locked_pass.visibility != self.series_pass.visibility
         ):
             raise SeriesPassNotPurchasableError(str(_("The events of this pass changed. Please try again.")))
         for link in upcoming_links:

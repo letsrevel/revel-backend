@@ -4,6 +4,7 @@ It gives one pro-rata discount step (like an event that has started, counted onc
 remaining, and no flow issues a ticket for it. DRAFT and other non-OPEN upcoming events still block.
 """
 
+import contextlib
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
@@ -479,12 +480,18 @@ def _status_change_before_the_event_lock(event: Event, status: Event.EventStatus
     return patch.object(series_pass_event_checks, "lock_events_and_find_full", side_effect=change_then_lock)
 
 
-def _assert_nothing_written(series_pass: SeriesPass, user: RevelUser, events: list[Event]) -> None:
-    assert not HeldSeriesPass.objects.filter(series_pass=series_pass, user=user).exists()
-    assert not Ticket.objects.filter(event__in=events).exists()
-    assert not TicketTier.objects.filter(event__in=events, quantity_sold__gt=0).exists()
-    series_pass.refresh_from_db()
-    assert series_pass.quantity_sold == 0
+@contextlib.contextmanager
+def _refused_before_any_write(match: str | None = None) -> t.Iterator[None]:
+    """Expect the 409 before the held pass is created.
+
+    A row check after the call cannot fail: ``purchase`` is atomic, so the error rolls every write back.
+    """
+    with (
+        patch.object(SeriesPassPurchaseService, "_create_held_pass", autospec=True) as create,
+        pytest.raises(SeriesPassNotPurchasableError, match=match),
+    ):
+        yield
+    create.assert_not_called()
 
 
 class TestStatusChangeBeforeTheEventLock:
@@ -571,11 +578,9 @@ class TestStatusChangeBeforeTheEventLock:
 
         with (
             patch.object(series_pass_service, "get_quote", side_effect=quote_then_stop_sales),
-            pytest.raises(SeriesPassNotPurchasableError, match="This pass is not on sale."),
+            _refused_before_any_write("This pass is not on sale."),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
-
-        _assert_nothing_written(series_pass, revel_user, three_upcoming)
 
     def test_purchase_refuses_when_the_payment_method_changes(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
@@ -592,11 +597,9 @@ class TestStatusChangeBeforeTheEventLock:
 
         with (
             patch.object(series_pass_service, "get_quote", side_effect=quote_then_go_offline),
-            pytest.raises(SeriesPassNotPurchasableError, match="The events of this pass changed"),
+            _refused_before_any_write("The events of this pass changed"),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
-
-        _assert_nothing_written(series_pass, revel_user, three_upcoming)
 
     def test_purchase_refuses_when_a_covered_event_is_deleted_before_the_event_lock(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
@@ -611,11 +614,9 @@ class TestStatusChangeBeforeTheEventLock:
 
         with (
             patch.object(series_pass_event_checks, "lock_events_and_find_full", side_effect=delete_then_lock),
-            pytest.raises(SeriesPassNotPurchasableError),
+            _refused_before_any_write(),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
-
-        _assert_nothing_written(series_pass, revel_user, three_upcoming)
 
     def test_purchase_refuses_when_a_covered_event_is_deleted_before_the_tier_lock(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
@@ -632,11 +633,9 @@ class TestStatusChangeBeforeTheEventLock:
 
         with (
             patch.object(enforcement, "assert_sale_allowed", side_effect=sale_check_then_delete),
-            pytest.raises(SeriesPassNotPurchasableError),
+            _refused_before_any_write(),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
-
-        _assert_nothing_written(series_pass, revel_user, three_upcoming)
 
     def test_purchase_refuses_when_a_covered_event_moves_into_the_past(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
@@ -654,20 +653,17 @@ class TestStatusChangeBeforeTheEventLock:
 
         with (
             patch.object(series_pass_event_checks, "lock_events_and_find_full", side_effect=move_then_lock),
-            pytest.raises(SeriesPassNotPurchasableError),
+            _refused_before_any_write(),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
-
-        _assert_nothing_written(series_pass, revel_user, three_upcoming)
 
     @pytest.mark.parametrize(
         "change",
         [
             {"purchasable_by": TicketTier.PurchasableBy.MEMBERS},
             {"currency": "USD"},
-            {"visibility": SeriesPass.Visibility.PRIVATE},
         ],
-        ids=["buyer_rule", "currency", "visibility"],
+        ids=["buyer_rule", "currency"],
     )
     def test_purchase_refuses_when_a_pass_field_changes(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser, change: dict[str, str]
@@ -684,11 +680,9 @@ class TestStatusChangeBeforeTheEventLock:
 
         with (
             patch.object(series_pass_service, "get_quote", side_effect=quote_then_change),
-            pytest.raises(SeriesPassNotPurchasableError, match="The events of this pass changed"),
+            _refused_before_any_write("The events of this pass changed"),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
-
-        _assert_nothing_written(series_pass, revel_user, three_upcoming)
 
     def test_purchase_refuses_a_cancel_that_keeps_the_price(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
