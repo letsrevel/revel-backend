@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Series passes: the activation of a pass (offline confirm or completed checkout) no longer issues a new ticket for an event whose pass ticket was cancelled meanwhile. A checkout of a pass that the organizer hides or deactivates at the same moment now answers 404.
 - Events: the attendee count and the attendee visibility of an event are now updated also when a logo or cover image file of the event is missing from storage. Before, the update failed for such an event. A status change now also ignores invalid values in fields that it does not change; a cross-field rule that an earlier edit broke (for example a waitlist cutoff after the start) still blocks it, and the error names the field to fix.
-- Events: the attendee count and the attendee visibility of an event are now rebuilt also when the background job could not be queued after a series pass issued tickets. A sweep every 15 minutes finds an event whose count is stale and rebuilds it.
+- Events: the attendee count and the attendee visibility of an event are now rebuilt also when the background job could not be queued after a series pass issued tickets. A sweep every 15 minutes finds an event whose count is stale and rebuilds it, for tickets written in the last 24 hours. It cannot find a lost rebuild whose changes leave the count unchanged.
 - Deleting an event, a ticket tier or an event series (in the API and in the Django admin), or an organization (in the Django admin), no longer fails when a series pass issues a ticket for that event at the same moment. A checkout that starts at the same moment as the delete now also gets its open Stripe Checkout session expired.
 
 ## [3.1.1] - 2026-11-26
