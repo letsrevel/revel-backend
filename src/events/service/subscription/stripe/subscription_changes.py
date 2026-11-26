@@ -16,9 +16,6 @@ from events.models import (
     Organization,
 )
 from events.service.subscription.stripe.base import (
-    ensure_stripe_price as ensure_stripe_price,
-)
-from events.service.subscription.stripe.base import (
     recurring_cadence,
 )
 from events.service.subscription.stripe.payloads import (
