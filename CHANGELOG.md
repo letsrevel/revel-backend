@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-11-26
+
 ### Fixed
 
 - Attendee invoices: an edit or issue of a draft invoice that is deleted at the same moment (for example by a refund) now answers 404, not 500. A PDF download that makes the PDF of such a draft also answers 404.
