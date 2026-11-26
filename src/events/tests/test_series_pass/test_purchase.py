@@ -492,9 +492,14 @@ class TestTotalQuantityCap:
 
         assert HeldSeriesPass.objects.count() == 1
 
-    def test_locked_recheck_catches_stale_quote(self, purchasable_free_pass: SeriesPass, revel_user: RevelUser) -> None:
+    def test_locked_recheck_catches_stale_quote(
+        self, purchasable_free_pass: SeriesPass, revel_user: RevelUser, future_events: list[Event]
+    ) -> None:
         """Two concurrent buyers can both pass the unlocked quote check; the loser must
-        be stopped by the re-check under the pass row lock."""
+        be stopped by the re-check under the pass row lock.
+
+        The mocked quote names the real covered events, so only the sold-out re-check can refuse.
+        """
         from events.service import series_pass_service
 
         purchasable_free_pass.total_quantity = 1
@@ -508,13 +513,13 @@ class TestTotalQuantityCap:
             purchasable=True,
             reason=None,
             online_payment=PaymentChannelCapability.ALLOWED,
-            upcoming_event_ids=frozenset(),
+            upcoming_event_ids=frozenset(event.pk for event in future_events),
         )
         # The winner committed between our quote and our locks.
         SeriesPass.objects.filter(pk=purchasable_free_pass.pk).update(quantity_sold=1)
 
         with patch.object(series_pass_service, "get_quote", return_value=stale_quote):
-            with pytest.raises(SeriesPassNotPurchasableError):
+            with pytest.raises(SeriesPassNotPurchasableError, match="This pass is sold out."):
                 SeriesPassPurchaseService(purchasable_free_pass, revel_user).purchase()
 
         assert not HeldSeriesPass.objects.exists()
