@@ -150,5 +150,21 @@ class OAuthApplication(ExifStripMixin, AbstractApplication):  # type: ignore[mis
             self.allowed_scopes = sorted(SCOPES)
         super().save(*args, **kwargs)
 
+    def delete(self, *args: t.Any, **kwargs: t.Any) -> tuple[int, dict[str, int]]:
+        """After commit, delete the logo files of this app that no other row names (#1549).
+
+        The paths are read under the row lock: a thumbnail task can have written new paths since the load.
+        A cascade from the owner and a queryset delete do not call this; the storage sweep removes those files.
+        """
+        from django.db import transaction
+
+        from common.thumbnails.files import delete_unreferenced_files_after_commit, stored_image_paths
+
+        with transaction.atomic():
+            paths = stored_image_paths(type(self), self.pk, "logo")
+            deleted = super().delete(*args, **kwargs)
+            delete_unreferenced_files_after_commit(paths)  # runs after the commit of this block, row gone
+        return deleted
+
     def __str__(self) -> str:
         return str(self.name or self.client_id)

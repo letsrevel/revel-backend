@@ -218,6 +218,24 @@ def test_a_regeneration_for_a_copy_keeps_the_template_files(template: Event, rgb
     assert Event.objects.get(pk=copy.pk).logo_thumbnail.name == result["logo_thumbnail"]
 
 
+def test_an_organization_admin_bulk_delete_deletes_the_files_of_its_events(
+    template: Event, rf: t.Any, admin_user: t.Any, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    """The admin "delete selected" action: a queryset delete would skip the cleanup of delete() (#1549)."""
+    from events.admin.organization import OrganizationAdmin
+
+    paths = _paths(template)
+    request = rf.post("/")
+    request.user = admin_user
+    model_admin = OrganizationAdmin(Organization, django_admin.site)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        model_admin.delete_queryset(request, Organization.objects.filter(pk=template.organization_id))
+
+    assert not Organization.objects.filter(pk=template.organization_id).exists()
+    assert not any(default_storage.exists(path) for path in paths)
+
+
 class TestAdmin:
     """The Event and EventSeries change forms keep derived images in step, as an API upload does."""
 

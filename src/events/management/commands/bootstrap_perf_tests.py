@@ -121,7 +121,7 @@ class Command(BaseCommand):
             events_models.Ticket.objects.filter(event__in=events).delete()
             events_models.EventRSVP.objects.filter(event__in=events).delete()
 
-            # Delete events
+            # Delete events. A queryset delete skips the image-file cleanup of Event.delete(); the files stay (#1549).
             events.delete()
 
             # Now delete the organization

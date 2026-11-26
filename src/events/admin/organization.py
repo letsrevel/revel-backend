@@ -173,7 +173,9 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
 
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.Organization]) -> None:
         self._lock_for_delete(queryset)
-        super().delete_queryset(request, queryset)
+        # One delete() per row, as for events and series: a queryset delete skips the image-file cleanup (#1549).
+        for organization in queryset:
+            self.delete_model(request, organization)
 
     @staticmethod
     def _lock_for_delete(organizations: QuerySet[models.Organization]) -> None:
