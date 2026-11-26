@@ -265,7 +265,7 @@ class TestLockOrder:
             "series": (
                 EventSeriesAdmin(EventSeries, site),
                 EventSeries.objects.filter(pk__in=[group.pk for group in series]),
-                [Payment, SeriesPass, TicketTier, EventSeries, Event, TicketTier, Payment],
+                [Payment, SeriesPass, TicketTier, EventSeries, Event, SeriesPass, TicketTier, Payment],
             ),
             "tier": (
                 TicketTierAdmin(TicketTier, site),
@@ -285,8 +285,8 @@ class TestLockOrder:
         assert locks[: len(expected)] == [f'"{model._meta.db_table}"' for model in expected], locks
         lock_sql = [q["sql"] for q in ctx.captured_queries if _lock_table(q["sql"])]
         assert "ORDER BY" in lock_sql[0]
-        # The bulk lock covers the whole selection; a per-row delete would name only its own row.
-        for sql in (lock_sql[0], next(sql for sql in lock_sql if _lock_table(sql) == '"events_tickettier"')):
+        # Every statement of the bulk lock covers the whole selection; a per-row delete would name only its own row.
+        for sql in lock_sql[: len(expected)]:
             for pk in selected_pks:
                 assert str(pk) in sql or pk.hex in sql, f"{pk} not in {sql}"
         assert not TicketTier.objects.filter(pk__in=[x.pk for x in tiers]).exists()

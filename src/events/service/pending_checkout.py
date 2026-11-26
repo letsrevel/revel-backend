@@ -211,19 +211,22 @@ def _lock_delete_scope(
     tiers: QuerySet[TicketTier],
     parents: t.Sequence[QuerySet[t.Any]],
 ) -> None:
-    """Steps 2 and 3 of :func:`lock_for_cascade_delete`: series passes, tiers, parents, then the tiers again."""
+    """Steps 2 and 3 of :func:`lock_for_cascade_delete`: passes, tiers, parents, then the passes and tiers again."""
     if passes is not None:
         _lock_rows(passes)
     _lock_rows(tiers)
     for rows in parents:
         _lock_rows(rows)
     if parents:
-        # A tier that committed between the two statements above is locked now, so step 4 also sees the payments
-        # of its reservations. Once the parents are locked, no new tier can commit: its insert waits at the
-        # foreign-key check on the event. ponytail: this lock (and a pass that commits after the pass lock) is out
-        # of the global order for those new rows only; a checkout or a pass purchase on such a row that then
-        # waits for a row of this delete is a deadlock that Postgres detects. Closing it would need a lock on
-        # the parents before the tiers, against the global order of every other path.
+        # A pass or a tier that committed between the first lock of its model and the parent locks is locked now:
+        # a purchase cannot add a holder to such a pass meanwhile, and step 4 sees the payments of the tier's
+        # reservations. Once the parents are locked, no new pass or tier can commit: its insert waits at the
+        # foreign-key check on the series or the event. ponytail: these second locks are out of the global order
+        # for those new rows only; a pass purchase or a checkout on such a row that then waits for a row of this
+        # delete is a deadlock that Postgres detects. Closing it would need a lock on the parents before the
+        # passes and tiers, against the global order of every other path.
+        if passes is not None:
+            _lock_rows(passes)
         _lock_rows(tiers)
 
 
@@ -268,8 +271,8 @@ def lock_for_cascade_delete(
     3. every ``tiers`` row (``FOR UPDATE``, pk order), then the ``parents`` rows (``FOR UPDATE``, pk order) in
        the order given: Organization, EventSeries, Event. ``FOR UPDATE`` because the delete removes them: a
        transaction that inserts a child row meanwhile waits at its commit-time foreign-key check and then
-       fails, instead of the delete failing on it. With parents, the tiers are locked again after them, for a
-       tier that committed in between. A reservation locks its tier before it inserts, so after this no new
+       fails, instead of the delete failing on it. With parents, the passes and the tiers are locked again after
+       them, for a row that committed in between. A reservation locks its tier before it inserts, so after this no new
        Payment row can appear for these tiers;
     4. the Payment rows again, for the rows that a reservation committed between steps 1 and 3;
     5. the Ticket and DiscountCode rows (``release_uses_of_pending_tickets``) to give back the discount uses.
@@ -279,8 +282,8 @@ def lock_for_cascade_delete(
     row waits for the delete, matches no row and expires the session itself (``stamp_session_or_expire``).
     A rollback discards the callback. Best effort: a failed expire is logged and the other sessions still go.
 
-    Step 4, and the second tier lock of step 3, are out of the global order for the rows that committed
-    after the first lock of their model. If a cancel, an expiry or a
+    Step 4, and the second pass and tier locks of step 3, are out of the global order for a row that committed
+    between the first lock of its model and the second one. If a cancel, an expiry or a
     webhook holds such a row and waits for a tier of step 3, Postgres detects the deadlock and stops one of
     the two transactions. A session that is then paid with no Payment row is refunded in full
     (``refund_orphaned_checkout_session``).
