@@ -749,8 +749,10 @@ with a ticket or RSVP written in the last 24 hours (minus a 5-minute grace for a
 queued) with its live count: a lost rebuild usually leaves the count stale. It finds only a write that stamps
 `updated_at`, so a `bulk_update` on that path lists `updated_at` by hand. Accepted limit (owner decision,
 #1568 option B): it does not repair an event whose lost rebuilds cancel out in the count (for example, a
-lost cancel and a lost bulk issue on the same event), because the stored and live counts then match. A
-stored "rebuild needed" mark that the rebuild clears would cover that case.
+lost cancel and a lost bulk issue on the same event), because the stored and live counts then match. It also does not
+find a rebuild that wrote the count and then failed in its flag phase: the count is written first on purpose,
+so that capacity reads (`is_full`, the waitlist) stay current during a checkout rush, and that failure is a
+task error in the logs. A stored "rebuild needed" mark that the rebuild clears would cover both cases.
 
 Never pass a `functools.partial` with `robust=True`: Django logs a failing robust callback by its
 `__qualname__`, and a `partial` has none, so the error path itself raises `AttributeError`.

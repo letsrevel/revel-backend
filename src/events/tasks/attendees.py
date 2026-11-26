@@ -47,8 +47,10 @@ RECONCILE_WINDOW = timedelta(hours=24)
 # waits; a rebuild sets the count to the live value, so it stops after one run. A per-event "dispatched" mark
 # would avoid the duplicate. A rebuild that fails every time (for one event) is queued again on every run for
 # the whole window; its own failure log is the signal for that. Lost rebuilds whose changes cancel out in the
-# count (a lost cancel and a lost bulk issue on one event) are not found: the counts match. A stored "rebuild
-# needed" mark that the rebuild clears would find them (#1568, option A).
+# count (a lost cancel and a lost bulk issue on one event) are not found: the counts match. Nor is a rebuild that
+# wrote the count and then failed in its flag phase (the count is written first on purpose, so capacity reads stay
+# current; the failure is a task error). A stored "rebuild needed" mark that the rebuild clears would find both
+# (#1568, option A).
 RECONCILE_GRACE = timedelta(minutes=5)
 
 
