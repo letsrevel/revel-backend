@@ -1,9 +1,9 @@
 """A lost attendee rebuild after a bulk ticket create is recovered (#1568).
 
 ``series_pass_service.rebuild_attendee_visibility`` is the only rebuild after a ``bulk_create`` (it skips
-``post_save``). Its dispatch is now robust, so a broker failure does not fail the caller, and the 15-minute
-sweep ``events.reconcile_attendee_counts`` dispatches the rebuild again for an event whose stored
-``attendee_count`` differs from its live count.
+``post_save``). Its dispatch is now independent (``on_commit_independent``), so a broker failure does not
+fail the caller, and the 15-minute sweep ``events.reconcile_attendee_counts`` dispatches the rebuild again
+for an event whose stored ``attendee_count`` differs from its live count.
 """
 
 import typing as t
@@ -52,6 +52,23 @@ class TestRobustDispatch:
                 series_pass_service.rebuild_attendee_visibility([event.pk])
 
         delay.assert_called_once_with(str(event.pk))
+
+    def test_a_failed_enqueue_is_logged_with_its_event(
+        self, event: Event, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        with (
+            patch(
+                "events.service.series_pass_service.build_attendee_visibility_flags.delay",
+                side_effect=ConnectionError("broker down"),
+            ),
+            patch("common.utils.logger") as log,
+        ):
+            with django_capture_on_commit_callbacks(execute=True):
+                series_pass_service.rebuild_attendee_visibility([event.pk])
+
+        log.error.assert_called_once()
+        assert log.error.call_args.args == ("visibility_flags_dispatch_failed",)
+        assert log.error.call_args.kwargs["event_id"] == str(event.pk)
 
     def test_one_failed_enqueue_does_not_stop_the_others(
         self, event: Event, public_event: Event, django_capture_on_commit_callbacks: t.Any

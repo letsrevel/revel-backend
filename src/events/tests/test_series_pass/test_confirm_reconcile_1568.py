@@ -5,6 +5,7 @@ The confirm activates the PENDING tickets with ``bulk_update``, which skips ``au
 created days before the confirm.
 """
 
+import typing as t
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -21,7 +22,10 @@ pytestmark = pytest.mark.django_db
 
 
 def test_a_lost_rebuild_after_an_offline_confirm_is_recovered(
-    series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    series_pass: SeriesPass,
+    three_upcoming: list[Event],
+    revel_user: RevelUser,
+    django_capture_on_commit_callbacks: t.Any,
 ) -> None:
     series_pass.payment_method = TicketTier.PaymentMethod.OFFLINE
     series_pass.save(update_fields=["payment_method"])
@@ -32,9 +36,14 @@ def test_a_lost_rebuild_after_an_offline_confirm_is_recovered(
 
     with (
         patch("events.service.series_pass_service.send_series_pass_purchased"),
-        patch("events.service.series_pass_service.build_attendee_visibility_flags.delay"),  # the lost rebuild
+        patch(
+            "events.service.series_pass_service.build_attendee_visibility_flags.delay",
+            side_effect=ConnectionError("broker down"),  # the lost rebuild
+        ) as lost,
+        django_capture_on_commit_callbacks(execute=True),
     ):
         series_pass_service.confirm_held_pass_payment(held_pass)
+    assert lost.call_count == len(three_upcoming)  # dispatched, failed, and swallowed
     # The confirm stamped updated_at: bulk_update alone leaves it at the purchase, out of the sweep window.
     stamped = Ticket.objects.filter(held_pass=held_pass).values_list("updated_at", flat=True)
     assert stamped and all(value > timezone.now() - timedelta(minutes=1) for value in stamped)

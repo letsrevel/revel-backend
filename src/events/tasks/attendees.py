@@ -10,7 +10,7 @@ import structlog
 from celery import shared_task
 from django.conf import settings
 from django.db import connection, transaction
-from django.db.models import Count, Exists, F, OuterRef, Q, Subquery
+from django.db.models import Count, F, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce
 from django.template.loader import render_to_string
 from django.utils import timezone, translation
@@ -43,6 +43,9 @@ def visibility_rebuild_lock_key(event_id: str) -> int:
 # 24 hours covers a long broker outage (the sweep itself cannot run during one); updated_at is indexed.
 RECONCILE_WINDOW = timedelta(hours=24)
 # A rebuild that is only queued is not lost: activity of the last minutes is left for the next run.
+# ponytail: a worker backlog longer than the grace makes the sweep queue a duplicate rebuild for each event that
+# waits; a rebuild sets the count to the live value, so it stops after one run. A per-event "dispatched" mark
+# would avoid the duplicate.
 RECONCILE_GRACE = timedelta(minutes=5)
 
 
@@ -81,11 +84,13 @@ def reconcile_attendee_counts() -> int:
         .annotate(n=Count("pk"))
         .values("n")
     )
+    # The candidates come from the indexed updated_at range, not from a scan of every event.
+    recent = set(Ticket.objects.filter(**window).values_list("event_id", flat=True).distinct())
+    recent |= set(EventRSVP.objects.filter(**window).values_list("event_id", flat=True).distinct())
+    if not recent:
+        return 0
     stale = list(
-        Event.objects.filter(
-            Exists(Ticket.objects.filter(event=OuterRef("pk"), **window))
-            | Exists(EventRSVP.objects.filter(event=OuterRef("pk"), **window))
-        )
+        Event.objects.filter(pk__in=recent)
         .annotate(live=Coalesce(Subquery(tickets), 0) + Coalesce(Subquery(rsvps), 0))
         .exclude(attendee_count=F("live"))
         .values_list("pk", flat=True)
