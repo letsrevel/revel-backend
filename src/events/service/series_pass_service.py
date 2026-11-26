@@ -27,6 +27,7 @@ from events.exceptions import SeriesPassCoverageError, SeriesPassHasHoldersError
 from events.models import (
     Event,
     EventSeries,
+    EventWaitList,
     HeldSeriesPass,
     Organization,
     Payment,
@@ -384,7 +385,31 @@ def materialize_tickets(
     # Lock order: ... Ticket -> MembershipRecord -> TicketNumberSequence, so grant before numbering.
     day_membership_service.on_tickets_issued(created)  # bulk_create skips the day-membership grant (ACTIVE only)
     ticket_number_service.assign_ticket_numbers(created)  # ...and the post_save numbering
+    # ...and the waitlist removal, with the timing of that receiver: ACTIVE always, PENDING only for offline payment.
+    if status == Ticket.TicketStatus.ACTIVE or (
+        status == Ticket.TicketStatus.PENDING
+        and held_pass.series_pass.payment_method == TicketTier.PaymentMethod.OFFLINE
+    ):
+        remove_holder_from_waitlists(held_pass.user_id, [ticket.event_id for ticket in created])
     return created
+
+
+def remove_holder_from_waitlists(user_id: UUID, event_ids: t.Sequence[UUID]) -> None:
+    """After commit, remove a pass holder from the waitlists of the events that the pass gave a ticket for (#1311).
+
+    ``bulk_create`` and ``bulk_update`` skip the ``post_save`` receiver that removes a ticket holder from the
+    waitlist. Independent: a failure is logged and does not stop the other commit callbacks.
+    """
+    if not event_ids:
+        return
+    ids = sorted({str(event_id) for event_id in event_ids})
+
+    def remove() -> None:
+        deleted, _ = EventWaitList.objects.filter(user_id=user_id, event_id__in=ids).delete()
+        if deleted:
+            logger.info("series_pass_holder_removed_from_waitlist", user_id=str(user_id), event_ids=ids)
+
+    on_commit_independent(remove, "series_pass_waitlist_removal_failed", user_id=str(user_id))
 
 
 def rebuild_attendee_visibility(event_ids: t.Iterable[UUID | str]) -> None:
@@ -929,6 +954,8 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
         Ticket.objects.bulk_update(pending_tickets, ["status", "price_paid", "updated_at"])
         day_membership_service.on_tickets_issued(pending_tickets, old_status=Ticket.TicketStatus.PENDING)
         ticket_number_service.assign_ticket_numbers(pending_tickets)
+        # The receiver removes on every save to ACTIVE; bulk_update skips it (#1311).
+        remove_holder_from_waitlists(held_pass.user_id, [ticket.event_id for ticket in pending_tickets])
 
     # bulk_update skips post_save, so the attendee count and visibility flags are rebuilt
     # explicitly, once per activated event, after commit. Backfilled events dispatch their own

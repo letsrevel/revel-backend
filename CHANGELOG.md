@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Series passes: a pass holder who was on the waitlist of a covered event now leaves that waitlist when the pass gives a ticket for the event (free and offline passes, the offline confirmation, and tickets for events added to the pass later). Before, the holder stayed on the waitlist and could get offers for a spot.
 - Django admin: the "delete selected" action on organizations now removes the stored image files of the organizations and of their events and series (logos, cover art and their derived images) that no other row uses.
 - OAuth applications: deleting an application (in the app settings, through client registration management, or in the Django admin, also with "delete selected") now removes its stored logo files that no other application uses.
 - Series passes: a checkout of a pass that moves to another event series or organization at the same moment now answers 409 ("The events of this pass changed. Please try again."). The buyer can then try again with the pass as it is now.
