@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.utils import timezone
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.exceptions import SeriesPassNotPurchasableError
@@ -676,6 +677,91 @@ class TestStatusChangeBeforeTheEventLock:
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
 
+    def test_purchase_refuses_a_swap_that_keeps_the_price_and_the_count(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        """One covered event reopens and another is cancelled: same price, same count, other events."""
+        _cancel(three_upcoming[0])
+        from events.service import series_pass_event_checks
+
+        real = series_pass_event_checks.lock_events_and_find_full
+
+        def swap_then_lock(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            Event.objects.filter(pk=three_upcoming[0].pk).update(status=OPEN)
+            _cancel(three_upcoming[1])
+            return real(*args, **kwargs)
+
+        with (
+            patch.object(series_pass_event_checks, "lock_events_and_find_full", side_effect=swap_then_lock),
+            _refused_before_any_write("The events of this pass changed"),
+        ):
+            SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+    def test_purchase_refuses_when_covered_events_swap_start_times(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        """One event moves into the past and a past one into the future: same price, same count."""
+        past, _ = _cover(series_pass, "past", days=-1)
+        from events.service import series_pass_event_checks
+
+        real = series_pass_event_checks.lock_events_and_find_full
+
+        def swap_then_lock(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            Event.objects.filter(pk=three_upcoming[0].pk).update(start=timezone.now() - timedelta(hours=1))
+            Event.objects.filter(pk=past.pk).update(start=timezone.now() + timedelta(days=20))
+            return real(*args, **kwargs)
+
+        with (
+            patch.object(series_pass_event_checks, "lock_events_and_find_full", side_effect=swap_then_lock),
+            _refused_before_any_write("The events of this pass changed"),
+        ):
+            SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+    def test_purchase_refuses_an_event_that_starts_before_the_lock(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        """The quote under the locks takes a new ``now``: an event that started meanwhile changes its set."""
+        first = timezone.now()
+        Event.objects.filter(pk=three_upcoming[0].pk).update(start=first + timedelta(minutes=30))
+        clock = MagicMock()
+        clock.now.side_effect = lambda: first if clock.now.call_count == 1 else first + timedelta(hours=1)
+
+        with (
+            patch("events.service.series_pass_purchase.timezone", clock),
+            _refused_before_any_write("The events of this pass changed"),
+        ):
+            SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+    def test_a_changed_event_answers_409_not_sold_out(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        """A full tier of an event cancelled after the links read: the 409 checks run before the 429."""
+        TicketTier.objects.filter(event=three_upcoming[1]).update(total_quantity=0)
+        from events.compliance import enforcement
+
+        real = enforcement.assert_sale_allowed
+
+        def sale_check_then_cancel(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            result = real(*args, **kwargs)
+            _cancel(three_upcoming[1])
+            return result
+
+        with (
+            patch.object(enforcement, "assert_sale_allowed", side_effect=sale_check_then_cancel),
+            _refused_before_any_write("The events of this pass changed"),
+        ):
+            SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+    def test_a_full_tier_without_a_change_is_still_sold_out(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        TicketTier.objects.filter(event=three_upcoming[1]).update(total_quantity=0)
+
+        with pytest.raises(HttpError) as exc_info:
+            SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+        assert exc_info.value.status_code == 429
+
     def test_purchase_refuses_a_cancel_that_keeps_the_price(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
     ) -> None:
@@ -760,6 +846,54 @@ class TestStatusChangeBeforeTheEventLock:
         assert not Ticket.objects.filter(held_pass=held_pass, event=new_event).exists()
         new_tier.refresh_from_db()
         assert new_tier.quantity_sold == 0
+
+    def test_extension_skips_an_event_that_starts_before_the_lock(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        held_pass = SeriesPassPurchaseService(series_pass, revel_user).purchase()
+        assert isinstance(held_pass, HeldSeriesPass)
+        new_event, new_tier = _cover(series_pass, "new", days=10)
+        from events.service import series_pass_event_checks
+
+        real = series_pass_event_checks.lock_events_and_find_full
+
+        def start_then_lock(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            Event.objects.filter(pk=new_event.pk).update(start=timezone.now() - timedelta(minutes=1))
+            return real(*args, **kwargs)
+
+        with (
+            patch.object(series_pass_event_checks, "lock_events_and_find_full", side_effect=start_then_lock),
+            patch("notifications.signals.series_pass.send_series_pass_extended"),
+        ):
+            materialize_series_pass_holders(str(series_pass.id), [str(new_event.id)])
+
+        assert not Ticket.objects.filter(held_pass=held_pass, event=new_event).exists()
+        new_tier.refresh_from_db()
+        assert new_tier.quantity_sold == 0
+
+    def test_backfill_skips_an_event_that_starts_before_the_lock(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        series_pass.payment_method = TicketTier.PaymentMethod.OFFLINE
+        series_pass.save(update_fields=["payment_method"])
+        held_pass = SeriesPassPurchaseService(series_pass, revel_user).purchase()
+        assert isinstance(held_pass, HeldSeriesPass)
+        late, _ = _cover(series_pass, "late", days=10)
+        from events.service import series_pass_event_checks
+
+        real = series_pass_event_checks.lock_events_and_find_full
+
+        def start_then_lock(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            Event.objects.filter(pk=late.pk).update(start=timezone.now() - timedelta(minutes=1))
+            return real(*args, **kwargs)
+
+        with (
+            patch.object(series_pass_event_checks, "lock_events_and_find_full", side_effect=start_then_lock),
+            patch("events.service.series_pass_service.send_series_pass_purchased"),
+        ):
+            series_pass_service.confirm_held_pass_payment(held_pass)
+
+        assert not Ticket.objects.filter(held_pass=held_pass, event=late).exists()
 
     def test_backfill_skips_an_event_cancelled_before_the_lock(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser

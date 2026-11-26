@@ -181,17 +181,20 @@ def _extend_holder(holder_id: UUID, links: list[SeriesPassTierLink], skipped: li
         locked_events = series_pass_event_checks.lock_events_and_find_full(
             [link.event for link in grantable], held_pass.user
         )
+        # Read under the lock, with a new ``now``: an event cancelled or started after the links snapshot
+        # gets no ticket, and no skip report (#1496).
+        now = timezone.now()
+        gone = locked_events.cancelled | {eid for eid, start in locked_events.start.items() if start < now}
         for link in grantable:
-            if link.event_id in locked_events.cancelled:
-                # Cancelled after the links snapshot: no ticket, and no skip report (#1496).
+            if link.event_id in gone:
                 logger.info(
-                    "series_pass_extension_skipped_cancelled_event",
+                    "series_pass_extension_skipped_cancelled_or_started_event",
                     held_pass_id=str(held_pass.id),
                     event_id=str(link.event_id),
                 )
             elif link.event_id in locked_events.full:
                 skipped.append((held_pass.id, link.event_id))
-        excluded = locked_events.cancelled | locked_events.full
+        excluded = gone | locked_events.full
         grantable = [link for link in grantable if link.event_id not in excluded]
         created = series_pass_service.materialize_tickets(
             held_pass, grantable, Ticket.TicketStatus.ACTIVE, price_paid=Decimal("0.00")

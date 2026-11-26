@@ -19,6 +19,7 @@ events pk-ordered. This is the batch checkout's own order (tier -> event).
 """
 
 import typing as t
+from datetime import datetime
 from uuid import UUID
 
 from accounts.models import RevelUser
@@ -66,9 +67,10 @@ def is_blocked_by_blacklist(user: RevelUser, event: Event) -> bool:
 
 
 class LockedEvents(t.NamedTuple):
-    """What the event row locks found: each event's status, the full events and the cancelled ones."""
+    """What the event row locks found: each event's status and start, the full events and the cancelled ones."""
 
     status: dict[UUID, str]
+    start: dict[UUID, datetime]
     full: set[UUID]
     cancelled: set[UUID]
 
@@ -88,9 +90,10 @@ def lock_events_and_find_full(events: t.Iterable[Event], user: RevelUser) -> Loc
         .filter(pk__in=[event.pk for event in events])
         .order_by("pk")
     )
-    result = LockedEvents(status={}, full=set(), cancelled=set())
+    result = LockedEvents(status={}, start={}, full=set(), cancelled=set())
     for event in locked:
         result.status[event.pk] = event.status
+        result.start[event.pk] = event.start
         if event.status == Event.EventStatus.CANCELLED:
             result.cancelled.add(event.pk)
             continue

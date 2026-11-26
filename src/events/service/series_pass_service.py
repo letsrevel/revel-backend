@@ -67,6 +67,8 @@ class SeriesPassQuote:
     purchasable: bool
     reason: str | None
     online_payment: PaymentChannelCapability
+    # The covered events counted as remaining: not started and not cancelled.
+    upcoming_event_ids: frozenset[UUID] = frozenset()
 
 
 def get_quote(
@@ -119,6 +121,7 @@ def get_quote(
         online_payment=series_pass_online_payment(
             series_pass.event_series.organization, series_pass.payment_method, price, upcoming
         ),
+        upcoming_event_ids=frozenset(event.pk for event in upcoming),
     )
 
 
@@ -463,11 +466,13 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
     locked_events = series_pass_event_checks.lock_events_and_find_full(
         [link.event for link in grantable], held_pass.user
     )
+    # Cancelled or started after the links query: the row read under the event lock wins (#1496).
+    locked_now = timezone.now()
+    gone = locked_events.cancelled | {eid for eid, start in locked_events.start.items() if start < locked_now}
     for link in grantable:
-        if link.event_id in locked_events.cancelled:
-            # Cancelled after the links query: the status read under the event lock wins (#1496).
+        if link.event_id in gone:
             logger.info(
-                "series_pass_backfill_skipped_cancelled_event",
+                "series_pass_backfill_skipped_cancelled_or_started_event",
                 held_pass_id=str(held_pass.id),
                 event_id=str(link.event_id),
             )
@@ -477,7 +482,7 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
                 held_pass_id=str(held_pass.id),
                 event_id=str(link.event_id),
             )
-    excluded = locked_events.cancelled | locked_events.full
+    excluded = gone | locked_events.full
     grantable = [link for link in grantable if link.event_id not in excluded]
     # ponytail: a holder never answered a questionnaire attached to an event linked after purchase; tickets are
     # issued anyway. Upgrade path: gate extension tickets on the questionnaire, or notify holders to answer it.
