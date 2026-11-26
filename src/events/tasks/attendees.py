@@ -2,6 +2,7 @@
 
 import hashlib
 import typing as t
+from datetime import timedelta
 from uuid import UUID
 
 import jwt
@@ -9,9 +10,10 @@ import structlog
 from celery import shared_task
 from django.conf import settings
 from django.db import connection, transaction
-from django.db.models import Q
+from django.db.models import Count, F, OuterRef, Q, Subquery
+from django.db.models.functions import Coalesce
 from django.template.loader import render_to_string
-from django.utils import translation
+from django.utils import timezone, translation
 from django.utils.translation import gettext as _
 
 from accounts.models import RevelUser
@@ -36,6 +38,56 @@ def visibility_rebuild_lock_key(event_id: str) -> int:
     """
     digest = hashlib.sha256(f"events.attendee_visibility:{event_id}".encode()).digest()
     return int.from_bytes(digest[:8], byteorder="big", signed=True)
+
+
+# A lost rebuild shows within minutes; two hours keeps the sweep cheap and still covers a broker outage.
+RECONCILE_WINDOW = timedelta(hours=2)
+
+
+@shared_task(name="events.reconcile_attendee_counts")
+def reconcile_attendee_counts() -> int:
+    """Dispatch the attendee rebuild again for an event whose stored count no longer matches (#1568).
+
+    A ``bulk_create`` of tickets (the series pass paths) skips ``post_save``, so its after-commit dispatch is the
+    only rebuild, and a broker failure loses it. A lost rebuild always leaves ``attendee_count`` stale, because
+    the new tickets are not counted. So the sweep takes the events with a ticket or an RSVP written in the last
+    ``RECONCILE_WINDOW`` and compares the stored count with the live one (attending tickets plus YES RSVPs, as
+    ``build_attendee_visibility_flags`` counts). It runs every 15 minutes.
+
+    Returns:
+        The number of events dispatched.
+    """
+    since = timezone.now() - RECONCILE_WINDOW
+    recent = set(Ticket.objects.filter(updated_at__gte=since).values_list("event_id", flat=True))
+    recent |= set(EventRSVP.objects.filter(updated_at__gte=since).values_list("event_id", flat=True))
+    if not recent:
+        return 0
+    tickets = (
+        Ticket.objects.attending()
+        .filter(event=OuterRef("pk"))
+        .order_by()
+        .values("event")
+        .annotate(n=Count("pk"))
+        .values("n")
+    )
+    rsvps = (
+        EventRSVP.objects.filter(event=OuterRef("pk"), status=EventRSVP.RsvpStatus.YES)
+        .order_by()
+        .values("event")
+        .annotate(n=Count("pk"))
+        .values("n")
+    )
+    stale = list(
+        Event.objects.filter(pk__in=recent)
+        .annotate(live=Coalesce(Subquery(tickets), 0) + Coalesce(Subquery(rsvps), 0))
+        .exclude(attendee_count=F("live"))
+        .values_list("pk", flat=True)
+    )
+    for event_id in stale:
+        build_attendee_visibility_flags.delay(str(event_id))
+    if stale:
+        logger.warning("attendee_count_drift_rebuilt", events=len(stale))
+    return len(stale)
 
 
 @shared_task(name="events.tasks.build_attendee_visibility_flags")

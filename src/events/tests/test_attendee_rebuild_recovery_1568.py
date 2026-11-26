@@ -1,0 +1,115 @@
+"""A lost attendee rebuild after a bulk ticket create is recovered (#1568).
+
+``series_pass_service.rebuild_attendee_visibility`` is the only rebuild after a ``bulk_create`` (it skips
+``post_save``). Its dispatch is now robust, so a broker failure does not fail the caller, and the 15-minute
+sweep ``events.reconcile_attendee_counts`` dispatches the rebuild again for an event whose stored
+``attendee_count`` differs from its live count.
+"""
+
+import typing as t
+from datetime import timedelta
+from unittest.mock import patch
+
+import pytest
+from django.utils import timezone
+
+from accounts.models import RevelUser
+from events.models import Event, EventRSVP, Ticket, TicketTier
+from events.service import series_pass_service
+from events.tasks import reconcile_attendee_counts
+
+pytestmark = pytest.mark.django_db
+
+DELAY = "events.tasks.attendees.build_attendee_visibility_flags.delay"
+
+
+@pytest.fixture
+def tier(event: Event) -> TicketTier:
+    return TicketTier.objects.create(event=event, name="Free", price=0, payment_method=TicketTier.PaymentMethod.FREE)
+
+
+def _bulk_ticket(event: Event, tier: TicketTier, user: RevelUser) -> Ticket:
+    """A ticket written as the series pass paths write it: bulk_create, so no post_save rebuild."""
+    (ticket,) = Ticket.objects.bulk_create(
+        [Ticket(event=event, tier=tier, user=user, guest_name="Ada", status=Ticket.TicketStatus.ACTIVE)]
+    )
+    return ticket
+
+
+class TestRobustDispatch:
+    def test_a_failed_enqueue_does_not_fail_the_caller(
+        self, event: Event, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        with patch(
+            "events.service.series_pass_service.build_attendee_visibility_flags.delay",
+            side_effect=ConnectionError("broker down"),
+        ) as delay:
+            with django_capture_on_commit_callbacks(execute=True):
+                series_pass_service.rebuild_attendee_visibility([event.pk])
+
+        delay.assert_called_once_with(str(event.pk))
+
+    def test_one_failed_enqueue_does_not_stop_the_others(
+        self, event: Event, public_event: Event, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        with patch(
+            "events.service.series_pass_service.build_attendee_visibility_flags.delay",
+            side_effect=[ConnectionError("broker down"), None],
+        ) as delay:
+            with django_capture_on_commit_callbacks(execute=True):
+                series_pass_service.rebuild_attendee_visibility([event.pk, public_event.pk])
+
+        assert delay.call_count == 2
+
+
+class TestReconcileSweep:
+    def test_an_event_with_a_stale_count_is_rebuilt(
+        self, event: Event, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        _bulk_ticket(event, tier, member_user)  # attendee_count stays 0: the rebuild was lost
+
+        with patch(DELAY) as delay:
+            dispatched = reconcile_attendee_counts()
+
+        delay.assert_called_once_with(str(event.pk))
+        assert dispatched == 1
+
+    def test_an_event_with_a_correct_count_is_not_rebuilt(
+        self, event: Event, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        _bulk_ticket(event, tier, member_user)
+        Event.objects.filter(pk=event.pk).update(attendee_count=1)
+
+        with patch(DELAY) as delay:
+            assert reconcile_attendee_counts() == 0
+
+        delay.assert_not_called()
+
+    def test_yes_rsvps_count_too(self, event: Event, member_user: RevelUser) -> None:
+        EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
+        Event.objects.filter(pk=event.pk).update(attendee_count=1)
+
+        with patch(DELAY) as delay:
+            assert reconcile_attendee_counts() == 0
+
+        delay.assert_not_called()
+
+    def test_activity_older_than_the_window_is_not_checked(
+        self, event: Event, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        ticket = _bulk_ticket(event, tier, member_user)
+        Ticket.objects.filter(pk=ticket.pk).update(updated_at=timezone.now() - timedelta(hours=3))
+
+        with patch(DELAY) as delay:
+            assert reconcile_attendee_counts() == 0
+
+        delay.assert_not_called()
+
+    def test_a_cancelled_ticket_is_not_counted(self, event: Event, tier: TicketTier, member_user: RevelUser) -> None:
+        ticket = _bulk_ticket(event, tier, member_user)
+        Ticket.objects.filter(pk=ticket.pk).update(status=Ticket.TicketStatus.CANCELLED)
+
+        with patch(DELAY) as delay:
+            assert reconcile_attendee_counts() == 0
+
+        delay.assert_not_called()

@@ -391,9 +391,21 @@ def rebuild_attendee_visibility(event_ids: t.Iterable[UUID | str]) -> None:
 
     ``bulk_create`` / ``bulk_update`` skip ``post_save``, so series-pass code that grants
     ACTIVE tickets in bulk must trigger the rebuild itself.
+
+    Robust: a failed enqueue is logged and does not fail the caller or the other events. The
+    ``events.reconcile_attendee_counts`` sweep then finds the stale count and dispatches the rebuild again.
     """
     for event_id in sorted({str(e) for e in event_ids}):
-        transaction.on_commit(functools.partial(build_attendee_visibility_flags.delay, event_id))
+        transaction.on_commit(_attendee_rebuild_dispatch(event_id), robust=True)
+
+
+def _attendee_rebuild_dispatch(event_id: str) -> t.Callable[[], None]:
+    """A named closure, not functools.partial: the robust on_commit path logs a failure by __qualname__."""
+
+    def dispatch_attendee_visibility_rebuild() -> None:
+        build_attendee_visibility_flags.delay(event_id)
+
+    return dispatch_attendee_visibility_rebuild
 
 
 def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
