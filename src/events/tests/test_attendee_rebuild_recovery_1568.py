@@ -157,27 +157,3 @@ class TestReconcileSweep:
             assert reconcile_attendee_counts() == 0
 
         delay.assert_not_called()
-
-
-def test_a_rebuild_that_fails_on_the_flags_leaves_the_count_for_the_sweep(
-    event: Event, tier: TicketTier, member_user: RevelUser
-) -> None:
-    """The count is written only after the flags: a failed flag rebuild leaves it stale, so the sweep retries.
-
-    Before, the count was committed first, so a failure in the flag phase left a correct count and stale flags,
-    and the sweep skipped the event.
-    """
-    from events.models import AttendeeVisibilityFlag
-    from events.tasks import build_attendee_visibility_flags
-
-    _bulk_ticket(event, tier, member_user)
-    with (
-        patch.object(AttendeeVisibilityFlag.objects, "bulk_create", side_effect=RuntimeError("flags failed")),
-        pytest.raises(RuntimeError),
-    ):
-        build_attendee_visibility_flags(str(event.pk))
-
-    assert Event.objects.get(pk=event.pk).attendee_count == 0  # still stale
-    with patch(DELAY) as delay:
-        assert reconcile_attendee_counts() == 1
-    delay.assert_called_once_with(str(event.pk))

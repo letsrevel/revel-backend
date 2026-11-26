@@ -114,6 +114,19 @@ def build_attendee_visibility_flags(event_id: str) -> None:
     """
     from events.service.user_preferences_service import VisibilityContext, resolve_visibility_fast
 
+    # Update attendee count atomically with a lock to prevent race conditions.
+    # Multiple tasks may run concurrently when tickets are confirmed rapidly;
+    # this ensures the count is read and written while holding the lock.
+    with transaction.atomic():
+        event = Event.objects.with_organization().select_for_update().filter(pk=event_id).first()
+        if event is None:
+            # Dispatched by a Ticket/RSVP post_delete cascaded from event.delete() (#937)
+            return
+        ticket_count = Ticket.objects.attending().filter(event=event).count()
+        rsvp_count = EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).count()
+        event.attendee_count = ticket_count + rsvp_count
+        event.save(update_fields=["attendee_count"])
+
     with transaction.atomic():
         # Serialize concurrent rebuilds of the same event's matrix. Every confirmed
         # ticket/RSVP dispatches this task, so a checkout rush runs several rebuilds
@@ -129,7 +142,9 @@ def build_attendee_visibility_flags(event_id: str) -> None:
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s)", [visibility_rebuild_lock_key(event_id)])
 
-        # Fetch the event without a row lock for the flag rebuild (read-only); it can have been deleted (#937).
+        # Re-fetch event without a row lock for visibility flag building (read-only).
+        # The first block's row lock is released at its commit, so the event can have
+        # been deleted in between (#937).
         event = Event.objects.with_organization().filter(pk=event_id).first()
         if event is None:
             return
@@ -175,19 +190,6 @@ def build_attendee_visibility_flags(event_id: str) -> None:
             update_fields=["is_visible"],
             unique_fields=["user", "event", "target"],
         )
-
-    # The count last, in its own transaction, only after the flags committed: a failed flag rebuild then leaves
-    # the count stale, so events.reconcile_attendee_counts finds the event and dispatches the rebuild again (#1568).
-    # Locked so that concurrent rebuilds read and write the count under the event row lock.
-    with transaction.atomic():
-        event = Event.objects.select_for_update().filter(pk=event_id).first()
-        if event is None:
-            # Dispatched by a Ticket/RSVP post_delete cascaded from event.delete() (#937)
-            return
-        ticket_count = Ticket.objects.attending().filter(event=event).count()
-        rsvp_count = EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).count()
-        event.attendee_count = ticket_count + rsvp_count
-        event.save(update_fields=["attendee_count"])
 
 
 def _token_event_id(token: str) -> UUID | None:

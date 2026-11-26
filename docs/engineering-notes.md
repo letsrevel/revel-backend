@@ -746,8 +746,7 @@ pass holder materialization with the `reconcile_series_pass_tickets` sweep (#153
 rebuild after a bulk ticket create (`series_pass_service.rebuild_attendee_visibility`) with the
 `reconcile_attendee_counts` sweep (#1568). That sweep compares the stored `attendee_count` of each event
 with a ticket or RSVP written in the last 24 hours (minus a 5-minute grace for a rebuild that is only
-queued) with its live count: a lost rebuild usually leaves the count stale. The rebuild writes the count
-last, after the flags commit, so a rebuild that fails in its flag phase also leaves the count stale. It finds only a write that stamps
+queued) with its live count: a lost rebuild usually leaves the count stale. It finds only a write that stamps
 `updated_at`, so a `bulk_update` on that path lists `updated_at` by hand. Accepted limit (owner decision,
 #1568 option B): it does not repair an event whose lost rebuilds cancel out in the count (for example, a
 lost cancel and a lost bulk issue on the same event), because the stored and live counts then match. A
