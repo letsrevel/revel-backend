@@ -19,7 +19,8 @@ from events.service import check_in_service
 pytestmark = pytest.mark.django_db
 
 _ensure_check_in_open = check_in_service._ensure_check_in_open
-EXPECTED_CHECK_IN_QUERIES = 20
+# 17 since #1563: a partial save no longer validates the foreign keys that it does not write (one query each).
+EXPECTED_CHECK_IN_QUERIES = 17
 
 
 @pytest.fixture

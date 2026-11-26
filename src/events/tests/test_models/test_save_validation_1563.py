@@ -97,6 +97,17 @@ class TestStoredImage:
 
         assert _fresh(event).attendee_count == 4
 
+    def test_a_partial_save_does_not_process_an_image_that_it_does_not_write(self, event: Event) -> None:
+        """An image assigned but left out of update_fields is not read, so a bad file does not fail the save."""
+        stored = _fresh(event)
+        stored.logo = SimpleUploadedFile("logo.png", b"not an image", content_type="image/png")
+        stored.attendee_count = 2
+
+        stored.save(update_fields=["attendee_count"])
+
+        assert _fresh(event).attendee_count == 2
+        assert not _fresh(event).logo
+
     def test_a_new_upload_is_still_validated(self, event: Event) -> None:
         stored = _fresh(event)
         stored.logo = SimpleUploadedFile("logo.png", b"not an image", content_type="image/png")
