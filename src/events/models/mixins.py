@@ -8,7 +8,7 @@ from django.core.files.uploadedfile import UploadedFile
 from django.core.validators import FileExtensionValidator
 from django.utils.text import slugify
 
-from common.fields import ALLOWED_IMAGE_EXTENSIONS, validate_image_file
+from common.fields import ALLOWED_IMAGE_EXTENSIONS, random_image_name, validate_image_file
 from common.models import ExifStripMixin, TimeStampedModel
 
 # Re-exported for backward compatibility: the canonical definition lives in
@@ -192,6 +192,16 @@ class LocationMixin(models.Model):
 IMAGE_PATH_FIELDS = ("logo", "logo_thumbnail", "cover_art", "cover_art_thumbnail", "cover_art_social")
 
 
+def logo_upload_to(instance: models.Model, filename: str) -> str:
+    """Store a new logo under a random name (#1547)."""
+    return f"logos/{random_image_name(filename)}"
+
+
+def cover_art_upload_to(instance: models.Model, filename: str) -> str:
+    """Store a new cover image under a random name (#1547)."""
+    return f"cover-art/{random_image_name(filename)}"
+
+
 class LogoCoverValidationMixin(ExifStripMixin):
     IMAGE_FIELDS = (
         "logo",
@@ -207,7 +217,7 @@ class LogoCoverValidationMixin(ExifStripMixin):
     ]
 
     logo = models.ImageField(
-        upload_to="logos",
+        upload_to=logo_upload_to,
         null=True,
         blank=True,
         validators=image_validators,
@@ -219,7 +229,7 @@ class LogoCoverValidationMixin(ExifStripMixin):
         help_text="150x150 logo thumbnail (auto-generated).",
     )
     cover_art = models.ImageField(
-        upload_to="cover-art",
+        upload_to=cover_art_upload_to,
         null=True,
         blank=True,
         validators=image_validators,
