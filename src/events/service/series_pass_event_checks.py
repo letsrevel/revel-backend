@@ -66,14 +66,15 @@ def is_blocked_by_blacklist(user: RevelUser, event: Event) -> bool:
 
 
 class LockedEvents(t.NamedTuple):
-    """What the event row locks found: the events that cannot take one more ticket, and the cancelled ones."""
+    """What the event row locks found: each event's status, the full events and the cancelled ones."""
 
+    status: dict[UUID, str]
     full: set[UUID]
     cancelled: set[UUID]
 
 
 def lock_events_and_find_full(events: t.Iterable[Event], user: RevelUser) -> LockedEvents:
-    """Row-lock the events pk-ordered; return the ids that cannot take one more ticket and the CANCELLED ids.
+    """Row-lock the events pk-ordered; return their status, the full ids and the CANCELLED ids.
 
     The status is read under the lock: ``update_status`` locks the event row first, so it cannot change
     until the caller commits. A status read before the lock can be stale (#1496). A cancelled event gets
@@ -87,8 +88,9 @@ def lock_events_and_find_full(events: t.Iterable[Event], user: RevelUser) -> Loc
         .filter(pk__in=[event.pk for event in events])
         .order_by("pk")
     )
-    result = LockedEvents(full=set(), cancelled=set())
+    result = LockedEvents(status={}, full=set(), cancelled=set())
     for event in locked:
+        result.status[event.pk] = event.status
         if event.status == Event.EventStatus.CANCELLED:
             result.cancelled.add(event.pk)
             continue

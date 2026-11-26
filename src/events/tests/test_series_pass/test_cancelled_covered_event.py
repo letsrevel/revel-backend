@@ -508,6 +508,55 @@ class TestStatusChangeBeforeTheEventLock:
         # The lock-free quote gave a discount step for the cancelled event; the locked one does not.
         assert not HeldSeriesPass.objects.filter(series_pass=series_pass, user=revel_user).exists()
 
+    def test_purchase_refuses_when_an_open_covered_event_closes(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        """The lock-free status gate saw OPEN; under the lock the event is CLOSED. The price is the same."""
+        with (
+            _status_change_before_the_event_lock(three_upcoming[1], Event.EventStatus.CLOSED),
+            pytest.raises(SeriesPassNotPurchasableError),
+        ):
+            SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+        assert not Ticket.objects.filter(event__in=three_upcoming).exists()
+
+    def test_purchase_refuses_a_cancel_that_keeps_the_price(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        """No discount step: only the status comparison can refuse it."""
+        series_pass.pro_rata_discount = Decimal("0.00")
+        series_pass.save(update_fields=["pro_rata_discount"])
+
+        with (
+            _status_change_before_the_event_lock(three_upcoming[1], CANCELLED),
+            pytest.raises(SeriesPassNotPurchasableError),
+        ):
+            SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+        assert not Ticket.objects.filter(event=three_upcoming[1]).exists()
+
+    def test_purchase_refuses_when_the_organizer_changes_the_price(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    ) -> None:
+        """A price change between the quote and the pass lock: the quote under the lock reads the locked row."""
+        real_quote = series_pass_service.get_quote
+        calls: list[int] = []
+
+        def quote_then_reprice(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            quote = real_quote(*args, **kwargs)
+            if not calls:
+                SeriesPass.objects.filter(pk=series_pass.pk).update(price=Decimal("50.00"))
+            calls.append(1)
+            return quote
+
+        with (
+            patch.object(series_pass_service, "get_quote", side_effect=quote_then_reprice),
+            pytest.raises(SeriesPassNotPurchasableError),
+        ):
+            SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+        assert not HeldSeriesPass.objects.filter(series_pass=series_pass, user=revel_user).exists()
+
     def test_purchase_refuses_when_the_price_changed_after_the_quote(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
     ) -> None:
@@ -615,6 +664,16 @@ class TestReconcileSweep:
         Ticket.objects.filter(held_pass=held_pass, event=three_upcoming[0]).update(status=Ticket.TicketStatus.CANCELLED)
 
         assert reconcile_series_pass_tickets() == 0
+        assert Ticket.objects.filter(held_pass=held_pass, event=three_upcoming[0]).count() == 1
+
+    def test_uncancel_dispatch_never_reissues_an_organizer_cancelled_ticket(
+        self, series_pass: SeriesPass, held_pass: HeldSeriesPass, three_upcoming: list[Event]
+    ) -> None:
+        """The extension reads the holder's tickets of any status under the pass lock (also the sweep's race)."""
+        Ticket.objects.filter(held_pass=held_pass, event=three_upcoming[0]).update(status=Ticket.TicketStatus.CANCELLED)
+
+        materialize_series_pass_holders(str(series_pass.id), [str(three_upcoming[0].id)])
+
         assert Ticket.objects.filter(held_pass=held_pass, event=three_upcoming[0]).count() == 1
 
     def test_skips_cancelled_and_past_events(self, series_pass: SeriesPass, held_pass: HeldSeriesPass) -> None:

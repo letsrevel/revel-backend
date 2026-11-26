@@ -98,8 +98,9 @@ def reconcile_series_pass_tickets() -> int:
         .filter(Exists(holder_without_ticket))
         .select_related("event__organization")
     )
-    # ponytail: one holder query per link with a gap. Gaps are rare (a failed enqueue or a skipped holder);
-    # a single pair query would replace this if many skipped holders make the loop slow.
+    # ponytail: one holder query per link with a gap, and a holder that stays skipped (blacklisted, or a tier
+    # that stays full) is tried again, and logged, on every run until the event starts. Gaps are rare (a failed
+    # enqueue or a skipped holder). Upgrade path: one pair query, and leave blacklisted holders out of it.
     links_by_holder: dict[UUID, list[SeriesPassTierLink]] = {}
     for link in links:
         holder_ids = (
@@ -145,13 +146,11 @@ def _extend_holder(holder_id: UUID, links: list[SeriesPassTierLink], skipped: li
             # Re-check per holder: a concurrent cancellation may have
             # landed between the holder snapshot and this holder's turn.
             return []
-        # Events the holder already has a (non-cancelled) ticket for are not extension work: drop them
-        # before any capacity check so a full event they already hold is not reported as skipped.
-        ticketed_event_ids = set(
-            Ticket.objects.filter(held_pass=held_pass)
-            .exclude(status=Ticket.TicketStatus.CANCELLED)
-            .values_list("event_id", flat=True)
-        )
+        # Events the holder already has a ticket for, of any status, are not extension work: drop them
+        # before any capacity check so a full event they already hold is not reported as skipped. A CANCELLED
+        # ticket counts too: the organizer cancelled it, and no extension, un-cancel or sweep issues it again.
+        # Read under the pass lock, so a ticket issued and cancelled after the sweep's snapshot counts (#1536).
+        ticketed_event_ids = set(Ticket.objects.filter(held_pass=held_pass).values_list("event_id", flat=True))
         pending_links = [link for link in links if link.event_id not in ticketed_event_ids]
         if not pending_links:
             return []

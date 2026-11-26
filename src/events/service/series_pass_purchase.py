@@ -84,14 +84,20 @@ class SeriesPassPurchaseService:
             raise UserIsIneligibleError(str(result.reason), result)
 
     def _lock_events_and_assert_unchanged(
-        self, now: datetime, quote: SeriesPassQuote, upcoming_links: list[SeriesPassTierLink]
+        self,
+        locked_pass: SeriesPass,
+        now: datetime,
+        quote: SeriesPassQuote,
+        upcoming_links: list[SeriesPassTierLink],
     ) -> None:
         """Lock every covered event not yet started, then assert nothing the lock-free reads saw has changed.
 
         The cancelled events are locked too: ``update_status`` locks the event row first, so no status
         can change until this purchase commits, and an un-cancel that waits for the lock then
-        dispatches its holder materialization after this pass exists (#1496). The quote is computed
-        again under the locks, so the price matches the tickets issued.
+        dispatches its holder materialization after this pass exists (#1496). Any status change (to or
+        from CANCELLED, or an OPEN event that closes) is refused: the lock-free status gate saw the old
+        status. The quote is computed again under the locks, from the locked pass row, so the price
+        matches the tickets issued.
 
         Same capacity counting rules as batch checkout. Must run after the tier locks: batch checkout
         locks tier -> event, so the events are locked last, pk-ordered among themselves.
@@ -103,13 +109,9 @@ class SeriesPassPurchaseService:
         locked_events = series_pass_event_checks.lock_events_and_find_full(
             [link.event for link in upcoming_links], self.user
         )
-        seen_cancelled = {link.event_id for link in upcoming_links if link.event.status == Event.EventStatus.CANCELLED}
-        locked_quote = series_pass_service.get_quote(self.series_pass, now, check_event_status=False)
-        if (
-            locked_events.cancelled != seen_cancelled
-            or not locked_quote.purchasable
-            or locked_quote.price != quote.price
-        ):
+        seen_status = {link.event_id: link.event.status for link in upcoming_links}
+        locked_quote = series_pass_service.get_quote(locked_pass, now, check_event_status=False)
+        if locked_events.status != seen_status or not locked_quote.purchasable or locked_quote.price != quote.price:
             raise SeriesPassNotPurchasableError(str(_("The events of this pass changed. Please try again.")))
         for link in upcoming_links:
             if link.event_id in locked_events.full:
@@ -221,7 +223,12 @@ class SeriesPassPurchaseService:
         # handle_payment_intent_canceled).
         # The buyer's account row comes before every other lock: see lock_account_for_checkout (#1476).
         lock_account_for_checkout(self.user)
-        locked_pass = SeriesPass.objects.select_for_update().get(pk=self.series_pass.pk)
+        # of=("self",): the joins only feed the quote under the lock below; they are not locked.
+        locked_pass = (
+            SeriesPass.objects.select_for_update(of=("self",))
+            .select_related("event_series__organization__city")
+            .get(pk=self.series_pass.pk)
+        )
         if locked_pass.total_quantity is not None and locked_pass.quantity_sold >= locked_pass.total_quantity:
             raise SeriesPassNotPurchasableError(str(_("This pass is sold out.")))
 
@@ -259,7 +266,7 @@ class SeriesPassPurchaseService:
             if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
                 raise HttpError(429, str(_("Event {name} is sold out.")).format(name=link.event.name))
 
-        self._lock_events_and_assert_unchanged(now, quote, upcoming_links)
+        self._lock_events_and_assert_unchanged(locked_pass, now, quote, upcoming_links)
 
         held_pass = self._create_held_pass(quote.price, attribution)
         method = self.series_pass.payment_method
