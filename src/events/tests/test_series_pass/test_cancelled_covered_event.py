@@ -502,12 +502,9 @@ class TestStatusChangeBeforeTheEventLock:
     ) -> None:
         with (
             _status_change_before_the_event_lock(three_upcoming[1], CANCELLED),
-            pytest.raises(SeriesPassNotPurchasableError),
+            _refused_before_any_write("The events of this pass changed"),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
-
-        assert not HeldSeriesPass.objects.filter(series_pass=series_pass, user=revel_user).exists()
-        assert not Ticket.objects.filter(event__in=three_upcoming).exists()
 
     def test_purchase_refuses_when_a_cancelled_covered_event_reopens(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
@@ -516,12 +513,11 @@ class TestStatusChangeBeforeTheEventLock:
 
         with (
             _status_change_before_the_event_lock(three_upcoming[0], OPEN),
-            pytest.raises(SeriesPassNotPurchasableError),
+            _refused_before_any_write("The events of this pass changed"),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
 
         # The lock-free quote gave a discount step for the cancelled event; the locked one does not.
-        assert not HeldSeriesPass.objects.filter(series_pass=series_pass, user=revel_user).exists()
 
     def test_purchase_refuses_when_an_open_covered_event_closes(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
@@ -529,11 +525,9 @@ class TestStatusChangeBeforeTheEventLock:
         """The lock-free status gate saw OPEN; under the lock the event is CLOSED. The price is the same."""
         with (
             _status_change_before_the_event_lock(three_upcoming[1], Event.EventStatus.CLOSED),
-            pytest.raises(SeriesPassNotPurchasableError),
+            _refused_before_any_write("The events of this pass changed"),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
-
-        assert not Ticket.objects.filter(event__in=three_upcoming).exists()
 
     def test_purchase_refuses_an_event_closed_after_the_status_gate(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
@@ -547,11 +541,9 @@ class TestStatusChangeBeforeTheEventLock:
 
         with (
             patch.object(SeriesPassPurchaseService, "_assert_covered_events_eligible", gate_then_close),
-            pytest.raises(SeriesPassNotPurchasableError),
+            _refused_before_any_write("The events of this pass changed"),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
-
-        assert not Ticket.objects.filter(event__in=three_upcoming).exists()
 
     def test_owner_is_not_refused_when_a_covered_event_closes(
         self, series_pass: SeriesPass, three_upcoming: list[Event], organization: Organization
@@ -614,7 +606,7 @@ class TestStatusChangeBeforeTheEventLock:
 
         with (
             patch.object(series_pass_event_checks, "lock_events_and_find_full", side_effect=delete_then_lock),
-            _refused_before_any_write(),
+            _refused_before_any_write("The events of this pass changed"),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
 
@@ -633,7 +625,7 @@ class TestStatusChangeBeforeTheEventLock:
 
         with (
             patch.object(enforcement, "assert_sale_allowed", side_effect=sale_check_then_delete),
-            _refused_before_any_write(),
+            _refused_before_any_write("The events of this pass changed"),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
 
@@ -653,7 +645,7 @@ class TestStatusChangeBeforeTheEventLock:
 
         with (
             patch.object(series_pass_event_checks, "lock_events_and_find_full", side_effect=move_then_lock),
-            _refused_before_any_write(),
+            _refused_before_any_write("The events of this pass changed"),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
 
@@ -693,11 +685,9 @@ class TestStatusChangeBeforeTheEventLock:
 
         with (
             _status_change_before_the_event_lock(three_upcoming[1], CANCELLED),
-            pytest.raises(SeriesPassNotPurchasableError),
+            _refused_before_any_write("The events of this pass changed"),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
-
-        assert not Ticket.objects.filter(event=three_upcoming[1]).exists()
 
     def test_purchase_refuses_when_the_organizer_changes_the_price(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
@@ -715,11 +705,9 @@ class TestStatusChangeBeforeTheEventLock:
 
         with (
             patch.object(series_pass_service, "get_quote", side_effect=quote_then_reprice),
-            pytest.raises(SeriesPassNotPurchasableError),
+            _refused_before_any_write("The events of this pass changed"),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
-
-        assert not HeldSeriesPass.objects.filter(series_pass=series_pass, user=revel_user).exists()
 
     def test_purchase_refuses_when_the_price_changed_after_the_quote(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
@@ -737,12 +725,11 @@ class TestStatusChangeBeforeTheEventLock:
 
         with (
             patch.object(series_pass_service, "get_quote", side_effect=quote_then_cancel),
-            pytest.raises(SeriesPassNotPurchasableError),
+            _refused_before_any_write("The events of this pass changed"),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
 
         assert len(calls) == 2
-        assert not HeldSeriesPass.objects.filter(series_pass=series_pass, user=revel_user).exists()
 
     def test_purchase_without_a_status_change_still_succeeds(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
