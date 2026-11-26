@@ -67,6 +67,8 @@ class SeriesPassQuote:
     purchasable: bool
     reason: str | None
     online_payment: PaymentChannelCapability
+    # The covered events counted as remaining: not started and not cancelled.
+    upcoming_event_ids: frozenset[UUID]
 
 
 def get_quote(
@@ -119,6 +121,7 @@ def get_quote(
         online_payment=series_pass_online_payment(
             series_pass.event_series.organization, series_pass.payment_method, price, upcoming
         ),
+        upcoming_event_ids=frozenset(event.pk for event in upcoming),
     )
 
 
@@ -287,8 +290,17 @@ def add_tier_links(
         created.append(tier_link)
     if materialize and created:
         event_ids = [str(link.event_id) for link in created]
-        transaction.on_commit(lambda: materialize_series_pass_holders.delay(str(series_pass.id), event_ids))
+        # robust=True: a failed enqueue does not fail the request; reconcile_series_pass_tickets issues the tickets.
+        transaction.on_commit(_holder_materialization(str(series_pass.id), event_ids), robust=True)
     return created
+
+
+def _holder_materialization(series_pass_id: str, event_ids: list[str]) -> t.Callable[[], None]:
+    # A named closure, not a partial or a lambda: a robust on_commit logs failures via ``__qualname__``.
+    def dispatch_holder_materialization() -> None:
+        materialize_series_pass_holders.delay(series_pass_id, event_ids)
+
+    return dispatch_holder_materialization
 
 
 def create_series_pass(series: EventSeries, payload: SeriesPassCreateSchema) -> SeriesPass:
@@ -440,7 +452,15 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
     }
     grantable: list[SeriesPassTierLink] = []
     for link in missing_links:
-        tier = locked[link.tier_id]
+        tier = locked.get(link.tier_id)
+        if tier is None:
+            # The covered event (and its tier) was deleted after the links query.
+            logger.info(
+                "series_pass_backfill_skipped_deleted_event",
+                held_pass_id=str(held_pass.id),
+                event_id=str(link.event_id),
+            )
+            continue
         if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
             logger.info(
                 "series_pass_backfill_skipped_full_tier",
@@ -451,17 +471,30 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
             continue
         grantable.append(link)
     # Event-level capacity (events locked after the tiers, pk-ordered), the same rule the purchase applies.
-    full_event_ids = series_pass_event_checks.lock_events_and_find_full(
+    locked_events = series_pass_event_checks.lock_events_and_find_full(
         [link.event for link in grantable], held_pass.user
     )
+    # Cancelled or started after the links query: the row read under the event lock wins (#1496).
+    locked_now = timezone.now()
+    deleted = {link.event_id for link in grantable if link.event_id not in locked_events.status}
+    gone = locked_events.cancelled | {eid for eid, start in locked_events.start.items() if start < locked_now} | deleted
     for link in grantable:
-        if link.event_id in full_event_ids:
+        if link.event_id in gone:
+            logger.info(
+                "series_pass_backfill_skipped_deleted_event"
+                if link.event_id in deleted
+                else "series_pass_backfill_skipped_cancelled_or_started_event",
+                held_pass_id=str(held_pass.id),
+                event_id=str(link.event_id),
+            )
+        elif link.event_id in locked_events.full:
             logger.info(
                 "series_pass_backfill_skipped_full_event",
                 held_pass_id=str(held_pass.id),
                 event_id=str(link.event_id),
             )
-    grantable = [link for link in grantable if link.event_id not in full_event_ids]
+    excluded = gone | locked_events.full
+    grantable = [link for link in grantable if link.event_id not in excluded]
     # ponytail: a holder never answered a questionnaire attached to an event linked after purchase; tickets are
     # issued anyway. Upgrade path: gate extension tickets on the questionnaire, or notify holders to answer it.
     created = materialize_tickets(held_pass, grantable, Ticket.TicketStatus.ACTIVE, price_paid=_ZERO)

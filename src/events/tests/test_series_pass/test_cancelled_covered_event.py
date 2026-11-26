@@ -5,7 +5,6 @@ remaining, and no flow issues a ticket for it. DRAFT and other non-OPEN upcoming
 """
 
 import typing as t
-from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -30,49 +29,13 @@ from events.service.series_pass_purchase import SeriesPassPurchaseService
 from events.service.series_pass_questionnaires import check_series_questionnaires
 from events.service.series_pass_service import get_quote
 from events.tasks.series_pass import materialize_series_pass_holders
+from events.tests.test_series_pass.covered_events import CANCELLED, OPEN
+from events.tests.test_series_pass.covered_events import cancel as _cancel
+from events.tests.test_series_pass.covered_events import cover as _cover
 from questionnaires.models import Questionnaire
 from wallet.resolution import resolve_series_window
 
 pytestmark = pytest.mark.django_db
-
-OPEN = Event.EventStatus.OPEN
-CANCELLED = Event.EventStatus.CANCELLED
-
-
-def _cover(series_pass: SeriesPass, slug: str, days: int, status: Event.EventStatus = OPEN) -> tuple[Event, TicketTier]:
-    """Create a covered event and its FREE tier. The link is created directly, past the coverage gate."""
-    series = series_pass.event_series
-    event = Event.objects.create(
-        organization=series.organization,
-        name=f"Event {slug}",
-        slug=slug,
-        event_type=Event.EventType.PUBLIC,
-        visibility=Event.Visibility.PUBLIC,
-        event_series=series,
-        max_attendees=100,
-        start=timezone.now() + timedelta(days=days),
-        status=status,
-        requires_ticket=True,
-    )
-    tier = TicketTier.objects.create(
-        event=event,
-        name=f"Tier {slug}",
-        price=Decimal("10.00"),
-        currency="EUR",
-        payment_method=TicketTier.PaymentMethod.FREE,
-    )
-    SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=tier)
-    return event, tier
-
-
-@pytest.fixture
-def three_upcoming(series_pass: SeriesPass) -> list[Event]:
-    """Three upcoming OPEN covered events. ``series_pass``: price 36.00, discount 6.00, FREE."""
-    return [_cover(series_pass, f"up-{i}", days=i + 1)[0] for i in range(3)]
-
-
-def _cancel(event: Event) -> None:
-    Event.objects.filter(pk=event.pk).update(status=CANCELLED)
 
 
 class TestQuote:

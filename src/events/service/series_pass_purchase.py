@@ -31,6 +31,7 @@ from events.service import series_pass_event_checks, series_pass_service
 from events.service.blacklist_service import check_user_hard_blacklisted
 from events.service.event_manager import UserIsIneligibleError
 from events.service.series_pass_questionnaires import check_series_questionnaires
+from events.service.series_pass_service import SeriesPassQuote
 from events.utils.membership_access import is_eligible_member
 from notifications.signals.series_pass import send_series_pass_purchased
 
@@ -82,20 +83,84 @@ class SeriesPassPurchaseService:
         if result is not None:
             raise UserIsIneligibleError(str(result.reason), result)
 
-    def _assert_event_capacity(self, future_links: list[SeriesPassTierLink]) -> None:
-        """Assert every covered future event has room for one more ticket (all-or-nothing).
+    def _lock_tiers_and_find_full(self, future_links: list[SeriesPassTierLink]) -> set[UUID]:
+        """Lock all mapped tiers in pk order (deadlock discipline, mirrors BatchTicketService).
 
-        Same counting rules as batch checkout. Must run after the tier locks: batch checkout
+        Returns the ids of the covered events whose tier is sold out. The caller raises the 429 only after
+        the checks under the event locks, so a covered event that changed answers 409, not "sold out".
+
+        Raises:
+            SeriesPassNotPurchasableError: 409 if a covered event (and its tier) was deleted after the links read.
+        """
+        locked_tiers = {
+            tier.pk: tier
+            for tier in TicketTier.objects.select_for_update()
+            .filter(pk__in=[link.tier_id for link in future_links])
+            .order_by("pk")
+        }
+        if set(locked_tiers) != {link.tier_id for link in future_links}:
+            raise SeriesPassNotPurchasableError(str(_("The events of this pass changed. Please try again.")))
+        return {
+            link.event_id
+            for link in future_links
+            if (tier := locked_tiers[link.tier_id]).total_quantity is not None
+            and tier.quantity_sold >= tier.total_quantity
+        }
+
+    def _lock_events_and_assert_unchanged(
+        self,
+        locked_pass: SeriesPass,
+        quote: SeriesPassQuote,
+        upcoming_links: list[SeriesPassTierLink],
+        future_links: list[SeriesPassTierLink],
+        full_tier_event_ids: set[UUID],
+    ) -> None:
+        """Lock every covered event not yet started, then check the status rules and the price under the locks.
+
+        The cancelled events are locked too: ``update_status`` locks the event row first, so no status
+        can change until this purchase commits, and an un-cancel that waits for the lock then
+        dispatches its holder materialization after this pass exists (#1496). Under the locks, with a
+        new ``now``:
+
+        - the locked quote's remaining events (not started, not cancelled) must be exactly the events
+          that get a ticket (``future_links``). A cancel or un-cancel, a deleted event, a start moved,
+          an event that started meanwhile or a link added changes that set;
+        - for a buyer who is not owner or staff, every non-cancelled event must still be OPEN (the
+          ``EventStatusGate`` rule, which ran lock-free before);
+        - the quote, computed again from the locked pass row, must still be purchasable, with the same
+          price, and the payment method, the buyer rule and the currency must be the ones the purchase
+          started with. Visibility stays the controller's lock-free check (#1566).
+
+        Same capacity counting rules as batch checkout. Must run after the tier locks: batch checkout
         locks tier -> event, so the events are locked last, pk-ordered among themselves.
 
         Raises:
-            HttpError: 429 if any covered event is at capacity.
+            SeriesPassNotPurchasableError: 409 if a covered event changed or is gone, a pass field the
+                purchase relies on changed, or the pass is no longer purchasable (with the quote's reason).
+            HttpError: 429 if a covered event or its tier is at capacity, after the 409 checks.
         """
-        full_event_ids = series_pass_event_checks.lock_events_and_find_full(
-            [link.event for link in future_links], self.user
+        locked_events = series_pass_event_checks.lock_events_and_find_full(
+            [link.event for link in upcoming_links], self.user
         )
+        not_open = {
+            event_id
+            for event_id, status in locked_events.status.items()
+            if status not in (Event.EventStatus.OPEN, Event.EventStatus.CANCELLED)
+        }
+        locked_quote = series_pass_service.get_quote(locked_pass, timezone.now(), check_event_status=False)
+        if not locked_quote.purchasable:
+            raise SeriesPassNotPurchasableError(locked_quote.reason or str(_("This pass cannot be purchased.")))
+        if (
+            locked_quote.upcoming_event_ids != {link.event_id for link in future_links}
+            or (not_open and not self._is_owner_or_staff)
+            or locked_quote.price != quote.price
+            or locked_pass.payment_method != self.series_pass.payment_method
+            or locked_pass.purchasable_by != self.series_pass.purchasable_by
+            or locked_pass.currency != self.series_pass.currency
+        ):
+            raise SeriesPassNotPurchasableError(str(_("The events of this pass changed. Please try again.")))
         for link in future_links:
-            if link.event_id in full_event_ids:
+            if link.event_id in full_tier_event_ids or link.event_id in locked_events.full:
                 raise HttpError(429, str(_("Event {name} is sold out.")).format(name=link.event.name))
 
     def _assert_late_links_eligible(
@@ -175,8 +240,10 @@ class SeriesPassPurchaseService:
         checkout-session endpoint to obtain the Stripe checkout URL (#632).
         """
         self._assert_purchasable_by_user()
+        # One ``now`` for the quote and the covered events; the quote under the event locks takes a new one.
+        now = timezone.now()
         # The per-event status gate below gives the richer verdict (and exempts owners/staff).
-        quote = series_pass_service.get_quote(self.series_pass, check_event_status=False)
+        quote = series_pass_service.get_quote(self.series_pass, now, check_event_status=False)
         if not quote.purchasable:
             raise SeriesPassNotPurchasableError(quote.reason or str(_("This pass cannot be purchased.")))
         if self._has_active_held_pass():
@@ -185,7 +252,6 @@ class SeriesPassPurchaseService:
 
         # Light, lock-free checks first: the covered future events and the per-event gates run before the
         # pass row lock so a refused buyer never holds it. The links are re-queried under the lock below.
-        now = timezone.now()
         pre_links: list[SeriesPassTierLink] = list(self._future_links(now).select_related("event"))
         self._assert_covered_events_eligible(pre_links)
 
@@ -203,20 +269,27 @@ class SeriesPassPurchaseService:
         # handle_payment_intent_canceled).
         # The buyer's account row comes before every other lock: see lock_account_for_checkout (#1476).
         lock_account_for_checkout(self.user)
-        locked_pass = SeriesPass.objects.select_for_update().get(pk=self.series_pass.pk)
+        # of=("self",): the joins only feed the quote under the lock below; they are not locked.
+        locked_pass = (
+            SeriesPass.objects.select_for_update(of=("self",))
+            .select_related("event_series__organization__city")
+            .get(pk=self.series_pass.pk)
+        )
         if locked_pass.total_quantity is not None and locked_pass.quantity_sold >= locked_pass.total_quantity:
             raise SeriesPassNotPurchasableError(str(_("This pass is sold out.")))
 
-        future_links: list[SeriesPassTierLink] = list(
-            self._future_links(now).select_related("event").order_by("tier_id")
+        # One read of every covered event not yet started, the cancelled ones too: they are locked with the
+        # others below, and their status under the lock is compared with this read (#1496).
+        upcoming_links: list[SeriesPassTierLink] = list(
+            self.series_pass.tier_links.filter(event__start__gte=now).select_related("event").order_by("tier_id")
         )
+        future_links = [link for link in upcoming_links if link.event.status != Event.EventStatus.CANCELLED]
         self._assert_late_links_eligible(pre_links, future_links)
         if not future_links:
             # Defense-in-depth (#632): get_quote's remaining<2 gate above already
-            # blocks this in the normal case, but it and this future_links query each
-            # take an independent now() snapshot — a TOCTOU race between the two
-            # could in theory let a stale-but-purchasable quote through after every
-            # covered event has tipped into the past. Without this guard the ONLINE
+            # blocks this in the normal case. The quote and this read share one ``now``,
+            # but they are two reads: covered events cancelled or moved between them
+            # could leave none here. Without this guard the ONLINE
             # path would increment quantity_sold and create a PENDING held pass with
             # no tickets and no Payment rows — unreclaimable, since the beat-task
             # cleanup keys off Payment rows.
@@ -226,19 +299,8 @@ class SeriesPassPurchaseService:
             self.org, self.series_pass.payment_method, [quote.price], [link.event for link in future_links]
         )
 
-        # Lock all mapped tiers in pk order (deadlock discipline, mirrors BatchTicketService).
-        locked_tiers = {
-            tier.pk: tier
-            for tier in TicketTier.objects.select_for_update()
-            .filter(pk__in=[link.tier_id for link in future_links])
-            .order_by("pk")
-        }
-        for link in future_links:
-            tier = locked_tiers[link.tier_id]
-            if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
-                raise HttpError(429, str(_("Event {name} is sold out.")).format(name=link.event.name))
-
-        self._assert_event_capacity(future_links)
+        full_tier_event_ids = self._lock_tiers_and_find_full(future_links)
+        self._lock_events_and_assert_unchanged(locked_pass, quote, upcoming_links, future_links, full_tier_event_ids)
 
         held_pass = self._create_held_pass(quote.price, attribution)
         method = self.series_pass.payment_method

@@ -2798,6 +2798,9 @@ msgstr "Um passe apenas para não membros não pode ser visível apenas para mem
 msgid "You already hold this pass."
 msgstr "Já tens este passe."
 
+msgid "The events of this pass changed. Please try again."
+msgstr "Os eventos deste passe mudaram. Tenta novamente."
+
 msgid "This pass cannot be purchased."
 msgstr "Este passe não pode ser comprado."
 

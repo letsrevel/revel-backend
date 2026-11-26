@@ -2966,6 +2966,9 @@ msgstr "Ein Pass nur für Nichtmitglieder kann nicht nur für Mitglieder sichtba
 msgid "You already hold this pass."
 msgstr "Du besitzt diesen Pass bereits."
 
+msgid "The events of this pass changed. Please try again."
+msgstr "Die Veranstaltungen dieses Passes haben sich geändert. Bitte versuche es erneut."
+
 msgid "This pass cannot be purchased."
 msgstr "Dieser Pass kann nicht gekauft werden."
 
