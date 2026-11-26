@@ -150,7 +150,7 @@ class SeriesPassPurchaseService:
           ``EventStatusGate`` rule, which ran lock-free before);
         - the quote, computed again from the locked pass row, must still be purchasable, with the same
           price, and the payment method, the buyer rule and the currency must be the ones the purchase
-          started with. Visibility stays the controller's lock-free check (#1566).
+          started with. Visibility is checked in ``purchase()`` after the pass lock, not here (#1566).
 
         Same capacity counting rules as batch checkout. Must run after the tier locks: batch checkout
         locks tier -> event, so the events are locked last, pk-ordered among themselves.

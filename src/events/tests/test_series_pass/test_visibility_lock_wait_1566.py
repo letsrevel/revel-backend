@@ -4,6 +4,8 @@ The purchase reads the series visibility after it gets the pass row lock. Under 
 what committed during the wait, so a series that the organizer hides while another transaction holds the
 pass lock answers 404. A read before the locks would miss it.
 
+The holder locks only the pass row, so the purchase (account lock, then pass lock) waits on the pass row.
+
 ``transaction=True``: each thread uses its own connection and must see the other's real commits and lock
 waits, which the rollback-wrapped default ``django_db`` transaction cannot provide.
 """
