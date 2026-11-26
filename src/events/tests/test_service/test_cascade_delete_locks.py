@@ -23,7 +23,7 @@ from conftest import RevelUserFactory
 from events.admin.event import EventAdmin, EventSeriesAdmin
 from events.admin.organization import OrganizationAdmin
 from events.admin.ticket import TicketTierAdmin
-from events.models import Event, EventSeries, Organization, Payment, Ticket, TicketTier
+from events.models import Event, EventSeries, Organization, Payment, SeriesPass, Ticket, TicketTier
 from events.models.discount_code import DiscountCode
 from events.service import discount_code_service, event_series_service, event_update_service, ticket_service
 from events.tests.test_cancel_race_1431_1450 import _Pause, _Runner
@@ -89,6 +89,18 @@ def _code(organization: Organization) -> DiscountCode:
     )
 
 
+def _season_pass(series: EventSeries) -> SeriesPass:
+    """A pass with no holder yet: the series delete removes it."""
+    return SeriesPass.objects.create(
+        event_series=series,
+        name="Season",
+        price=Decimal("30.00"),
+        pro_rata_discount=Decimal("5.00"),
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.FREE,
+    )
+
+
 def _first_locks(captured: list[dict[str, t.Any]]) -> list[str]:
     """The tables of the row-lock statements, in the order of their first lock."""
     order: list[str] = []
@@ -143,6 +155,10 @@ class TestLockOrder:
 
         _assert_in_order(_first_locks(ctx.captured_queries), Payment, TicketTier, Event, Ticket, DiscountCode)
         _assert_for_update(ctx.captured_queries, TicketTier, Event)
+        locks = [table for q in ctx.captured_queries if (table := _lock_table(q["sql"]))]
+        after_event = locks[locks.index('"events_event"') + 1 :]
+        # The tiers again, before the second Payment lock: a tier that committed before the event lock is locked.
+        assert after_event[: after_event.index('"events_payment"')] == ['"events_tickettier"'], locks
         _assert_locks_before_delete(ctx.captured_queries)
         assert not Event.objects.filter(pk=online_tier.event_id).exists()
         code.refresh_from_db()
@@ -167,21 +183,31 @@ class TestLockOrder:
         self, online_tier: TicketTier, organization: Organization, buyer: RevelUser, event_series: EventSeries
     ) -> None:
         Event.objects.filter(pk=online_tier.event_id).update(event_series=event_series)
+        season = _season_pass(event_series)
         _reserve(online_tier, buyer, "cs_series", _code(organization))
 
         with patch(EXPIRE), CaptureQueriesContext(connection) as ctx:
             event_series_service.delete_event_series(event_series)
 
         _assert_in_order(
-            _first_locks(ctx.captured_queries), Payment, TicketTier, EventSeries, Event, Ticket, DiscountCode
+            _first_locks(ctx.captured_queries),
+            Payment,
+            SeriesPass,
+            TicketTier,
+            EventSeries,
+            Event,
+            Ticket,
+            DiscountCode,
         )
-        _assert_for_update(ctx.captured_queries, TicketTier, EventSeries, Event)
+        _assert_for_update(ctx.captured_queries, SeriesPass, TicketTier, EventSeries, Event)
+        assert not SeriesPass.objects.filter(pk=season.pk).exists()
         _assert_locks_before_delete(ctx.captured_queries)
 
     def test_organization_admin_delete(
         self, online_tier: TicketTier, organization: Organization, buyer: RevelUser, event_series: EventSeries
     ) -> None:
         Event.objects.filter(pk=online_tier.event_id).update(event_series=event_series)
+        _season_pass(event_series)
         _reserve(online_tier, buyer, "cs_org", _code(organization))
         admin = OrganizationAdmin(Organization, AdminSite())
 
@@ -191,6 +217,7 @@ class TestLockOrder:
         _assert_in_order(
             _first_locks(ctx.captured_queries),
             Payment,
+            SeriesPass,
             TicketTier,
             Organization,
             EventSeries,
@@ -198,7 +225,7 @@ class TestLockOrder:
             Ticket,
             DiscountCode,
         )
-        _assert_for_update(ctx.captured_queries, TicketTier, Organization, EventSeries, Event)
+        _assert_for_update(ctx.captured_queries, SeriesPass, TicketTier, Organization, EventSeries, Event)
         _assert_locks_before_delete(ctx.captured_queries)
         assert not Organization.objects.filter(pk=organization.pk).exists()
 
@@ -227,23 +254,31 @@ class TestLockOrder:
             sessions.append(f"cs_bulk_{target.pk}")
             _reserve(tiers[-1], buyer, sessions[-1])
         site = AdminSite()
+        # The statements of the bulk lock, before the first delete service of the loop runs.
         selected: dict[str, tuple[t.Any, QuerySet[t.Any], list[type[t.Any]]]] = {
-            "event": (EventAdmin(Event, site), Event.objects.filter(pk__in=[event.pk, public_event.pk]), [Event]),
+            "event": (
+                EventAdmin(Event, site),
+                Event.objects.filter(pk__in=[event.pk, public_event.pk]),
+                [Payment, TicketTier, Event, TicketTier],
+            ),
             "series": (
                 EventSeriesAdmin(EventSeries, site),
                 EventSeries.objects.filter(pk__in=[group.pk for group in series]),
-                [EventSeries, Event],
+                [Payment, SeriesPass, TicketTier, EventSeries, Event, TicketTier],
             ),
-            "tier": (TicketTierAdmin(TicketTier, site), TicketTier.objects.filter(pk__in=[x.pk for x in tiers]), []),
+            "tier": (
+                TicketTierAdmin(TicketTier, site),
+                TicketTier.objects.filter(pk__in=[x.pk for x in tiers]),
+                [Payment, TicketTier],
+            ),
         }
-        admin, queryset, parents = selected[kind]
+        admin, queryset, expected = selected[kind]
 
         with patch(EXPIRE) as expire, CaptureQueriesContext(connection) as ctx:
             with django_capture_on_commit_callbacks(execute=True):
                 admin.delete_queryset(MagicMock(), queryset)
 
         locks = [table for q in ctx.captured_queries if (table := _lock_table(q["sql"]))]
-        expected: list[type[t.Any]] = [Payment, TicketTier, *parents]
         assert locks[: len(expected)] == [f'"{model._meta.db_table}"' for model in expected], locks
         first = next(q["sql"] for q in ctx.captured_queries if _lock_table(q["sql"]))
         assert "ORDER BY" in first

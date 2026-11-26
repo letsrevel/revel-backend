@@ -291,6 +291,7 @@ class EventSeriesAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin)
                 models.EventSeries.objects.filter(pk__in=queryset),
                 models.Event.objects.filter(event_series__in=queryset),
             ],
+            passes=models.SeriesPass.objects.filter(event_series__in=queryset),
         )
         for series in queryset:
             self.delete_model(request, series)

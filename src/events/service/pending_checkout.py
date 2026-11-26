@@ -23,7 +23,7 @@ from stripe.checkout import Session
 
 from accounts.models import RevelUser
 from common.service.stripe_config import configure_stripe
-from events.models import Payment, Ticket, TicketTier
+from events.models import Payment, SeriesPass, Ticket, TicketTier
 from events.service import discount_code_service
 from events.service.waitlist_service import enqueue_waitlist_processing
 
@@ -206,11 +206,29 @@ def _lock_rows(rows: QuerySet[t.Any]) -> None:
     list(rows.select_for_update(of=("self",)).order_by("pk").values_list("pk", flat=True))
 
 
+def _lock_delete_scope(
+    passes: QuerySet[SeriesPass] | None,
+    tiers: QuerySet[TicketTier],
+    parents: t.Sequence[QuerySet[t.Any]],
+) -> None:
+    """Steps 2 and 3 of :func:`lock_for_cascade_delete`: series passes, tiers, parents, then the tiers again."""
+    if passes is not None:
+        _lock_rows(passes)
+    _lock_rows(tiers)
+    for rows in parents:
+        _lock_rows(rows)
+    if parents:
+        # A tier that committed between the two statements above is locked now. Once the parents are locked,
+        # no new tier can commit: its insert waits at the foreign-key check on the event.
+        _lock_rows(tiers)
+
+
 def lock_for_bulk_delete(
     tickets: QuerySet[Ticket],
     *,
     tiers: QuerySet[TicketTier],
     parents: t.Sequence[QuerySet[t.Any]] = (),
+    passes: QuerySet[SeriesPass] | None = None,
 ) -> None:
     """Lock the rows of several cascade deletes at once, in the global lock order, before a loop runs them.
 
@@ -223,9 +241,7 @@ def lock_for_bulk_delete(
     in its own savepoint expires nothing.
     """
     _lock_rows(Payment.objects.filter(ticket__in=tickets))
-    _lock_rows(tiers)
-    for rows in parents:
-        _lock_rows(rows)
+    _lock_delete_scope(passes, tiers, parents)
 
 
 def lock_for_cascade_delete(
@@ -233,6 +249,7 @@ def lock_for_cascade_delete(
     *,
     tiers: QuerySet[TicketTier] | None = None,
     parents: t.Sequence[QuerySet[t.Any]] = (),
+    passes: QuerySet[SeriesPass] | None = None,
 ) -> None:
     """End the unfinished checkouts of ``tickets`` that a delete is about to cascade away.
 
@@ -240,12 +257,15 @@ def lock_for_cascade_delete(
     global order (docs/engineering-notes.md, "Lock order"):
 
     1. the Payment rows of ``tickets``, pk order, and the statuses under that lock;
-    2. every ``tiers`` row (``FOR UPDATE``, pk order): a reservation locks its tier before it inserts, so
-       after this no new Payment row can appear for these tiers;
-    3. the ``parents`` rows (``FOR UPDATE``, pk order), in the order given: Organization, EventSeries, Event.
-       ``FOR UPDATE`` because the delete removes them: a transaction that inserts a child row meanwhile
-       waits at its commit-time foreign-key check and then fails, instead of the delete failing on it;
-    4. the Payment rows again, for the rows that a reservation committed between steps 1 and 2;
+    2. the ``passes`` rows (``FOR UPDATE``, pk order): the series passes that the delete removes, which come
+       before the tiers because a pass purchase locks its pass and then the tiers;
+    3. every ``tiers`` row (``FOR UPDATE``, pk order), then the ``parents`` rows (``FOR UPDATE``, pk order) in
+       the order given: Organization, EventSeries, Event. ``FOR UPDATE`` because the delete removes them: a
+       transaction that inserts a child row meanwhile waits at its commit-time foreign-key check and then
+       fails, instead of the delete failing on it. With parents, the tiers are locked again after them, for a
+       tier that committed in between. A reservation locks its tier before it inserts, so after this no new
+       Payment row can appear for these tiers;
+    4. the Payment rows again, for the rows that a reservation committed between steps 1 and 3;
     5. the Ticket and DiscountCode rows (``release_uses_of_pending_tickets``) to give back the discount uses.
 
     After commit, the open Stripe Checkout sessions of the unfinished payments are expired: without their
@@ -254,7 +274,7 @@ def lock_for_cascade_delete(
     A rollback discards the callback. Best effort: a failed expire is logged and the other sessions still go.
 
     Step 4 is out of the global order for the rows that committed after step 1. If a cancel, an expiry or a
-    webhook holds such a row and waits for a tier of step 2, Postgres detects the deadlock and stops one of
+    webhook holds such a row and waits for a tier of step 3, Postgres detects the deadlock and stops one of
     the two transactions. A session that is then paid with no Payment row is refunded in full
     (``refund_orphaned_checkout_session``).
 
@@ -263,12 +283,11 @@ def lock_for_cascade_delete(
         tiers: The tiers that the delete removes. None when it removes no tier (a ticket delete): steps 2 to 4
             are then skipped.
         parents: The parent rows that the delete removes, in lock order.
+        passes: The series passes that the delete removes (a series or an organization delete).
     """
     sessions_by_account = _lock_unfinished_sessions(tickets)
     if tiers is not None:
-        _lock_rows(tiers)
-        for rows in parents:
-            _lock_rows(rows)
+        _lock_delete_scope(passes, tiers, parents)
         for account_id, session_ids in _lock_unfinished_sessions(tickets).items():
             sessions_by_account[account_id] |= session_ids
     discount_code_service.release_uses_of_pending_tickets(tickets)

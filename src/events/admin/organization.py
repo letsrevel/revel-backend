@@ -186,6 +186,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
                 models.EventSeries.objects.filter(organization__in=organizations),
                 models.Event.objects.filter(organization__in=organizations),
             ],
+            passes=models.SeriesPass.objects.filter(event_series__organization__in=organizations),
         )
 
     def save_model(self, request: HttpRequest, obj: models.Organization, form: t.Any, change: bool) -> None:

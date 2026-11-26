@@ -10,7 +10,7 @@ from django.db.models import ProtectedError
 from django.utils.translation import gettext_lazy as _
 
 from events.exceptions import SeriesPassHasHoldersError
-from events.models import Event, EventSeries, Ticket, TicketTier
+from events.models import Event, EventSeries, SeriesPass, Ticket, TicketTier
 from events.service.pending_checkout import lock_for_cascade_delete
 
 
@@ -45,6 +45,7 @@ def delete_event_series(series: EventSeries) -> None:
                 Ticket.objects.filter(event__event_series=series),
                 tiers=TicketTier.objects.filter(event__event_series=series),
                 parents=[EventSeries.objects.filter(pk=series.pk), Event.objects.filter(event_series=series)],
+                passes=SeriesPass.objects.filter(event_series=series),
             )
             series.delete()
     except ProtectedError as exc:
