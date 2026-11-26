@@ -183,10 +183,11 @@ class TestLogoFilesOnDelete:
     def test_a_delete_removes_the_logo_files_after_commit(
         self, oauth_app: OAuthApplication, stored_logo: list[str], django_capture_on_commit_callbacks: t.Any
     ) -> None:
-        loaded = OAuthApplication.objects.get(pk=oauth_app.pk)
+        """``oauth_app`` was loaded before the paths were written: the delete reads them under the row lock."""
+        assert not oauth_app.logo
 
         with django_capture_on_commit_callbacks(execute=True):
-            app_service.delete_app(loaded)
+            app_service.delete_app(oauth_app)
 
         assert not OAuthApplication.objects.filter(pk=oauth_app.pk).exists()
         assert not any(default_storage.exists(path) for path in stored_logo)
@@ -208,7 +209,7 @@ class TestLogoFilesOnDelete:
         OAuthApplication.objects.filter(pk=other.pk).update(logo=stored_logo[0])
 
         with django_capture_on_commit_callbacks(execute=True):
-            OAuthApplication.objects.get(pk=oauth_app.pk).delete()
+            oauth_app.delete()
 
         assert default_storage.exists(stored_logo[0])
         assert not default_storage.exists(stored_logo[1])

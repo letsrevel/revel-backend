@@ -172,15 +172,20 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         super().delete_model(request, obj)
 
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.Organization]) -> None:
-        self._lock_for_delete(queryset)
-        # One delete() per row, as for events and series: a queryset delete skips the image-file cleanup (#1549).
+        # As for events and series: lock the rows of the whole selection in the global order, then one delete()
+        # per row. A queryset delete skips the image-file cleanup (#1549). Each delete_model ends its own checkouts.
+        self._lock_for_delete(queryset, bulk=True)
         for organization in queryset:
             self.delete_model(request, organization)
 
     @staticmethod
-    def _lock_for_delete(organizations: QuerySet[models.Organization]) -> None:
-        """End the unfinished checkouts that the delete removes; lock its rows in the global lock order first."""
-        pending_checkout.lock_for_cascade_delete(
+    def _lock_for_delete(organizations: QuerySet[models.Organization], *, bulk: bool = False) -> None:
+        """End the unfinished checkouts that the delete removes; lock its rows in the global lock order first.
+
+        ``bulk`` only takes the locks, for the whole selection, and ends no checkout.
+        """
+        lock = pending_checkout.lock_for_bulk_delete if bulk else pending_checkout.lock_for_cascade_delete
+        lock(
             models.Ticket.objects.filter(event__organization__in=organizations),
             tiers=models.TicketTier.objects.filter(event__organization__in=organizations),
             parents=[

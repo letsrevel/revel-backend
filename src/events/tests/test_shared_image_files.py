@@ -221,19 +221,38 @@ def test_a_regeneration_for_a_copy_keeps_the_template_files(template: Event, rgb
 def test_an_organization_admin_bulk_delete_deletes_the_files_of_its_events(
     template: Event, rf: t.Any, admin_user: t.Any, django_capture_on_commit_callbacks: t.Any
 ) -> None:
-    """The admin "delete selected" action: a queryset delete would skip the cleanup of delete() (#1549)."""
-    from events.admin.organization import OrganizationAdmin
+    """The admin "delete selected" action on two organizations (#1549).
 
-    paths = _paths(template)
+    A queryset delete would skip the cleanup of delete(). The bulk step only locks: each organization's
+    checkouts end once, in its own delete_model.
+    """
+    from events.admin.organization import OrganizationAdmin
+    from events.service import pending_checkout
+
+    other_org = Organization.objects.create(name="Other", slug="other-1549", owner=admin_user)
+    other_event = Event.objects.create(organization=other_org, name="Other", slug="other-1549", start=template.start)
+    other_paths = {
+        name: default_storage.save(f"shared/{other_event.pk}/{name}.jpg", ContentFile(b"image"))
+        for name in IMAGE_FIELDS
+    }
+    Event.objects.filter(pk=other_event.pk).update(**other_paths)
+    paths = _paths(template) + list(other_paths.values())
+    org_pks = [template.organization_id, other_org.pk]
     request = rf.post("/")
     request.user = admin_user
     model_admin = OrganizationAdmin(Organization, django_admin.site)
 
-    with django_capture_on_commit_callbacks(execute=True):
-        model_admin.delete_queryset(request, Organization.objects.filter(pk=template.organization_id))
+    with (
+        patch.object(
+            pending_checkout, "lock_for_cascade_delete", wraps=pending_checkout.lock_for_cascade_delete
+        ) as end_checkouts,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        model_admin.delete_queryset(request, Organization.objects.filter(pk__in=org_pks))
 
-    assert not Organization.objects.filter(pk=template.organization_id).exists()
+    assert not Organization.objects.filter(pk__in=org_pks).exists()
     assert not any(default_storage.exists(path) for path in paths)
+    assert end_checkouts.call_count == 2  # once per organization, not again for the whole selection
 
 
 class TestAdmin:
