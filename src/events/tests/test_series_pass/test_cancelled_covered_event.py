@@ -615,6 +615,8 @@ class TestStatusChangeBeforeTheEventLock:
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
 
+        _assert_nothing_written(series_pass, revel_user, three_upcoming)
+
     def test_purchase_refuses_when_a_covered_event_is_deleted_before_the_tier_lock(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
     ) -> None:
@@ -633,6 +635,8 @@ class TestStatusChangeBeforeTheEventLock:
             pytest.raises(SeriesPassNotPurchasableError),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+        _assert_nothing_written(series_pass, revel_user, three_upcoming)
 
     def test_purchase_refuses_when_a_covered_event_moves_into_the_past(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
@@ -656,21 +660,30 @@ class TestStatusChangeBeforeTheEventLock:
 
         _assert_nothing_written(series_pass, revel_user, three_upcoming)
 
-    def test_purchase_refuses_when_the_buyer_rule_changes(
-        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"purchasable_by": TicketTier.PurchasableBy.MEMBERS},
+            {"currency": "USD"},
+            {"visibility": SeriesPass.Visibility.PRIVATE},
+        ],
+        ids=["buyer_rule", "currency", "visibility"],
+    )
+    def test_purchase_refuses_when_a_pass_field_changes(
+        self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser, change: dict[str, str]
     ) -> None:
         real_quote = series_pass_service.get_quote
         calls: list[int] = []
 
-        def quote_then_members_only(*args: t.Any, **kwargs: t.Any) -> t.Any:
+        def quote_then_change(*args: t.Any, **kwargs: t.Any) -> t.Any:
             quote = real_quote(*args, **kwargs)
             if not calls:
-                SeriesPass.objects.filter(pk=series_pass.pk).update(purchasable_by=TicketTier.PurchasableBy.MEMBERS)
+                SeriesPass.objects.filter(pk=series_pass.pk).update(**change)
             calls.append(1)
             return quote
 
         with (
-            patch.object(series_pass_service, "get_quote", side_effect=quote_then_members_only),
+            patch.object(series_pass_service, "get_quote", side_effect=quote_then_change),
             pytest.raises(SeriesPassNotPurchasableError, match="The events of this pass changed"),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
