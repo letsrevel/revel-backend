@@ -3,7 +3,7 @@
 Covers:
 - ``_add_membership_wallet_context`` gating (config + member visibility status), wired
   into ``MembershipGrantedTemplate``.
-- ``events.signals.handle_membership_tier_changed`` emitting MEMBERSHIP_CARD_UPDATED
+- ``events.signals.membership.handle_membership_tier_changed`` emitting MEMBERSHIP_CARD_UPDATED
   exactly once on a tier change, and not on creation or a status-only change.
 """
 
@@ -165,7 +165,7 @@ class TestMembershipWalletBadges:
 
 
 class TestMembershipTierChangedSignal:
-    """Tests for events.signals.handle_membership_tier_changed."""
+    """Tests for events.signals.membership.handle_membership_tier_changed."""
 
     def test_tier_change_emits_card_updated_once(
         self,

@@ -316,7 +316,7 @@ def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | Non
             revoke_ignoring_start=(event.tickets_refund_started_at or timezone.now()) < event.start,
         )
         # The .update() above fired no post_save signal, so the usual
-        # attendee_count/is_full recompute (events.signals
+        # attendee_count/is_full recompute (events.signals.attendance
         # .handle_ticket_visibility_and_potluck) never ran — replicate it explicitly,
         # same per-ticket dispatch cost as the signal, and idempotent either way.
         event_id = str(locked_ticket.event_id)

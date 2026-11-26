@@ -447,7 +447,7 @@ def handle_ticket_notifications(sender: type[Ticket], instance: Ticket, created:
     """Send notifications for ticket lifecycle events.
 
     Note: This is one of multiple post_save handlers for Ticket model:
-    - events.signals.handle_ticket_visibility_and_potluck: Handles visibility flags + potluck unclaiming
+    - events.signals.attendance.handle_ticket_visibility_and_potluck: Handles visibility flags + potluck unclaiming
     - notifications.signals.ticket.handle_ticket_notifications: Sends notifications (this handler)
     - notifications.signals.waitlist.handle_ticket_waitlist_logic: Manages waitlist removal
 
