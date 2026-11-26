@@ -13,7 +13,7 @@ if t.TYPE_CHECKING:
     from accounts.models import RevelUser
     from events.models.event import Event
     from events.models.invitation import EventToken
-    from events.models.ticket import TicketTier
+    from events.models.ticket import TicketTier  # noqa: F401  (resolves the "TicketTier" string annotations)
 
 
 class TicketTierQuerySet(models.QuerySet["TicketTier"]):
@@ -34,14 +34,13 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
           except ones they hold a ticket for)
         """
         from .event import Event
-        from .ticket import TicketTier
 
         qs = self.select_related("event", "event__organization")
 
         # --- Anonymous User ---
         if user.is_anonymous:
             return qs.filter(
-                visibility__in=TicketTier.Visibility.publicly_accessible(),
+                visibility__in=self.model.Visibility.publicly_accessible(),
                 event__visibility__in=Event.Visibility.publicly_accessible(),
                 event__status=Event.EventStatus.OPEN,
             )
@@ -64,23 +63,23 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
             return qs.filter(base_q).distinct()
 
         # For regular users, apply tier-specific visibility rules ON TOP of visible events.
-        is_public_tier = Q(visibility__in=TicketTier.Visibility.publicly_accessible())
+        is_public_tier = Q(visibility__in=self.model.Visibility.publicly_accessible())
 
         # Only valid members (not cancelled, not banned) can see member-only tiers
         is_member_tier = Q(
-            visibility=TicketTier.Visibility.MEMBERS_ONLY,
+            visibility=self.model.Visibility.MEMBERS_ONLY,
             event__organization_id__in=get_valid_member_org_ids(user),
         )
 
         # Unrestricted private tiers: any invitation to the event grants visibility
         unrestricted_private = Q(
-            visibility=TicketTier.Visibility.PRIVATE,
+            visibility=self.model.Visibility.PRIVATE,
             restrict_visibility_to_linked_invitations=False,
             event_id__in=get_invited_event_ids(user),
         )
         # Restricted private tiers: user's invitation must link to THIS tier AND be for the same event
         restricted_private = Q(
-            visibility=TicketTier.Visibility.PRIVATE,
+            visibility=self.model.Visibility.PRIVATE,
             restrict_visibility_to_linked_invitations=True,
             event_invitations__user=user,
             event_invitations__event_id=F("event_id"),
@@ -118,7 +117,6 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
             QuerySet of tiers the user can see for this specific event.
         """
         from .invitation import EventInvitation
-        from .ticket import TicketTier
 
         qs = self.filter(event=event)
 
@@ -130,17 +128,17 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         # private tiers a granting invitation link for this event would unlock — the same
         # rule as the invitation branch below, keyed on the token's tier links instead.
         if user.is_anonymous:
-            is_public_tier = Q(visibility__in=TicketTier.Visibility.publicly_accessible())
+            is_public_tier = Q(visibility__in=self.model.Visibility.publicly_accessible())
             if event_token is None or not event_token.grants_invitation or event_token.event_id != event.id:
                 return qs.filter(is_public_tier)
             token_tier_ids = {tier.id for tier in event_token.ticket_tiers.all()}
             unrestricted_private = Q(
-                visibility=TicketTier.Visibility.PRIVATE,
+                visibility=self.model.Visibility.PRIVATE,
                 restrict_visibility_to_linked_invitations=False,
             )
             restricted_private = (
                 Q(
-                    visibility=TicketTier.Visibility.PRIVATE,
+                    visibility=self.model.Visibility.PRIVATE,
                     restrict_visibility_to_linked_invitations=True,
                     pk__in=token_tier_ids,
                 )
@@ -154,11 +152,11 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
             return qs
 
         # Regular user: apply tier visibility rules
-        is_public_tier = Q(visibility__in=TicketTier.Visibility.publicly_accessible())
+        is_public_tier = Q(visibility__in=self.model.Visibility.publicly_accessible())
 
         # Member-only tiers: check if user is valid member of this org
         is_member = visible_memberships().filter(user=user, organization=event.organization).exists()
-        is_member_tier = Q(visibility=TicketTier.Visibility.MEMBERS_ONLY) if is_member else Q(pk__isnull=True)
+        is_member_tier = Q(visibility=self.model.Visibility.MEMBERS_ONLY) if is_member else Q(pk__isnull=True)
 
         # Private tiers: check invitation and tier-link restriction
         invitation = EventInvitation.objects.filter(user=user, event=event).first()
@@ -166,13 +164,13 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
             linked_tier_ids = set(invitation.tiers.values_list("id", flat=True))
             # Unrestricted private tiers: any invitation grants visibility
             unrestricted_private = Q(
-                visibility=TicketTier.Visibility.PRIVATE,
+                visibility=self.model.Visibility.PRIVATE,
                 restrict_visibility_to_linked_invitations=False,
             )
             # Restricted private tiers: invitation must link to this tier
             restricted_private = (
                 Q(
-                    visibility=TicketTier.Visibility.PRIVATE,
+                    visibility=self.model.Visibility.PRIVATE,
                     restrict_visibility_to_linked_invitations=True,
                     pk__in=linked_tier_ids,
                 )

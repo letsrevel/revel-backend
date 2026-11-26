@@ -21,7 +21,9 @@ from events.tasks import expire_waitlist_offers_task
 pytestmark = pytest.mark.django_db
 
 _TICKET_SAVE_FAILURES = [
-    pytest.param("events.signals.attendance.build_attendee_visibility_flags", "visibility_flags_dispatch_failed", id="visibility"),
+    pytest.param(
+        "events.signals.attendance.build_attendee_visibility_flags", "visibility_flags_dispatch_failed", id="visibility"
+    ),
     pytest.param(
         "notifications.signals.ticket._handle_ticket_status_change", "ticket_notifications_failed", id="notifications"
     ),
