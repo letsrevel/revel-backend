@@ -52,11 +52,10 @@ class SeriesPassPurchaseService:
         Args:
             series_pass: The SeriesPass being purchased.
             user: The user purchasing the pass.
-            check_visibility: Check the checkout route's visibility rule again (404 if the buyer can no
-                longer see the series or the pass): the series just before the locks, the pass on its locked
-                row (#1566). The checkout route sets it, because its own check runs without a lock. The
-                default is off so that the service tests, which buy with fixtures the buyer cannot see, keep
-                calling the service directly.
+            check_visibility: Check the checkout route's visibility rule again after the pass row is locked
+                (404 if the buyer can no longer see the series or the pass) (#1566). The checkout route sets
+                it, because its own check runs without a lock. The default is off so that the service tests,
+                which buy with fixtures the buyer cannot see, keep calling the service directly.
         """
         self.series_pass = series_pass
         self.user = user
@@ -64,11 +63,11 @@ class SeriesPassPurchaseService:
         self.check_visibility = check_visibility
 
     def _series_still_visible(self) -> bool:
-        """The series part of the checkout route's visibility rule, read just before the locks (#1566).
+        """The series part of the checkout route's visibility rule, read after the pass lock wait (#1566).
 
         ponytail: the series and organization rows are not locked, so a change of theirs that commits after this
-        read is not seen. Reading it under the pass lock would add nothing and hold the lock longer. Upgrade: lock
-        the series and organization rows in the global lock order, before the pass.
+        read is not seen (a read after the lock wait still sees what committed during it). Upgrade: lock the
+        series and organization rows in the global lock order, before the pass.
         """
         return EventSeries.objects.for_user(self.user).filter(pk=self.series_pass.event_series_id).exists()
 
@@ -288,10 +287,6 @@ class SeriesPassPurchaseService:
         # _cleanup_expired_batch and cancel_pending_checkout) and the session-keyed
         # series_pass_service.expire_stranded_held_passes caller (stripe_webhooks'
         # handle_payment_intent_canceled).
-        # The lock-free gates above ran on the route's read; a pass hidden meanwhile can still get their answer
-        # (a 400 or 409) before the 404 below. The series visibility is read here, before the locks (#1566).
-        if self.check_visibility and not self._series_still_visible():
-            raise NotFound()
         # The buyer's account row comes before every other lock: see lock_account_for_checkout (#1476).
         lock_account_for_checkout(self.user)
         # of=("self",): the joins only feed the quote under the lock below; they are not locked.
@@ -300,7 +295,9 @@ class SeriesPassPurchaseService:
             .select_related("event_series__organization__city")
             .get(pk=self.series_pass.pk)
         )
-        if self.check_visibility and not self._pass_still_visible(locked_pass):
+        # The checkout route's visibility rule again, after the lock wait (#1566). The lock-free gates above ran on
+        # the route's read, so a pass hidden meanwhile can still get their answer (a 400 or 409) first.
+        if self.check_visibility and not (self._pass_still_visible(locked_pass) and self._series_still_visible()):
             raise NotFound()
         if locked_pass.total_quantity is not None and locked_pass.quantity_sold >= locked_pass.total_quantity:
             raise SeriesPassNotPurchasableError(str(_("This pass is sold out.")))

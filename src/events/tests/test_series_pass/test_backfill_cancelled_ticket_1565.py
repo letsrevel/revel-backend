@@ -1,4 +1,4 @@
-"""The activation backfill does not issue again a pass ticket that someone cancelled (#1565).
+"""The activation backfill does not issue a cancelled pass ticket again (#1565).
 
 ``backfill_missing_tickets`` runs when a held pass becomes ACTIVE. A ticket of the pass of any status counts as
 "ticketed", as in the extension, so no new ticket is issued for an event whose pass ticket was cancelled. That
@@ -40,11 +40,12 @@ def _tickets_for(held_pass: HeldSeriesPass, event: Event) -> list[str]:
     [
         CancellationSource.ORGANIZER,
         CancellationSource.USER,
+        CancellationSource.STRIPE_DASHBOARD,
         CancellationSource.EVENT_CANCELLATION,
         "",  # a Django admin status edit sets no source
     ],
 )
-def test_a_ticket_cancelled_by_someone_is_not_issued_again(
+def test_a_cancelled_pass_ticket_is_not_issued_again(
     series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser, source: str
 ) -> None:
     held_pass = _pending_offline_pass(series_pass, revel_user)

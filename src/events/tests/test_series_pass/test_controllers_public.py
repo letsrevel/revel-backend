@@ -677,7 +677,7 @@ class TestDownloadsPreloadRelations:
 
 
 class TestVisibilityUnderThePassLock:
-    """The checkout checks the series and the pass again after it locks the pass row.
+    """The checkout checks the pass (on its locked row) and the series again after the pass lock wait.
 
     The controller's check runs without a lock, so an organizer can hide the pass between that check and
     the purchase. The service checks again on the locked row when the controller asks for it.
