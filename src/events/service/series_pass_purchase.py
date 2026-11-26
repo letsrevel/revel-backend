@@ -83,6 +83,26 @@ class SeriesPassPurchaseService:
         if result is not None:
             raise UserIsIneligibleError(str(result.reason), result)
 
+    def _lock_tiers_and_assert_capacity(self, future_links: list[SeriesPassTierLink]) -> None:
+        """Lock all mapped tiers in pk order (deadlock discipline, mirrors BatchTicketService) and check them.
+
+        Raises:
+            SeriesPassNotPurchasableError: 409 if a covered event (and its tier) was deleted after the links read.
+            HttpError: 429 if any mapped tier is sold out.
+        """
+        locked_tiers = {
+            tier.pk: tier
+            for tier in TicketTier.objects.select_for_update()
+            .filter(pk__in=[link.tier_id for link in future_links])
+            .order_by("pk")
+        }
+        if set(locked_tiers) != {link.tier_id for link in future_links}:
+            raise SeriesPassNotPurchasableError(str(_("The events of this pass changed. Please try again.")))
+        for link in future_links:
+            tier = locked_tiers[link.tier_id]
+            if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
+                raise HttpError(429, str(_("Event {name} is sold out.")).format(name=link.event.name))
+
     def _lock_events_and_assert_unchanged(
         self,
         locked_pass: SeriesPass,
@@ -100,15 +120,18 @@ class SeriesPassPurchaseService:
           cancelled event and every non-cancelled one gets its ticket;
         - for a buyer who is not owner or staff, every non-cancelled event must still be OPEN (the
           ``EventStatusGate`` rule, which ran lock-free before);
+        - every event that was read must still exist, and the locked quote must count the same remaining
+          events (a start moved into the past, or a link added, changes the count);
         - the quote, computed again from the locked pass row, must still be purchasable, with the same
-          price, and the payment method must be the one the purchase started with.
+          price, and the payment method, the buyer rule and the currency must be the ones the purchase
+          started with.
 
         Same capacity counting rules as batch checkout. Must run after the tier locks: batch checkout
         locks tier -> event, so the events are locked last, pk-ordered among themselves.
 
         Raises:
-            SeriesPassNotPurchasableError: 409 if a covered event changed status, the price or the
-                payment method changed, or the pass is no longer purchasable (with the quote's reason).
+            SeriesPassNotPurchasableError: 409 if a covered event changed or is gone, a pass field the
+                purchase relies on changed, or the pass is no longer purchasable (with the quote's reason).
             HttpError: 429 if any covered event is at capacity.
         """
         locked_events = series_pass_event_checks.lock_events_and_find_full(
@@ -123,11 +146,18 @@ class SeriesPassPurchaseService:
         locked_quote = series_pass_service.get_quote(locked_pass, now, check_event_status=False)
         if not locked_quote.purchasable:
             raise SeriesPassNotPurchasableError(locked_quote.reason or str(_("This pass cannot be purchased.")))
+        # ponytail: the remaining count, not the set: one event moved out and another linked in at the same
+        # moment would pass. Upgrade path: compare the locked quote's event ids.
+        remaining = len(upcoming_links) - len(seen_cancelled)
         if (
-            locked_events.cancelled != seen_cancelled
+            set(locked_events.status) != {link.event_id for link in upcoming_links}
+            or locked_events.cancelled != seen_cancelled
             or (not_open and not self._is_owner_or_staff)
+            or locked_quote.remaining_events != remaining
             or locked_quote.price != quote.price
             or locked_pass.payment_method != self.series_pass.payment_method
+            or locked_pass.purchasable_by != self.series_pass.purchasable_by
+            or locked_pass.currency != self.series_pass.currency
         ):
             raise SeriesPassNotPurchasableError(str(_("The events of this pass changed. Please try again.")))
         for link in upcoming_links:
@@ -271,18 +301,7 @@ class SeriesPassPurchaseService:
             self.org, self.series_pass.payment_method, [quote.price], [link.event for link in future_links]
         )
 
-        # Lock all mapped tiers in pk order (deadlock discipline, mirrors BatchTicketService).
-        locked_tiers = {
-            tier.pk: tier
-            for tier in TicketTier.objects.select_for_update()
-            .filter(pk__in=[link.tier_id for link in future_links])
-            .order_by("pk")
-        }
-        for link in future_links:
-            tier = locked_tiers[link.tier_id]
-            if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
-                raise HttpError(429, str(_("Event {name} is sold out.")).format(name=link.event.name))
-
+        self._lock_tiers_and_assert_capacity(future_links)
         self._lock_events_and_assert_unchanged(locked_pass, now, quote, upcoming_links)
 
         held_pass = self._create_held_pass(quote.price, attribution)
