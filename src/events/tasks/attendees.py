@@ -45,7 +45,8 @@ RECONCILE_WINDOW = timedelta(hours=24)
 # A rebuild that is only queued is not lost: activity of the last minutes is left for the next run.
 # ponytail: a worker backlog longer than the grace makes the sweep queue a duplicate rebuild for each event that
 # waits; a rebuild sets the count to the live value, so it stops after one run. A per-event "dispatched" mark
-# would avoid the duplicate.
+# would avoid the duplicate. A rebuild that fails every time (for one event) is queued again on every run for
+# the whole window; its own failure log is the signal for that.
 RECONCILE_GRACE = timedelta(minutes=5)
 
 
@@ -84,13 +85,13 @@ def reconcile_attendee_counts() -> int:
         .annotate(n=Count("pk"))
         .values("n")
     )
-    # The candidates come from the indexed updated_at range, not from a scan of every event.
-    recent = set(Ticket.objects.filter(**window).values_list("event_id", flat=True).distinct())
-    recent |= set(EventRSVP.objects.filter(**window).values_list("event_id", flat=True).distinct())
-    if not recent:
-        return 0
+    # The candidates come from the indexed updated_at range as subqueries (order_by() drops Ticket's default
+    # ordering), so the database builds the set and no id list goes through Python.
+    recent = Q(pk__in=Ticket.objects.filter(**window).order_by().values("event_id")) | Q(
+        pk__in=EventRSVP.objects.filter(**window).order_by().values("event_id")
+    )
     stale = list(
-        Event.objects.filter(pk__in=recent)
+        Event.objects.filter(recent)
         .annotate(live=Coalesce(Subquery(tickets), 0) + Coalesce(Subquery(rsvps), 0))
         .exclude(attendee_count=F("live"))
         .values_list("pk", flat=True)
