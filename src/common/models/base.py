@@ -16,8 +16,31 @@ class TimeStampedModel(models.Model):
         abstract = True
 
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
-        """Override the save method to call full_clean before saving."""
-        self.full_clean()
+        """Validate the row, then save it.
+
+        A full save runs ``full_clean()``. A save with ``update_fields`` checks only the fields that it writes
+        with ``clean_fields``, so an unrelated field (for example an image file that is missing from storage)
+        cannot fail a counter or status update (#1563). ``clean()``, the unique checks and the constraints still
+        run on the whole row: a cross-field rule that an earlier edit broke still blocks the save, and its error
+        names the field to fix.
+        """
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            # A list, so that a one-shot iterator is not used up here and then reaches Django empty.
+            kwargs["update_fields"] = update_fields = list(update_fields)
+            if not update_fields:
+                super().save(*args, **kwargs)  # Django writes nothing for an empty list, so validate nothing
+                return
+        if update_fields is None:
+            self.full_clean()
+        else:
+            written = set(update_fields)
+            unchanged = [
+                f.name for f in self._meta.concrete_fields if f.name not in written and f.attname not in written
+            ]
+            self.full_clean(exclude=unchanged, validate_unique=False, validate_constraints=False)
+            self.validate_unique()
+            self.validate_constraints()
         super().save(*args, **kwargs)
 
 
@@ -204,14 +227,18 @@ class ExifStripMixin(models.Model):
 
     IMAGE_FIELDS: t.Iterable[str]
 
-    def _strip_exif_from_image_fields(self) -> None:
+    def _strip_exif_from_image_fields(self, update_fields: t.Iterable[str] | None = None) -> None:
         from django.core.exceptions import ValidationError
         from django.utils.translation import gettext_lazy as _
         from PIL import UnidentifiedImageError
 
         from common.utils import strip_exif
 
+        # A partial save writes only update_fields, so only those images are processed (#1563).
+        written = None if update_fields is None else set(update_fields)
         for field_name in self.IMAGE_FIELDS:
+            if written is not None and field_name not in written:
+                continue
             file = getattr(self, field_name, None)
             # Only strip files not yet committed to storage (fresh uploads).
             # Committed files were already stripped on upload; re-stripping marks
@@ -225,8 +252,12 @@ class ExifStripMixin(models.Model):
                     raise ValidationError({field_name: [_("File is not a valid image.")]}) from e
 
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
-        """Override save to auto-strip exif from image fields."""
-        self._strip_exif_from_image_fields()
+        """Override save to auto-strip exif from image fields (only those in ``update_fields``, if given)."""
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            # A list, so that a one-shot iterator is not used up here and then reaches Django empty.
+            kwargs["update_fields"] = update_fields = list(update_fields)
+        self._strip_exif_from_image_fields(update_fields)
         super().save(*args, **kwargs)
 
     class Meta:

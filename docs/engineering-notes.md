@@ -501,6 +501,28 @@ a transaction (Django admin, `update_plan`), so shell edits need an enclosing `t
 The threaded regression test is `events/tests/test_plan_guard_1427.py`
 (`transaction=True`, two real connections).
 
+## Model validation on save (`TimeStampedModel`, #1563)
+
+`TimeStampedModel.save()` validates the row before it writes it:
+
+- A full save runs `full_clean()`.
+- A save with `update_fields` runs `clean_fields()` only on the fields that it writes. `clean()`, the
+  unique checks and the constraints still run on the whole row.
+
+So an unrelated field cannot fail a counter or status update. A cross-field rule in `clean()` that an
+earlier edit broke (for example a waitlist cutoff after the event start) still blocks every save of the
+row, a status change too: fix the data first. The API answers 400 with the errors keyed by field, and the
+admin status actions print the field name.
+
+`validate_image_file` does not read a file that is already in storage (a committed `FieldFile`): it was
+validated at its upload. Before, every save read the file again, and a file that was missing from storage
+failed every save of its row with `FileNotFoundError` (for example the attendee-count rebuild). A new
+upload is always validated: the upload service validates it before it assigns it, and the field is then
+in `update_fields` with an uncommitted file. A code path that writes a file to storage with
+`field.save(..., save=False)` before the model save skips this validator, so do not use that for image
+fields. A storage path assigned as a string is also a committed file and is trusted: write images only
+through `upload_service.safe_save_uploaded_file`, and never assign a path that a caller chose.
+
 ## Backfills and rolling deploys
 
 A data migration that backfills a column runs once, but during a rolling deploy the old pods keep inserting rows with the column default. Put the UPDATE in a plain idempotent function that the migration calls, and run it once after the rollout (for `Ticket.unconfirmed_guest`: `manage.py backfill_unconfirmed_guest --before <ISO time with offset>`, `--dry-run` first). Set the cutoff to the moment the last old web container stopped, not a loose "rollout finished" time: until then old containers still insert unflagged rows. Make the predicate match evidence that new rows rarely carry (here, a Payment row on an unflagged guest ticket), and still run it once: a later pass gains nothing and widens the blast radius of a predicate mistake. Know the residual: a guest who confirms by email after the tier became ONLINE gets a paid reservation with Payment rows, so such a ticket created before the cutoff is flagged too.

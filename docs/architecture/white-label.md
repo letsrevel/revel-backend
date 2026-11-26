@@ -150,7 +150,7 @@ domains are allowed and nothing else. It is no longer pinned to `FRONTEND_DOMAIN
 `Organization.branding` is a `JSONField(default=dict)` validated by the pydantic
 `OrganizationBranding` model: `primary_color` and `accent_color`, each `#RRGGBB` or `null`,
 normalized to uppercase, `extra="forbid"`, frozen. `Organization.clean()` re-validates it, and
-`save()` runs `full_clean()`.
+every `save()` runs `clean()` (see [Model validation on save](../engineering-notes.md#model-validation-on-save-timestampedmodel-1563)).
 
 - **Reads are tolerant.** `parse_branding()` returns empty branding (and logs a warning) for a
   stored blob that does not validate, for example one written around `clean()` with a queryset
