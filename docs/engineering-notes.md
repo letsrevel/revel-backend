@@ -744,8 +744,10 @@ database. Examples: `account_deletion_dispatch` in `accounts/tasks/gdpr.py`, and
 `common/service/upload_service.py` with the `rescan_pending_uploads` sweep (#1446), and the series
 pass holder materialization with the `reconcile_series_pass_tickets` sweep (#1536), and the attendee
 rebuild after a bulk ticket create (`series_pass_service.rebuild_attendee_visibility`) with the
-`reconcile_attendee_counts` sweep (#1568). That sweep compares each recently written event's stored
-`attendee_count` with its live count: a lost rebuild always leaves the count stale.
+`reconcile_attendee_counts` sweep (#1568). That sweep compares the stored `attendee_count` of each event
+with a ticket or RSVP written in the last 24 hours (minus a 5-minute grace for a rebuild that is only
+queued) with its live count: a lost rebuild leaves the count stale. It finds only a write that stamps
+`updated_at`, so a `bulk_update` on that path lists `updated_at` by hand.
 
 Never pass a `functools.partial` with `robust=True`: Django logs a failing robust callback by its
 `__qualname__`, and a `partial` has none, so the error path itself raises `AttributeError`.

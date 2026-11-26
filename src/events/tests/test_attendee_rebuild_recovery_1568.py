@@ -29,10 +29,14 @@ def tier(event: Event) -> TicketTier:
 
 
 def _bulk_ticket(event: Event, tier: TicketTier, user: RevelUser) -> Ticket:
-    """A ticket written as the series pass paths write it: bulk_create, so no post_save rebuild."""
+    """A ticket written as the series pass paths write it: bulk_create, so no post_save rebuild.
+
+    Dated 10 minutes ago, past the sweep's grace period for a rebuild that is only queued.
+    """
     (ticket,) = Ticket.objects.bulk_create(
         [Ticket(event=event, tier=tier, user=user, guest_name="Ada", status=Ticket.TicketStatus.ACTIVE)]
     )
+    Ticket.objects.filter(pk=ticket.pk).update(updated_at=timezone.now() - timedelta(minutes=10))
     return ticket
 
 
@@ -86,7 +90,8 @@ class TestReconcileSweep:
         delay.assert_not_called()
 
     def test_yes_rsvps_count_too(self, event: Event, member_user: RevelUser) -> None:
-        EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
+        rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
+        EventRSVP.objects.filter(pk=rsvp.pk).update(updated_at=timezone.now() - timedelta(minutes=10))
         Event.objects.filter(pk=event.pk).update(attendee_count=1)
 
         with patch(DELAY) as delay:
@@ -98,12 +103,34 @@ class TestReconcileSweep:
         self, event: Event, tier: TicketTier, member_user: RevelUser
     ) -> None:
         ticket = _bulk_ticket(event, tier, member_user)
-        Ticket.objects.filter(pk=ticket.pk).update(updated_at=timezone.now() - timedelta(hours=3))
+        Ticket.objects.filter(pk=ticket.pk).update(updated_at=timezone.now() - timedelta(hours=25))
 
         with patch(DELAY) as delay:
             assert reconcile_attendee_counts() == 0
 
         delay.assert_not_called()
+
+    def test_activity_of_the_last_minutes_is_left_for_the_next_run(
+        self, event: Event, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        """A rebuild that is only queued is not lost: the sweep does not dispatch it twice."""
+        ticket = _bulk_ticket(event, tier, member_user)
+        Ticket.objects.filter(pk=ticket.pk).update(updated_at=timezone.now() - timedelta(minutes=1))
+
+        with patch(DELAY) as delay:
+            assert reconcile_attendee_counts() == 0
+
+        delay.assert_not_called()
+
+    def test_an_rsvp_alone_brings_its_event_in(self, event: Event, member_user: RevelUser) -> None:
+        rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
+        EventRSVP.objects.filter(pk=rsvp.pk).update(updated_at=timezone.now() - timedelta(minutes=10))
+        Event.objects.filter(pk=event.pk).update(attendee_count=0)  # the RSVP's own rebuild was lost
+
+        with patch(DELAY) as delay:
+            assert reconcile_attendee_counts() == 1
+
+        delay.assert_called_once_with(str(event.pk))
 
     def test_a_cancelled_ticket_is_not_counted(self, event: Event, tier: TicketTier, member_user: RevelUser) -> None:
         ticket = _bulk_ticket(event, tier, member_user)
