@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Keep the pinned GitHub Actions SHAs current (Python deps are handled by the deps workflow).
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - '*'
+    labels:
+      - dependencies
+      - ci
