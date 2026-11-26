@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Series passes: a checkout of a pass that moves to another event series at the same moment now answers 409 ("The events of this pass changed. Please try again."). The buyer can then try again with the pass as it is now.
 - Series passes: the activation of a pass (offline confirm or completed checkout) no longer issues a new ticket for an event whose pass ticket was cancelled meanwhile. A checkout of a pass that the organizer hides or deactivates at the same moment now answers 404.
 - Events: the attendee count and the attendee visibility of an event are now updated also when a logo or cover image file of the event is missing from storage. Before, the update failed for such an event. A status change now also ignores invalid values in fields that it does not change; a cross-field rule that an earlier edit broke (for example a waitlist cutoff after the start) still blocks it, and the error names the field to fix.
 - Events: the attendee count and the attendee visibility of an event are now rebuilt also when the background job could not be queued after a series pass issued tickets. A sweep every 15 minutes finds an event whose count is stale, for tickets written in the last 24 hours, and queues its rebuild again on each run until the count is correct. It cannot find a lost rebuild whose changes leave the count unchanged.

@@ -296,6 +296,9 @@ class SeriesPassPurchaseService:
             .select_related("event_series__organization__city")
             .get(pk=self.series_pass.pk)
         )
+        # Every check before the lock used the series and organization of the first read (#1577).
+        if locked_pass.event_series_id != self.series_pass.event_series_id:
+            raise SeriesPassNotPurchasableError(str(_("The events of this pass changed. Please try again.")))
         # The checkout route's visibility rule again, after the lock wait (#1566). The lock-free gates above ran on
         # the route's read, so a pass hidden meanwhile can still get their answer (a 400 or 409) first.
         if self.check_visibility and not (
