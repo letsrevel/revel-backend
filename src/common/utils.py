@@ -14,6 +14,7 @@ from django.db.models.fields.files import FieldFile
 from django.http import HttpResponse
 from django.template import Context
 from django.template.loader import get_template
+from django.utils.translation import gettext_lazy as _
 from PIL import Image
 from pydantic import BaseModel
 
@@ -42,11 +43,11 @@ def strip_exif(image_file: File) -> InMemoryUploadedFile:  # type: ignore[type-a
     try:
         image = Image.open(image_file)
     except Image.DecompressionBombError:
-        raise ValidationError(f"Image must be under {MAX_IMAGE_PIXELS // 1_000_000} megapixels.")
+        raise ValidationError(str(_("Image must be under {} megapixels.")).format(MAX_IMAGE_PIXELS // 1_000_000))
     # Image.open is lazy: width/height come from the header, so this bounds the raster
     # before the save below decodes it (memory-DoS guard).
     if image.width * image.height > MAX_IMAGE_PIXELS:
-        raise ValidationError(f"Image must be under {MAX_IMAGE_PIXELS // 1_000_000} megapixels.")
+        raise ValidationError(str(_("Image must be under {} megapixels.")).format(MAX_IMAGE_PIXELS // 1_000_000))
     _format = image.format or "JPEG"
 
     output = BytesIO()

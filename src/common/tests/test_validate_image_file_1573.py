@@ -1,6 +1,7 @@
 """``validate_image_file`` refuses bytes that are not an image, and its messages are translated (#1573)."""
 
 import io
+from unittest.mock import patch
 
 import pytest
 from django.core.exceptions import ValidationError
@@ -42,3 +43,15 @@ def test_an_oversized_file_is_refused_with_its_limit() -> None:
 
     with pytest.raises(ValidationError, match=rf"Image must be under {MAX_IMAGE_SIZE_BYTES // (1024 * 1024)}MB\."):
         validate_image_file(oversized)
+
+
+def test_too_many_pixels_is_refused_with_the_translated_limit() -> None:
+    """The header gives the size: 1001x1000 is over a budget of 1,000,000 pixels. The number stays in the text."""
+    with (
+        patch("common.fields.MAX_IMAGE_PIXELS", 1_000_000),
+        override("de"),
+        pytest.raises(ValidationError) as exc,
+    ):
+        validate_image_file(_image("PNG", size=(1001, 1000)))
+
+    assert exc.value.messages == ["Das Bild muss kleiner als 1 Megapixel sein."]
