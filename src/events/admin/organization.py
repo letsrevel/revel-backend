@@ -34,6 +34,7 @@ from events.admin.base import (
     frontend_url,
     view_on_revel_link,
 )
+from events.admin.ticket import end_pending_checkouts
 from events.exceptions import MembershipTierInUseError
 from events.service import custom_domain_service, turnstile_hostname_service
 from events.service.organization_service import contact as contact_service
@@ -166,6 +167,14 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
                 # Ownership transfer is superuser-only; owner stays settable on create.
                 readonly = readonly + ("owner",)
         return readonly
+
+    def delete_model(self, request: HttpRequest, obj: models.Organization) -> None:
+        end_pending_checkouts(models.Ticket.objects.filter(event__organization=obj))
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.Organization]) -> None:
+        end_pending_checkouts(models.Ticket.objects.filter(event__organization__in=queryset))
+        super().delete_queryset(request, queryset)
 
     def save_model(self, request: HttpRequest, obj: models.Organization, form: t.Any, change: bool) -> None:
         """Drop the tenant-cache entry when the custom-domain kill switch flips.

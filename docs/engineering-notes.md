@@ -874,13 +874,20 @@ the same transaction and before the delete:
    rows, and of the FAILED rows whose session has not expired yet. (The event-cancel sweep marks a
    pending checkout FAILED and leaves its session open.) After commit, a named closure expires
    each session at Stripe, per Stripe account (best effort, `robust=True`). A rollback discards it.
-   Admin deletes do not do this yet (#1499).
 2. `discount_code_service.release_uses_of_pending_tickets(tickets)` gives back the discount code
    uses. It locks Payment, then TicketTier, then Ticket, then DiscountCode, so the order stays canonical.
 
 The services are `event_update_service.delete_event`, `ticket_service.delete_ticket_tier` and
 `event_series_service.delete_event_series`. Call them, never `.delete()` on these models directly.
 A tier delete still hard-deletes its issued tickets and their `Payment` and `Refund` rows.
+
+The Django admin follows the same rule (#1499). Deleting an event, a tier or a series calls these
+services. Deleting a ticket or an organization calls `events.admin.ticket.end_pending_checkouts`,
+which runs both steps above. The tier and series inlines have `can_delete = False`, because an
+inline delete would call `.delete()` and skip the service. The admin also refuses to delete a
+PENDING `Payment`, because its pending ticket would never be reclaimed. The guard is in
+`PaymentAdmin.get_deleted_objects`, not in `has_delete_permission`: Django checks that permission for
+every cascaded object, so it would also block deleting an event, tier or ticket that has a pending checkout.
 
 ## Independent commit callbacks: `on_commit_independent` (#1488)
 

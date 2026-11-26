@@ -3,7 +3,9 @@
 
 import typing as t
 
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest
@@ -14,6 +16,8 @@ from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
+from accounts.models import RevelUser
+from common.exception_handlers import format_validation_error
 from common.thumbnails.admin_mixins import ImageSourceAdminMixin
 from events import models
 from events.admin.base import (
@@ -31,8 +35,9 @@ from events.admin.base import (
     frontend_url,
     view_on_revel_link,
 )
+from events.exceptions import EventRefundsStartedError, SeriesPassHasHoldersError
 from events.models.event import EventQuerySet
-from events.service import day_membership_service
+from events.service import day_membership_service, event_series_service, event_update_service
 
 
 class EventOriginFilter(admin.SimpleListFilter):
@@ -59,9 +64,67 @@ class EventAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # t
     """Admin model for Events."""
 
     def get_readonly_fields(self, request: HttpRequest, obj: models.Event | None = None) -> t.Sequence[str]:
-        """Make ``requires_ticket`` create-only (#1295): flipping it later strands tiers and tickets."""
+        """Make ``requires_ticket`` create-only (#1295) and ``status`` action-only (#1535).
+
+        Flipping ``requires_ticket`` later strands tiers and tickets. A status change must go through
+        ``update_status`` (see the actions below) to keep its guards and side effects.
+        """
         fields = list(super().get_readonly_fields(request, obj))
-        return [*fields, "requires_ticket"] if obj is not None else fields
+        return [*fields, "requires_ticket", "status"] if obj is not None else fields
+
+    def delete_model(self, request: HttpRequest, obj: models.Event) -> None:
+        event_update_service.delete_event(obj)
+
+    def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.Event]) -> None:
+        for event in queryset:
+            self.delete_model(request, event)
+
+    def _set_status(
+        self, request: HttpRequest, queryset: QuerySet[models.Event], status: models.Event.EventStatus
+    ) -> None:
+        changed = failed = 0
+        user = t.cast(RevelUser, request.user)
+        for pk in queryset.values_list("pk", flat=True):
+            try:
+                with transaction.atomic():
+                    # Decide on the locked row, not the changelist snapshot: the event can change meanwhile.
+                    event = models.Event.objects.select_for_update().filter(pk=pk).first()
+                    if event is None or event.status == status:  # a same-status cancel would wipe the reason
+                        continue
+                    reason = event.cancellation_reason if status == models.Event.EventStatus.CANCELLED else None
+                    event_update_service.update_status(event, status, cancellation_reason=reason, initiated_by=user)
+            except EventRefundsStartedError as exc:
+                failed += 1
+                self.message_user(request, f"{event}: {exc}", messages.ERROR)
+            except ValidationError as exc:
+                failed += 1
+                self.message_user(request, f"{event}: {format_validation_error(exc)}", messages.ERROR)
+            else:
+                changed += 1
+        if changed:
+            self.message_user(request, f"Set {changed} event(s) to {status.label}.", messages.SUCCESS)
+        elif not failed:
+            self.message_user(
+                request, f"No event changed: the selected events are already {status.label}.", messages.INFO
+            )
+
+    @admin.action(description="Open selected events", permissions=["change"])
+    def open_events(self, request: HttpRequest, queryset: QuerySet[models.Event]) -> None:
+        self._set_status(request, queryset, models.Event.EventStatus.OPEN)
+
+    @admin.action(description="Close selected events", permissions=["change"])
+    def close_events(self, request: HttpRequest, queryset: QuerySet[models.Event]) -> None:
+        self._set_status(request, queryset, models.Event.EventStatus.CLOSED)
+
+    @admin.action(description="Set selected events to draft", permissions=["change"])
+    def draft_events(self, request: HttpRequest, queryset: QuerySet[models.Event]) -> None:
+        self._set_status(request, queryset, models.Event.EventStatus.DRAFT)
+
+    @admin.action(description="Cancel selected events (no refunds)", permissions=["change"])
+    def cancel_events(self, request: HttpRequest, queryset: QuerySet[models.Event]) -> None:
+        self._set_status(request, queryset, models.Event.EventStatus.CANCELLED)
+
+    actions = ["open_events", "close_events", "draft_events", "cancel_events"]
 
     def save_model(self, request: HttpRequest, obj: models.Event, form: t.Any, change: bool) -> None:
         """Keep day-membership records on the event window when staff move an upcoming event's dates."""
@@ -205,6 +268,16 @@ class EventSeriesAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin)
     autocomplete_fields = ["organization", "template_event", "recurrence_rule"]
     prepopulated_fields = {"slug": ("name",)}
     readonly_fields = ["last_generated_until", "logo_thumbnail", "cover_art_thumbnail", "cover_art_social"]
+
+    def delete_model(self, request: HttpRequest, obj: models.EventSeries) -> None:
+        try:
+            event_series_service.delete_event_series(obj)
+        except SeriesPassHasHoldersError as exc:
+            self.message_user(request, str(exc), messages.ERROR)
+
+    def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.EventSeries]) -> None:
+        for series in queryset:
+            self.delete_model(request, series)
 
 
 @admin.register(models.RecurrenceRule)
