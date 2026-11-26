@@ -267,8 +267,7 @@ deferred foreign-key checks of other transactions (`FOR KEY SHARE` at commit) ar
   the global order before the model `delete()`, with `pending_checkout.lock_for_cascade_delete` (#1538):
   `Payment` → `SeriesPass` (series and organization deletes) → every `TicketTier` in scope → `Organization`
   → `EventSeries` (`FOR NO KEY UPDATE`: an event duplicate inserts a copy that references them while it holds
-  its template event) → `Event` (`FOR UPDATE`, because the row is deleted) → `Organization` and `EventSeries`
-  again (`FOR UPDATE`) → `SeriesPass` and `TicketTier`
+  its template event) → `Event` (`FOR UPDATE`, because the row is deleted) → `SeriesPass` and `TicketTier`
   again → `Payment` again → `Ticket` → `DiscountCode`. A series pass extension or backfill locks the tier and
   then the event, so it and a delete of that event serialize on the tier: the delete sees the new ticket, or
   the extension sees the event gone and skips it. The three second locks (`SeriesPass`, `TicketTier`,
@@ -889,14 +888,15 @@ the same transaction and before the delete:
    that the delete removes, in pk order: the organization and the series (`FOR NO KEY UPDATE`), then the
    events (`FOR UPDATE`). A transaction that inserts a child row of a tier or an event meanwhile waits at
    its commit-time foreign-key check and then fails. Without this lock, the delete failed on that row
-   instead. The organization and the series first take `NO KEY`, because an event duplicate holds its
-   template event and inserts a copy that references them: with `FOR UPDATE`, the two waited for each
-   other. After the events are locked, no duplicate can hold one of them, so the delete then upgrades the
-   organization and the series to `FOR UPDATE`. A pass, an event or a series that a transaction inserts
-   for them meanwhile then waits at its foreign-key check and fails. With parent rows, it locks the
+   instead. The organization and the series take `NO KEY`, because an event duplicate holds its template
+   event and inserts a copy that references them: with `FOR UPDATE`, the two waited for each other.
+   Accepted limit: `NO KEY` does not block a child insert, so a pass, an event or a series that someone
+   creates for the organization or the series during the delete can commit, and the delete then fails
+   on its foreign key, as before #1538. Every way to block it with `FOR UPDATE` can deadlock with a path
+   that holds a row of the delete and inserts such a child. With parent rows, it locks the
    passes and the tiers again, for a row that committed between the first lock of its model and the
-   parent locks: after the parent locks, no new pass or tier can commit. A reservation locks its
-   tier before it inserts, so after this step no new `Payment` row can appear for these tiers.
+   parent locks. After the event locks, no new tier can commit. A reservation locks its tier before
+   it inserts, so after this step no new `Payment` row can appear for these tiers.
 4. It locks and reads the `Payment` rows again (#1532). This catches the rows that a reservation
    committed between steps 1 and 3. Their sessions go into the same expire set.
 5. `discount_code_service.release_uses_of_pending_tickets(tickets)` gives back the discount code

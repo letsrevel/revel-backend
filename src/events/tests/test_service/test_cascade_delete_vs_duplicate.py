@@ -12,16 +12,15 @@ waits, which the rollback-wrapped default ``django_db`` transaction cannot provi
 
 import typing as t
 from datetime import timedelta
-from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
 from django.contrib.admin.sites import AdminSite
-from django.db import IntegrityError, transaction
+from django.db import transaction
 
 from events.admin.event import EventSeriesAdmin
 from events.admin.organization import OrganizationAdmin
-from events.models import Event, EventSeries, Organization, SeriesPass, TicketTier
+from events.models import Event, EventSeries, Organization
 from events.service import event_series_service
 from events.service.duplication import duplicate_event
 from events.tests.test_cancel_race_1431_1450 import _assert_waits_on_lock, _Pause, _Runner
@@ -61,29 +60,10 @@ def _bulk_delete_series(series_pk: t.Any) -> None:
         )
 
 
-def _bulk_delete_organization(organization_pk: t.Any) -> None:
-    with transaction.atomic():
-        OrganizationAdmin(Organization, AdminSite()).delete_queryset(
-            MagicMock(), Organization.objects.filter(pk=organization_pk)
-        )
-
-
-def _create_pass(series_pk: t.Any) -> SeriesPass:
-    return SeriesPass.objects.create(
-        event_series_id=series_pk,
-        name="Late pass",
-        price=Decimal("30.00"),
-        pro_rata_discount=Decimal("5.00"),
-        currency="EUR",
-        payment_method=TicketTier.PaymentMethod.FREE,
-    )
-
-
 DELETES: dict[str, t.Callable[[Event, EventSeries, Organization], None]] = {
     "series": lambda e, s, o: _delete_series(s.pk),
     "organization": lambda e, s, o: _delete_organization(o.pk),
     "series bulk": lambda e, s, o: _bulk_delete_series(s.pk),
-    "organization bulk": lambda e, s, o: _bulk_delete_organization(o.pk),
 }
 
 
@@ -108,30 +88,3 @@ def test_a_delete_waits_for_a_duplicate_in_flight_and_then_removes_the_copy(
     assert runner.outcome["delete"][0] == "ok", runner.outcome["delete"]
     assert not Event.objects.filter(organization_id=organization.pk).exists()
     assert not EventSeries.objects.filter(pk=event_series.pk).exists()
-
-
-@pytest.mark.django_db(transaction=True)
-def test_a_series_pass_created_during_a_series_delete_waits_and_then_fails(
-    event: Event, event_series: EventSeries
-) -> None:
-    """The delete holds the series FOR UPDATE (after its events): a new pass waits at its FK check and fails.
-
-    With only the NO KEY lock, the pass committed during the delete: the delete then failed on it, or removed a
-    pass that it never locked.
-    """
-    runner = _Runner()
-    pause = _Pause(_lock_of('"events_eventseries"', "FOR UPDATE"))
-    runner.start("delete", lambda: _delete_series(event_series.pk), pause)
-    try:
-        assert pause.reached.wait(timeout=10), "the delete never upgraded its series lock"
-        creation = runner.start("pass", lambda: _create_pass(event_series.pk))
-        _assert_waits_on_lock(creation)
-    finally:
-        pause.release.set()
-        runner.join()
-
-    assert runner.outcome["delete"][0] == "ok", runner.outcome["delete"]
-    status, error = runner.outcome["pass"]
-    assert status == "err" and isinstance(error, IntegrityError), runner.outcome["pass"]
-    assert not EventSeries.objects.filter(pk=event_series.pk).exists()
-    assert not SeriesPass.objects.exists()

@@ -215,26 +215,22 @@ def _lock_delete_scope(
     if passes is not None:
         _lock_rows(passes)
     _lock_rows(tiers)
-    # An organization or a series first takes NO KEY (as EventSeries.delete() locks its own row): an event duplicate
-    # holds its template event and inserts a copy whose commit-time foreign-key checks take KEY SHARE on them, so
-    # FOR UPDATE here would wait for the duplicate while the duplicate waits for the event lock below.
-    key_parents = [rows for rows in parents if rows.model in (Organization, EventSeries)]
+    # NO KEY for an organization or a series, as EventSeries.delete() locks its own row: an event duplicate holds its
+    # template event and inserts a copy whose commit-time foreign-key checks take KEY SHARE on them, so FOR UPDATE
+    # here would wait for the duplicate while the duplicate waits for the event lock below. An event stays FOR UPDATE.
+    # ponytail: NO KEY does not block a child insert, so a pass, an event or a series that someone creates for the
+    # organization or the series during the delete can commit: the delete then fails on its foreign key, as before
+    # #1538. Blocking it needs FOR UPDATE, and every way to take that here can deadlock with a path that holds a
+    # row of this delete and inserts such a child.
     for rows in parents:
         _lock_rows(rows, no_key=rows.model in (Organization, EventSeries))
     if not parents:
         return
-    # Now that the events are locked, no duplicate can hold one of them, so upgrade the organization and the series
-    # to FOR UPDATE: a pass, an event or a series that a transaction inserts for them meanwhile then waits at its
-    # foreign-key check and fails, instead of the delete failing on it.
-    for rows in key_parents:
-        _lock_rows(rows)
     # A pass or a tier that committed between the first lock of its model and the parent locks is locked now:
     # a purchase cannot add a holder to such a pass meanwhile, and step 4 sees the payments of the tier's
-    # reservations. After the parent locks, no new pass or tier can commit: its insert waits at the foreign-key
-    # check on the series or the event. ponytail: these second locks are out of the global order for those new
-    # rows only; a pass purchase or a checkout on such a row that then waits for a row of this delete is a
-    # deadlock that Postgres detects. Closing it would need a lock on the parents before the passes and tiers,
-    # against the global order of every other path.
+    # reservations. After the event locks, no new tier can commit (its insert waits at the foreign-key check on
+    # the event). These second locks are out of the global order for those new rows only; a pass purchase or a
+    # checkout on such a row that then waits for a row of this delete is a deadlock that Postgres detects.
     if passes is not None:
         _lock_rows(passes)
     _lock_rows(tiers)
@@ -281,11 +277,11 @@ def lock_for_cascade_delete(
     3. every ``tiers`` row (``FOR UPDATE``, pk order), then the ``parents`` rows (pk order) in the order
        given: Organization, EventSeries, Event. The events and tiers take ``FOR UPDATE`` because the delete
        removes them: a transaction that inserts a child row meanwhile waits at its commit-time foreign-key
-       check and then fails, instead of the delete failing on it. The organization and the series first take
-       ``FOR NO KEY UPDATE`` (an event duplicate inserts a copy that references them while it holds its
-       template event), and ``FOR UPDATE`` after the events are locked. With parents, the passes and the
-       tiers are locked again after them, for a row that committed in between. A reservation locks its tier
-       before it inserts, so after this no new Payment row can appear for these tiers;
+       check and then fails, instead of the delete failing on it. The organization and the series take
+       ``FOR NO KEY UPDATE``: an event duplicate inserts a copy that references them while it holds its
+       template event. With parents, the passes and the tiers are locked again after them, for a row that
+       committed in between. A reservation locks its tier before it inserts, so after this no new Payment
+       row can appear for these tiers;
     4. the Payment rows again, for the rows that a reservation committed between steps 1 and 3;
     5. the Ticket and DiscountCode rows (``release_uses_of_pending_tickets``) to give back the discount uses.
 
