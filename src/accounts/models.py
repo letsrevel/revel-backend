@@ -131,6 +131,8 @@ class RevelUser(ExifStripMixin, StripeConnectMixin, AbstractUser):
         help_text="User bio (publicly visible, supports markdown)",
     )
     profile_picture = ProtectedImageField(
+        # 255, as the derived fields: the random name (#1547) makes the path about 100 characters long.
+        max_length=255,
         upload_to=profile_picture_upload_path,
         null=True,
         blank=True,
