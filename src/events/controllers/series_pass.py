@@ -165,8 +165,9 @@ class SeriesPassController(UserAwareController):
         **Error Cases:**
         - 403: Blacklisted, or ``purchasable_by`` is members-only and the user isn't a member, or
           non-members-only and the user is one (the pass is visible, but not purchasable, to them).
-        - 404: The pass itself isn't visible to the user (e.g. a MEMBERS_ONLY-*visibility*
-          pass and the user isn't a member) — raised earlier, by ``_get_visible_pass``.
+        - 404: The pass or its series isn't visible to the user, or the pass is inactive (e.g. a
+          MEMBERS_ONLY-*visibility* pass and the user isn't a member). Checked by ``_get_visible_pass``
+          and again during the purchase, for a pass hidden or deactivated in between.
         - 400: A series admission questionnaire is missing, pending review or failed (eligibility payload).
         - 409: Not currently purchasable (sold out, outside sales window, already held).
         - 422: A paid pass whose payment channel is blocked where a covered event is held

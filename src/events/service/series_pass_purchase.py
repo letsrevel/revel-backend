@@ -52,26 +52,29 @@ class SeriesPassPurchaseService:
         Args:
             series_pass: The SeriesPass being purchased.
             user: The user purchasing the pass.
-            check_visibility: Check again, after the pass row is locked, that the buyer can still see the
-                series and the pass (404 if not). The checkout route sets it: its own check runs without a
-                lock (#1566). Off for the direct callers, which pass a pass they already chose.
+            check_visibility: Check the checkout route's visibility rule again (404 if the buyer can no
+                longer see the series or the pass): the series just before the locks, the pass on its locked
+                row (#1566). The checkout route sets it, because its own check runs without a lock. The
+                default is off so that the service tests, which buy with fixtures the buyer cannot see, keep
+                calling the service directly.
         """
         self.series_pass = series_pass
         self.user = user
         self.org = series_pass.event_series.organization
         self.check_visibility = check_visibility
 
-    def _still_visible(self, locked_pass: SeriesPass) -> bool:
-        """The checkout route's visibility rule, on the locked pass row (#1566).
+    def _series_still_visible(self) -> bool:
+        """The series part of the checkout route's visibility rule, read just before the locks (#1566).
 
-        A change of the pass waits for the lock, so this read is exact for the pass. The series and the
-        organization rows are not locked: a change of theirs that commits after this read is not seen.
+        ponytail: the series and organization rows are not locked, so a change of theirs that commits after this
+        read is not seen. Reading it under the pass lock would add nothing and hold the lock longer. Upgrade: lock
+        the series and organization rows in the global lock order, before the pass.
         """
-        if not locked_pass.is_active:
-            return False
-        if not EventSeries.objects.for_user(self.user).filter(pk=locked_pass.event_series_id).exists():
-            return False
-        return series_pass_service.pass_visible_to_user(locked_pass, self.user)
+        return EventSeries.objects.for_user(self.user).filter(pk=self.series_pass.event_series_id).exists()
+
+    def _pass_still_visible(self, locked_pass: SeriesPass) -> bool:
+        """The pass part of the rule, on the locked row: a change of the pass waits for the lock, so it is exact."""
+        return locked_pass.is_active and series_pass_service.pass_visible_to_user(locked_pass, self.user)
 
     @functools.cached_property
     def _is_owner_or_staff(self) -> bool:
@@ -285,6 +288,10 @@ class SeriesPassPurchaseService:
         # _cleanup_expired_batch and cancel_pending_checkout) and the session-keyed
         # series_pass_service.expire_stranded_held_passes caller (stripe_webhooks'
         # handle_payment_intent_canceled).
+        # The lock-free gates above ran on the route's read; a pass hidden meanwhile can still get their answer
+        # (a 400 or 409) before the 404 below. The series visibility is read here, before the locks (#1566).
+        if self.check_visibility and not self._series_still_visible():
+            raise NotFound()
         # The buyer's account row comes before every other lock: see lock_account_for_checkout (#1476).
         lock_account_for_checkout(self.user)
         # of=("self",): the joins only feed the quote under the lock below; they are not locked.
@@ -293,7 +300,7 @@ class SeriesPassPurchaseService:
             .select_related("event_series__organization__city")
             .get(pk=self.series_pass.pk)
         )
-        if self.check_visibility and not self._still_visible(locked_pass):
+        if self.check_visibility and not self._pass_still_visible(locked_pass):
             raise NotFound()
         if locked_pass.total_quantity is not None and locked_pass.quantity_sold >= locked_pass.total_quantity:
             raise SeriesPassNotPurchasableError(str(_("This pass is sold out.")))
