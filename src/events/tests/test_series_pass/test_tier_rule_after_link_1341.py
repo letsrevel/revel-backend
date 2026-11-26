@@ -7,7 +7,7 @@ the tier afterwards would let the pass bypass it.
 import pytest
 from django.core.exceptions import ValidationError
 
-from events.models import MembershipTier, Organization, SeriesPass, TicketTier
+from events.models import MembershipTier, Organization, SeriesPass, SeriesPassTierLink, TicketTier
 from events.schema import TicketTierUpdateSchema
 from events.service import ticket_service
 from events.tests.test_series_pass.covered_events import cover
@@ -79,3 +79,38 @@ def test_a_link_that_predates_the_rule_does_not_block_other_edits(
     renamed = _update(tier, name="Renamed", purchasable_by=P.MEMBERS, restricted_to_membership_tiers_ids=[gold.pk])
 
     assert renamed.name == "Renamed"
+
+
+def test_a_members_pass_refuses_an_invited_only_rule(series_pass: SeriesPass) -> None:
+    """Invited-only admits fewer buyers than a members pass: a member who is not invited."""
+    tier = _members_pass_and_tier(series_pass)
+
+    with pytest.raises(ValidationError):
+        _update(tier, purchasable_by=P.INVITED)
+
+
+def test_one_looser_pass_among_several_refuses_the_change(series_pass: SeriesPass) -> None:
+    """A members pass would accept a members tier; the public pass that covers the same tier would not."""
+    tier = _members_pass_and_tier(series_pass)
+    TicketTier.objects.filter(pk=tier.pk).update(purchasable_by=P.PUBLIC)
+    tier = TicketTier.objects.get(pk=tier.pk)
+    public_pass = SeriesPass.objects.create(
+        event_series=series_pass.event_series,
+        name="Public",
+        price=series_pass.price,
+        pro_rata_discount=series_pass.pro_rata_discount,
+        currency="EUR",
+    )
+    SeriesPassTierLink.objects.create(series_pass=public_pass, event=tier.event, tier=tier)
+
+    with pytest.raises(ValidationError):
+        _update(tier, purchasable_by=P.MEMBERS)
+
+
+def test_an_inactive_pass_still_refuses_the_change(series_pass: SeriesPass) -> None:
+    """As on the pass side: a pass made active again does not check its links again."""
+    _, tier = cover(series_pass, "inactive", days=3)
+    SeriesPass.objects.filter(pk=series_pass.pk).update(is_active=False)
+
+    with pytest.raises(ValidationError):
+        _update(tier, purchasable_by=P.MEMBERS)
