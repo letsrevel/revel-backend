@@ -11,7 +11,7 @@ from common.models import TagAssignment, TimeStampedModel
 from .mixins import TokenMixin, UserRequestMixin
 
 if t.TYPE_CHECKING:
-    from .ticket import TicketTierQuerySet
+    from .ticket_tier_queryset import TicketTierQuerySet
 
 
 def tiers_prefetch() -> "Prefetch[str, TicketTierQuerySet, str]":
