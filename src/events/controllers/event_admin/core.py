@@ -156,7 +156,7 @@ class EventAdminCoreController(EventAdminBaseController):
         still set is the supported way to resume a crashed or partial sweep.
 
         Note: Event opening notifications are handled automatically by the post_save signal
-        in events/signals.py which triggers when status field is updated.
+        in events/signals/event.py which triggers when status field is updated.
         """
         event = self.get_one(event_id)
         cancellation_reason = payload.cancellation_reason if payload else None

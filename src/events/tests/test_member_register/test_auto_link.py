@@ -21,7 +21,7 @@ from .conftest import RecordFactory
 
 pytestmark = pytest.mark.django_db
 
-AUTO_LINK_TASK = "events.signals.auto_link_member_records.delay"
+AUTO_LINK_TASK = "events.signals.user.auto_link_member_records.delay"
 
 
 def _user(django_user_model: type[RevelUser], email: str = "pat@example.com", **extra: t.Any) -> RevelUser:

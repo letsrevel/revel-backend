@@ -173,7 +173,7 @@ class TestMembershipTierChangedSignal:
         tier_b: MembershipTier,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.membership.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 member.tier = tier_b
                 member.save(update_fields=["tier"])
@@ -196,7 +196,7 @@ class TestMembershipTierChangedSignal:
         tier_a: MembershipTier,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.membership.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 OrganizationMember.objects.create(organization=organization, user=member_user, tier=tier_a)
 
@@ -212,7 +212,7 @@ class TestMembershipTierChangedSignal:
         member: OrganizationMember,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.membership.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 member.status = OrganizationMember.MembershipStatus.PAUSED
                 member.save(update_fields=["status"])

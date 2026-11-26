@@ -22,7 +22,7 @@ def ticket_tier(event: Event) -> TicketTier:
     """`event` comes from src/events/tests/conftest.py (owner = organization_owner_user).
 
     Deletes the default tier auto-created by the `handle_event_save` signal
-    (events/signals.py) so the returned tier is the event's only ticket tier —
+    (events/signals/event.py) so the returned tier is the event's only ticket tier —
     needed for the "all tiers paused" gate assertion below.
     """
     event.ticket_tiers.all().delete()

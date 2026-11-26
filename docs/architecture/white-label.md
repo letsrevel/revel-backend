@@ -130,7 +130,7 @@ Point Caddy at the backend over the internal network; the public API host also s
 
 A tenant frontend on `https://events.example.org` calls the API at the platform API host, so it is
 a cross-origin request with credentials. The static `CORS_ALLOWED_ORIGINS` cannot list customer
-domains, so `events/signals.py` registers a receiver on django-cors-headers' `check_request_enabled`
+domains, so `events/signals/organization.py` registers a receiver on django-cors-headers' `check_request_enabled`
 signal. When the static allow-list does not match, the receiver asks
 `tenant_host_from_origin(request.headers["origin"])`, which requires:
 

@@ -256,7 +256,7 @@ def update_status(
     Behavior:
       * Persists ``status = new_status`` via ``update_fields``.
         Event-opening notifications are emitted by the ``post_save`` signal
-        in ``events/signals.py``; we do not call them directly.
+        in ``events/signals/event.py``; we do not call them directly.
       * On transition to CANCELLED, persists ``cancellation_reason`` (an
         empty string when none is supplied) and revokes all PENDING
         ``WaitlistOffer``s for this event — outstanding offers are

@@ -81,8 +81,8 @@ def test_awaiting_member_not_a_card_updated_recipient(awaiting: OrganizationMemb
     """A tier change on an awaiting member sends no MEMBERSHIP_CARD_UPDATED (there is no card)."""
     tier = MembershipTier.objects.create(organization=organization, name="Gold")
     with (
-        patch("events.signals.notification_requested.send") as send,
-        patch("events.signals.transaction.on_commit", side_effect=lambda fn: fn()),
+        patch("events.signals.membership.notification_requested.send") as send,
+        patch("events.signals.membership.transaction.on_commit", side_effect=lambda fn: fn()),
     ):
         awaiting.tier = tier
         awaiting.save(update_fields=["tier"])

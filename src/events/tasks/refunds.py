@@ -228,7 +228,7 @@ def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | Non
     so no ``post_save`` signal fires — attendees already get the single EVENT_CANCELLED
     blast (and organizers get Task 9's summary), so a per-ticket TICKET_CANCELLED
     notification here would be a storm. That bypass also skips
-    ``events.signals.handle_ticket_visibility_and_potluck``, whose two jobs are handled
+    ``events.signals.attendance.handle_ticket_visibility_and_potluck``, whose two jobs are handled
     separately: the potluck-unclaim is judged harmless to skip (the event is dead, its
     potluck is moot), but ``Event.attendee_count``/``is_full`` recompute is NOT optional
     — it's the only path that keeps those fields from freezing at their

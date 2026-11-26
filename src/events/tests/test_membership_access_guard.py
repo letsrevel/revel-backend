@@ -56,7 +56,7 @@ MANAGER_METHOD_ALLOWLIST: tuple[str, ...] = (
 )
 # Rule (e) only: membership/subscription state machines compare raw status on purpose.
 COMPARE_ALLOWLIST: tuple[str, ...] = (
-    "events/signals.py",  # subscription -> member sync: PAUSED/BANNED guards and PAUSED -> ACTIVE resume rule
+    "events/signals/membership.py",  # subscription -> member sync: PAUSED/BANNED guards and PAUSED -> ACTIVE resume rule
     "events/service/membership_manager/gates.py",  # PAUSED blocks free apply regardless of tier
     "events/service/membership_manager/service.py",  # PAUSED must not be self-cleared via free apply
     "events/service/subscription/stripe/sync.py",  # CANCELLED -> ACTIVE reactivation on subscription activation

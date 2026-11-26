@@ -552,7 +552,7 @@ scopes every query).
 
 ## Member Sync (signal)
 
-`events/signals.py::sync_member_from_subscription` listens to `post_save` on
+`events/signals/membership.py::sync_member_from_subscription` listens to `post_save` on
 `MembershipSubscription`:
 
 | Subscription status | OrganizationMember status |

@@ -58,7 +58,7 @@ class TestEventOpenedNotificationRules:
         )
 
         # Act - Update a different field
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.event.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 event.max_attendees = 200
                 event.save(update_fields=["max_attendees"])
@@ -96,7 +96,7 @@ class TestEventOpenedNotificationRules:
         )
 
         # Act
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.event.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 Event.objects.create(
                     organization=organization,
@@ -143,7 +143,7 @@ class TestEventOpenedNotificationRules:
         )
 
         # Act
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.event.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 Event.objects.create(
                     organization=organization,
@@ -210,7 +210,7 @@ class TestEventOpenedNotificationRules:
         )
 
         # Act
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.event.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 event.status = Event.EventStatus.OPEN
                 event.save(update_fields=["status"])
@@ -258,7 +258,7 @@ class TestEventOpenedNotificationRules:
         )
 
         # Act
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.event.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 event.status = Event.EventStatus.OPEN
                 event.save(update_fields=["status"])
@@ -306,7 +306,7 @@ class TestEventOpenedNotificationRules:
         )
 
         # Act
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.event.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 event.status = Event.EventStatus.OPEN
                 event.save(update_fields=["status"])
@@ -355,7 +355,7 @@ class TestEventOpenedNotificationRules:
         )
 
         # Act - Change to CLOSED
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.event.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 event.status = Event.EventStatus.CLOSED
                 event.save(update_fields=["status"])
@@ -423,7 +423,7 @@ class TestEventOpenedNotificationRules:
         )
 
         # Act
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.event.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 event.status = Event.EventStatus.OPEN
                 event.save(update_fields=["status"])

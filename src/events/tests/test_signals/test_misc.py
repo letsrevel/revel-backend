@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import Event, EventInvitation, EventRSVP, PendingEventInvitation, PotluckItem, Ticket, TicketTier
-from events.signals import unclaim_user_potluck_items
+from events.service.potluck_service import unclaim_user_potluck_items
 
 pytestmark = pytest.mark.django_db
 
@@ -481,7 +481,7 @@ class TestPendingInvitationConversion:
 class TestBlacklistLinkingOnUserCreation:
     """Test that blacklist entries are automatically linked when a new user is created.
 
-    The signal `handle_user_creation` in events/signals.py links unlinked blacklist entries
+    The signal `handle_user_creation` in events/signals/user.py links unlinked blacklist entries
     when their identifiers (email, phone, telegram) match the new user.
     """
 

@@ -102,7 +102,7 @@ class TestManageMembersAndStaff:
         OrganizationMember.objects.create(organization=organization, user=member_user, status=status)
         url = reverse("api:remove_organization_member", kwargs={"slug": organization.slug, "user_id": member_user.id})
         with (
-            patch("events.signals.notification_requested.send") as send,
+            patch("events.signals.membership.notification_requested.send") as send,
             django_capture_on_commit_callbacks(execute=True),
         ):
             response = organization_owner_client.delete(url)
