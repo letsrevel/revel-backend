@@ -179,25 +179,23 @@ def expire_stripe_sessions_best_effort(session_ids: list[str], stripe_account_id
             logger.warning("pending_checkout_session_expire_failed", session_id=session_id, error=str(exc))
 
 
-def expire_pending_sessions_on_commit(tickets: QuerySet[Ticket]) -> None:
-    """After commit, expire the open Stripe Checkout sessions of the unfinished payments of ``tickets``.
+def lock_payments(tickets: QuerySet[Ticket]) -> None:
+    """Lock all Payment rows of ``tickets`` in one pk-ordered statement.
 
-    For deletes that cascade the tickets and their Payment rows away (event, ticket tier, series):
-    without its Payment rows a later ``checkout.session.completed`` has nothing to reconcile, so the
-    session must not stay payable. Unfinished means PENDING, or FAILED with a session that has not
-    expired yet: the event-cancel sweep marks a pending checkout FAILED and leaves its session open
-    (a late payment is then refunded, but only while the row exists).
-
-    Call it inside the deleting transaction, before the delete and before other locks. It locks ALL
-    Payment rows of ``tickets`` in one pk-ordered statement (the delete removes them all anyway) and
-    reads the statuses under that lock. A session stamp on a locked row waits for the delete, matches
-    no row and expires the session itself (``stamp_session_or_expire``). The later Payment lock of
-    ``release_uses_of_pending_tickets`` takes no new rows. A rollback discards the callback. Best
-    effort: a failed expire is logged and the other sessions still go.
+    For a loop that runs a delete service once per row in one transaction: each run locks only the Payment
+    rows of its own row, so the loop alone would not lock them in pk order. One checkout can span tiers and
+    events, so that loop could deadlock with ``cancel_pending_checkout``. Call this before the loop.
     """
-    # ponytail: a reserve that commits its rows after this statement AND stamps its Stripe session before
-    # the cascade reads them is not covered (a window of milliseconds that must also fit a Stripe round
-    # trip). Close it by locking the tier/event rows first, if the lock order is reworked for that.
+    list(Payment.objects.select_for_update(of=("self",)).filter(ticket__in=tickets).order_by("pk").values_list("pk"))
+
+
+def _lock_unfinished_sessions(tickets: QuerySet[Ticket]) -> dict[str | None, set[str]]:
+    """Lock all Payment rows of ``tickets`` (pk order) and return the open sessions of the unfinished ones.
+
+    Unfinished means PENDING, or FAILED with a session that has not expired yet: the event-cancel sweep marks
+    a pending checkout FAILED and leaves its session open (a late payment is then refunded, but only while the
+    row exists). The statuses are read under the lock.
+    """
     sessions_by_account: dict[str | None, set[str]] = defaultdict(set)
     locked = (
         Payment.objects.select_for_update(of=("self",))
@@ -210,6 +208,58 @@ def expire_pending_sessions_on_commit(tickets: QuerySet[Ticket]) -> None:
         open_failed = status == Payment.PaymentStatus.FAILED and expires_at > now
         if session_id and (status == Payment.PaymentStatus.PENDING or open_failed):
             sessions_by_account[account_id].add(session_id)
+    return sessions_by_account
+
+
+def _lock_rows(rows: QuerySet[t.Any]) -> None:
+    """Lock ``rows`` (``FOR UPDATE``, only the rows of the model itself) in pk order."""
+    list(rows.select_for_update(of=("self",)).order_by("pk").values_list("pk", flat=True))
+
+
+def lock_for_cascade_delete(
+    tickets: QuerySet[Ticket],
+    *,
+    tiers: QuerySet[TicketTier] | None = None,
+    parents: t.Sequence[QuerySet[t.Any]] = (),
+) -> None:
+    """End the unfinished checkouts of ``tickets`` that a delete is about to cascade away.
+
+    Call it inside the deleting transaction, before the delete. It takes the locks of the delete in the
+    global order (docs/engineering-notes.md, "Lock order"):
+
+    1. the Payment rows of ``tickets``, pk order, and the statuses under that lock;
+    2. every ``tiers`` row (``FOR UPDATE``, pk order): a reservation locks its tier before it inserts, so
+       after this no new Payment row can appear for these tiers;
+    3. the ``parents`` rows (``FOR UPDATE``, pk order), in the order given: Organization, EventSeries, Event.
+       ``FOR UPDATE`` because the delete removes them: a transaction that inserts a child row meanwhile
+       waits at its commit-time foreign-key check and then fails, instead of the delete failing on it;
+    4. the Payment rows again, for the rows that a reservation committed between steps 1 and 2;
+    5. the Ticket and DiscountCode rows (``release_uses_of_pending_tickets``) to give back the discount uses.
+
+    After commit, the open Stripe Checkout sessions of the unfinished payments are expired: without their
+    Payment rows a later ``checkout.session.completed`` has nothing to reconcile. A session stamp on a locked
+    row waits for the delete, matches no row and expires the session itself (``stamp_session_or_expire``).
+    A rollback discards the callback. Best effort: a failed expire is logged and the other sessions still go.
+
+    Step 4 is out of the global order for the rows that committed after step 1. If a cancel, an expiry or a
+    webhook holds such a row and waits for a tier of step 2, Postgres detects the deadlock and stops one of
+    the two transactions. A session that is then paid with no Payment row is refunded in full
+    (``refund_orphaned_checkout_session``).
+
+    Args:
+        tickets: The tickets that the delete removes.
+        tiers: The tiers that the delete removes. None when it removes no tier (a ticket delete): steps 2 to 4
+            are then skipped.
+        parents: The parent rows that the delete removes, in lock order.
+    """
+    sessions_by_account = _lock_unfinished_sessions(tickets)
+    if tiers is not None:
+        _lock_rows(tiers)
+        for rows in parents:
+            _lock_rows(rows)
+        for account_id, session_ids in _lock_unfinished_sessions(tickets).items():
+            sessions_by_account[account_id] |= session_ids
+    discount_code_service.release_uses_of_pending_tickets(tickets)
     if not sessions_by_account:
         return
 

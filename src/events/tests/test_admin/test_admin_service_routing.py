@@ -257,7 +257,7 @@ class TestAdminDeletes:
         with (
             patch(EXPIRE) as expire,
             patch(
-                "events.admin.ticket.discount_code_service.release_uses_of_pending_tickets",
+                "events.service.pending_checkout.discount_code_service.release_uses_of_pending_tickets",
                 wraps=discount_code_service.release_uses_of_pending_tickets,
             ) as release,
             django_capture_on_commit_callbacks(execute=True),

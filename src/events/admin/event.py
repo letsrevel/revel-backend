@@ -37,7 +37,7 @@ from events.admin.base import (
 )
 from events.exceptions import EventRefundsStartedError, SeriesPassHasHoldersError
 from events.models.event import EventQuerySet
-from events.service import day_membership_service, event_series_service, event_update_service
+from events.service import day_membership_service, event_series_service, event_update_service, pending_checkout
 
 
 class EventOriginFilter(admin.SimpleListFilter):
@@ -76,6 +76,9 @@ class EventAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # t
         event_update_service.delete_event(obj)
 
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.Event]) -> None:
+        # Each delete_event locks only its event's payments; one checkout can span events, so take all of them
+        # in pk order first (as the ticket tier admin does), or the loop can deadlock with cancel_pending_checkout.
+        pending_checkout.lock_payments(models.Ticket.objects.filter(event__in=queryset))
         for event in queryset:
             self.delete_model(request, event)
 
@@ -276,6 +279,8 @@ class EventSeriesAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin)
             self.message_user(request, str(exc), messages.ERROR)
 
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.EventSeries]) -> None:
+        # As for events: lock the payments of every series in pk order before the per-series deletes.
+        pending_checkout.lock_payments(models.Ticket.objects.filter(event__event_series__in=queryset))
         for series in queryset:
             self.delete_model(request, series)
 
