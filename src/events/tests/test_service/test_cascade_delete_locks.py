@@ -136,6 +136,13 @@ def _lock_table(sql: str) -> str | None:
     return sql.split(" FROM ")[1].split()[0]
 
 
+def _assert_relocked_after(captured: list[dict[str, t.Any]], parent: type[t.Any], *models: type[t.Any]) -> None:
+    """After the parent lock and before the second Payment lock, ``models`` are locked again, in this order."""
+    locks = [table for q in captured if (table := _lock_table(q["sql"]))]
+    after = locks[locks.index(f'"{parent._meta.db_table}"') + 1 :]
+    assert after[: after.index('"events_payment"')] == [f'"{m._meta.db_table}"' for m in models], locks
+
+
 def _assert_locks_before_delete(captured: list[dict[str, t.Any]]) -> None:
     first_delete = next(i for i, q in enumerate(captured) if q["sql"].startswith("DELETE"))
     last_lock = max(i for i, q in enumerate(captured) if "FOR UPDATE" in q["sql"] and "DELETE" not in q["sql"])
@@ -200,6 +207,7 @@ class TestLockOrder:
             DiscountCode,
         )
         _assert_for_update(ctx.captured_queries, SeriesPass, TicketTier, EventSeries, Event)
+        _assert_relocked_after(ctx.captured_queries, Event, SeriesPass, TicketTier)
         assert not SeriesPass.objects.filter(pk=season.pk).exists()
         _assert_locks_before_delete(ctx.captured_queries)
 
@@ -226,6 +234,7 @@ class TestLockOrder:
             DiscountCode,
         )
         _assert_for_update(ctx.captured_queries, SeriesPass, TicketTier, Organization, EventSeries, Event)
+        _assert_relocked_after(ctx.captured_queries, Event, SeriesPass, TicketTier)
         _assert_locks_before_delete(ctx.captured_queries)
         assert not Organization.objects.filter(pk=organization.pk).exists()
 

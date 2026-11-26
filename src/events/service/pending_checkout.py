@@ -240,8 +240,8 @@ def lock_for_bulk_delete(
     """Lock the rows of several cascade deletes at once, in the global lock order, before a loop runs them.
 
     For a loop that runs a delete service once per row in one transaction (the admin bulk deletes). Each
-    run locks only the rows of its own delete, so the loop alone would lock the Payment, TicketTier and
-    parent rows of the selection one delete at a time, not in pk order. One checkout can span tiers and
+    run locks only the rows of its own delete, so the loop alone would lock the Payment, SeriesPass,
+    TicketTier and parent rows of the selection one delete at a time, not in pk order. One checkout can span tiers and
     events, and a series pass locks the tiers of several events in pk order, so that loop could deadlock
     with them. This takes steps 1 to 4 of :func:`lock_for_cascade_delete` for the whole selection. It ends
     no checkout: each delete service in the loop still does that for its own rows, so a delete that fails

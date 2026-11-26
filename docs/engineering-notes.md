@@ -888,8 +888,8 @@ the same transaction and before the delete:
    transaction that inserts a child row meanwhile waits at its commit-time foreign-key check and then
    fails. Without this lock, the delete failed on that row instead. With parent rows, it locks the
    passes and the tiers again, for a row that committed between the first lock of its model and the
-   parent locks: after the parent locks, no new pass or tier can commit. A reservation locks its tier before it inserts, so after this step no new `Payment`
-   row can appear for these tiers.
+   parent locks: after the parent locks, no new pass or tier can commit. A reservation locks its
+   tier before it inserts, so after this step no new `Payment` row can appear for these tiers.
 4. It locks and reads the `Payment` rows again (#1532). This catches the rows that a reservation
    committed between steps 1 and 3. Their sessions go into the same expire set.
 5. `discount_code_service.release_uses_of_pending_tickets(tickets)` gives back the discount code
@@ -902,8 +902,8 @@ Step 4 is out of the global lock order, but only for the rows that committed aft
 cancel, an expiry or a webhook holds such a row and waits for a tier of step 3, Postgres detects the
 deadlock and stops one of the two transactions. The second pass and tier locks of step 3 have the same
 limit for a pass or a tier that committed between the first lock of its model and the second one: a
-pass purchase or a checkout on such a new row can deadlock with the delete. A session that is then paid with no `Payment` row is
-refunded in full (`refund_orphaned_checkout_session`, #1489).
+pass purchase or a checkout on such a new row can deadlock with the delete. A session that is then
+paid with no `Payment` row is refunded in full (`refund_orphaned_checkout_session`, #1489).
 
 A loop that runs a delete service once per row in one transaction (the admin bulk deletes of events,
 tiers and series) first calls `pending_checkout.lock_for_bulk_delete` for the whole selection. It takes
