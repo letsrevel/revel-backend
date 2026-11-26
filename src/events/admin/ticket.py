@@ -8,6 +8,7 @@ from django.contrib.admin.utils import unquote
 from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
@@ -170,12 +171,10 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  #
         return obj.seat.label if obj.seat else "—"
 
     def delete_model(self, request: HttpRequest, obj: models.Ticket) -> None:
-        pending_checkout.lock_for_cascade_delete(models.Ticket.objects.filter(pk=obj.pk))
-        super().delete_model(request, obj)
+        ticket_service.delete_tickets(models.Ticket.objects.filter(pk=obj.pk))
 
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.Ticket]) -> None:
-        pending_checkout.lock_for_cascade_delete(queryset)
-        super().delete_queryset(request, queryset)
+        ticket_service.delete_tickets(queryset)
 
 
 @admin.register(models.Payment)
@@ -238,20 +237,36 @@ class PaymentAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[m
     date_hierarchy = "created_at"
     ordering = ["-created_at"]
 
+    @staticmethod
+    def _unfinished_reason(payment: models.Payment) -> str | None:
+        """Why the payment is an unfinished checkout (None when it is settled).
+
+        FAILED with a session that has not expired is one too: the event-cancel sweep leaves that session open,
+        and a late payment is refunded only while the row exists (#1562).
+        """
+        if payment.status == models.Payment.PaymentStatus.PENDING:
+            return "pending payment: deleting it would strand its pending ticket"
+        if (
+            payment.status == models.Payment.PaymentStatus.FAILED
+            and payment.stripe_session_id
+            and payment.expires_at > timezone.now()
+        ):
+            return "failed payment with an open checkout session: a late payment would have no row to reconcile"
+        return None
+
     # Deleting a PENDING payment would leave its PENDING ticket with no payment, so the expiry sweep
     # could never reclaim the seat. Not enforced in has_delete_permission: Django checks it for every
     # object a cascade removes, so it would also make deleting an event, tier or ticket with a pending
     # checkout a 403.
     def get_deleted_objects(self, objs: t.Any, request: HttpRequest) -> t.Any:
         deleted, model_count, perms_needed, protected = super().get_deleted_objects(objs, request)
-        pending = models.Payment.PaymentStatus.PENDING
         protected = [
             *protected,
             *(
                 # The pk, not str(payment): __str__ reads the ticket, one query per row.
-                f"Payment {payment.pk} (pending payment: deleting it would strand its pending ticket)"
+                f"Payment {payment.pk} ({reason})"
                 for payment in objs
-                if payment.status == pending
+                if (reason := self._unfinished_reason(payment))
             ),
         ]
         return deleted, model_count, perms_needed, protected
@@ -262,8 +277,10 @@ class PaymentAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[m
         obj = self.get_object(request, unquote(object_id))
         if obj is None:
             return super().change_view(request, object_id, form_url, extra_context)
-        pending = obj.status == models.Payment.PaymentStatus.PENDING
-        return super().change_view(request, object_id, form_url, {**(extra_context or {}), "show_delete": not pending})
+        unfinished = self._unfinished_reason(obj) is not None
+        return super().change_view(
+            request, object_id, form_url, {**(extra_context or {}), "show_delete": not unfinished}
+        )
 
     fieldsets = [
         (None, {"fields": ["id", "user", "ticket", "status", "stripe_session_id"]}),

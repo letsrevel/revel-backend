@@ -8,7 +8,8 @@ from decimal import Decimal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, F, Max, Q, QuerySet
+from django.db.models import Count, F, Max, Q, QuerySet, Value
+from django.db.models.functions import Greatest
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -523,6 +524,26 @@ def delete_ticket_tier(tier: TicketTier) -> None:
     """
     lock_for_cascade_delete(Ticket.objects.filter(tier=tier), tiers=TicketTier.objects.filter(pk=tier.pk))
     tier.delete()
+
+
+@transaction.atomic
+def delete_tickets(tickets: QuerySet[Ticket]) -> None:
+    """Delete tickets (the Django admin delete); their payments cascade and their tier capacity comes back.
+
+    A CANCELLED ticket already gave its slot back, so only the other tickets release one. The unfinished
+    checkouts end as in ``delete_ticket_tier``. Lock order: Payment, then tier, then ticket
+    (``lock_for_cascade_delete``, ``lock_tier_then_ticket``). The decrement is floored at zero.
+    """
+    lock_for_cascade_delete(tickets)
+    locked = lock_tier_then_ticket(tickets)
+    holding = Counter(
+        ticket.tier_id for ticket in locked if ticket.tier_id and ticket.status != Ticket.TicketStatus.CANCELLED
+    )
+    for tier_id, count in sorted(holding.items()):
+        TicketTier.objects.filter(pk=tier_id).update(quantity_sold=Greatest(F("quantity_sold") - count, Value(0)))
+    Ticket.objects.filter(pk__in=[ticket.pk for ticket in locked]).delete()
+    for event_id in sorted({ticket.event_id for ticket in locked if ticket.tier_id in holding}):
+        enqueue_waitlist_processing(event_id)
 
 
 def _set_tier_membership_links(

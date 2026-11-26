@@ -304,6 +304,70 @@ class TestBulkTierDeleteLockOrder:
         assert not TicketTier.objects.filter(pk__in=[tier.pk, other_tier.pk]).exists()
 
 
+class TestTicketDeleteReleasesCapacity:
+    """#1562: an admin ticket delete gives back the tier capacity of each ticket that held it."""
+
+    @pytest.mark.parametrize("via", ["delete_view", "delete_selected"])
+    def test_ticket_delete_releases_tier_capacity(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser, via: str
+    ) -> None:
+        held = _checkout(tier, member_user, "cs_held", status=Payment.PaymentStatus.SUCCEEDED)
+        cancelled = _checkout(tier, member_user, "cs_cancelled", status=Payment.PaymentStatus.SUCCEEDED)
+        Ticket.objects.filter(pk=cancelled.pk).update(status=Ticket.TicketStatus.CANCELLED)
+        TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=1)  # the cancelled ticket gave its slot back
+
+        if via == "delete_view":
+            _delete_view(admin_client, "ticket", held.pk)
+        else:
+            _bulk(admin_client, "ticket", "delete_selected", [held.pk, cancelled.pk], post="yes")
+
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 0  # not -1: the cancelled ticket releases nothing
+
+    def test_ticket_delete_never_drops_below_zero(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        held = _checkout(tier, member_user, "cs_held", status=Payment.PaymentStatus.SUCCEEDED)
+
+        _delete_view(admin_client, "ticket", held.pk)
+
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 0
+
+
+class TestFailedPaymentWithOpenSessionDelete:
+    """#1562: a FAILED payment whose Stripe session is still open is an unfinished checkout."""
+
+    def test_delete_of_failed_payment_with_open_session_is_refused(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        failed = _checkout(tier, member_user, "cs_open", status=Payment.PaymentStatus.FAILED).payment
+
+        response = _bulk(admin_client, "payment", "delete_selected", [failed.pk], post="yes")
+
+        assert Payment.objects.filter(pk=failed.pk).exists()
+        assert b"open checkout session" in response.content
+
+    def test_delete_of_failed_payment_with_expired_session_works(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        failed = _checkout(tier, member_user, "cs_old", status=Payment.PaymentStatus.FAILED).payment
+        Payment.objects.filter(pk=failed.pk).update(expires_at=timezone.now() - timedelta(hours=1))
+
+        _bulk(admin_client, "payment", "delete_selected", [failed.pk], post="yes")
+
+        assert not Payment.objects.filter(pk=failed.pk).exists()
+
+    def test_change_page_hides_delete_for_failed_payment_with_open_session(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        failed = _checkout(tier, member_user, "cs_open", status=Payment.PaymentStatus.FAILED).payment
+
+        page = admin_client.get(reverse("admin:events_payment_change", args=[failed.pk]))
+
+        assert page.context["show_delete"] is False
+
+
 class TestPendingPaymentDelete:
     def test_change_page_hides_delete_for_pending_only(
         self, admin_client: Client, tier: TicketTier, member_user: RevelUser
