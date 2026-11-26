@@ -10,6 +10,7 @@ from events.tasks.admin_recap import send_admin_recap_discord, send_admin_recap_
 from events.tasks.announcements import resend_announcements_to_new_signups, send_scheduled_announcements
 from events.tasks.attendees import (
     build_attendee_visibility_flags,
+    reconcile_attendee_counts,
     send_guest_rsvp_confirmation,
     send_guest_ticket_confirmation,
 )
@@ -79,6 +80,7 @@ __all__ = [
     "auto_link_member_records",
     "send_member_register_invite",
     "build_attendee_visibility_flags",
+    "reconcile_attendee_counts",
     "calculate_referral_payouts",
     "cleanup_expired_payments",
     "cleanup_expired_seat_holds",

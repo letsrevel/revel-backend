@@ -20,6 +20,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from common.utils import on_commit_independent
 from events.compliance import PaymentChannelCapability
 from events.compliance.enforcement import series_pass_online_payment
 from events.exceptions import SeriesPassCoverageError, SeriesPassHasHoldersError
@@ -391,9 +392,17 @@ def rebuild_attendee_visibility(event_ids: t.Iterable[UUID | str]) -> None:
 
     ``bulk_create`` / ``bulk_update`` skip ``post_save``, so series-pass code that grants
     ACTIVE tickets in bulk must trigger the rebuild itself.
+
+    Independent: a failed enqueue is logged with its event id and does not fail the caller or the other
+    events. The ``events.reconcile_attendee_counts`` sweep then finds the stale count and dispatches the
+    rebuild again, because the bulk writes of these tickets stamp ``updated_at``.
     """
     for event_id in sorted({str(e) for e in event_ids}):
-        transaction.on_commit(functools.partial(build_attendee_visibility_flags.delay, event_id))
+        on_commit_independent(
+            functools.partial(build_attendee_visibility_flags.delay, event_id),
+            "visibility_flags_dispatch_failed",
+            event_id=event_id,
+        )
 
 
 def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
@@ -911,10 +920,13 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
     )
     if pending_tickets:
         shares = distribute_amount_across_items(held_pass.price_paid, len(pending_tickets))
+        now = timezone.now()
         for ticket, share in zip(pending_tickets, shares, strict=True):
             ticket.status = Ticket.TicketStatus.ACTIVE
             ticket.price_paid = share
-        Ticket.objects.bulk_update(pending_tickets, ["status", "price_paid"])
+            ticket.updated_at = now
+        # updated_at by hand: bulk_update skips auto_now, and the reconcile sweep finds a lost rebuild by it.
+        Ticket.objects.bulk_update(pending_tickets, ["status", "price_paid", "updated_at"])
         day_membership_service.on_tickets_issued(pending_tickets, old_status=Ticket.TicketStatus.PENDING)
         ticket_number_service.assign_ticket_numbers(pending_tickets)
 

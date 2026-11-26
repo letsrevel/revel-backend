@@ -2,6 +2,7 @@
 
 import hashlib
 import typing as t
+from datetime import timedelta
 from uuid import UUID
 
 import jwt
@@ -9,9 +10,10 @@ import structlog
 from celery import shared_task
 from django.conf import settings
 from django.db import connection, transaction
-from django.db.models import Q
+from django.db.models import Count, F, OuterRef, Q, Subquery
+from django.db.models.functions import Coalesce
 from django.template.loader import render_to_string
-from django.utils import translation
+from django.utils import timezone, translation
 from django.utils.translation import gettext as _
 
 from accounts.models import RevelUser
@@ -36,6 +38,73 @@ def visibility_rebuild_lock_key(event_id: str) -> int:
     """
     digest = hashlib.sha256(f"events.attendee_visibility:{event_id}".encode()).digest()
     return int.from_bytes(digest[:8], byteorder="big", signed=True)
+
+
+# 24 hours covers a long broker outage (the sweep itself cannot run during one); updated_at is indexed.
+RECONCILE_WINDOW = timedelta(hours=24)
+# A rebuild that is only queued is not lost: activity of the last minutes is left for the next run.
+# ponytail: a worker backlog longer than the grace makes the sweep queue a duplicate rebuild for each event that
+# waits; a rebuild sets the count to the live value, so it stops after one run. A per-event "dispatched" mark
+# would avoid the duplicate. A rebuild that fails every time (for one event) is queued again on every run for
+# the whole window; its own failure log is the signal for that. Lost rebuilds whose changes cancel out in the
+# count (a lost cancel and a lost bulk issue on one event) are not found: the counts match. Nor is a rebuild that
+# wrote the count and then failed in its flag phase (the count is written first on purpose, so capacity reads stay
+# current; the failure is a task error). A stored "rebuild needed" mark that the rebuild clears would find both
+# (#1568, option A).
+RECONCILE_GRACE = timedelta(minutes=5)
+
+
+@shared_task(name="events.reconcile_attendee_counts")
+def reconcile_attendee_counts() -> int:
+    """Dispatch the attendee rebuild again for an event whose stored count no longer matches (#1568).
+
+    A ``bulk_create`` or ``bulk_update`` of tickets (the series pass paths) skips ``post_save``, so its
+    after-commit dispatch is the only rebuild, and a broker failure loses it. A lost rebuild leaves
+    ``attendee_count`` stale, because the new tickets are not counted. So the sweep takes the events with a
+    ticket or an RSVP whose ``updated_at`` is between ``RECONCILE_WINDOW`` and ``RECONCILE_GRACE`` ago, and
+    compares the stored count with the live one (attending tickets plus YES RSVPs, as
+    ``build_attendee_visibility_flags`` counts). It runs every 15 minutes.
+
+    It finds only a write that stamps ``updated_at``: a ``bulk_create``, a full save, a ``bulk_update`` that
+    lists ``updated_at``, or a ``save(update_fields=...)`` that lists it. A ``save(update_fields=["status"])``
+    or a delete leaves no trace in the window.
+
+    Returns:
+        The number of events dispatched.
+    """
+    now = timezone.now()
+    window = {"updated_at__gte": now - RECONCILE_WINDOW, "updated_at__lt": now - RECONCILE_GRACE}
+    tickets = (
+        Ticket.objects.attending()
+        .filter(event=OuterRef("pk"))
+        .order_by()
+        .values("event")
+        .annotate(n=Count("pk"))
+        .values("n")
+    )
+    rsvps = (
+        EventRSVP.objects.filter(event=OuterRef("pk"), status=EventRSVP.RsvpStatus.YES)
+        .order_by()
+        .values("event")
+        .annotate(n=Count("pk"))
+        .values("n")
+    )
+    # The candidates come from the indexed updated_at range as subqueries (order_by() drops Ticket's default
+    # ordering), so the database builds the set and no id list goes through Python.
+    recent = Q(pk__in=Ticket.objects.filter(**window).order_by().values("event_id")) | Q(
+        pk__in=EventRSVP.objects.filter(**window).order_by().values("event_id")
+    )
+    stale = list(
+        Event.objects.filter(recent)
+        .annotate(live=Coalesce(Subquery(tickets), 0) + Coalesce(Subquery(rsvps), 0))
+        .exclude(attendee_count=F("live"))
+        .values_list("pk", flat=True)
+    )
+    for event_id in stale:
+        build_attendee_visibility_flags.delay(str(event_id))
+    if stale:
+        logger.warning("attendee_count_drift_rebuilt", events=len(stale), event_ids=[str(e) for e in stale[:50]])
+    return len(stale)
 
 
 @shared_task(name="events.tasks.build_attendee_visibility_flags")
