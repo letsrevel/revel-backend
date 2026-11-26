@@ -204,7 +204,3 @@ class TicketTierManager(models.Manager["TicketTier"]):
     ) -> TicketTierQuerySet:
         """Return ticket tiers for an already visibility-checked event."""
         return self.get_queryset().for_visible_event(event, user, event_token=event_token)
-
-
-# Pydantic's JSON dump switches to years ("P1Y…") at 365 days, which Django's parse_duration
-# cannot read — so the bound also keeps the API round-trip (model_dump(mode="json")) parseable.

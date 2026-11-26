@@ -1,7 +1,7 @@
 """Stripe Connect onboarding of an organization: the account, its onboarding link and its verification.
 
-Split from ``stripe_service`` (#1473), which re-exports these names: callers and patches use
-``stripe_service.<name>``.
+Split from ``stripe_service`` (#1473), which re-exports these names. Patch a name where the code under test looks
+it up: ``stripe_service.<name>`` for a caller that reads it from ``stripe_service``.
 """
 
 import typing as t

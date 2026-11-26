@@ -1,6 +1,8 @@
 """Changes to a live Stripe subscription: the price update of a plan migration, pause and resume.
 
-Split from ``checkout`` (#1473), which re-exports these names: callers and patches use ``checkout.<name>``.
+Split from ``checkout`` (#1473), which re-exports these names. Patch a name where the code under test looks it up:
+``checkout.<name>`` for a caller that reads it from ``checkout``; ``subscription_changes.<name>`` for a call inside
+this module (for example ``fetch_price_cadence`` from ``update_subscription_price`` with no ``cadence_of``).
 """
 
 import typing as t

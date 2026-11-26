@@ -74,6 +74,8 @@ class CancellationBlockReason(models.TextChoices):
     PART_OF_SERIES_PASS = "part_of_series_pass", "Ticket belongs to a series pass"
 
 
+# Pydantic's JSON dump switches to years ("P1Y…") at 365 days, which Django's parse_duration
+# cannot read — so the bound also keeps the API round-trip (model_dump(mode="json")) parseable.
 MAX_CHECK_IN_OFFSET = timedelta(days=364)
 
 
