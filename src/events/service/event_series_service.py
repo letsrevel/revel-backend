@@ -10,9 +10,8 @@ from django.db.models import ProtectedError
 from django.utils.translation import gettext_lazy as _
 
 from events.exceptions import SeriesPassHasHoldersError
-from events.models import EventSeries, Ticket
-from events.service import discount_code_service
-from events.service.pending_checkout import expire_pending_sessions_on_commit
+from events.models import Event, EventSeries, SeriesPass, Ticket, TicketTier
+from events.service.pending_checkout import lock_for_cascade_delete
 
 
 def delete_event_series(series: EventSeries) -> None:
@@ -40,10 +39,14 @@ def delete_event_series(series: EventSeries) -> None:
         # leave the series stripped of template_event/recurrence_rule outside ATOMIC_REQUESTS.
         with transaction.atomic():
             # The cascade also removes the events' PENDING tickets: expire their open Stripe sessions
-            # (after commit; a ProtectedError discards it) and give back their discount code uses.
-            tickets = Ticket.objects.filter(event__event_series=series)
-            expire_pending_sessions_on_commit(tickets)
-            discount_code_service.release_uses_of_pending_tickets(tickets)
+            # (after commit; a ProtectedError discards it) and give back their discount code uses. The
+            # payments, tiers, the series and its events are locked first, in the global lock order.
+            lock_for_cascade_delete(
+                Ticket.objects.filter(event__event_series=series),
+                tiers=TicketTier.objects.filter(event__event_series=series),
+                parents=[EventSeries.objects.filter(pk=series.pk), Event.objects.filter(event_series=series)],
+                passes=SeriesPass.objects.filter(event_series=series),
+            )
             series.delete()
     except ProtectedError as exc:
         raise SeriesPassHasHoldersError(

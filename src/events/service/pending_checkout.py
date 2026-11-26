@@ -23,7 +23,7 @@ from stripe.checkout import Session
 
 from accounts.models import RevelUser
 from common.service.stripe_config import configure_stripe
-from events.models import Payment, Ticket, TicketTier
+from events.models import EventSeries, Organization, Payment, SeriesPass, Ticket, TicketTier
 from events.service import discount_code_service
 from events.service.waitlist_service import enqueue_waitlist_processing
 
@@ -179,25 +179,13 @@ def expire_stripe_sessions_best_effort(session_ids: list[str], stripe_account_id
             logger.warning("pending_checkout_session_expire_failed", session_id=session_id, error=str(exc))
 
 
-def expire_pending_sessions_on_commit(tickets: QuerySet[Ticket]) -> None:
-    """After commit, expire the open Stripe Checkout sessions of the unfinished payments of ``tickets``.
+def _lock_unfinished_sessions(tickets: QuerySet[Ticket]) -> dict[str | None, set[str]]:
+    """Lock all Payment rows of ``tickets`` (pk order) and return the open sessions of the unfinished ones.
 
-    For deletes that cascade the tickets and their Payment rows away (event, ticket tier, series):
-    without its Payment rows a later ``checkout.session.completed`` has nothing to reconcile, so the
-    session must not stay payable. Unfinished means PENDING, or FAILED with a session that has not
-    expired yet: the event-cancel sweep marks a pending checkout FAILED and leaves its session open
-    (a late payment is then refunded, but only while the row exists).
-
-    Call it inside the deleting transaction, before the delete and before other locks. It locks ALL
-    Payment rows of ``tickets`` in one pk-ordered statement (the delete removes them all anyway) and
-    reads the statuses under that lock. A session stamp on a locked row waits for the delete, matches
-    no row and expires the session itself (``stamp_session_or_expire``). The later Payment lock of
-    ``release_uses_of_pending_tickets`` takes no new rows. A rollback discards the callback. Best
-    effort: a failed expire is logged and the other sessions still go.
+    Unfinished means PENDING, or FAILED with a session that has not expired yet: the event-cancel sweep marks
+    a pending checkout FAILED and leaves its session open (a late payment is then refunded, but only while the
+    row exists). The statuses are read under the lock.
     """
-    # ponytail: a reserve that commits its rows after this statement AND stamps its Stripe session before
-    # the cascade reads them is not covered (a window of milliseconds that must also fit a Stripe round
-    # trip). Close it by locking the tier/event rows first, if the lock order is reworked for that.
     sessions_by_account: dict[str | None, set[str]] = defaultdict(set)
     locked = (
         Payment.objects.select_for_update(of=("self",))
@@ -210,6 +198,118 @@ def expire_pending_sessions_on_commit(tickets: QuerySet[Ticket]) -> None:
         open_failed = status == Payment.PaymentStatus.FAILED and expires_at > now
         if session_id and (status == Payment.PaymentStatus.PENDING or open_failed):
             sessions_by_account[account_id].add(session_id)
+    return sessions_by_account
+
+
+def _lock_rows(rows: QuerySet[t.Any], *, no_key: bool = False) -> None:
+    """Lock ``rows`` (``FOR UPDATE``, or ``FOR NO KEY UPDATE``; only the rows of the model itself) in pk order."""
+    list(rows.select_for_update(no_key=no_key, of=("self",)).order_by("pk").values_list("pk", flat=True))
+
+
+def _lock_delete_scope(
+    passes: QuerySet[SeriesPass] | None,
+    tiers: QuerySet[TicketTier],
+    parents: t.Sequence[QuerySet[t.Any]],
+) -> None:
+    """Steps 2 and 3 of :func:`lock_for_cascade_delete`: passes, tiers, parents, then the passes and tiers again."""
+    if passes is not None:
+        _lock_rows(passes)
+    _lock_rows(tiers)
+    # NO KEY for an organization or a series, as EventSeries.delete() locks its own row: an event duplicate holds its
+    # template event and inserts a copy whose commit-time foreign-key checks take KEY SHARE on them, so FOR UPDATE
+    # here would wait for the duplicate while the duplicate waits for the event lock below. An event stays FOR UPDATE.
+    # ponytail: NO KEY does not block a child insert, so a pass, an event or a series that someone creates for the
+    # organization or the series during the delete can commit: the delete then fails on its foreign key, as before
+    # #1538. Blocking it needs FOR UPDATE, and every way to take that here can deadlock with a path that holds a
+    # row of this delete and inserts such a child.
+    for rows in parents:
+        _lock_rows(rows, no_key=rows.model in (Organization, EventSeries))
+    if not parents:
+        return
+    # A pass or a tier that committed between the first lock of its model and the parent locks is locked now:
+    # a purchase cannot add a holder to such a pass meanwhile, and step 4 sees the payments of the tier's
+    # reservations. After the event locks, no new tier can commit (its insert waits at the foreign-key check on
+    # the event). These second locks are out of the global order for those new rows only; a pass purchase or a
+    # checkout on such a row that then waits for a row of this delete is a deadlock that Postgres detects.
+    if passes is not None:
+        _lock_rows(passes)
+    _lock_rows(tiers)
+
+
+def lock_for_bulk_delete(
+    tickets: QuerySet[Ticket],
+    *,
+    tiers: QuerySet[TicketTier],
+    parents: t.Sequence[QuerySet[t.Any]] = (),
+    passes: QuerySet[SeriesPass] | None = None,
+) -> None:
+    """Lock the rows of several cascade deletes at once, in the global lock order, before a loop runs them.
+
+    For a loop that runs a delete service once per row in one transaction (the admin bulk deletes). Each
+    run locks only the rows of its own delete, so the loop alone would lock the Payment, SeriesPass,
+    TicketTier and parent rows of the selection one delete at a time, not in pk order. One checkout can
+    span tiers and events, and a series pass locks the tiers of several events in pk order, so that loop
+    could deadlock with them. This takes steps 1 to 4 of :func:`lock_for_cascade_delete` for the whole
+    selection. It ends no checkout: each delete service in the loop still does that for its own rows, so a
+    delete that fails in its own savepoint expires nothing.
+    """
+    _lock_rows(Payment.objects.filter(ticket__in=tickets))
+    _lock_delete_scope(passes, tiers, parents)
+    # Step 4 for the whole selection: the rows that a reservation committed before the tier lock.
+    _lock_rows(Payment.objects.filter(ticket__in=tickets))
+
+
+def lock_for_cascade_delete(
+    tickets: QuerySet[Ticket],
+    *,
+    tiers: QuerySet[TicketTier] | None = None,
+    parents: t.Sequence[QuerySet[t.Any]] = (),
+    passes: QuerySet[SeriesPass] | None = None,
+) -> None:
+    """End the unfinished checkouts of ``tickets`` that a delete is about to cascade away.
+
+    Call it inside the deleting transaction, before the delete. It takes the locks of the delete in the
+    global order (docs/engineering-notes.md, "Lock order"):
+
+    1. the Payment rows of ``tickets``, pk order, and the statuses under that lock;
+    2. the ``passes`` rows (``FOR UPDATE``, pk order): the series passes that the delete removes, which come
+       before the tiers because a pass purchase locks its pass and then the tiers;
+    3. every ``tiers`` row (``FOR UPDATE``, pk order), then the ``parents`` rows (pk order) in the order
+       given: Organization, EventSeries, Event. The events and tiers take ``FOR UPDATE`` because the delete
+       removes them: a transaction that inserts a child row meanwhile waits at its commit-time foreign-key
+       check and then fails, instead of the delete failing on it. The organization and the series take
+       ``FOR NO KEY UPDATE``: an event duplicate inserts a copy that references them while it holds its
+       template event. With parents, the passes and the tiers are locked again after them, for a row that
+       committed in between. A reservation locks its tier before it inserts, so after this no new Payment
+       row can appear for these tiers;
+    4. the Payment rows again, for the rows that a reservation committed between steps 1 and 3;
+    5. the Ticket and DiscountCode rows (``release_uses_of_pending_tickets``) to give back the discount uses.
+
+    After commit, the open Stripe Checkout sessions of the unfinished payments are expired: without their
+    Payment rows a later ``checkout.session.completed`` has nothing to reconcile. A session stamp on a locked
+    row waits for the delete, matches no row and expires the session itself (``stamp_session_or_expire``).
+    A rollback discards the callback. Best effort: a failed expire is logged and the other sessions still go.
+
+    Step 4, and the second pass and tier locks of step 3, are out of the global order for a row that committed
+    between the first lock of its model and the second one. If a cancel, an expiry or a
+    webhook holds such a row and waits for a tier of step 3, Postgres detects the deadlock and stops one of
+    the two transactions. A session that is then paid with no Payment row is refunded in full
+    (``refund_orphaned_checkout_session``).
+
+    Args:
+        tickets: The tickets that the delete removes.
+        tiers: The tiers that the delete removes. None when it removes no tier (a ticket delete): steps 2 to 4
+            are then skipped.
+        parents: The parent rows that the delete removes, in lock order.
+        passes: The series passes that the delete removes (a series or an organization delete). Only used
+            with ``tiers``.
+    """
+    sessions_by_account = _lock_unfinished_sessions(tickets)
+    if tiers is not None:
+        _lock_delete_scope(passes, tiers, parents)
+        for account_id, session_ids in _lock_unfinished_sessions(tickets).items():
+            sessions_by_account[account_id] |= session_ids
+    discount_code_service.release_uses_of_pending_tickets(tickets)
     if not sessions_by_account:
         return
 

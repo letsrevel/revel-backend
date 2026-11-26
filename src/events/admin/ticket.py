@@ -20,7 +20,7 @@ from events.admin.base import (
     UserLinkMixin,
     VenueLinkMixin,
 )
-from events.service import discount_code_service, pending_checkout, ticket_service
+from events.service import pending_checkout, ticket_service
 
 
 @admin.register(models.TicketTier)
@@ -57,13 +57,11 @@ class TicketTierAdmin(GrantsTemporaryTierMixin, ModelAdmin, EventLinkMixin, Venu
         ticket_service.delete_ticket_tier(obj)
 
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.TicketTier]) -> None:
-        # One checkout can span tiers, and each delete_ticket_tier locks only its tier's payments. Take all
-        # of them in pk order first, as cancel_pending_checkout does, so the loop cannot deadlock with it.
-        list(
-            models.Payment.objects.select_for_update(of=("self",))
-            .filter(ticket__tier__in=queryset)
-            .order_by("pk")
-            .values_list("pk", flat=True)
+        # One checkout can span tiers, and a series pass locks the tiers of several events in pk order, but each
+        # delete_ticket_tier locks only its own rows. Lock the payments and tiers of the whole selection in pk
+        # order first, so the loop cannot deadlock with cancel_pending_checkout or a series pass.
+        pending_checkout.lock_for_bulk_delete(
+            models.Ticket.objects.filter(tier__in=queryset), tiers=models.TicketTier.objects.filter(pk__in=queryset)
         )
         for tier in queryset:
             self.delete_model(request, tier)
@@ -80,12 +78,6 @@ class TicketTierAdmin(GrantsTemporaryTierMixin, ModelAdmin, EventLinkMixin, Venu
     @admin.display(description="Sector")
     def sector_name(self, obj: models.TicketTier) -> str:
         return obj.sector.name if obj.sector else "—"
-
-
-def end_pending_checkouts(tickets: QuerySet[models.Ticket]) -> None:
-    """End the unfinished checkouts of ``tickets`` that a delete is about to remove (as ``delete_event`` does)."""
-    pending_checkout.expire_pending_sessions_on_commit(tickets)
-    discount_code_service.release_uses_of_pending_tickets(tickets)
 
 
 @admin.register(models.Ticket)
@@ -178,11 +170,11 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  #
         return obj.seat.label if obj.seat else "—"
 
     def delete_model(self, request: HttpRequest, obj: models.Ticket) -> None:
-        end_pending_checkouts(models.Ticket.objects.filter(pk=obj.pk))
+        pending_checkout.lock_for_cascade_delete(models.Ticket.objects.filter(pk=obj.pk))
         super().delete_model(request, obj)
 
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.Ticket]) -> None:
-        end_pending_checkouts(queryset)
+        pending_checkout.lock_for_cascade_delete(queryset)
         super().delete_queryset(request, queryset)
 
 

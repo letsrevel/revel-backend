@@ -32,8 +32,8 @@ from common.utils import update_db_instance
 from events import models
 from events.exceptions import EventRefundsStartedError
 from events.schema import EventCreateSchema, EventEditSchema, SeriesPassLinkInputSchema
-from events.service import day_membership_service, discount_code_service, series_pass_service
-from events.service.pending_checkout import expire_pending_sessions_on_commit
+from events.service import day_membership_service, series_pass_service
+from events.service.pending_checkout import lock_for_cascade_delete
 from events.service.waitlist_service import enqueue_waitlist_processing, revoke_all_pending_offers
 from events.tasks import materialize_series_pass_holders
 from events.utils.schedule import EventScheduleSession
@@ -405,9 +405,12 @@ SLUG_ALREADY_EXISTS_MESSAGE = _("An event with this slug already exists in your 
 def delete_event(event: models.Event) -> None:
     """Delete an event; its PENDING tickets cascade, so their discount code uses are given back first.
 
-    The open Stripe Checkout sessions of the cascaded PENDING payments are expired after commit.
+    The open Stripe Checkout sessions of the cascaded PENDING payments are expired after commit. The
+    payments, tiers and the event are locked first, in the global lock order (``lock_for_cascade_delete``).
     """
-    tickets = models.Ticket.objects.filter(event=event)
-    expire_pending_sessions_on_commit(tickets)
-    discount_code_service.release_uses_of_pending_tickets(tickets)
+    lock_for_cascade_delete(
+        models.Ticket.objects.filter(event=event),
+        tiers=models.TicketTier.objects.filter(event=event),
+        parents=[models.Event.objects.filter(pk=event.pk)],
+    )
     event.delete()

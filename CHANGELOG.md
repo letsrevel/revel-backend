@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Deleting an event, a ticket tier or an event series (in the API and in the Django admin), or an organization (in the Django admin), no longer fails when a series pass issues a ticket for that event at the same moment. A checkout that starts at the same moment as the delete now also gets its open Stripe Checkout session expired.
+
 ## [3.1.1] - 2026-11-26
 
 ### Fixed

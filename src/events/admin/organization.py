@@ -34,9 +34,8 @@ from events.admin.base import (
     frontend_url,
     view_on_revel_link,
 )
-from events.admin.ticket import end_pending_checkouts
 from events.exceptions import MembershipTierInUseError
-from events.service import custom_domain_service, turnstile_hostname_service
+from events.service import custom_domain_service, pending_checkout, turnstile_hostname_service
 from events.service.organization_service import contact as contact_service
 from events.service.organization_service import membership as membership_service
 from events.service.tenant_service import invalidate_tenant_cache
@@ -169,12 +168,26 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         return readonly
 
     def delete_model(self, request: HttpRequest, obj: models.Organization) -> None:
-        end_pending_checkouts(models.Ticket.objects.filter(event__organization=obj))
+        self._lock_for_delete(models.Organization.objects.filter(pk=obj.pk))
         super().delete_model(request, obj)
 
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.Organization]) -> None:
-        end_pending_checkouts(models.Ticket.objects.filter(event__organization__in=queryset))
+        self._lock_for_delete(queryset)
         super().delete_queryset(request, queryset)
+
+    @staticmethod
+    def _lock_for_delete(organizations: QuerySet[models.Organization]) -> None:
+        """End the unfinished checkouts that the delete removes; lock its rows in the global lock order first."""
+        pending_checkout.lock_for_cascade_delete(
+            models.Ticket.objects.filter(event__organization__in=organizations),
+            tiers=models.TicketTier.objects.filter(event__organization__in=organizations),
+            parents=[
+                organizations,
+                models.EventSeries.objects.filter(organization__in=organizations),
+                models.Event.objects.filter(organization__in=organizations),
+            ],
+            passes=models.SeriesPass.objects.filter(event_series__organization__in=organizations),
+        )
 
     def save_model(self, request: HttpRequest, obj: models.Organization, form: t.Any, change: bool) -> None:
         """Drop the tenant-cache entry when the custom-domain kill switch flips.

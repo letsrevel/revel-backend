@@ -32,7 +32,7 @@ from events.models import (
 from events.models.ticket import CancellationSource
 from events.service import discount_code_service, small_business_scheme_service, tier_eligibility
 from events.service.attendee_vat_service import get_effective_vat_rate
-from events.service.pending_checkout import expire_pending_sessions_on_commit
+from events.service.pending_checkout import lock_for_cascade_delete
 from events.service.seating.pricing import price_paid_is_admin_entered, recorded_or_resolved_price
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.vat_category import ZERO_RATE_RULE_FIELDS, effective_vat_exemption_reason, is_paid_online
@@ -518,11 +518,10 @@ def delete_ticket_tier(tier: TicketTier) -> None:
     """Delete a ticket tier; its tickets and their payments cascade.
 
     For the tier's PENDING tickets (unfinished checkouts), the open Stripe Checkout sessions are
-    expired after commit and the discount code uses are given back first.
+    expired after commit and the discount code uses are given back first. The payments and the tier are
+    locked first, in the global lock order (``lock_for_cascade_delete``).
     """
-    tickets = Ticket.objects.filter(tier=tier)
-    expire_pending_sessions_on_commit(tickets)
-    discount_code_service.release_uses_of_pending_tickets(tickets)
+    lock_for_cascade_delete(Ticket.objects.filter(tier=tier), tiers=TicketTier.objects.filter(pk=tier.pk))
     tier.delete()
 
 

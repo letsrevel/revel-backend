@@ -37,7 +37,7 @@ from events.admin.base import (
 )
 from events.exceptions import EventRefundsStartedError, SeriesPassHasHoldersError
 from events.models.event import EventQuerySet
-from events.service import day_membership_service, event_series_service, event_update_service
+from events.service import day_membership_service, event_series_service, event_update_service, pending_checkout
 
 
 class EventOriginFilter(admin.SimpleListFilter):
@@ -76,6 +76,13 @@ class EventAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # t
         event_update_service.delete_event(obj)
 
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.Event]) -> None:
+        # Each delete_event locks only its own rows, so lock the rows of the whole selection in the global order
+        # first, or the loop can deadlock with a checkout cancel or a series pass that spans the events.
+        pending_checkout.lock_for_bulk_delete(
+            models.Ticket.objects.filter(event__in=queryset),
+            tiers=models.TicketTier.objects.filter(event__in=queryset),
+            parents=[models.Event.objects.filter(pk__in=queryset)],
+        )
         for event in queryset:
             self.delete_model(request, event)
 
@@ -276,6 +283,16 @@ class EventSeriesAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin)
             self.message_user(request, str(exc), messages.ERROR)
 
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[models.EventSeries]) -> None:
+        # As for events: lock the rows of every series in the global order before the per-series deletes.
+        pending_checkout.lock_for_bulk_delete(
+            models.Ticket.objects.filter(event__event_series__in=queryset),
+            tiers=models.TicketTier.objects.filter(event__event_series__in=queryset),
+            parents=[
+                models.EventSeries.objects.filter(pk__in=queryset),
+                models.Event.objects.filter(event_series__in=queryset),
+            ],
+            passes=models.SeriesPass.objects.filter(event_series__in=queryset),
+        )
         for series in queryset:
             self.delete_model(request, series)
 
