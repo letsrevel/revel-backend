@@ -12,6 +12,7 @@ import pytest
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 
+from common.fields import MAX_IMAGE_SIZE_BYTES, validate_image_file
 from events.models import Event
 from events.tasks import build_attendee_visibility_flags
 
@@ -72,6 +73,23 @@ class TestStoredImage:
         stored.save()
 
         assert _fresh(event).name == "Renamed"
+
+    def test_the_validator_skips_a_stored_file_and_checks_a_new_upload(self, event: Event) -> None:
+        """Directly, because ExifStripMixin also rejects a bad upload on save with the same error."""
+        Event.objects.filter(pk=event.pk).update(logo=MISSING)
+
+        validate_image_file(_fresh(event).logo)  # committed: not read, so the missing file does not matter
+        too_big = SimpleUploadedFile("logo.png", b"0" * (MAX_IMAGE_SIZE_BYTES + 1), content_type="image/png")
+        with pytest.raises(ValidationError):
+            validate_image_file(too_big)
+
+    def test_a_partial_save_accepts_a_one_shot_iterator(self, event: Event) -> None:
+        stored = _fresh(event)
+        stored.attendee_count = 4
+
+        stored.save(update_fields=iter(["attendee_count"]))
+
+        assert _fresh(event).attendee_count == 4
 
     def test_a_new_upload_is_still_validated(self, event: Event) -> None:
         stored = _fresh(event)

@@ -520,7 +520,8 @@ failed every save of its row with `FileNotFoundError` (for example the attendee-
 upload is always validated: the upload service validates it before it assigns it, and the field is then
 in `update_fields` with an uncommitted file. A code path that writes a file to storage with
 `field.save(..., save=False)` before the model save skips this validator, so do not use that for image
-fields.
+fields. A storage path assigned as a string is also a committed file and is trusted: write images only
+through `upload_service.safe_save_uploaded_file`, and never assign a path that a caller chose.
 
 ## Backfills and rolling deploys
 

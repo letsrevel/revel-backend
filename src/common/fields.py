@@ -9,8 +9,8 @@ import typing as t
 
 from django.contrib.gis.db import models
 from django.core.exceptions import ValidationError
+from django.core.files.base import File
 from django.core.files.images import get_image_dimensions
-from django.core.files.uploadedfile import UploadedFile
 from PIL import Image
 
 from common.sanitizers import render_markdown, sanitize_html, sanitize_markdown
@@ -43,15 +43,17 @@ MAX_IMAGE_SIZE_BYTES: int = 10 * 1024 * 1024  # 10MB
 MAX_IMAGE_PIXELS: int = 50_000_000  # 50 megapixels — bound on decoded raster size (memory-DoS guard)
 
 
-def validate_image_file(file: UploadedFile[bytes]) -> None:
+def validate_image_file(file: File[bytes]) -> None:
     """Validate an uploaded image file size, dimensions, and format.
-
-    Args:
-        file: The uploaded file to validate.
 
     A file that is already in storage (a committed ``FieldFile``) was validated at its upload, so it is not
     read again: that read costs a storage round trip on every save, and it fails when the file is missing
-    (#1563). A new upload, or a plain ``UploadedFile``, is always validated.
+    (#1563). A new upload, or a plain ``UploadedFile``, is always validated. This trusts every committed
+    file, also a storage path assigned as a string, so write images only through
+    ``common.service.upload_service.safe_save_uploaded_file``, and never assign a path that a caller chose.
+
+    Args:
+        file: The uploaded file to validate.
 
     Raises:
         ValidationError: If the file exceeds the maximum size, exceeds the
@@ -59,7 +61,7 @@ def validate_image_file(file: UploadedFile[bytes]) -> None:
     """
     if getattr(file, "_committed", False):
         return
-    if file.size > MAX_IMAGE_SIZE_BYTES:  # type: ignore[operator]
+    if file.size > MAX_IMAGE_SIZE_BYTES:
         raise ValidationError(f"Image must be under {MAX_IMAGE_SIZE_BYTES // (1024 * 1024)}MB.")
     try:
         dimensions = get_image_dimensions(file)

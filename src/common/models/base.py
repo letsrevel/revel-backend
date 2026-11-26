@@ -25,6 +25,9 @@ class TimeStampedModel(models.Model):
         names the field to fix.
         """
         update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            # A list, so that a one-shot iterator is not used up here and then reaches Django empty.
+            kwargs["update_fields"] = update_fields = list(update_fields)
         if update_fields is None:
             self.full_clean()
         else:
