@@ -49,10 +49,16 @@ def validate_image_file(file: UploadedFile[bytes]) -> None:
     Args:
         file: The uploaded file to validate.
 
+    A file that is already in storage (a committed ``FieldFile``) was validated at its upload, so it is not
+    read again: that read costs a storage round trip on every save, and it fails when the file is missing
+    (#1563). A new upload, or a plain ``UploadedFile``, is always validated.
+
     Raises:
         ValidationError: If the file exceeds the maximum size, exceeds the
             maximum pixel budget, or is not a valid image.
     """
+    if getattr(file, "_committed", False):
+        return
     if file.size > MAX_IMAGE_SIZE_BYTES:  # type: ignore[operator]
         raise ValidationError(f"Image must be under {MAX_IMAGE_SIZE_BYTES // (1024 * 1024)}MB.")
     try:

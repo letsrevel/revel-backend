@@ -16,8 +16,25 @@ class TimeStampedModel(models.Model):
         abstract = True
 
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
-        """Override the save method to call full_clean before saving."""
-        self.full_clean()
+        """Validate the row, then save it.
+
+        A full save runs ``full_clean()``. A save with ``update_fields`` checks only the fields that it writes
+        with ``clean_fields``, so an unrelated field (for example an image file that is missing from storage)
+        cannot fail a counter or status update (#1563). ``clean()``, the unique checks and the constraints still
+        run on the whole row: a cross-field rule that an earlier edit broke still blocks the save, and its error
+        names the field to fix.
+        """
+        update_fields = kwargs.get("update_fields")
+        if update_fields is None:
+            self.full_clean()
+        else:
+            written = set(update_fields)
+            unchanged = [
+                f.name for f in self._meta.concrete_fields if f.name not in written and f.attname not in written
+            ]
+            self.full_clean(exclude=unchanged, validate_unique=False, validate_constraints=False)
+            self.validate_unique()
+            self.validate_constraints()
         super().save(*args, **kwargs)
 
 
