@@ -8741,3 +8741,9 @@ msgstr "Se esta entrada não é tua, ou se não queres ser membro, contacta a or
 
 msgid "Open the organization page"
 msgstr "Abrir a página da organização"
+
+msgid "Image must be under {}MB."
+msgstr "A imagem tem de ter menos de {} MB."
+
+msgid "Image must be under {} megapixels."
+msgstr "A imagem tem de ter menos de {} megapíxeis."
