@@ -138,6 +138,14 @@ def _assert_no_key(captured: list[dict[str, t.Any]], *models: type[t.Any]) -> No
         assert "FOR NO KEY UPDATE" in sql, sql
 
 
+def _assert_upgraded(captured: list[dict[str, t.Any]], *models: type[t.Any]) -> None:
+    """The second lock of each model's rows is ``FOR UPDATE``: a child that commits meanwhile fails, not the delete."""
+    for model in models:
+        table = f'"{model._meta.db_table}"'
+        sqls = [q["sql"] for q in captured if _lock_table(q["sql"]) == table]
+        assert len(sqls) >= 2 and "FOR UPDATE" in sqls[1] and "NO KEY" not in sqls[1], sqls
+
+
 def _lock_table(sql: str) -> str | None:
     if "FOR UPDATE" not in sql and "FOR NO KEY UPDATE" not in sql:
         return None
@@ -220,7 +228,8 @@ class TestLockOrder:
         )
         _assert_for_update(ctx.captured_queries, SeriesPass, TicketTier, Event)
         _assert_no_key(ctx.captured_queries, EventSeries)
-        _assert_relocked_after(ctx.captured_queries, Event, SeriesPass, TicketTier)
+        _assert_relocked_after(ctx.captured_queries, Event, EventSeries, SeriesPass, TicketTier)
+        _assert_upgraded(ctx.captured_queries, EventSeries)
         assert not SeriesPass.objects.filter(pk=season.pk).exists()
         _assert_locks_before_delete(ctx.captured_queries)
 
@@ -248,7 +257,8 @@ class TestLockOrder:
         )
         _assert_for_update(ctx.captured_queries, SeriesPass, TicketTier, Event)
         _assert_no_key(ctx.captured_queries, Organization, EventSeries)
-        _assert_relocked_after(ctx.captured_queries, Event, SeriesPass, TicketTier)
+        _assert_relocked_after(ctx.captured_queries, Event, Organization, EventSeries, SeriesPass, TicketTier)
+        _assert_upgraded(ctx.captured_queries, Organization, EventSeries)
         _assert_locks_before_delete(ctx.captured_queries)
         assert not Organization.objects.filter(pk=organization.pk).exists()
 
@@ -288,7 +298,7 @@ class TestLockOrder:
             "series": (
                 EventSeriesAdmin(EventSeries, site),
                 EventSeries.objects.filter(pk__in=[group.pk for group in series]),
-                [Payment, SeriesPass, TicketTier, EventSeries, Event, SeriesPass, TicketTier, Payment],
+                [Payment, SeriesPass, TicketTier, EventSeries, Event, EventSeries, SeriesPass, TicketTier, Payment],
             ),
             "tier": (
                 TicketTierAdmin(TicketTier, site),
