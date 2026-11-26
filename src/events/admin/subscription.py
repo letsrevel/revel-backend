@@ -92,6 +92,16 @@ class MembershipSubscriptionAdmin(GuardedHistoryAdmin, ModelAdmin, UserLinkMixin
     ]
     date_hierarchy = "current_period_end"
 
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Subscriptions are created by the subscription service only (it checks plan capacity and sales controls)."""
+        return False
+
+    def has_change_history_permission(
+        self, request: HttpRequest, obj: models.MembershipSubscription | None = None
+    ) -> bool:
+        """History is view-only: a revert would restore ``plan``, ``status`` and Stripe ids past the service layer."""
+        return False
+
     def get_readonly_fields(self, request: HttpRequest, obj: models.MembershipSubscription | None = None) -> t.Any:
         """Make ``plan`` and ``organization`` readonly on existing rows (plan switches go through the service layer)."""
         fields = list(super().get_readonly_fields(request, obj))
