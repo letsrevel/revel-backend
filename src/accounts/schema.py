@@ -250,6 +250,9 @@ class VerifyEmailJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     # Optional so links minted before this claim existed still decode; compared with
     # ``RevelUser.credentials_changed_at`` at verification.
     iat: AwareDatetime | None = None
+    # Tenant hostname hint (#1437), never a link base. The frontend verifies from the platform origin,
+    # so the hint minted with the link is the only way it reaches the emails that verifying sends.
+    return_host: str | None = None
     type: t.Literal["email_verification"] = "email_verification"
 
     @field_serializer("iat")
@@ -261,8 +264,9 @@ class VerifyEmailJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     def drop_missing_iat(self, handler: SerializerFunctionWrapHandler) -> dict[str, t.Any]:
         """Leave ``iat`` out of the dumped claims when absent (a null claim is not a valid JWT ``iat``)."""
         data: dict[str, t.Any] = handler(self)
-        if data.get("iat") is None:
-            data.pop("iat", None)
+        for claim in ("iat", "return_host"):
+            if data.get(claim) is None:
+                data.pop(claim, None)
         return data
 
 

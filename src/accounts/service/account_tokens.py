@@ -29,11 +29,13 @@ from common.testing import (
 logger = structlog.get_logger("accounts.service.account")
 
 
-def create_verification_token(user: RevelUser) -> str:
+def create_verification_token(user: RevelUser, *, return_host: str | None = None) -> str:
     """Create a verification token for a user without sending email.
 
     Args:
         user (RevelUser): The user to create a token for.
+        return_host: Optional tenant hostname hint stored in the token (#1437), for the emails
+            that verifying sends.
 
     Returns:
         str: The verification token.
@@ -43,6 +45,7 @@ def create_verification_token(user: RevelUser) -> str:
         email=user.email,
         exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
         iat=timezone.now(),
+        return_host=return_host,
     )
     token = create_token(verification_payload.model_dump(mode="json"), signing_key(), settings.JWT_ALGORITHM)
     store_test_token(TOKEN_TYPE_VERIFICATION, token)
