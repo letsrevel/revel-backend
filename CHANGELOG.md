@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Django admin: a pending payment can no longer be deleted there. Deleting it left its pending ticket with no payment, so the seat was never released. The admin refuses the delete, for one payment and for a bulk delete.
 - Django admin: the event status is read-only on existing events. Four actions (open, close, set to draft, cancel without refunds) need the change permission and change it through the same service as the API, with the same refund guard, waitlist handling and series pass issuance.
 - Series passes: a purchase at the same moment as a cancel or un-cancel of a covered event now answers 409 ("The events of this pass changed. Please try again."). Before, the purchase could issue a ticket for a cancelled event or charge a price that did not match the issued tickets. Pass extensions and activations now issue no ticket for an event that was cancelled at the same moment.
-- Series passes: when a covered event is added to a pass or un-cancelled, holders now get their ticket also when the background job could not be queued. A sweep every 15 minutes issues the missing tickets. Before, these holders had no ticket for that event. A ticket that the organizer cancelled is not issued again.
+- Series passes: when a covered event is added to a pass or un-cancelled, holders now get their ticket also when the background job could not be queued. A sweep every 15 minutes issues the missing tickets for events that have not started. The sweep issues no ticket when the tier or the event is full, or when the holder is blacklisted. Before, these holders had no ticket for that event. A ticket that the organizer cancelled is not issued again.
 
 ## [3.1.0] - 2026-11-25
 

@@ -134,7 +134,7 @@ Policy-level intended behaviour that reviewers must not report as a finding. Eac
 - boundary: a membership created for an invitation before the invitee accepts is still a bug.
 - reference: owner decision 2026-11-21; #1495; `docs/architecture/member-register.md`.
 
-## Series pass holders come before the waitlist
-- behaviour: the reconcile sweep (`events.reconcile_series_pass_tickets`, every 15 minutes) issues a missing ticket to an ACTIVE pass holder when a seat is free, also when that seat became free after a cancellation and the waitlist has people on it. A pass holder paid for the season, so a holder who was skipped for capacity gets the freed seat before a waitlist offer exists for it.
-- boundary: the sweep still checks tier and event capacity under the locks and the holder's blacklist status, and it never issues a ticket again that the organizer cancelled. A sweep that takes a seat that a waitlist offer already holds, or that goes over capacity, is a valid finding.
+## Series pass sweep and waitlist offers share the free seats
+- behaviour: the reconcile sweep (`events.reconcile_series_pass_tickets`, every 15 minutes) issues a missing ticket to an ACTIVE pass holder when a seat is free, also when that seat became free after a cancellation and the waitlist has people on it. The sweep and `process_waitlist_for_event` count the same free seats, and the one that runs first gets the seat. There is no fixed priority: a holder can get a freed seat before a waitlist offer exists for it, and a waitlist offer that is created first holds the seat and the sweep then skips the holder.
+- boundary: the sweep checks tier and event capacity under the locks (pending waitlist offers count as taken seats) and the holder's blacklist status, and it never issues a ticket again that the organizer cancelled. A sweep that takes a seat that a pending waitlist offer holds, or that goes over capacity, is a valid finding.
 - reference: owner decision 2026-11-26 (#1536, PR #1567).
