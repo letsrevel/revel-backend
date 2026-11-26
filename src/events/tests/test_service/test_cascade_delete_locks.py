@@ -139,7 +139,10 @@ def _lock_table(sql: str) -> str | None:
 def _assert_relocked_after(captured: list[dict[str, t.Any]], parent: type[t.Any], *models: type[t.Any]) -> None:
     """After the parent lock and before the second Payment lock, ``models`` are locked again, in this order."""
     locks = [table for q in captured if (table := _lock_table(q["sql"]))]
-    after = locks[locks.index(f'"{parent._meta.db_table}"') + 1 :]
+    parent_table = f'"{parent._meta.db_table}"'
+    assert parent_table in locks, locks
+    after = locks[locks.index(parent_table) + 1 :]
+    assert '"events_payment"' in after, locks
     assert after[: after.index('"events_payment"')] == [f'"{m._meta.db_table}"' for m in models], locks
 
 
@@ -151,7 +154,11 @@ def _assert_locks_before_delete(captured: list[dict[str, t.Any]]) -> None:
 
 @pytest.mark.django_db
 class TestLockOrder:
-    """Each delete path takes Payment -> TicketTier -> parents -> Ticket -> DiscountCode, before any DELETE."""
+    """Each delete path locks before any DELETE, in this order.
+
+    Payment -> SeriesPass -> TicketTier -> parents -> SeriesPass and TicketTier again -> Payment again -> Ticket
+    -> DiscountCode.
+    """
 
     def test_event_delete(self, online_tier: TicketTier, organization: Organization, buyer: RevelUser) -> None:
         code = _code(organization)
@@ -162,10 +169,7 @@ class TestLockOrder:
 
         _assert_in_order(_first_locks(ctx.captured_queries), Payment, TicketTier, Event, Ticket, DiscountCode)
         _assert_for_update(ctx.captured_queries, TicketTier, Event)
-        locks = [table for q in ctx.captured_queries if (table := _lock_table(q["sql"]))]
-        after_event = locks[locks.index('"events_event"') + 1 :]
-        # The tiers again, before the second Payment lock: a tier that committed before the event lock is locked.
-        assert after_event[: after_event.index('"events_payment"')] == ['"events_tickettier"'], locks
+        _assert_relocked_after(ctx.captured_queries, Event, TicketTier)
         _assert_locks_before_delete(ctx.captured_queries)
         assert not Event.objects.filter(pk=online_tier.event_id).exists()
         code.refresh_from_db()

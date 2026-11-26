@@ -241,11 +241,11 @@ def lock_for_bulk_delete(
 
     For a loop that runs a delete service once per row in one transaction (the admin bulk deletes). Each
     run locks only the rows of its own delete, so the loop alone would lock the Payment, SeriesPass,
-    TicketTier and parent rows of the selection one delete at a time, not in pk order. One checkout can span tiers and
-    events, and a series pass locks the tiers of several events in pk order, so that loop could deadlock
-    with them. This takes steps 1 to 4 of :func:`lock_for_cascade_delete` for the whole selection. It ends
-    no checkout: each delete service in the loop still does that for its own rows, so a delete that fails
-    in its own savepoint expires nothing.
+    TicketTier and parent rows of the selection one delete at a time, not in pk order. One checkout can
+    span tiers and events, and a series pass locks the tiers of several events in pk order, so that loop
+    could deadlock with them. This takes steps 1 to 4 of :func:`lock_for_cascade_delete` for the whole
+    selection. It ends no checkout: each delete service in the loop still does that for its own rows, so a
+    delete that fails in its own savepoint expires nothing.
     """
     _lock_rows(Payment.objects.filter(ticket__in=tickets))
     _lock_delete_scope(passes, tiers, parents)
@@ -271,9 +271,9 @@ def lock_for_cascade_delete(
     3. every ``tiers`` row (``FOR UPDATE``, pk order), then the ``parents`` rows (``FOR UPDATE``, pk order) in
        the order given: Organization, EventSeries, Event. ``FOR UPDATE`` because the delete removes them: a
        transaction that inserts a child row meanwhile waits at its commit-time foreign-key check and then
-       fails, instead of the delete failing on it. With parents, the passes and the tiers are locked again after
-       them, for a row that committed in between. A reservation locks its tier before it inserts, so after this no new
-       Payment row can appear for these tiers;
+       fails, instead of the delete failing on it. With parents, the passes and the tiers are locked again
+       after them, for a row that committed in between. A reservation locks its tier before it inserts, so
+       after this no new Payment row can appear for these tiers;
     4. the Payment rows again, for the rows that a reservation committed between steps 1 and 3;
     5. the Ticket and DiscountCode rows (``release_uses_of_pending_tickets``) to give back the discount uses.
 
