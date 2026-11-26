@@ -28,6 +28,9 @@ class TimeStampedModel(models.Model):
         if update_fields is not None:
             # A list, so that a one-shot iterator is not used up here and then reaches Django empty.
             kwargs["update_fields"] = update_fields = list(update_fields)
+            if not update_fields:
+                super().save(*args, **kwargs)  # Django writes nothing for an empty list, so validate nothing
+                return
         if update_fields is None:
             self.full_clean()
         else:

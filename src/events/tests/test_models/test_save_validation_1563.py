@@ -44,6 +44,12 @@ class TestPartialSave:
 
         assert "slug" in error.value.message_dict
 
+    def test_an_empty_partial_save_validates_nothing(self, event: Event) -> None:
+        """Django writes nothing for an empty ``update_fields``, so a broken row must not raise either."""
+        Event.objects.filter(pk=event.pk).update(end=event.start - timedelta(hours=1))
+
+        _fresh(event).save(update_fields=[])
+
     def test_the_cross_field_rules_still_run(self, event: Event) -> None:
         """``clean()`` checks the whole row: fix the data first (the error names the field)."""
         Event.objects.filter(pk=event.pk).update(end=event.start - timedelta(hours=1))
