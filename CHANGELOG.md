@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Ticket tiers: a tier that a series pass covers can no longer get a stricter purchase rule (a stricter "purchasable by" value, or a first membership-tier restriction) than the pass. The change answers 400; change the pass or unlink the tier first.
 - Image uploads (profile pictures, organization, event and series logos and cover images, OAuth application logos): the messages for an image that is too large ("Image must be under …MB.", "… megapixels.") and for a file that is not an image are now translated.
   - An uploaded file whose content is not an image now gets "File is not a valid image." from the field check itself. A file that is already in storage is not read again.
 - Series passes: a pass holder who was on the waitlist of a covered event now leaves that waitlist when the pass gives a ticket for the event (free and offline passes, the offline confirmation, and tickets for events added to the pass later). An open waitlist offer of the holder for that event is withdrawn, so the spot goes to the next person. Before, the holder stayed on the waitlist and could get offers for a spot.

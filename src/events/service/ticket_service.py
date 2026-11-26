@@ -500,9 +500,13 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
     # Membership-tier links go BEFORE the save so its full_clean() sees them: one PATCH may switch
     # MEMBERS + restricted[X] to NON_MEMBERS + restricted[] + excluded[X]. A ValidationError rolls
     # the M2M writes back (@transaction.atomic).
+    was_restricted = tier.restricted_to_membership_tiers.exists()
     links_changed = _apply_membership_tier_links(
         tier, restricted_to_membership_tiers_ids, excluded_membership_tiers_ids, tier.event.organization
     )
+    if restricted_to_membership_tiers_ids and not was_restricted:
+        # Any restriction is stricter than a series pass (#1341); clean() cannot see the old links.
+        tier.assert_covers_series_passes()
 
     if payload_dict:
         # save() will call full_clean() automatically via TimeStampedModel
