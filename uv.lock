@@ -4619,6 +4619,11 @@ dev = [
     { name = "types-requests" },
     { name = "types-tqdm" },
 ]
+docs = [
+    { name = "mkdocs" },
+    { name = "mkdocs-material" },
+    { name = "mkdocs-minify-plugin" },
+]
 sentinel = [
     { name = "torch" },
     { name = "transformers" },
@@ -4723,6 +4728,11 @@ dev = [
     { name = "types-qrcode", specifier = ">=8.2.0.20260518" },
     { name = "types-requests", specifier = ">=2.33.0.20260712" },
     { name = "types-tqdm", specifier = ">=4.70.0.20260805" },
+]
+docs = [
+    { name = "mkdocs", specifier = ">=1.6.1" },
+    { name = "mkdocs-material", specifier = ">=9.7.7" },
+    { name = "mkdocs-minify-plugin", specifier = ">=0.8.0" },
 ]
 sentinel = [
     { name = "torch", specifier = ">=2.9.0" },
