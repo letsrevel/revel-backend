@@ -87,7 +87,7 @@ The purchase itself skips the quote's status check and runs the real per-event g
 6. **Increment** each tier's `quantity_sold` and the pass's counter.
 7. Branch by payment method: free → activate + notify; offline → return the PENDING pass (staff confirms later); online → return `(held_pass, reservation_id)`. The controller answers `requires_payment=true` with the `reservation_id`, and the client calls `POST /series-passes/reservations/{reservation_id}/checkout-session` to create the single Stripe session outside the contended locks (idempotent; 404 for an unknown, expired or foreign reservation).
 
-Tickets issued here (and on offline confirmation) go through `day_membership_service.on_tickets_issued`, because `bulk_create` skips the signal that grants a [day membership](member-register.md#day-memberships) for tiers with `grants_membership_tier`.
+Tickets issued here (and on offline confirmation) go through `day_membership_service.on_tickets_issued`, because `bulk_create` skips the signal that grants a [day membership](member-register.md#day-memberships) for tiers with `grants_membership_tier`. For the same reason they go through `series_pass_service.remove_holder_from_waitlists` (#1311): after commit, the holder leaves the waitlist of each event that the pass gave a ticket for. The timing is that of the per-ticket receiver: an ACTIVE ticket always (free passes, extensions, backfills, the offline confirmation), a PENDING ticket only for an offline pass. An online pass ticket becomes ACTIVE with a per-ticket save in the webhook, so the receiver removes the holder then.
 
 
 !!! danger "Lock ordering invariant: pass row, then tiers pk-ordered, then events pk-ordered"

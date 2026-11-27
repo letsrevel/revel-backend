@@ -101,8 +101,8 @@ def lock_events_and_find_full(events: t.Iterable[Event], user: RevelUser) -> Loc
         # Counted without per-row locks: the Event row lock above serializes every writer that adds a
         # ticket or offer, and locking each ticket row of N events would deadlock with cancellations.
         # ponytail: exclude_own_offer=False counts the buyer's own pending waitlist offer like anyone else's
-        # (conservative, never oversells). Claiming the offer would be the alternative; the buyer's waitlist
-        # row is left as is.
+        # (conservative, never oversells). Claiming the offer would be the alternative. After commit, the pass
+        # ticket removes the buyer's waitlist row, which revokes that offer and releases its seat (#1311).
         if cap and event_seats_available(event, user, cap, exclude_own_offer=False, lock_rows=False) <= 0:
             result.full.add(event.pk)
     return result
