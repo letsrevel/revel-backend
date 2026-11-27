@@ -346,7 +346,7 @@ def test_a_failed_refund_dispatch_does_not_stop_the_event_cancel_callbacks(
     with (
         patch("events.service.refund_service.issue_refund", side_effect=NothingToRefundError("still pending")),
         patch("events.tasks.refunds.refund_late_payment.delay", side_effect=RuntimeError("broker down")),
-        patch("events.tasks.refunds.build_attendee_visibility_flags.delay") as visibility,
+        patch("events.tasks.attendees.build_attendee_visibility_flags.delay") as visibility,
     ):
         with django_capture_on_commit_callbacks(execute=True):
             refund_one_cancelled_event_ticket(str(ticket.pk))

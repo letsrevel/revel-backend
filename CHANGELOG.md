@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- RSVPs, invitations, notification preferences and event-cancellation refunds: a failure to queue the attendee count update no longer turns a saved change into an error response, and no longer stops the steps after it (for example the staff notification of an RSVP). For an RSVP save or a ticket write that stamps its update time, a sweep every 15 minutes then corrects the count; after an RSVP delete, a lost update stays until the next rebuild of that event. An RSVP change also queues the update once, not twice.
+
 ## [3.2.1] - 2026-11-27
 
 ### Fixed

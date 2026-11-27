@@ -140,7 +140,7 @@ def test_bulk_event_cancellation_revokes(
     organization_owner_user: RevelUser,
 ) -> None:
     ticket = make_ticket(day_tier)
-    with patch("events.tasks.refunds.build_attendee_visibility_flags"):
+    with patch("events.tasks.attendees.build_attendee_visibility_flags"):
         refund_one_cancelled_event_ticket(str(ticket.id), str(organization_owner_user.id))
     ticket.refresh_from_db()
     assert ticket.status == Status.CANCELLED
@@ -441,7 +441,7 @@ def test_cancellation_swept_before_start_revokes_even_if_the_subtask_runs_after_
     Event.objects.filter(pk=day_event.pk).update(
         tickets_refund_started_at=timezone.now() - timedelta(hours=2), start=timezone.now() - timedelta(hours=1)
     )
-    with patch("events.tasks.refunds.build_attendee_visibility_flags"):
+    with patch("events.tasks.attendees.build_attendee_visibility_flags"):
         refund_one_cancelled_event_ticket(str(ticket.id), str(organization_owner_user.id))
     assert _only(ticket).ended_reason == Reason.REVOKED
 
@@ -456,7 +456,7 @@ def test_cancellation_swept_after_start_does_not_revoke(
     Event.objects.filter(pk=day_event.pk).update(
         start=timezone.now() - timedelta(hours=2), tickets_refund_started_at=timezone.now() - timedelta(hours=1)
     )
-    with patch("events.tasks.refunds.build_attendee_visibility_flags"):
+    with patch("events.tasks.attendees.build_attendee_visibility_flags"):
         refund_one_cancelled_event_ticket(str(ticket.id), str(organization_owner_user.id))
     assert _only(ticket).ended_reason is None
 

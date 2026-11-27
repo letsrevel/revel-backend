@@ -14,7 +14,7 @@ from events.exceptions import NothingToRefundError, RefundInsufficientBalanceErr
 from events.models import Event, Payment, Refund, Ticket, TicketTier
 from events.models.ticket import CancellationSource
 from events.service import day_membership_service, discount_code_service, refund_service, ticket_service
-from events.tasks.attendees import build_attendee_visibility_flags
+from events.tasks.attendees import dispatch_attendee_rebuild
 from notifications.signals.payment import send_event_refund_summary
 
 logger = structlog.get_logger(__name__)
@@ -302,6 +302,8 @@ def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | Non
             cancelled_by=initiator,
             cancellation_source=CancellationSource.EVENT_CANCELLATION,
             cancellation_reason=locked_ticket.event.cancellation_reason or "",
+            # So the reconcile sweep finds this event when the rebuild below is lost (#1575).
+            updated_at=timezone.now(),
         )
         locked_ticket.status = Ticket.TicketStatus.CANCELLED
         # A checkout that completed between the refund step above and this lock was confirmed as a normal
@@ -319,8 +321,7 @@ def refund_one_cancelled_event_ticket(ticket_id: str, initiated_by_id: str | Non
         # attendee_count/is_full recompute (events.signals.attendance
         # .handle_ticket_visibility_and_potluck) never ran — replicate it explicitly,
         # same per-ticket dispatch cost as the signal, and idempotent either way.
-        event_id = str(locked_ticket.event_id)
-        transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
+        dispatch_attendee_rebuild(locked_ticket.event_id)
 
 
 @shared_task(name="events.send_event_refund_summary")

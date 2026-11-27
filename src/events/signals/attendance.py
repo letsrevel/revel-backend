@@ -3,11 +3,9 @@
 import typing as t
 
 import structlog
-from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
-from common.utils import on_commit_independent
 from events.models import (
     EventInvitation,
     EventRSVP,
@@ -19,9 +17,7 @@ from events.service import (
     ticket_number_service,
 )
 from events.service.potluck_service import release_potluck_claims_unless_entitled
-from events.tasks import (
-    build_attendee_visibility_flags,
-)
+from events.tasks.attendees import dispatch_attendee_rebuild
 
 # The logger name of the module before the split, so the log names stay the same.
 logger = structlog.get_logger("events.signals")
@@ -35,8 +31,7 @@ def handle_event_rsvp_save(sender: type[EventRSVP], instance: EventRSVP, created
     their potluck claims are released unless they are otherwise entitled to hold them
     (an attending ticket, or organization owner/staff).
     """
-    event_id = str(instance.event_id)
-    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
+    dispatch_attendee_rebuild(instance.event_id)
 
     if instance.status in [EventRSVP.RsvpStatus.NO, EventRSVP.RsvpStatus.MAYBE]:
         release_potluck_claims_unless_entitled(instance.event_id, instance.user_id)
@@ -48,8 +43,7 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
 
     Claims are released unless the user is otherwise entitled to hold them.
     """
-    event_id = str(instance.event_id)
-    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
+    dispatch_attendee_rebuild(instance.event_id)
     release_potluck_claims_unless_entitled(instance.event_id, instance.user_id)
 
 
@@ -87,13 +81,7 @@ def reset_event_address_cache(sender: type[Ticket], instance: Ticket, **kwargs: 
 
 def _dispatch_ticket_visibility_flags(ticket: Ticket) -> None:
     """Rebuild the event's visibility flags at commit; a failure does not skip the later callbacks (#1488)."""
-    event_id = str(ticket.event_id)
-    on_commit_independent(
-        lambda: build_attendee_visibility_flags.delay(event_id),
-        "visibility_flags_dispatch_failed",
-        event_id=event_id,
-        ticket_id=str(ticket.pk),
-    )
+    dispatch_attendee_rebuild(ticket.event_id, ticket_id=str(ticket.pk))
 
 
 @receiver(post_save, sender=Ticket)
@@ -158,8 +146,7 @@ def handle_ticket_delete(sender: type[Ticket], instance: Ticket, **kwargs: t.Any
 @receiver(post_delete, sender=EventInvitation)
 def handle_invitation_delete(sender: type[EventInvitation], instance: EventInvitation, **kwargs: t.Any) -> None:
     """Trigger visibility task after invitation is deleted."""
-    event_id = str(instance.event_id)
-    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
+    dispatch_attendee_rebuild(instance.event_id)
 
 
 @receiver(post_delete, sender=EventWaitList)

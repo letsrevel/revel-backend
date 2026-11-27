@@ -1,11 +1,13 @@
 """Bulk cancel-and-refund sweep: parent fan-out + per-ticket subtask behavior."""
 
 import typing as t
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
 import stripe
+from django.utils import timezone
 
 from events.models import Event, Payment, Refund, Ticket, TicketTier
 from events.models.ticket import CancellationSource
@@ -250,13 +252,68 @@ class TestRefundOneCancelledEventTicket:
             stripe_payment_intent_id="pi_visibility",
         )
 
-        with patch("events.tasks.refunds.build_attendee_visibility_flags.delay") as mock_visibility:
+        with patch("events.tasks.attendees.build_attendee_visibility_flags.delay") as mock_visibility:
             with patch("stripe.Refund.create") as mock_create:
                 mock_create.return_value.id = "re_visibility"
                 with django_capture_on_commit_callbacks(execute=True):
                     refund_one_cancelled_event_ticket(str(tk.id), None)
 
         mock_visibility.assert_called_once_with(str(event.id))
+
+    def test_a_failed_rebuild_dispatch_is_logged_and_the_refund_stands(
+        self,
+        event: Event,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        payment_factory: t.Callable[..., Payment],
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """A broker failure on the rebuild does not raise from the commit callbacks (#1575)."""
+        online = tier_factory(payment_method=TicketTier.PaymentMethod.ONLINE, price=Decimal("40.00"))
+        tk = ticket_factory(tier=online)
+        payment_factory(
+            ticket=tk,
+            amount=Decimal("40.00"),
+            status=Payment.PaymentStatus.SUCCEEDED,
+            stripe_payment_intent_id="pi_visibility_fail",
+        )
+
+        with (
+            patch("events.tasks.attendees.build_attendee_visibility_flags.delay", side_effect=ConnectionError),
+            patch("common.utils.logger") as log,
+            patch("stripe.Refund.create") as mock_create,
+        ):
+            mock_create.return_value.id = "re_visibility_fail"
+            with django_capture_on_commit_callbacks(execute=True):
+                refund_one_cancelled_event_ticket(str(tk.id), None)
+
+        tk.refresh_from_db()
+        assert tk.status == Ticket.TicketStatus.CANCELLED
+        assert Refund.objects.filter(stripe_refund_id="re_visibility_fail").exists()
+        assert any(c.args[0] == "visibility_flags_dispatch_failed" for c in log.error.call_args_list)
+
+    def test_the_cancel_stamps_updated_at_for_the_reconcile_sweep(
+        self,
+        event: Event,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        """The sweep finds a lost rebuild only through ``updated_at``; the ``.update()`` must stamp it (#1575)."""
+        online = tier_factory(payment_method=TicketTier.PaymentMethod.ONLINE, price=Decimal("40.00"))
+        tk = ticket_factory(tier=online)
+        payment_factory(
+            ticket=tk, amount=Decimal("40.00"), status=Payment.PaymentStatus.SUCCEEDED, stripe_payment_intent_id="pi_u"
+        )
+        Ticket.objects.filter(pk=tk.pk).update(updated_at=timezone.now() - timedelta(days=2))
+
+        with patch("stripe.Refund.create") as mock_create:
+            mock_create.return_value.id = "re_updated_at"
+            refund_one_cancelled_event_ticket(str(tk.id), None)
+
+        tk.refresh_from_db()
+        assert tk.status == Ticket.TicketStatus.CANCELLED
+        assert tk.updated_at > timezone.now() - timedelta(minutes=1)
 
     def test_resumes_after_refund_succeeds_but_cancellation_did_not_commit(
         self,

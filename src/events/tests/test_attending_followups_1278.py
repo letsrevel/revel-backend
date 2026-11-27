@@ -90,7 +90,7 @@ def test_preference_change_rebuilds_flags_for_checked_in_holder_at_in_progress_e
     Event.objects.filter(pk=event.pk).update(start=now - timedelta(hours=1), end=now + timedelta(hours=1))
     _ticket(event, nonmember_user, Ticket.TicketStatus.CHECKED_IN)
 
-    with patch("events.service.user_preferences_service.build_attendee_visibility_flags") as task:
+    with patch("events.tasks.attendees.build_attendee_visibility_flags") as task:
         with django_capture_on_commit_callbacks(execute=True):
             trigger_visibility_flags_for_user(nonmember_user.id)
 

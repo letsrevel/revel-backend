@@ -8,7 +8,6 @@ from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from events.models import Event, EventRSVP
-from events.tasks import build_attendee_visibility_flags
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_organization_staff_and_owners
 from notifications.service.notification_helpers import format_event_datetime, notify_org_staff
@@ -137,8 +136,8 @@ def handle_event_rsvp_save(sender: type[EventRSVP], instance: EventRSVP, created
 
     Sends notifications to:
     - Organization staff and owners (NOT the user who RSVPed)
+    The attendee rebuild is dispatched by events.signals.attendance for every RSVP save and delete (#1575).
     """
-    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(str(instance.event_id)))
 
     def send_notifications() -> None:
         if created:
@@ -163,8 +162,8 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
 
     Sends notifications to:
     - Organization staff and owners (the user already knows they cancelled)
+    The attendee rebuild is dispatched by events.signals.attendance for every RSVP save and delete (#1575).
     """
-    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(str(instance.event_id)))
 
     # Send notifications after transaction commits
     def send_notifications() -> None:
