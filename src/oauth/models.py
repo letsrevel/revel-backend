@@ -10,13 +10,18 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 from oauth2_provider.models import AbstractApplication
 
-from common.fields import ALLOWED_IMAGE_EXTENSIONS, validate_image_file
+from common.fields import ALLOWED_IMAGE_EXTENSIONS, random_image_name, validate_image_file
 from common.models import ExifStripMixin
 
 # Compared against ``urlparse(...).hostname``, which strips the brackets from an IPv6
 # literal and lowercases it — so "::1", never "[::1]". DOT canonicalizes the same way
 # (``parsed_allowed_uri.hostname in ("127.0.0.1", "::1")``, oauth2_provider/models.py:1483).
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def oauth_logo_upload_to(instance: models.Model, filename: str) -> str:
+    """Store a new app logo under a random name (#1547)."""
+    return f"oauth-logos/{random_image_name(filename)}"
 
 
 class OAuthApplication(ExifStripMixin, AbstractApplication):  # type: ignore[misc]
@@ -48,7 +53,7 @@ class OAuthApplication(ExifStripMixin, AbstractApplication):  # type: ignore[mis
     )
     description = models.TextField(blank=True)
     logo = models.ImageField(
-        upload_to="oauth-logos",
+        upload_to=oauth_logo_upload_to,
         null=True,
         blank=True,
         validators=[FileExtensionValidator(allowed_extensions=ALLOWED_IMAGE_EXTENSIONS), validate_image_file],

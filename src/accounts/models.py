@@ -1,4 +1,3 @@
-import os
 import secrets
 import typing as t
 import uuid
@@ -33,6 +32,7 @@ from common.fields import (
     MarkdownField,
     ProtectedFileField,
     ProtectedImageField,
+    random_image_name,
     validate_image_file,
 )
 from common.models import (
@@ -45,8 +45,11 @@ from common.models import (
 
 
 def profile_picture_upload_path(instance: "RevelUser", filename: str) -> str:
-    """Generate upload path for profile pictures."""
-    return f"profile-pictures/{instance.id}/{os.path.basename(filename)}"
+    """Store a new profile picture under a random name in the user's folder (#1547).
+
+    The dotted path stays the same, so the field's migration state does not change.
+    """
+    return f"profile-pictures/{instance.id}/{random_image_name(filename)}"
 
 
 class RevelUserQueryset(models.QuerySet["RevelUser"]):
@@ -128,6 +131,8 @@ class RevelUser(ExifStripMixin, StripeConnectMixin, AbstractUser):
         help_text="User bio (publicly visible, supports markdown)",
     )
     profile_picture = ProtectedImageField(
+        # 255, as the derived fields: the random name (#1547) makes the path about 100 characters long.
+        max_length=255,
         upload_to=profile_picture_upload_path,
         null=True,
         blank=True,

@@ -5,6 +5,7 @@ This module tests the AccountController endpoints:
 - DELETE /account/me/delete-profile-picture
 """
 
+import re
 import typing as t
 from io import BytesIO
 
@@ -201,8 +202,9 @@ class TestUploadProfilePicture:
         # Assert
         assert response.status_code == 200
         user.refresh_from_db()
-        assert user.profile_picture.name
-        assert "profile" in user.profile_picture.name.lower()
+        assert re.fullmatch(
+            rf"protected/profile-pictures/{user.id}/[0-9a-f]{{32}}\.jpg", str(user.profile_picture.name)
+        )
 
     def test_upload_valid_webp_returns_200(
         self,
@@ -221,6 +223,10 @@ class TestUploadProfilePicture:
         assert response.status_code == 200
         user.refresh_from_db()
         assert user.profile_picture
+        # 101 characters with .webp: the field must keep the whole random name (#1547).
+        assert re.fullmatch(
+            rf"protected/profile-pictures/{user.id}/[0-9a-f]{{32}}\.webp", str(user.profile_picture.name)
+        )
 
     def test_upload_creates_file_upload_audit(
         self,
@@ -301,7 +307,8 @@ class TestUploadProfilePicture:
         user.refresh_from_db()
         new_picture_name = user.profile_picture.name
         assert new_picture_name and new_picture_name != old_picture_name
-        assert "second" in new_picture_name.lower() or new_picture_name.endswith(".jpg")
+        # A random name (#1547): no text from the uploaded file name.
+        assert re.fullmatch(rf"protected/profile-pictures/{user.id}/[0-9a-f]{{32}}\.jpg", str(new_picture_name))
 
     def test_upload_too_large_returns_400(
         self,

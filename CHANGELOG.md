@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Uploads: a new logo, cover image, profile picture or OAuth application logo is now stored under a random file name, not the name of the uploaded file. Files that are already stored keep their names.
+
 ### Fixed
 
 - Image uploads (profile pictures, organization, event and series logos and cover images, OAuth application logos): the messages for an image that is too large ("Image must be under …MB.", "… megapixels.") and for a file that is not an image are now translated.

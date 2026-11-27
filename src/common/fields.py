@@ -5,7 +5,9 @@ This module provides custom field types with built-in sanitization and security 
 
 from __future__ import annotations
 
+import os
 import typing as t
+import uuid
 
 from django.contrib.gis.db import models
 from django.core.exceptions import ValidationError
@@ -31,6 +33,7 @@ __all__ = [
     "ProtectedImageField",
     "ProtectedUploadTo",
     "get_markdown_field_registry",
+    "random_image_name",
     "render_markdown",
     "sanitize_html",
     "sanitize_markdown",
@@ -42,6 +45,17 @@ __all__ = [
 ALLOWED_IMAGE_EXTENSIONS: list[str] = ["jpg", "jpeg", "png", "gif", "webp", "heic", "heif"]
 MAX_IMAGE_SIZE_BYTES: int = 10 * 1024 * 1024  # 10MB
 MAX_IMAGE_PIXELS: int = 50_000_000  # 50 megapixels — bound on decoded raster size (memory-DoS guard)
+
+
+def random_image_name(filename: str) -> str:
+    """A random file name for an uploaded image: ``<uuid4>.<extension>`` (#1547).
+
+    The client's file name can hold a person's name, and the stored path is visible in media URLs; a reused path
+    can also serve new bytes under a cached URL. The extension is the lower-cased suffix of the client's name when
+    it is an allowed image extension (the extension validator refuses any other before the save), else none.
+    """
+    suffix = os.path.splitext(filename)[1].lower().lstrip(".")
+    return f"{uuid.uuid4().hex}.{suffix}" if suffix in ALLOWED_IMAGE_EXTENSIONS else uuid.uuid4().hex
 
 
 def validate_image_file(file: File[bytes]) -> None:

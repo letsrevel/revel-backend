@@ -229,9 +229,12 @@ def test_fetch_does_not_overwrite_upload_that_landed_during_download(
 ) -> None:
     """The pre-download check saw no picture; the save must recheck the row, not trust the stale instance."""
 
+    uploaded: list[str] = []
+
     def handler(request: httpx.Request) -> httpx.Response:
         fresh = RevelUser.objects.get(pk=user.pk)
         fresh.profile_picture.save("mine.png", ContentFile(png_bytes), save=True)
+        uploaded.append(str(fresh.profile_picture.name))  # a random name (#1547): compare with the stored one
         return httpx.Response(200, content=png_bytes, headers={"Content-Type": "image/png"})
 
     monkeypatch.setattr(oidc, "_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
@@ -239,7 +242,7 @@ def test_fetch_does_not_overwrite_upload_that_landed_during_download(
     oidc.fetch_profile_picture(user, PICTURE_URL)
     user.refresh_from_db()
     assert user.profile_picture.name
-    assert user.profile_picture.name.endswith("mine.png")
+    assert user.profile_picture.name == uploaded[0]
 
 
 # --- task ---
