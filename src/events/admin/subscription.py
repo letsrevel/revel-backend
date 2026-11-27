@@ -3,12 +3,39 @@
 import typing as t
 
 from django.contrib import admin
-from django.http import HttpRequest
+from django.core.exceptions import PermissionDenied
+from django.http import HttpRequest, HttpResponse
 from unfold.admin import ModelAdmin
 
 from common.admin import GuardedHistoryAdmin, ViewOnlyHistoryMixin
 from events import models
 from events.admin.base import OrganizationLinkMixin, UserLinkMixin
+
+
+class NoOwnDeleteMixin:
+    """Refuse a delete on the admin's own pages, but let a cascade from a user or organization delete pass.
+
+    ``has_delete_permission`` is not overridden on purpose: ``get_deleted_objects`` checks it on the admin of
+    every cascaded row, so returning False there would block the delete of a user or organization.
+    """
+
+    def get_actions(self, request: HttpRequest) -> t.Any:
+        """Remove the bulk delete action."""
+        actions = super().get_actions(request)  # type: ignore[misc]
+        actions.pop("delete_selected", None)
+        return actions
+
+    def delete_view(self, request: HttpRequest, object_id: str, extra_context: t.Any = None) -> HttpResponse:
+        """Refuse the delete page and its POST."""
+        raise PermissionDenied
+
+    def change_view(
+        self, request: HttpRequest, object_id: str, form_url: str = "", extra_context: t.Any = None
+    ) -> HttpResponse:
+        """Hide the delete button."""
+        return super().change_view(  # type: ignore[misc, no-any-return]
+            request, object_id, form_url, {**(extra_context or {}), "show_delete": False}
+        )
 
 
 @admin.register(models.MembershipSubscriptionPlan)
@@ -51,6 +78,7 @@ class MembershipSubscriptionPlanAdmin(ViewOnlyHistoryMixin, GuardedHistoryAdmin,
 
 @admin.register(models.MembershipSubscription)
 class MembershipSubscriptionAdmin(
+    NoOwnDeleteMixin,
     ViewOnlyHistoryMixin,
     GuardedHistoryAdmin,
     ModelAdmin,  # type: ignore[misc]
@@ -119,13 +147,15 @@ class MembershipSubscriptionAdmin(
             "renewal_reminded_for",
         ]
 
-    def has_delete_permission(self, request: HttpRequest, obj: models.MembershipSubscription | None = None) -> bool:
-        """A delete drops the payment ledger by cascade while Stripe keeps billing; cancel through the service."""
-        return False
+    def has_change_permission(self, request: HttpRequest, obj: models.MembershipSubscription | None = None) -> bool:
+        """Existing rows are view-only: a save writes the full row and could overwrite a webhook update."""
+        if obj is not None:
+            return False
+        return bool(super().has_change_permission(request, obj))
 
 
 @admin.register(models.MembershipPayment)
-class MembershipPaymentAdmin(ViewOnlyHistoryMixin, GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+class MembershipPaymentAdmin(NoOwnDeleteMixin, ViewOnlyHistoryMixin, GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
     """Admin for MembershipPayment.
 
     ``status`` and the period fields are readonly to keep refunds and
@@ -161,10 +191,6 @@ class MembershipPaymentAdmin(ViewOnlyHistoryMixin, GuardedHistoryAdmin, ModelAdm
         "updated_at",
     ]
     date_hierarchy = "created_at"
-
-    def has_delete_permission(self, request: HttpRequest, obj: models.MembershipPayment | None = None) -> bool:
-        """Payments are a financial record; deleting is not offered."""
-        return False
 
 
 @admin.register(models.CustomerProfile)

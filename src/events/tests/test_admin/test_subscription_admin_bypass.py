@@ -3,6 +3,7 @@
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
+from unittest import mock
 
 import pytest
 from django.test.client import Client
@@ -134,18 +135,38 @@ class TestSubscriptionAdminBypass:
         assert MembershipSubscription.objects.filter(pk=subscription.pk).exists()
 
 
-class TestSiblingAdmins:
-    @pytest.fixture
-    def payment(self, subscription: MembershipSubscription) -> MembershipPayment:
-        now = timezone.now()
-        return MembershipPayment.objects.create(
-            subscription=subscription,
-            amount=Decimal("20.00"),
-            currency="EUR",
-            period_start=now,
-            period_end=now + timedelta(days=30),
-        )
+@pytest.fixture
+def payment(subscription: MembershipSubscription) -> MembershipPayment:
+    now = timezone.now()
+    return MembershipPayment.objects.create(
+        subscription=subscription,
+        amount=Decimal("20.00"),
+        currency="EUR",
+        period_start=now,
+        period_end=now + timedelta(days=30),
+    )
 
+
+def test_user_delete_cascades_through_subscription_and_payment(
+    admin_client: Client, member_user: RevelUser, subscription: MembershipSubscription, payment: MembershipPayment
+) -> None:
+    """The membership admins refuse their own deletes, but a user delete must still queue the erasure."""
+    url = reverse("admin:accounts_reveluser_delete", args=[member_user.pk])
+    with mock.patch("accounts.admin.user._queue_account_erasure") as queue:
+        response = admin_client.post(url, {"post": "yes"})
+    assert response.status_code == 302
+    queue.assert_called_once()
+
+
+def test_subscription_change_page_is_view_only(admin_client: Client, subscription: MembershipSubscription) -> None:
+    url = reverse("admin:events_membershipsubscription_change", args=[subscription.pk])
+    response = admin_client.get(url)
+    assert response.status_code == 200
+    assert b"deletelink" not in response.content
+    assert admin_client.post(url, {"cancel_at_period_end": "on"}).status_code == 403
+
+
+class TestSiblingAdmins:
     def test_plan_history_revert_is_refused(
         self, admin_client: Client, plans: tuple[MembershipSubscriptionPlan, MembershipSubscriptionPlan]
     ) -> None:
@@ -179,7 +200,9 @@ class TestSiblingAdmins:
         assert profile.stripe_customer_id == "cus_2"
 
     def test_payment_history_revert_is_refused(self, admin_client: Client, payment: MembershipPayment) -> None:
-        url = reverse("admin:events_membershippayment_simple_history", args=[payment.pk, 1])
+        first = payment.history.order_by("history_date").first()
+        assert first is not None
+        url = reverse("admin:events_membershippayment_simple_history", args=[payment.pk, first.history_id])
         assert admin_client.post(url, {"amount": "1.00"}).status_code == 403
         payment.refresh_from_db()
         assert payment.amount == Decimal("20.00")
