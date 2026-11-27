@@ -12,12 +12,21 @@ from events.service.blacklist_service import get_fuzzy_match_score
 
 pytestmark = pytest.mark.django_db
 
-COMMON_NAMES = [("John", "Smith"), ("Maria", "Garcia"), ("Anna", "Müller"), ("Luca", "Rossi"), ("Wei", "Wang")]
+COMMON_NAMES = [
+    ("John", "Smith"),
+    ("Maria", "Garcia"),
+    ("Anna", "Müller"),
+    ("Luca", "Rossi"),
+    ("Wei", "Wang"),
+    ("James", "Johnson"),
+    ("Mary", "Williams"),
+    ("Robert", "Brown"),
+]
 
 
 def test_factory_users_match_no_common_name(revel_user_factory: RevelUserFactory) -> None:
     entries = [Blacklist(first_name=first, last_name=last) for first, last in COMMON_NAMES]
-    users = [revel_user_factory() for _ in range(30)]
+    users = [revel_user_factory() for _ in range(100)]  # with Faker names, 100 users match in about 99.7% of runs
 
     assert [(u.pk, e.last_name) for u in users for e in entries if get_fuzzy_match_score(u, e)] == []
 
