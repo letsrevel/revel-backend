@@ -213,3 +213,19 @@ def test_a_failed_check_still_defers_the_fields_it_read(organization: Organizati
         loaded.save()
     [update] = _update_sql(queries, "events_event")
     assert '"event_series_id"' not in update
+
+
+def test_the_unique_check_does_not_read_an_unloaded_unique_field(organization: Organization) -> None:
+    """``validate_unique`` skips the unique fields that were not loaded (``stripe_account_id``, ``custom_domain``)."""
+    loaded = Organization.objects.only("id", "name", "slug", "owner_id").get(pk=organization.pk)
+    loaded.name = "Unique check"
+
+    with CaptureQueriesContext(connection) as queries:
+        loaded.save()
+
+    read_columns = {
+        m.group(1)
+        for q in queries.captured_queries
+        if (m := re.match(r'SELECT "events_organization"\."id", "events_organization"\."(\w+)" FROM', q["sql"]))
+    }
+    assert not read_columns & {"stripe_account_id", "custom_domain"}, read_columns
