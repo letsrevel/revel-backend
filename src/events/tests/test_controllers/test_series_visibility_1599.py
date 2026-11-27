@@ -285,10 +285,28 @@ class TestBans:
         assert nonmember_client.post(follow, data=orjson.dumps({}), content_type="application/json").status_code == 404
         assert not EventSeriesFollow.objects.filter(user=nonmember_user).exists()
 
-    def test_the_owner_is_never_excluded(
-        self, organization_owner_client: Client, private_series_with_public_event: EventSeries
+    def test_a_blacklist_row_that_matches_the_owner_does_not_hide_the_series(
+        self,
+        organization_owner_client: Client,
+        organization_owner_user: RevelUser,
+        organization: Organization,
+        private_series_with_public_event: EventSeries,
     ) -> None:
+        """``add_to_blacklist`` can store a row that matches the owner; the owner still opens the series.
+
+        This checks the combined result: the owner also reaches the series through the organization branch, so the
+        test cannot isolate the owner exemption of the event branch.
+        """
+        from events.models import Blacklist
+
+        Blacklist.objects.create(organization=organization, email=organization_owner_user.email, created_by=None)
+
         assert organization_owner_client.get(_detail_urls(private_series_with_public_event)[0]).status_code == 200
+        assert (
+            EventSeries.objects.viewable_for_user(organization_owner_user)
+            .filter(pk=private_series_with_public_event.pk)
+            .exists()
+        )
 
 
 class TestDjangoAdmin:
