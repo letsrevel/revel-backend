@@ -10,12 +10,13 @@ from accounts.models import RevelUser
 from accounts.utils.email_normalization import normalize_telegram_for_matching
 from events.models import Blacklist, Organization
 from events.service.blacklist_service import lock_organization_for_staff_changes
-from events.service.holder_visibility import is_known_holder
+from events.service.holder_visibility import is_known_holder_id
 from telegram.models import TelegramUser
 
 logger = structlog.get_logger(__name__)
 
-_IDENTIFIER_FIELDS = ("email", "phone_number", "telegram_username")
+_Field = t.Literal["email", "phone_number", "telegram_username"]
+_IDENTIFIER_FIELDS: tuple[_Field, ...] = ("email", "phone_number", "telegram_username")
 
 
 class _Identifiers(t.TypedDict):
@@ -74,6 +75,9 @@ def _merge_into_unlinked(entry: Blacklist, holders: list[Blacklist]) -> bool:
         for holder in {holders[0], *updates}:
             if not holder.reason:
                 updates.setdefault(holder, {})["reason"] = entry.reason
+    # ponytail: a Django admin save does not take the organization lock. A concurrent admin entry with the same
+    # identifier makes these updates fail, and the deletion rolls back (no ban is lost; it can run again).
+    # Upgrade path: take lock_organization_for_staff_changes in the admin save of Blacklist.
     for holder, values in updates.items():
         Blacklist.objects.filter(pk=holder.pk).update(**values)
     if leftover:
@@ -122,54 +126,58 @@ def _fill_and_find_extras(entry: Blacklist, current: _Identifiers) -> _Identifie
     """Fill each empty identifier of ``entry`` from the account. Return the current values that differ from it."""
     extras = _Identifiers(email=[], phone_number=[], telegram_username=[])
     for field in _IDENTIFIER_FIELDS:
-        values = list(current[field])  # type: ignore[literal-required]
+        values = list(current[field])
         if not getattr(entry, field) and values:
             setattr(entry, field, values.pop(0))
         stored = getattr(entry, field)
-        extras[field] = [v for v in values if not (stored and _holds(entry, field, v))]  # type: ignore[literal-required]
+        extras[field] = [v for v in values if not (stored and _holds(entry, field, v))]
     return extras
 
 
 def _identifiers_for(entry: Blacklist, user: RevelUser, current: _Identifiers) -> _Identifiers:
     """The account identifiers that may go on ``entry``: the email always, phone and Telegram for a known holder."""
-    if is_known_holder(entry.organization, user):
+    if is_known_holder_id(entry.organization_id, user.pk):
         return current
     return _Identifiers(email=current["email"], phone_number=[], telegram_username=[])
+
+
+def _free_values(entry: Blacklist, extras: _Identifiers) -> dict[str, str]:
+    """The first extra value of each field that no unlinked entry of the organization holds."""
+    new_values: dict[str, str] = {}
+    for field in _IDENTIFIER_FIELDS:
+        free = [v for v in extras[field] if not _holder_query_for(field, v, entry.organization_id).exists()]
+        if free:
+            new_values[field] = free[0]
+        # ponytail: one value per field. More Telegram handles on the account are not kept.
+        # Upgrade path: one new entry per extra handle.
+    return new_values
 
 
 def _keep_extras(entry: Blacklist, extras: _Identifiers) -> bool:
     """Put the extra identifiers that no unlinked entry of the organization holds on one new unlinked entry.
 
+    The new entry has no creator: the creator may be an account that the same bulk delete removes.
+    The Django admin does not take the organization lock, so a concurrent save can take a value between the
+    check and the insert. The insert then fails in its savepoint, and the free values are checked again once.
+
     Returns:
         Whether a new entry was created.
     """
-    new_values: dict[str, str] = {}
-    for field in _IDENTIFIER_FIELDS:
-        values = extras[field]  # type: ignore[literal-required]
-        free = [v for v in values if not _holder_query_for(field, v, entry.organization_id).exists()]
-        if free:
-            new_values[field] = free[0]
-        # ponytail: one value per field. More Telegram handles on the account are not kept.
-        # Upgrade path: one new entry per extra handle.
-    if not new_values:
-        return False
-    try:
-        with transaction.atomic():
-            Blacklist.objects.bulk_create(
-                [
-                    Blacklist(
-                        organization_id=entry.organization_id,
-                        reason=entry.reason,
-                        created_by_id=entry.created_by_id,
-                        **new_values,
-                    )
-                ]
-            )
-    except IntegrityError:
-        # A concurrent insert (the Django admin does not take the organization lock) already holds the value,
-        # so the ban stays and the deletion must not fail.
-        return False
-    return True
+    for _attempt in range(2):
+        new_values = _free_values(entry, extras)
+        if not new_values:
+            return False
+        try:
+            with transaction.atomic():
+                Blacklist.objects.bulk_create(
+                    [Blacklist(organization_id=entry.organization_id, reason=entry.reason, **new_values)]
+                )
+            return True
+        except IntegrityError:
+            # The value that clashed is held by the concurrent entry, so its ban stays; retry with the rest.
+            continue
+    logger.warning("blacklist_extra_entry_not_created", organization_id=str(entry.organization_id))
+    return False
 
 
 def _holder_query_for(field: str, value: str, organization_id: t.Any) -> t.Any:
@@ -186,7 +194,7 @@ def detach_blacklist_entries_of_account(user: RevelUser) -> None:
     field of the entry is filled from the account. The phone number and Telegram username of the account are
     used only when the account is a known holder of the organization of the entry; the email always is.
     A current value that differs from the stored value of the
-    entry goes on one new unlinked entry of the same organization (same reason and creator, no names),
+    entry goes on one new unlinked entry of the same organization (same reason, no creator, no names),
     unless an unlinked entry of the organization already holds it.
     If an unlinked entry of the same organization already holds one of the identifiers, the
     entry cannot be unlinked without breaking the unique constraints. Then each identifier that no

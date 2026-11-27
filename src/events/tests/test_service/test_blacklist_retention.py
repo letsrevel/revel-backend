@@ -4,7 +4,7 @@ import typing as t
 from unittest.mock import patch
 
 import pytest
-from django.db import IntegrityError, connection
+from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
 from accounts.models import RevelUser
@@ -291,6 +291,7 @@ def test_detach_logs_only_after_commit(
 
 
 NEW_EMAIL = "renamed@example.com"
+NEW_PHONE = "+436609999999"
 _NO_HOLDINGS = KeptHoldings(ticket_ids=frozenset(), pass_ids=frozenset())
 
 
@@ -348,17 +349,32 @@ def test_the_current_phone_and_telegram_are_not_kept_for_a_stranger(org: Organiz
     assert not entries.exclude(telegram_username=None).exists()
 
 
-def test_a_lost_race_on_the_extra_entry_does_not_fail_the_deletion(org: Organization, account: RevelUser) -> None:
-    _linked_entry(org, account, phone_number=None, telegram_username=None)
-    account.email = NEW_EMAIL
-    account.save(update_fields=["email"])
+def test_a_lost_race_keeps_the_other_extra_identifiers(org: Organization, account: RevelUser) -> None:
+    """A concurrent entry takes one extra value between the check and the insert: the others are still kept."""
+    from events.service import blacklist_retention
 
-    with patch.object(Blacklist.objects, "bulk_create", side_effect=IntegrityError("duplicate")):
+    OrganizationMember.objects.create(organization=org, user=account)
+    _linked_entry(org, account, telegram_username=None)
+    account.email = NEW_EMAIL
+    account.phone_number = NEW_PHONE
+    account.save(update_fields=["email", "phone_number"])
+    original = blacklist_retention._free_values
+    calls: list[int] = []
+
+    def racing_free_values(entry: Blacklist, extras: t.Any) -> dict[str, str]:
+        values = original(entry, extras)
+        if not calls:  # a concurrent save takes the phone after the check, outside the insert's savepoint
+            Blacklist.objects.bulk_create([Blacklist(organization=org, phone_number=NEW_PHONE, reason="admin")])
+        calls.append(1)
+        return values
+
+    with patch.object(blacklist_retention, "_free_values", side_effect=racing_free_values):
         account.delete()
 
+    assert len(calls) == 2  # the first insert failed on the real unique constraint, the retry ran
     assert not RevelUser.objects.filter(pk=account.pk).exists()
-    entry = Blacklist.objects.get(organization=org)
-    assert (entry.user_id, entry.email, entry.reason) == (None, EMAIL, "linked reason")
+    _assert_every_identifier_held(org, email=NEW_EMAIL, phone_number=NEW_PHONE)
+    assert Blacklist.objects.filter(organization=org, phone_number=NEW_PHONE).count() == 1
 
 
 def test_the_identifiers_are_read_fresh_from_the_database(org: Organization, account: RevelUser) -> None:
@@ -386,7 +402,7 @@ def test_an_extra_identifier_held_by_another_unlinked_entry_creates_no_entry(
     assert Blacklist.objects.filter(organization=org, email__iexact=NEW_EMAIL).count() == 1
 
 
-def test_the_extra_entry_copies_reason_and_creator_and_has_no_names(
+def test_the_extra_entry_copies_the_reason_and_has_no_creator_and_no_names(
     org: Organization, account: RevelUser, django_user_model: type[RevelUser]
 ) -> None:
     creator = django_user_model.objects.create_user(username="ret_creator", email="creator@example.com", password="x")
@@ -398,7 +414,7 @@ def test_the_extra_entry_copies_reason_and_creator_and_has_no_names(
 
     extra = Blacklist.objects.get(organization=org, email=NEW_EMAIL)
     assert extra.user_id is None
-    assert (extra.reason, extra.created_by_id) == ("linked reason", creator.pk)
+    assert (extra.reason, extra.created_by_id) == ("linked reason", None)
     assert (extra.first_name, extra.last_name, extra.preferred_name) == (None, None, None)
 
 
