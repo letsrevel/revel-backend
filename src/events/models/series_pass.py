@@ -230,30 +230,30 @@ class HeldSeriesPass(TimeStampedModel):
         return f"{self.QR_PREFIX}{self.id}"
 
 
-def assert_event_change_keeps_coverage(event: "Event") -> None:
+def assert_event_change_keeps_coverage(event: "Event", exclude: t.Collection[str] = ()) -> None:
     """Refuse a change that takes a covered event outside the series pass coverage gate (#1598).
 
     The gate (``validate_events_coverable``) accepts only PUBLIC events of the pass's series, so a covered event
     may not later become private or members-only, or move out of its series. Any link counts, also of an inactive
     pass. The check compares with the stored row: an event that already broke the rule before the check stays
-    saveable for other edits. Deferred fields are skipped, and the links are read only when a field changes.
+    saveable for other edits.
+
+    A field in ``exclude`` is not checked: a save that does not write it, a field that is not on the form, or a
+    deferred field (``TimeStampedModel.save`` excludes those; ``clean_fields`` loads every other one first). The
+    stored row is read only when a checked field is present, and the links only when a checked field changes.
     """
     if event._state.adding:
         return
-    deferred = event.get_deferred_fields()
-    fields = [f for f in ("event_type", "event_series_id") if f not in deferred]
+    pairs = (("event_type", "event_type"), ("event_series", "event_series_id"))
+    fields = [attname for name, attname in pairs if name not in exclude]
     stored = type(event)._base_manager.filter(pk=event.pk).values(*fields).first() if fields else None
     if stored is None:
         return
     errors: dict[str, t.Any] = {}
     public = event.EventType.PUBLIC
     if "event_type" in stored and stored["event_type"] == public and event.event_type != public:
-        errors["event_type"] = _(
-            "A series pass covers this event, so it must stay public. Unlink it from the pass first."
-        )
+        errors["event_type"] = _("A series pass covers this event, so it must stay public.")
     if "event_series_id" in stored and stored["event_series_id"] != event.event_series_id:
-        errors["event_series"] = _(
-            "A series pass covers this event, so it must stay in its series. Unlink it from the pass first."
-        )
+        errors["event_series"] = _("A series pass covers this event, so it must stay in its series.")
     if errors and SeriesPassTierLink.objects.filter(event_id=event.pk).exists():
         raise DjangoValidationError(errors)

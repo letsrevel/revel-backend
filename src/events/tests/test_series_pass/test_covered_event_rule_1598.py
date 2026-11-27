@@ -4,6 +4,7 @@ The coverage gate (#1332) accepts only PUBLIC events of the pass's series. A lat
 tickets that the event's own rule forbids, so the change is refused. The tier side of the same rule is #1341.
 """
 
+import re
 import typing as t
 
 import orjson
@@ -129,7 +130,7 @@ def test_a_covered_event_can_become_public_again(series_pass: SeriesPass) -> Non
 
 
 def test_a_save_that_does_not_change_the_fields_reads_no_links(series_pass: SeriesPass) -> None:
-    """Only a change of ``event_type`` or ``event_series`` reads the links; other saves stay as cheap as before."""
+    """A full save that changes neither field reads the stored row, but not the links."""
     event, _ = cover(series_pass, "covered", days=3)
     event = Event.objects.get(pk=event.pk)
     event.name = "Renamed"
@@ -138,4 +139,39 @@ def test_a_save_that_does_not_change_the_fields_reads_no_links(series_pass: Seri
         event.save()
 
     assert not [q for q in queries.captured_queries if "seriespasstierlink" in q["sql"]]
+    assert Event.objects.get(pk=event.pk).name == "Renamed"
+
+
+# The check's own read: ``values()`` of only the checked columns (other code on save, e.g. signals, reads whole rows).
+_COLUMN = r'"events_event"\."(event_type|event_series_id)"( AS "\w+")?'
+_CHECK_READ = re.compile(rf'^SELECT {_COLUMN}(, {_COLUMN})? FROM "events_event"')
+
+
+def _reads_the_checked_fields(queries: CaptureQueriesContext) -> list[str]:
+    return [q["sql"] for q in queries.captured_queries if _CHECK_READ.match(q["sql"])]
+
+
+def test_a_save_that_does_not_write_the_fields_makes_no_extra_query(series_pass: SeriesPass) -> None:
+    """``save(update_fields=[...])`` without the two fields (the attendee count, a status change) skips the check."""
+    event, _ = cover(series_pass, "covered", days=3)
+    event = Event.objects.get(pk=event.pk)
+    event.attendee_count = 5
+
+    with CaptureQueriesContext(connection) as queries:
+        event.save(update_fields=["attendee_count"])
+
+    assert not _reads_the_checked_fields(queries)
+    assert Event.objects.get(pk=event.pk).attendee_count == 5
+
+
+def test_a_save_of_a_partly_loaded_event_does_not_load_the_fields(series_pass: SeriesPass) -> None:
+    """A deferred ``event_type`` or ``event_series`` is not loaded to check it: the save does not write it."""
+    event, _ = cover(series_pass, "covered", days=3)
+    partial = Event.objects.defer("event_type", "event_series").get(pk=event.pk)
+    partial.name = "Renamed"
+
+    with CaptureQueriesContext(connection) as queries:
+        partial.save()
+
+    assert not _reads_the_checked_fields(queries)
     assert Event.objects.get(pk=event.pk).name == "Renamed"
