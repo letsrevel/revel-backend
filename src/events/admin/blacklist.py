@@ -5,7 +5,7 @@ import typing as t
 
 from django.contrib import admin
 from django.db.models import Count
-from django.http import HttpRequest
+from django.http import Http404, HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
@@ -58,25 +58,44 @@ class BlacklistAdmin(CreatedByDefaultMixin, ModelAdmin, OrganizationLinkMixin): 
     ]
 
     def get_readonly_fields(self, request: HttpRequest, obj: models.Blacklist | None = None) -> t.Any:
-        """On an existing entry, the organization, the linked account and the hard identifiers are read-only.
+        """On an existing entry, only the reason is editable.
 
-        They cannot change after creation (as in ``update_blacklist_entry``). It also means that a change form
-        loaded before a concurrent write (for example an account deletion that moved an identifier onto this
-        entry) cannot save its old values back over it.
+        The organization, the linked account and the hard identifiers cannot change after creation (as in
+        ``update_blacklist_entry``). The names are read-only too: an account deletion clears them, and a change
+        form loaded before it must not write them back.
         """
         fields = list(super().get_readonly_fields(request, obj))
         if obj is not None:
-            fields += ["organization", "user", "email", "telegram_username", "phone_number"]
+            fields += [
+                "organization",
+                "user",
+                "created_by",
+                "email",
+                "telegram_username",
+                "phone_number",
+                "first_name",
+                "last_name",
+                "preferred_name",
+            ]
         return fields
 
     def save_model(self, request: HttpRequest, obj: models.Blacklist, form: t.Any, change: bool) -> None:
         """Take the organization lock first, like a manual add and the entries kept after an account deletion.
 
-        So an admin save cannot insert an identifier between their check and their write.
+        So an admin save cannot insert an identifier between their check and their write. A change writes only
+        the edited fields: the admin loaded the row before it took the lock, and a full save would write back
+        what an account deletion changed in between. If the deletion removed the row, the save answers 404.
         """
         from events.service.blacklist_service import lock_organization_for_staff_changes
 
         lock_organization_for_staff_changes(obj.organization)
+        if change:
+            if not models.Blacklist.objects.filter(pk=obj.pk).exists():
+                raise Http404("This entry was removed by an account deletion. Reload the list.")
+            if changed := (form.changed_data if form is not None else []):
+                obj.save(update_fields=[*changed, "updated_at"])
+            obj.refresh_from_db()  # the admin's log message reads the current row, not the one loaded before the lock
+            return
         super().save_model(request, obj, form, change)
 
     @admin.display(description="User")
