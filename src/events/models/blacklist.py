@@ -67,8 +67,9 @@ class Blacklist(TimeStampedModel):
     )
 
     # Confirmed match (populated on registration/telegram connect or quick blacklist).
-    # The entry stays in place when the account is deleted or erased: the signal receiver
-    # (events.service.blacklist_retention) unlinks it first, and SET_NULL is the safety net.
+    # The entry stays in place when the account is deleted or erased. The pre_delete receiver in
+    # events.signals.user and erase_account_keeping_holdings call
+    # events.service.blacklist_retention.detach_blacklist_entries_of_account; SET_NULL is the safety net.
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

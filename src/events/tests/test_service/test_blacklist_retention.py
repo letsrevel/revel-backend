@@ -164,3 +164,90 @@ def test_entries_of_other_accounts_and_organizations_are_untouched(
     assert (unlinked_elsewhere.first_name, unlinked_elsewhere.reason) == ("Eve", "elsewhere")
     assert Blacklist.objects.filter(pk=own.pk).exists()
     assert Blacklist.objects.get(pk=own.pk).user_id is None
+
+
+def _assert_every_identifier_held(org: Organization, **identifiers: str) -> None:
+    """Every given identifier is held by some unlinked entry of the organization (email and Telegram without case)."""
+    entries = list(Blacklist.objects.filter(organization=org, user__isnull=True))
+    for field, value in identifiers.items():
+        assert any(
+            (stored := getattr(e, field))
+            and (stored.lower() == value.lower() if field != "phone_number" else stored == value)
+            for e in entries
+        ), f"{field} {value} is not held by an unlinked entry"
+
+
+def test_identifier_the_holder_cannot_take_stays_on_a_kept_unlinked_entry(
+    org: Organization, account: RevelUser, django_user_model: type[RevelUser]
+) -> None:
+    existing = Blacklist.objects.create(
+        organization=org, phone_number=PHONE, email="other@example.com", reason="existing reason"
+    )
+    linked = _linked_entry(org, account)
+
+    account.delete()
+
+    assert Blacklist.objects.filter(organization=org).count() == 2
+    kept = Blacklist.objects.get(pk=linked.pk)
+    assert kept.user_id is None
+    assert (kept.email, kept.phone_number, kept.telegram_username) == (EMAIL, None, None)
+    assert (kept.first_name, kept.last_name, kept.preferred_name) == (None, None, None)
+    assert kept.reason == "linked reason"
+    existing.refresh_from_db()
+    assert (existing.email, existing.phone_number, existing.telegram_username) == ("other@example.com", PHONE, TELEGRAM)
+    _assert_every_identifier_held(org, email=EMAIL, phone_number=PHONE, telegram_username=TELEGRAM)
+
+    new_account = django_user_model.objects.create_user(username="ret_new2", email=EMAIL, password="pass")
+    assert check_user_hard_blacklisted(new_account, org)
+
+
+def test_merge_recognises_a_holder_whose_email_differs_only_in_case(org: Organization, account: RevelUser) -> None:
+    existing = Blacklist.objects.create(organization=org, email="placeholder@example.com", reason="existing reason")
+    # A queryset update skips the save-time normalization, so the stored email keeps its case.
+    Blacklist.objects.filter(pk=existing.pk).update(email="Retained@Example.com")
+    _linked_entry(org, account)
+
+    account.delete()
+
+    merged = Blacklist.objects.get(organization=org)
+    assert merged.pk == existing.pk
+    assert (merged.email, merged.phone_number, merged.telegram_username) == ("Retained@Example.com", PHONE, TELEGRAM)
+    _assert_every_identifier_held(org, email=EMAIL, phone_number=PHONE, telegram_username=TELEGRAM)
+
+
+def test_merge_recognises_a_holder_whose_telegram_differs_only_in_case(org: Organization, account: RevelUser) -> None:
+    existing = Blacklist.objects.create(organization=org, telegram_username="placeholder", reason="existing reason")
+    Blacklist.objects.filter(pk=existing.pk).update(telegram_username=TELEGRAM.upper())
+    _linked_entry(org, account)
+
+    account.delete()
+
+    assert Blacklist.objects.filter(organization=org).count() == 1
+    _assert_every_identifier_held(org, email=EMAIL, phone_number=PHONE, telegram_username=TELEGRAM)
+
+
+def test_erase_in_place_merges_into_the_holder_and_keeps_every_identifier(
+    org: Organization, account: RevelUser
+) -> None:
+    existing = Blacklist.objects.create(
+        organization=org, phone_number=PHONE, email="other@example.com", reason="existing reason"
+    )
+    _linked_entry(org, account)
+
+    erase_account_keeping_holdings(account, KeptHoldings(ticket_ids=frozenset(), pass_ids=frozenset()))
+
+    assert not Blacklist.objects.filter(user__isnull=False).exists()
+    existing.refresh_from_db()
+    assert existing.telegram_username == TELEGRAM
+    _assert_every_identifier_held(org, email=EMAIL, phone_number=PHONE, telegram_username=TELEGRAM)
+
+
+def test_detach_logs_only_after_commit(
+    org: Organization, account: RevelUser, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    _linked_entry(org, account)
+
+    with django_capture_on_commit_callbacks(execute=False) as callbacks:
+        account.delete()
+
+    assert len(callbacks) >= 1
