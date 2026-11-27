@@ -9042,3 +9042,9 @@ msgstr "Wenn dieser Eintrag nicht zu dir gehört oder du kein Mitglied sein möc
 
 msgid "Open the organization page"
 msgstr "Seite der Organisation öffnen"
+
+msgid "Image must be under {}MB."
+msgstr "Das Bild muss kleiner als {} MB sein."
+
+msgid "Image must be under {} megapixels."
+msgstr "Das Bild muss kleiner als {} Megapixel sein."

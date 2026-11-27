@@ -9065,3 +9065,9 @@ msgstr "Si cette entrée n'est pas la tienne, ou si tu ne veux pas être membre,
 
 msgid "Open the organization page"
 msgstr "Ouvrir la page de l'organisation"
+
+msgid "Image must be under {}MB."
+msgstr "L'image doit faire moins de {} Mo."
+
+msgid "Image must be under {} megapixels."
+msgstr "L'image doit faire moins de {} mégapixels."

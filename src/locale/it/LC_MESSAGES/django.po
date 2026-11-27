@@ -9025,3 +9025,9 @@ msgstr "Se questa voce non è tua, o non vuoi essere membro, contatta l'organizz
 
 msgid "Open the organization page"
 msgstr "Apri la pagina dell'organizzazione"
+
+msgid "Image must be under {}MB."
+msgstr "L'immagine deve essere inferiore a {} MB."
+
+msgid "Image must be under {} megapixels."
+msgstr "L'immagine deve essere inferiore a {} megapixel."

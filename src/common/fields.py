@@ -11,6 +11,7 @@ from django.contrib.gis.db import models
 from django.core.exceptions import ValidationError
 from django.core.files.base import File
 from django.core.files.images import get_image_dimensions
+from django.utils.translation import gettext_lazy as _
 from PIL import Image
 
 from common.sanitizers import render_markdown, sanitize_html, sanitize_markdown
@@ -62,20 +63,21 @@ def validate_image_file(file: File[bytes]) -> None:
     if getattr(file, "_committed", False):
         return
     if file.size > MAX_IMAGE_SIZE_BYTES:
-        raise ValidationError(f"Image must be under {MAX_IMAGE_SIZE_BYTES // (1024 * 1024)}MB.")
+        raise ValidationError(str(_("Image must be under {}MB.")).format(MAX_IMAGE_SIZE_BYTES // (1024 * 1024)))
     try:
         dimensions = get_image_dimensions(file)
     except Exception:
-        raise ValidationError("File is not a valid image.")
+        raise ValidationError(str(_("File is not a valid image.")))
+    # No dimensions: Pillow cannot read the header, so the bytes are not an image of an allowed format (#1573).
+    # Every format in ALLOWED_IMAGE_EXTENSIONS (HEIC and HEIF through pillow_heif) gives its dimensions here.
+    width, height = dimensions if dimensions else (None, None)
+    if width is None or height is None:
+        raise ValidationError(str(_("File is not a valid image.")))
     # A tiny-on-disk image can still decode to a huge raster (e.g. 8000x8000),
     # exhausting worker memory downstream (EXIF strip, thumbnails). Bound the
-    # pixel count read from the header, without decoding pixels. When the
-    # dimensions can't be read (get_image_dimensions returns None) we leave the
-    # value as-is — that path is unchanged from the original validator, and a
-    # header we can't parse is not a decompression bomb.
-    width, height = dimensions if dimensions else (None, None)
-    if width is not None and height is not None and width * height > MAX_IMAGE_PIXELS:
-        raise ValidationError(f"Image must be under {MAX_IMAGE_PIXELS // 1_000_000} megapixels.")
+    # pixel count read from the header, without decoding pixels.
+    if width * height > MAX_IMAGE_PIXELS:
+        raise ValidationError(str(_("Image must be under {} megapixels.")).format(MAX_IMAGE_PIXELS // 1_000_000))
 
 
 # ---- Protected File Fields ----
