@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Storage: a daily task counts the stored image files (logos, cover images, profile pictures, OAuth application logos and their derived images) that no row uses and that are older than 7 days.
+  - It starts as a dry run that only counts.
+  - An admin can turn on its deletes in the beat task settings, with no deploy.
+
 ### Changed
 
 - Uploads: a new logo, cover image, profile picture or OAuth application logo is now stored under a random file name, not the name of the uploaded file. Files that are already stored keep their names.
@@ -19,12 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Django admin: the "delete selected" action on organizations now removes the stored image files of the organizations and of their events and series (logos, cover art and their derived images) that no other row uses.
 - OAuth applications: deleting an application (in the app settings, through client registration management, or in the Django admin, also with "delete selected") now removes its stored logo files that no other application uses.
 - Series passes: a checkout of a pass that moves to another event series or organization at the same moment now answers 409 ("The events of this pass changed. Please try again."). The buyer can then try again with the pass as it is now.
-
-### Added
-
-- Storage: a daily task counts the stored image files (logos, cover images, profile pictures, OAuth application logos and their derived images) that no row uses and that are older than 7 days.
-  - It starts as a dry run that only counts.
-  - An admin can turn on its deletes in the beat task settings, with no deploy.
 
 ## [3.1.2] - 2026-11-26
 

@@ -1012,6 +1012,9 @@ files from before the delete existed. The daily beat task `common.sweep_unrefere
 To turn deletes on:
 
 1. Read the `unreferenced_image_files_swept` log lines of a few runs in Loki.
-2. Check `named_paths_missing`: the paths in the swept folders that rows name but storage lacks. A number near 0 means that the path
-   matching works. A large number means that it does not, and deletes must stay off.
+2. Check `named_paths_missing`: the paths in the swept folders that rows name but storage lacks. A large number means
+   that the path matching does not work, and deletes must stay off. A number near 0 does not prove the opposite: it
+   cannot show an image field that the sweep does not read. So also check that every model field that stores a file in
+   these folders is in `THUMBNAIL_CONFIGS`, as `test_files_that_users_events_and_apps_name_are_kept` does for the
+   current models.
 3. In the Django admin, set the kwargs of the beat row to `{"dry_run": false}`. No deploy is necessary.
