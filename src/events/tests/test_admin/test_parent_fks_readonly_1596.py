@@ -10,7 +10,10 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.admin.sites import site
+from django.contrib.auth.models import Permission
 from django.db import models as dj_models
+from django.test import Client
+from django.urls import reverse
 
 from accounts.models import RevelUser
 from events import models
@@ -109,3 +112,36 @@ def _initial(form_class: t.Any, obj: dj_models.Model) -> dict[str, t.Any]:
             else (str(value.pk) if hasattr(value, "pk") else value)
         )
     return data
+
+
+@pytest.fixture
+def no_manifest_storage(settings: t.Any) -> None:
+    """The change page renders unfold's static files, which have no manifest in tests."""
+    settings.STORAGES = {
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
+
+
+@pytest.mark.usefixtures("no_manifest_storage")
+@pytest.mark.parametrize(("model", "fixture", "field"), CASES)
+def test_a_view_only_staff_user_can_open_the_change_page(
+    client: Client,
+    revel_user_factory: t.Any,
+    request: pytest.FixtureRequest,
+    model: type[dj_models.Model],
+    fixture: str,
+    field: str,
+) -> None:
+    """Without change permission the admin drops every field from the form; the mixin must not expect one."""
+    obj = request.getfixturevalue(fixture)
+    staff = revel_user_factory(is_staff=True)
+    opts = model._meta
+    staff.user_permissions.add(
+        Permission.objects.get(content_type__app_label=opts.app_label, codename=f"view_{opts.model_name}")
+    )
+    client.force_login(staff)
+
+    response = client.get(reverse(f"admin:{opts.app_label}_{opts.model_name}_change", args=[obj.pk]))
+
+    assert response.status_code == 200

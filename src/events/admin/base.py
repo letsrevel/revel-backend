@@ -75,7 +75,8 @@ class CreateOnlyFieldsMixin:
         form = super().get_form(request, obj, change=change, **kwargs)  # type: ignore[misc]
         if obj is not None:
             for name in self.create_only_fields:
-                form.base_fields[name].disabled = True
+                if name in form.base_fields:  # a user without change permission gets a form with no fields
+                    form.base_fields[name].disabled = True
         return form
 
 
