@@ -271,7 +271,8 @@ def follow_event_series(
     Raises:
         HttpError: If the event series is not visible to the user
     """
-    if not EventSeries.objects.for_user(user).filter(pk=event_series.pk).exists():
+    # The series page rule (#1599): a series that the user sees only through a public event can be followed.
+    if not EventSeries.objects.viewable_for_user(user).filter(pk=event_series.pk).exists():
         raise HttpError(404, str(_("Event series not found")))
 
     follow = _get_or_reactivate_follow(

@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Django admin: the event series admin shows more about the visibility of each series.
+  - The series list shows the organization visibility (also as a filter) and the number of events, with a link to them.
+  - The series page shows its effective public visibility and the reason for it.
+
 ### Fixed
 
+- Event series: a series page (by id, or by organization and series slug) now opens when the visitor can see at least one event of the series, also when the organization is private.
+  - Before, a public event of a private organization linked to a series page that answered 404.
+  - The visitor can follow such a series.
+  - The series list and search, the series passes and the series resources still follow the organization rule, so they show nothing of a private organization.
 - RSVPs, invitations, notification preferences and event-cancellation refunds: a failure to queue the attendee count update no longer turns a saved change into an error response, and no longer stops the steps after it (for example the staff notification of an RSVP). For an RSVP save or a ticket write that stamps its update time, a sweep every 15 minutes then corrects the count; after an RSVP delete, a lost update stays until the next rebuild of that event. An RSVP change also queues the update once, not twice.
 
 ## [3.2.1] - 2026-11-27

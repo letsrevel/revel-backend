@@ -18,10 +18,29 @@ from events.service import follow_service
 @api_controller("/event-series", auth=OptionalAuth(), tags=["Event Series"])
 class EventSeriesController(UserAwareController):
     def get_queryset(self, full: bool = True) -> QuerySet[models.EventSeries]:
-        """Get the queryset of event series visible to the current user."""
+        """The series that the current user can open by a direct link (#1599).
+
+        The organization rule, or a visible event of the series: a public event of a private organization links to a
+        series page that answers 200. The discovery list keeps the organization rule (``get_discovery_queryset``).
+        """
         if not full:
-            return models.EventSeries.objects.for_user(self.maybe_user())
-        return models.EventSeries.objects.full().for_user(self.maybe_user())
+            return models.EventSeries.objects.viewable_for_user(self.maybe_user())
+        return models.EventSeries.objects.full().viewable_for_user(self.maybe_user())
+
+    def get_followed_or_viewable_series(self, series_id: UUID) -> models.EventSeries:
+        """The series of the user's own active follow, else a series that the user can view (#1599).
+
+        A series that the user follows through a public event goes out of view when that event is hidden. The user
+        must still see and change or remove their own follow, and doing so reveals nothing new.
+        """
+        follow = (
+            models.EventSeriesFollow.objects.select_related("event_series__organization")
+            .filter(user=self.user(), event_series_id=series_id, is_archived=False)
+            .first()
+        )
+        if follow is not None:
+            return follow.event_series
+        return t.cast(models.EventSeries, self.get_object_or_exception(self.get_queryset(), pk=series_id))
 
     def get_discovery_queryset(self) -> QuerySet[models.EventSeries]:
         """Get the queryset for discovery listings (hides UNLISTED from non-owner/non-staff users)."""
@@ -71,7 +90,9 @@ class EventSeriesController(UserAwareController):
 
         Returns documents, links, or media files that apply to all events in the series.
         Resources may be public or restricted based on visibility settings. Supports filtering
-        by type and text search.
+        by type and text search. Resources follow the organization's visibility rule: a user who
+        can see the series only through a visible event of a private organization gets an empty
+        list, not a 404.
         """
         series = self.get_object_or_exception(self.get_queryset(), pk=series_id)
         qs = models.AdditionalResource.objects.for_user(self.maybe_user()).filter(event_series=series).with_related()
@@ -88,7 +109,7 @@ class EventSeriesController(UserAwareController):
 
         Returns whether the user is following and the follow details if applicable.
         """
-        event_series = t.cast(models.EventSeries, self.get_object_or_exception(self.get_queryset(), pk=series_id))
+        event_series = self.get_followed_or_viewable_series(series_id)
         is_following = follow_service.is_following_event_series(self.user(), event_series)
 
         if is_following:
@@ -158,7 +179,7 @@ class EventSeriesController(UserAwareController):
         **Error Cases:**
         - 400: Not following this series
         """
-        event_series = t.cast(models.EventSeries, self.get_object_or_exception(self.get_queryset(), pk=series_id))
+        event_series = self.get_followed_or_viewable_series(series_id)
         follow = follow_service.update_event_series_follow_preferences(
             self.user(),
             event_series,
@@ -185,7 +206,7 @@ class EventSeriesController(UserAwareController):
         **Error Cases:**
         - 400: Not following this series
         """
-        event_series = t.cast(models.EventSeries, self.get_object_or_exception(self.get_queryset(), pk=series_id))
+        event_series = self.get_followed_or_viewable_series(series_id)
         follow_service.unfollow_event_series(self.user(), event_series)
         return 204, None
 

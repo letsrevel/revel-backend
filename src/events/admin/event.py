@@ -268,13 +268,67 @@ class EventAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # t
 
 @admin.register(models.EventSeries)
 class EventSeriesAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
-    list_display = ["name", "slug", "organization_link", "is_active", "auto_publish"]
+    list_display = [
+        "name",
+        "slug",
+        "organization_link",
+        "organization_visibility",
+        "event_count",
+        "is_active",
+        "auto_publish",
+    ]
     list_select_related = ["organization"]
-    list_filter = ["is_active", "auto_publish"]
+    list_filter = ["is_active", "auto_publish", "organization__visibility"]
     search_fields = ["name", "slug", "organization__name"]
     autocomplete_fields = ["organization", "template_event", "recurrence_rule"]
     prepopulated_fields = {"slug": ("name",)}
-    readonly_fields = ["last_generated_until", "logo_thumbnail", "cover_art_thumbnail", "cover_art_social"]
+    readonly_fields = [
+        "organization_visibility",
+        "effective_public_visibility",
+        "event_count",
+        "last_generated_until",
+        "logo_thumbnail",
+        "cover_art_thumbnail",
+        "cover_art_social",
+    ]
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[models.EventSeries]:
+        """Count the events of each series in the list query (``event_count``)."""
+        qs: QuerySet[models.EventSeries] = super().get_queryset(request)
+        return qs.annotate(admin_event_count=Count("events", distinct=True))
+
+    @admin.display(description="Organization visibility", ordering="organization__visibility")
+    def organization_visibility(self, obj: models.EventSeries) -> str:
+        return obj.organization.get_visibility_display()
+
+    @admin.display(description="Events", ordering="admin_event_count")
+    def event_count(self, obj: models.EventSeries) -> str:
+        count = getattr(obj, "admin_event_count", None)
+        if count is None:
+            count = obj.events.count()
+        url = reverse("admin:events_event_changelist") + f"?event_series__id__exact={obj.pk}"
+        return format_html('<a href="{}">{}</a>', url, count)
+
+    @admin.display(description="Effective public visibility")
+    def effective_public_visibility(self, obj: models.EventSeries) -> str:
+        """Whether an anonymous visitor can open the series page, and why (#1599).
+
+        A series has no visibility of its own: its page is visible through its organization, or through an event
+        that the visitor can see.
+        """
+        from django.contrib.auth.models import AnonymousUser
+
+        if obj.organization.visibility in models.Organization.Visibility.publicly_accessible():
+            return f"Visible through the organization ({obj.organization.get_visibility_display()})"
+        event = (
+            models.Event.objects.for_user(AnonymousUser(), include_past=True)
+            .filter(event_series=obj)
+            .order_by("start")
+            .first()
+        )
+        if event is not None:
+            return f"Visible through the event {event.name!r} ({event.get_visibility_display()})"
+        return "Hidden: the organization is not public and no event of the series is visible to the public"
 
     def delete_model(self, request: HttpRequest, obj: models.EventSeries) -> None:
         try:
