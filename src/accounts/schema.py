@@ -261,8 +261,8 @@ class VerifyEmailJWTPayloadSchema(BaseEmailJWTPayloadSchema):
         return None if value is None else int(value.timestamp())
 
     @model_serializer(mode="wrap")
-    def drop_missing_iat(self, handler: SerializerFunctionWrapHandler) -> dict[str, t.Any]:
-        """Leave ``iat`` out of the dumped claims when absent (a null claim is not a valid JWT ``iat``)."""
+    def drop_missing_optional_claims(self, handler: SerializerFunctionWrapHandler) -> dict[str, t.Any]:
+        """Leave the ``iat`` and ``return_host`` claims out of the dumped claims when absent."""
         data: dict[str, t.Any] = handler(self)
         for claim in ("iat", "return_host"):
             if data.get(claim) is None:
