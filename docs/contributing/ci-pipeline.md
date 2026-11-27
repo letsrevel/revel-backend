@@ -62,7 +62,7 @@ dependencies, make sure to run `uv sync` and commit the updated lockfile.
 | `refresh-test-durations.yaml` | Weekly (Monday) | Refreshes `.test_durations` for shard balancing |
 | `publish.yaml` | GitHub release published | Builds and pushes the multi-arch image (amd64 + best-effort arm64) to GHCR |
 | `release.yaml` | Merge of a `release/vX.Y.Z` PR | Tags and creates the GitHub release |
-| `docs.yaml` | PRs and pushes touching `docs/**` or `mkdocs.yml` | Builds (and on `main`, deploys) the docs |
+| `docs.yaml` | PRs and pushes touching `docs/**`, `mkdocs.yml`, `pyproject.toml`, `uv.lock`, `.python-version` or the workflow file | Builds the docs with `--strict` from the locked `docs` group in a read-only job; on `main`, a separate deploy job rsyncs the built site and installs no Python packages. |
 
 ---
 
