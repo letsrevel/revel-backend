@@ -230,6 +230,9 @@ unfixable = []
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 # Random operationIds rename the generated frontend types on every dump (#1551).
 "ninja_extra.api_controller".msg = "Use common.api_controller.api_controller: it keeps OpenAPI operationIds stable."
+"ninja_extra.controllers.api_controller".msg = "Use common.api_controller.api_controller: it keeps OpenAPI operationIds stable."
+"ninja_extra.controllers.base.api_controller".msg = "Use common.api_controller.api_controller: it keeps OpenAPI operationIds stable."
+"ninja_extra.controllers.base.APIController".msg = "Use common.api_controller.api_controller: it keeps OpenAPI operationIds stable."
 
 [tool.ruff.lint.mccabe]
 # Unlike Flake8, default to a complexity level of 10.
