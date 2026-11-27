@@ -106,4 +106,47 @@ def test_post_save_receives_the_loaded_fields(organization: Organization) -> Non
     finally:
         post_save.disconnect(receiver, sender=Organization)
 
-    assert seen and set(seen[-1]) == {"name", "slug", "owner_id"}
+    assert seen
+    written = set(seen[-1])
+    assert {"name", "slug", "owner_id"} <= written
+    assert not written & {"description", "updated_at", "logo"}
+
+
+def test_a_field_that_a_later_save_step_sets_is_written(organization: Organization) -> None:
+    """``LocationMixin`` runs after ``TimeStampedModel`` in the MRO and sets ``location`` from the city."""
+    from django.contrib.gis.geos import Point
+
+    from geo.models import City
+
+    city = City.objects.create(
+        name="C1572",
+        ascii_name="C1572",
+        country="AT",
+        iso2="AT",
+        iso3="AUT",
+        city_id=1572,
+        location=Point(16.37, 48.21),
+    )
+    Organization.objects.filter(pk=organization.pk).update(city=None, location=None)
+    loaded = Organization.objects.only("id", "name", "slug", "owner_id", "city_id").get(pk=organization.pk)
+    loaded.city = city
+
+    loaded.save()
+
+    organization.refresh_from_db()
+    assert organization.city_id == city.pk
+    assert organization.location is not None
+
+
+def test_positional_update_fields_still_works(organization: Organization) -> None:
+    """A positional ``update_fields`` must not get a second, keyword ``update_fields``."""
+    import warnings
+
+    loaded: t.Any = Organization.objects.only("id", "name", "slug", "owner_id").get(pk=organization.pk)
+    loaded.name = "Positional"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # Django 5.2 deprecates positional save() arguments
+        loaded.save(False, False, None, ["name"])
+
+    organization.refresh_from_db()
+    assert organization.name == "Positional"
