@@ -4,6 +4,7 @@ These tasks handle thumbnail generation in the background to avoid
 blocking upload requests.
 """
 
+import dataclasses
 import typing as t
 
 import structlog
@@ -134,3 +135,14 @@ def delete_orphaned_thumbnails_task(
         delete_unreferenced_files(thumbnail_paths)
         # The count only: a path can hold the name of an uploaded file.
         logger.info("orphaned_image_files_checked", count=len(thumbnail_paths))
+
+
+@shared_task(name="common.sweep_unreferenced_image_files")
+def sweep_unreferenced_image_files_task(dry_run: bool = True) -> dict[str, int]:
+    """Daily: count, and with ``dry_run=False`` delete, image files that no row names (#1548).
+
+    ``dry_run`` is a kwarg of the beat row, so deletes are turned on in the Django admin, with no deploy.
+    """
+    from .sweep import sweep_unreferenced_image_files
+
+    return dataclasses.asdict(sweep_unreferenced_image_files(dry_run=dry_run))

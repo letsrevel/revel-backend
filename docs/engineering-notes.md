@@ -987,3 +987,27 @@ back data, so a dispatch that other dispatches follow must not stop them.
   expiry loop use this pattern. Most other `on_commit` sites do not use it yet.
 - Test it: make the first dispatch raise inside
   `django_capture_on_commit_callbacks(execute=True)`, and assert that the second still runs.
+
+## Image files: reference-checked deletes and the daily sweep
+
+Rows can share an image file: a duplicated or recurring event keeps the template's logo, cover art and their
+derived images. So a file is deleted only when no row of a model with thumbnails names it, and only after the
+commit that removed the reference (`common/thumbnails/files.py`, `delete_unreferenced_files`).
+
+Some files escape that delete: a delete that failed, a queryset delete or a cascade that skips `delete()`, and
+files from before the delete existed. The daily beat task `common.sweep_unreferenced_image_files`
+(`common/thumbnails/sweep.py`, #1548) finds them:
+
+- It lists `logos/`, `cover-art/` and `oauth-logos/` without recursion (the seed and demo subfolders stay out),
+  and each `protected/profile-pictures/<user id>/` folder.
+- A file is a candidate when it is older than 7 days (the backup-restore horizon) and no row names it. A delete
+  runs under the path locks of the delete after commit, and checks the references again under them.
+- One run deletes at most 500 files. The log has counts only, because a path can hold a user id.
+- The beat row "Sweep unreferenced image files" starts with the kwarg `{"dry_run": true}`: it only counts.
+
+To turn deletes on:
+
+1. Read the `unreferenced_image_files_swept` log lines of a few runs in Loki.
+2. Check `named_paths_missing`: the paths that rows name but storage lacks. A number near 0 means that the path
+   matching works. A large number means that it does not, and deletes must stay off.
+3. In the Django admin, set the kwargs of the beat row to `{"dry_run": false}`. No deploy is necessary.
