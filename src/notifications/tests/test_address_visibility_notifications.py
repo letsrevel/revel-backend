@@ -70,8 +70,8 @@ def test_follower_notification_hides_restricted_address(
     follower = [(nonmember_user, NotificationType.NEW_EVENT_FROM_FOLLOWED_ORG)]
 
     with (
-        patch("events.signals.get_followers_for_new_event_notification", return_value=follower),
-        patch("events.signals.notification_requested.send") as send_mock,
+        patch("events.signals.event.get_followers_for_new_event_notification", return_value=follower),
+        patch("events.signals.event.notification_requested.send") as send_mock,
         django_capture_on_commit_callbacks(execute=True),
     ):
         public_event.status = Event.EventStatus.OPEN

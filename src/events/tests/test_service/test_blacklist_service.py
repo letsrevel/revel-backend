@@ -653,7 +653,7 @@ class TestFuzzyMatching:
 class TestAutomaticLinking:
     """Tests for automatic blacklist entry linking.
 
-    Note: The signal in events/signals.py auto-links on user creation.
+    Note: The signal in events/signals/user.py auto-links on user creation.
     These tests verify the link_blacklist_entries_for_user function works
     when called manually (e.g., after a user adds a phone number later).
     """

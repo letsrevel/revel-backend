@@ -67,7 +67,7 @@ def test_unban_resets_to_cancelled_and_keeps_record_closed(
     (rec,) = MembershipRecord.objects.filter(organization=organization, user=member_user)
     assert rec.ended_reason == Reason.EXPELLED
 
-    with patch("events.signals.permission_snapshot.invalidate_my_permissions") as invalidate:
+    with patch("events.signals.membership.permission_snapshot.invalidate_my_permissions") as invalidate:
         blacklist_service.remove_from_blacklist(entry)
 
     member = OrganizationMember.objects.get(organization=organization, user=member_user)

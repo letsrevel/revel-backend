@@ -91,8 +91,8 @@ def test_org_signal_dispatches_both_tasks_when_enabled(
     organization_owner_user: RevelUser, enable_org_notifications: None
 ) -> None:
     with (
-        patch("events.signals.notify_admin_new_organization_pushover.delay") as mock_pushover,
-        patch("events.signals.notify_admin_new_organization_discord.delay") as mock_discord,
+        patch("events.signals.organization.notify_admin_new_organization_pushover.delay") as mock_pushover,
+        patch("events.signals.organization.notify_admin_new_organization_discord.delay") as mock_discord,
     ):
         org = Organization.objects.create(name="NotifOrg", slug="notiforg", owner=organization_owner_user)
     mock_pushover.assert_called_once_with(organization_id=str(org.id))
@@ -108,8 +108,8 @@ def test_org_signal_does_not_dispatch_when_disabled(organization_owner_user: Rev
     settings.save()
 
     with (
-        patch("events.signals.notify_admin_new_organization_pushover.delay") as mock_pushover,
-        patch("events.signals.notify_admin_new_organization_discord.delay") as mock_discord,
+        patch("events.signals.organization.notify_admin_new_organization_pushover.delay") as mock_pushover,
+        patch("events.signals.organization.notify_admin_new_organization_discord.delay") as mock_discord,
     ):
         org = Organization.objects.create(name="QuietOrg", slug="quietorg", owner=organization_owner_user)
     mock_pushover.assert_not_called()

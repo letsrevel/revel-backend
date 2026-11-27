@@ -152,7 +152,7 @@ class TestFollowerContextTimezone:
             notify_new_events=True,
         )
 
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.event.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 vienna_event.status = Event.EventStatus.OPEN
                 vienna_event.save(update_fields=["status"])

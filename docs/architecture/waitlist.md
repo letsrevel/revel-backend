@@ -248,7 +248,7 @@ Every code path that can **free capacity** explicitly calls `enqueue_waitlist_pr
 | Offer expiry sweeper | `tasks/waitlist.py::expire_waitlist_offers_task` | Per affected event after bulk EXPIRE (calls `enqueue_waitlist_processing` outside the atomic block, so a failed dispatch for one event does not stop the loop) |
 | Hourly safety net | `tasks/waitlist.py::nudge_open_waitlists_task` | See [Soft-lock defense](#soft-lock-defense) |
 | Admin revokes a pending offer | `controllers/event_admin/waitlist_offers.py::revoke_waitlist_offer` | Returns the seat |
-| `EventWaitList` row deleted | `signals.py::handle_waitlist_entry_deleted` (`post_delete`) | REVOKES the matching PENDING offer and enqueues |
+| `EventWaitList` row deleted | `events/signals/attendance.py::handle_waitlist_entry_deleted` (`post_delete`) | REVOKES the matching PENDING offer and enqueues |
 
 ### Trigger semantics
 
@@ -288,7 +288,7 @@ Called from `BatchTicketService.create_batch()` once per cart, after every group
 
 ### Post-delete cleanup
 
-When the claim deletes the `EventWaitList` row, the `post_delete` signal on `EventWaitList` (`signals.py::handle_waitlist_entry_deleted`) is **idempotent**: it only revokes PENDING offers via a conditional UPDATE. Since the claim flow flipped status to CLAIMED **before** deleting the row, the signal's UPDATE matches zero rows and is a no-op — no double-bookkeeping. The signal exists because `EventWaitList` rows are also deleted from other paths (admin delete, `leave_waitlist`, ad-hoc ORM filters) where the offer **does** need revoking.
+When the claim deletes the `EventWaitList` row, the `post_delete` signal on `EventWaitList` (`events/signals/attendance.py::handle_waitlist_entry_deleted`) is **idempotent**: it only revokes PENDING offers via a conditional UPDATE. Since the claim flow flipped status to CLAIMED **before** deleting the row, the signal's UPDATE matches zero rows and is a no-op — no double-bookkeeping. The signal exists because `EventWaitList` rows are also deleted from other paths (admin delete, `leave_waitlist`, ad-hoc ORM filters) where the offer **does** need revoking.
 
 ---
 

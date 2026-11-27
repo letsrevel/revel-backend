@@ -70,7 +70,7 @@ class TestFollowerNotificationVisibility:
         )
 
         # Act
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.event.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 event.status = Event.EventStatus.OPEN
                 event.save(update_fields=["status"])
@@ -99,7 +99,7 @@ class TestFollowerNotificationVisibility:
         )
 
         # Act
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.event.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 Event.objects.create(
                     organization=organization,
@@ -149,7 +149,7 @@ class TestFollowerNotificationVisibility:
         )
 
         # Act
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.event.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 event.status = Event.EventStatus.OPEN
                 event.save(update_fields=["status"])
@@ -189,7 +189,7 @@ class TestFollowerNotificationVisibility:
         )
 
         # Act
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.event.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 event.status = Event.EventStatus.OPEN
                 event.save(update_fields=["status"])
@@ -228,7 +228,7 @@ class TestFollowerAddressVisibility:
             start=timezone.now(),
             status=Event.EventStatus.DRAFT,
         )
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.event.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 event.status = Event.EventStatus.OPEN
                 event.save(update_fields=["status"])

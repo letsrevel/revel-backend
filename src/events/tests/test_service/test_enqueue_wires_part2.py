@@ -510,7 +510,7 @@ def test_leave_waitlist_with_time_expired_pending_offer_is_revoked_by_signal(
     in their time window (``expires_at > now``), so it does NOT call
     ``enqueue_waitlist_processing`` directly when the offer is past its expiry.
     The ``EventWaitList`` row delete then fires the ``post_delete`` signal in
-    ``events/signals.py``, which finds the still-PENDING offer and marks it
+    ``events/signals/attendance.py``, which finds the still-PENDING offer and marks it
     REVOKED (cleaner than leaving a zombie row for the sweeper to find).
     """
     _open_rsvp_event(event)

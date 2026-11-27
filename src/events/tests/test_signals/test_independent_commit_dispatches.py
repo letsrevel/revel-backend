@@ -21,7 +21,9 @@ from events.tasks import expire_waitlist_offers_task
 pytestmark = pytest.mark.django_db
 
 _TICKET_SAVE_FAILURES = [
-    pytest.param("events.signals.build_attendee_visibility_flags", "visibility_flags_dispatch_failed", id="visibility"),
+    pytest.param(
+        "events.signals.attendance.build_attendee_visibility_flags", "visibility_flags_dispatch_failed", id="visibility"
+    ),
     pytest.param(
         "notifications.signals.ticket._handle_ticket_status_change", "ticket_notifications_failed", id="notifications"
     ),
@@ -66,7 +68,7 @@ def test_failing_visibility_dispatch_on_ticket_delete_does_not_skip_the_waitlist
     """A ticket deletion whose visibility dispatch fails still runs the waitlist check."""
     event_id = ticket.event_id
     with (
-        mock.patch("events.signals.build_attendee_visibility_flags", _failing_mock()),
+        mock.patch("events.signals.attendance.build_attendee_visibility_flags", _failing_mock()),
         mock.patch("notifications.signals.waitlist._check_and_notify_waitlist") as waitlist_check,
         mock.patch("common.utils.logger") as log,
     ):

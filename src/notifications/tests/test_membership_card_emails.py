@@ -3,7 +3,7 @@
 Covers:
 - ``_add_membership_wallet_context`` gating (config + member visibility status), wired
   into ``MembershipGrantedTemplate``.
-- ``events.signals.handle_membership_tier_changed`` emitting MEMBERSHIP_CARD_UPDATED
+- ``events.signals.membership.handle_membership_tier_changed`` emitting MEMBERSHIP_CARD_UPDATED
   exactly once on a tier change, and not on creation or a status-only change.
 """
 
@@ -165,7 +165,7 @@ class TestMembershipWalletBadges:
 
 
 class TestMembershipTierChangedSignal:
-    """Tests for events.signals.handle_membership_tier_changed."""
+    """Tests for events.signals.membership.handle_membership_tier_changed."""
 
     def test_tier_change_emits_card_updated_once(
         self,
@@ -173,7 +173,7 @@ class TestMembershipTierChangedSignal:
         tier_b: MembershipTier,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.membership.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 member.tier = tier_b
                 member.save(update_fields=["tier"])
@@ -196,7 +196,7 @@ class TestMembershipTierChangedSignal:
         tier_a: MembershipTier,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.membership.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 OrganizationMember.objects.create(organization=organization, user=member_user, tier=tier_a)
 
@@ -212,7 +212,7 @@ class TestMembershipTierChangedSignal:
         member: OrganizationMember,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
-        with patch("events.signals.notification_requested.send") as mock_send:
+        with patch("events.signals.membership.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 member.status = OrganizationMember.MembershipStatus.PAUSED
                 member.save(update_fields=["status"])
