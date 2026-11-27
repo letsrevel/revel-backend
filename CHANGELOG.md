@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Series passes: an event that a series pass covers can no longer become private or members-only, or move to another series or out of its series. The change answers 400; unlink the event from the pass first.
+  - An event that already broke this rule before the check can still be saved for other edits.
 - Ticket tiers: a tier that a series pass covers can no longer get a stricter purchase rule (a stricter "purchasable by" value, or a first membership-tier restriction) than the pass. The change answers 400; change the pass or unlink the tier first.
 - Event series: a series page (by id, or by organization and series slug) now opens when the visitor can see at least one event of the series, also when the organization is private.
   - Before, a public event of a private organization linked to a series page that answered 404.

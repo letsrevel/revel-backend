@@ -799,6 +799,10 @@ class Event(
         except PydanticValidationError as exc:
             raise DjangoValidationError({"visibility_settings": str(exc)}) from exc
 
+        from .series_pass import assert_event_change_keeps_coverage  # series_pass imports this module
+
+        assert_event_change_keeps_coverage(self)
+
         self._clean_waitlist_config()
 
     def _clean_waitlist_config(self) -> None:
