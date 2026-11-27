@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Ticket tiers: a tier that a series pass covers can no longer get a stricter purchase rule (a stricter "purchasable by" value, or a first membership-tier restriction) than the pass. The change answers 400; change the pass or unlink the tier first.
 - Event series: a series page (by id, or by organization and series slug) now opens when the visitor can see at least one event of the series, also when the organization is private.
   - Before, a public event of a private organization linked to a series page that answered 404.
   - The visitor can follow such a series.

@@ -12,6 +12,7 @@ from django.utils.translation import gettext_lazy as _
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
 from events.utils import apple_wallet_configured, get_event_timezone, google_wallet_configured
+from events.utils.purchase_rules import tier_rule_stricter_than_pass
 from events.utils.tier_pricing import validate_category_prices
 
 from .membership import MembershipTier, MembershipTierKind
@@ -532,6 +533,40 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         self._validate_venue_sector()
         validate_category_prices(self)
         self._validate_invitation_restrictions()
+        self._validate_series_pass_rules()
+
+    def _validate_series_pass_rules(self) -> None:
+        """A changed purchase rule must still admit every buyer of a series pass that covers this tier (#1341).
+
+        Only when the rule changes, as ``SeriesPass.clean`` does on its side: a link that predates #1332 does not
+        block unrelated edits. ``update_ticket_tier`` checks a new membership-tier restriction.
+        """
+        if self._state.adding:
+            return
+        stored = TicketTier.objects.filter(pk=self.pk).values_list("purchasable_by", flat=True).first()
+        if stored is not None and stored != self.purchasable_by:
+            self.assert_covers_series_passes()
+
+    def assert_covers_series_passes(self, field: str = "purchasable_by") -> None:
+        """Raise when a series pass that covers this tier admits a buyer whom the tier's rule refuses (#1341).
+
+        Args:
+            field: the error key, the input that made the rule stricter.
+        """
+        restricted = self.restricted_to_membership_tiers.exists()
+        pass_rules = set(self.series_pass_links.values_list("series_pass__purchasable_by", flat=True))
+        if any(
+            tier_rule_stricter_than_pass(self.purchasable_by, rule, tier_restricted_to_membership_tiers=restricted)
+            for rule in pass_rules
+        ):
+            raise DjangoValidationError(
+                {
+                    field: _(
+                        "A series pass with a looser purchase rule covers this tier; change the pass or unlink the"
+                        " tier first."
+                    )
+                }
+            )
 
     def can_purchase(self) -> bool:
         """Check if the ticket can be purchased (inside the sales window and not paused)."""

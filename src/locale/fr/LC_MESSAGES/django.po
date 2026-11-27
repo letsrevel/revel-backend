@@ -9071,3 +9071,9 @@ msgstr "L'image doit faire moins de {} Mo."
 
 msgid "Image must be under {} megapixels."
 msgstr "L'image doit faire moins de {} mégapixels."
+
+msgid ""
+"A series pass with a looser purchase rule covers this tier; change the pass "
+"or unlink the tier first."
+msgstr ""
+"Un pass de série avec une règle d'achat moins stricte couvre cette catégorie ; modifiez d'abord le pass ou dissociez la catégorie."
