@@ -16,6 +16,7 @@ from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
 from events.admin.base import (
+    CreateOnlyFieldsMixin,
     EventLinkMixin,
     GrantsTemporaryTierMixin,
     UserLinkMixin,
@@ -25,13 +26,10 @@ from events.service import pending_checkout, ticket_service
 
 
 @admin.register(models.TicketTier)
-class TicketTierAdmin(GrantsTemporaryTierMixin, ModelAdmin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
+class TicketTierAdmin(CreateOnlyFieldsMixin, GrantsTemporaryTierMixin, ModelAdmin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
     """Admin view for TicketTier."""
 
-    def get_readonly_fields(self, request: HttpRequest, obj: models.TicketTier | None = None) -> t.Sequence[str]:
-        """Make ``event`` create-only (#1596): an open checkout would issue tickets of the old event."""
-        fields = list(super().get_readonly_fields(request, obj))
-        return [*fields, "event"] if obj is not None else fields
+    create_only_fields = ("event",)
 
     list_display = [
         "__str__",

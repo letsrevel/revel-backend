@@ -1,14 +1,12 @@
 # src/events/admin/series_pass.py
 """Admin classes for SeriesPass, SeriesPassTierLink, and HeldSeriesPass models."""
 
-import typing as t
-
 from django.contrib import admin
-from django.http import HttpRequest
 from unfold.admin import ModelAdmin
 
 from events import models
 from events.admin.base import (
+    CreateOnlyFieldsMixin,
     EventLinkMixin,
     SeriesPassTierLinkInline,
     UserLinkMixin,
@@ -16,16 +14,10 @@ from events.admin.base import (
 
 
 @admin.register(models.SeriesPass)
-class SeriesPassAdmin(ModelAdmin):  # type: ignore[misc]
+class SeriesPassAdmin(CreateOnlyFieldsMixin, ModelAdmin):  # type: ignore[misc]
     """Admin view for SeriesPass (season-ticket product on an EventSeries)."""
 
-    def get_readonly_fields(self, request: HttpRequest, obj: models.SeriesPass | None = None) -> t.Sequence[str]:
-        """Make ``event_series`` create-only (#1596).
-
-        An open checkout keeps the fee split and the VAT of the organization that it reserved against.
-        """
-        fields = list(super().get_readonly_fields(request, obj))
-        return [*fields, "event_series"] if obj is not None else fields
+    create_only_fields = ("event_series",)
 
     list_display = [
         "name",

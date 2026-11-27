@@ -21,6 +21,7 @@ from common.exception_handlers import format_validation_error
 from common.thumbnails.admin_mixins import ImageSourceAdminMixin
 from events import models
 from events.admin.base import (
+    CreateOnlyFieldsMixin,
     EventInvitationInline,
     EventLinkMixin,
     EventRSVPInline,
@@ -267,11 +268,8 @@ class EventAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # t
 
 
 @admin.register(models.EventSeries)
-class EventSeriesAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
-    def get_readonly_fields(self, request: HttpRequest, obj: models.EventSeries | None = None) -> t.Sequence[str]:
-        """Make ``organization`` create-only (#1596): a series pass checkout pays the organization that it reserved."""
-        fields = list(super().get_readonly_fields(request, obj))
-        return [*fields, "organization"] if obj is not None else fields
+class EventSeriesAdmin(CreateOnlyFieldsMixin, ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+    create_only_fields = ("organization",)
 
     list_display = [
         "name",

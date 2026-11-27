@@ -44,7 +44,7 @@ def _request(rf: t.Any, superuser: RevelUser) -> t.Any:
 
 
 @pytest.mark.parametrize(("model", "fixture", "field"), CASES)
-def test_the_parent_is_read_only_on_change(
+def test_the_parent_is_disabled_on_change(
     rf: t.Any,
     superuser: RevelUser,
     request: pytest.FixtureRequest,
@@ -52,20 +52,60 @@ def test_the_parent_is_read_only_on_change(
     fixture: str,
     field: str,
 ) -> None:
+    """A disabled field keeps the stored value, whatever the POST sends."""
     obj = request.getfixturevalue(fixture)
-    model_admin = site._registry[model]
-    admin_request = _request(rf, superuser)
+    form_class = site._registry[model].get_form(_request(rf, superuser), obj, change=True)
 
-    assert field in model_admin.get_readonly_fields(admin_request, obj)
-    assert field not in model_admin.get_form(admin_request, obj).base_fields
+    assert form_class.base_fields[field].disabled
 
 
 @pytest.mark.parametrize(("model", "fixture", "field"), CASES)
 def test_the_parent_is_editable_on_add(
     rf: t.Any, superuser: RevelUser, model: type[dj_models.Model], fixture: str, field: str
 ) -> None:
-    model_admin = site._registry[model]
-    admin_request = _request(rf, superuser)
+    form_class = site._registry[model].get_form(_request(rf, superuser), None)
 
-    assert field not in model_admin.get_readonly_fields(admin_request, None)
-    assert field in model_admin.get_form(admin_request, None).base_fields
+    assert not form_class.base_fields[field].disabled
+
+
+def test_a_posted_parent_is_ignored(
+    rf: t.Any, superuser: RevelUser, tier: models.TicketTier, organization: models.Organization
+) -> None:
+    other_event = models.Event.objects.create(
+        organization=organization, name="Other", slug="other", start=tier.event.start, requires_ticket=True
+    )
+    form_class = site._registry[models.TicketTier].get_form(_request(rf, superuser), tier, change=True)
+    data = {**_initial(form_class, tier), "event": str(other_event.pk), "name": "Renamed"}
+
+    form = form_class(data=data, instance=tier)
+
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["event"] == tier.event
+
+
+def test_a_duplicate_name_is_a_form_error(rf: t.Any, superuser: RevelUser, tier: models.TicketTier) -> None:
+    """The unique constraint (event, name) is still checked on the form, not only in ``save()``."""
+    models.TicketTier.objects.create(event=tier.event, name="Taken", price=Decimal("10.00"))
+    form_class = site._registry[models.TicketTier].get_form(_request(rf, superuser), tier, change=True)
+    data = {**_initial(form_class, tier), "name": "Taken"}
+
+    form = form_class(data=data, instance=tier)
+
+    assert not form.is_valid()
+    assert "__all__" in form.errors
+
+
+def _initial(form_class: t.Any, obj: dj_models.Model) -> dict[str, t.Any]:
+    """The POST data of an unchanged change form."""
+    form = form_class(instance=obj)
+    data: dict[str, t.Any] = {}
+    for name, field in form.fields.items():
+        value = form.initial.get(name, field.initial)
+        if value is None:
+            continue
+        data[name] = (
+            [str(v.pk if hasattr(v, "pk") else v) for v in value]
+            if isinstance(value, (list, tuple))
+            else (str(value.pk) if hasattr(value, "pk") else value)
+        )
+    return data
