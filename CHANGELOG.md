@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Series passes: a checkout of a pass that moves to another event series or organization at the same moment now answers 409 ("The events of this pass changed. Please try again."). The buyer can then try again with the pass as it is now.
 - Admin: deleting a ticket in the Django admin now gives its place back to the ticket tier, and the admin refuses to delete a failed payment whose Stripe Checkout session is still open.
 - Django admin: the membership admins can no longer change billing data past the subscription service. An existing subscription is view-only, and the add view is refused. A history revert is refused on the subscription, plan, payment and customer-profile pages; the history stays viewable. Subscriptions and payments cannot be deleted from their own admin pages, while deleting a user still works.
+- Accounts: the set-password email that follows the email verification of a contested account now carries the return hint of the white-label organization site where the person signed up, as the other account emails do. The link stays on the platform, and the hint is added only while that organization site is still active.
 
 ## [3.1.2] - 2026-11-26
 

@@ -276,7 +276,7 @@ def send_verification_email_for_user(
         return_host: Optional tenant hostname hint carried in the link as ``return_host``.
     """
     logger.info("verification_email_requested", user_id=str(user.id), email=user.email)
-    token = create_verification_token(user)
+    token = create_verification_token(user, return_host=return_host)
     deletion_token = create_deletion_token(user)
 
     def dispatch() -> None:
@@ -310,12 +310,13 @@ def verify_email(token: str, *, return_host: str | None = None) -> RevelUser:
     Args:
         token (str): The verification token.
         return_host: Optional tenant hostname hint carried in the set-password email sent for a
-            contested account.
+            contested account. When absent, the hint stored in the token is used (#1437).
 
     Returns:
         RevelUser: The verified user.
     """
     from accounts.service.global_ban_service import BAN_ERROR_MESSAGE, is_email_globally_banned
+    from events.service.tenant_service import is_tenant_origin
 
     payload = token_to_payload(token, schema.VerifyEmailJWTPayloadSchema)
     check_blacklist(payload.jti)
@@ -341,7 +342,9 @@ def verify_email(token: str, *, return_host: str | None = None) -> RevelUser:
         was_inactive = not user.is_active
         if user.signup_contested_at is not None and not user.email_verified:
             adopt_unverified_account(user, password=None)
-            request_password_reset(user.email, return_host=return_host)
+            # The token hint is checked again: the domain may have been disabled since the link was sent.
+            token_host = payload.return_host if payload.return_host and is_tenant_origin(payload.return_host) else None
+            request_password_reset(user.email, return_host=return_host or token_host)
         else:
             _mark_email_verified(user)
 

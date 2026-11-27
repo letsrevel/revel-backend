@@ -304,3 +304,73 @@ def test_verify_contested_account_set_password_email_carries_the_hint(
 
     assert response.status_code == 200
     _assert_platform_link_with_hint(_action_link(run_email_task_inline), "/login/reset-password")
+
+
+def test_verify_contested_account_hint_survives_a_platform_origin_verify(
+    client: Client, unverified_user: RevelUser, run_email_task_inline: MagicMock
+) -> None:
+    """The frontend verifies from the platform origin, so the hint must ride in the token itself (#1437)."""
+    RevelUser.objects.filter(pk=unverified_user.pk).update(signup_contested_at=timezone.now())
+    token = account_service.create_verification_token(unverified_user, return_host=HOST)
+
+    response = client.post(
+        reverse("api:verify-email"),
+        data=orjson.dumps({"token": token}),
+        content_type="application/json",
+        HTTP_ORIGIN="https://app.letsrevel.io",
+    )
+
+    assert response.status_code == 200
+    _assert_platform_link_with_hint(_action_link(run_email_task_inline), "/login/reset-password")
+
+
+def test_verify_contested_account_drops_a_token_hint_that_is_no_longer_a_tenant(
+    client: Client, unverified_user: RevelUser, run_email_task_inline: MagicMock
+) -> None:
+    """The token hint is checked again at verification: a domain that went away gives no hint."""
+    RevelUser.objects.filter(pk=unverified_user.pk).update(signup_contested_at=timezone.now())
+    token = account_service.create_verification_token(unverified_user, return_host=HOST)
+    Organization.objects.update(custom_domain_enabled=False)
+    tenant_service.invalidate_tenant_cache(HOST)
+
+    response = client.post(
+        reverse("api:verify-email"), data=orjson.dumps({"token": token}), content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    assert "return_host" not in _action_link(run_email_task_inline)
+
+
+def test_contested_signup_from_tenant_then_platform_verify_sends_set_password_link_with_hint(
+    client: Client, unverified_user: RevelUser, run_email_task_inline: MagicMock
+) -> None:
+    """End to end (#1437): sign up again from a tenant, verify from the platform, keep the tenant hint."""
+    payload = {
+        "email": unverified_user.email,
+        "password1": "a-Strong-password-123!",
+        "password2": "a-Strong-password-123!",
+        "first_name": "New",
+        "last_name": "User",
+        "accept_toc_and_privacy": True,
+    }
+    response = client.post(
+        reverse("api:register-account"),
+        data=orjson.dumps(payload),
+        content_type="application/json",
+        HTTP_ORIGIN=TENANT_ORIGIN,
+    )
+    assert response.status_code == 201
+    token = re.search(r"/login/confirm-email\?token=([^&\s]+)", run_email_task_inline.call_args_list[0].kwargs["body"])
+    assert token is not None
+    run_email_task_inline.reset_mock()
+
+    # The frontend calls verify server-side, from the platform origin.
+    response = client.post(
+        reverse("api:verify-email"),
+        data=orjson.dumps({"token": token.group(1)}),
+        content_type="application/json",
+        HTTP_ORIGIN="https://app.letsrevel.io",
+    )
+
+    assert response.status_code == 200
+    _assert_platform_link_with_hint(_action_link(run_email_task_inline), "/login/reset-password")
