@@ -32,6 +32,18 @@ class HistoryRevertRequiresChangeMixin:
         return super().history_form_view(request, object_id, version_id, extra_context)  # type: ignore[misc]
 
 
+class ViewOnlyHistoryMixin:
+    """Make the simple_history pages view-only.
+
+    A revert saves an old copy of the row. That restores readonly fields and skips the service layer.
+    Use this mixin on admins whose rows only a service may change. List it before ``GuardedHistoryAdmin``.
+    """
+
+    def has_change_history_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
+        """Refuse every history revert, also for superusers."""
+        return False
+
+
 class GuardedHistoryAdmin(HistoryRevertRequiresChangeMixin, SimpleHistoryAdmin):  # type: ignore[misc]
     """``SimpleHistoryAdmin`` whose revert POST requires change permission."""
 

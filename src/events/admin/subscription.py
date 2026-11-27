@@ -6,13 +6,13 @@ from django.contrib import admin
 from django.http import HttpRequest
 from unfold.admin import ModelAdmin
 
-from common.admin import GuardedHistoryAdmin
+from common.admin import GuardedHistoryAdmin, ViewOnlyHistoryMixin
 from events import models
 from events.admin.base import OrganizationLinkMixin, UserLinkMixin
 
 
 @admin.register(models.MembershipSubscriptionPlan)
-class MembershipSubscriptionPlanAdmin(GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+class MembershipSubscriptionPlanAdmin(ViewOnlyHistoryMixin, GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
     """Admin for MembershipSubscriptionPlan."""
 
     list_display = [
@@ -50,7 +50,13 @@ class MembershipSubscriptionPlanAdmin(GuardedHistoryAdmin, ModelAdmin):  # type:
 
 
 @admin.register(models.MembershipSubscription)
-class MembershipSubscriptionAdmin(GuardedHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
+class MembershipSubscriptionAdmin(
+    ViewOnlyHistoryMixin,
+    GuardedHistoryAdmin,
+    ModelAdmin,  # type: ignore[misc]
+    UserLinkMixin,
+    OrganizationLinkMixin,
+):
     """Admin for MembershipSubscription.
 
     Lifecycle fields (``status``, ``cancelled_at``, ``current_period_*``) are
@@ -96,20 +102,30 @@ class MembershipSubscriptionAdmin(GuardedHistoryAdmin, ModelAdmin, UserLinkMixin
         """Subscriptions are created by the subscription service only (it checks plan capacity and sales controls)."""
         return False
 
-    def has_change_history_permission(
-        self, request: HttpRequest, obj: models.MembershipSubscription | None = None
-    ) -> bool:
-        """History is view-only: a revert would restore ``plan``, ``status`` and Stripe ids past the service layer."""
-        return False
-
     def get_readonly_fields(self, request: HttpRequest, obj: models.MembershipSubscription | None = None) -> t.Any:
-        """Make ``plan`` and ``organization`` readonly on existing rows (plan switches go through the service layer)."""
+        """Lock the identity and lifecycle fields of existing rows (changes go through the service layer)."""
         fields = list(super().get_readonly_fields(request, obj))
-        return [*fields, "plan", "organization"] if obj is not None else fields
+        if obj is None:
+            return fields
+        return [
+            *fields,
+            "plan",
+            "organization",
+            "user",
+            "cancel_at_period_end",
+            "held_member",
+            "expired_at",
+            "stripe_checkout_session_id",
+            "renewal_reminded_for",
+        ]
+
+    def has_delete_permission(self, request: HttpRequest, obj: models.MembershipSubscription | None = None) -> bool:
+        """A delete drops the payment ledger by cascade while Stripe keeps billing; cancel through the service."""
+        return False
 
 
 @admin.register(models.MembershipPayment)
-class MembershipPaymentAdmin(GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+class MembershipPaymentAdmin(ViewOnlyHistoryMixin, GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
     """Admin for MembershipPayment.
 
     ``status`` and the period fields are readonly to keep refunds and
@@ -146,9 +162,13 @@ class MembershipPaymentAdmin(GuardedHistoryAdmin, ModelAdmin):  # type: ignore[m
     ]
     date_hierarchy = "created_at"
 
+    def has_delete_permission(self, request: HttpRequest, obj: models.MembershipPayment | None = None) -> bool:
+        """Payments are a financial record; deleting is not offered."""
+        return False
+
 
 @admin.register(models.CustomerProfile)
-class CustomerProfileAdmin(GuardedHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
+class CustomerProfileAdmin(ViewOnlyHistoryMixin, GuardedHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for the per-(user, organization) Stripe Customer reference."""
 
     list_display = ["__str__", "user_link", "organization_link", "stripe_customer_id", "created_at"]
