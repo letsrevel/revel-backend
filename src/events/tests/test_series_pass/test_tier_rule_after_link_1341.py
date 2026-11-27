@@ -53,7 +53,8 @@ def test_a_new_membership_tier_restriction_on_a_covered_tier_is_refused(
     with pytest.raises(ValidationError) as exc:
         _update(tier, restricted_to_membership_tiers_ids=[gold.pk])
 
-    assert "purchasable_by" in exc.value.message_dict
+    # The error names the input that the organizer changed, so the tier form labels it.
+    assert set(exc.value.message_dict) == {"restricted_to_membership_tiers_ids"}
     # The link is written before the check; only the service's transaction removes it again.
     assert not TicketTier.objects.get(pk=tier.pk).restricted_to_membership_tiers.exists()
 

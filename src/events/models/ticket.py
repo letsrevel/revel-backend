@@ -547,8 +547,12 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         if stored is not None and stored != self.purchasable_by:
             self.assert_covers_series_passes()
 
-    def assert_covers_series_passes(self) -> None:
-        """Raise when a series pass that covers this tier admits a buyer whom the tier's rule refuses (#1341)."""
+    def assert_covers_series_passes(self, field: str = "purchasable_by") -> None:
+        """Raise when a series pass that covers this tier admits a buyer whom the tier's rule refuses (#1341).
+
+        Args:
+            field: the error key, the input that made the rule stricter.
+        """
         restricted = self.restricted_to_membership_tiers.exists()
         pass_rules = set(self.series_pass_links.values_list("series_pass__purchasable_by", flat=True))
         if any(
@@ -557,7 +561,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         ):
             raise DjangoValidationError(
                 {
-                    "purchasable_by": _(
+                    field: _(
                         "A series pass with a looser purchase rule covers this tier; change the pass or unlink the"
                         " tier first."
                     )

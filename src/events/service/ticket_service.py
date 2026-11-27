@@ -506,7 +506,7 @@ def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> T
     )
     if restricted_to_membership_tiers_ids and not was_restricted:
         # Any restriction is stricter than a series pass (#1341); clean() cannot see the old links.
-        tier.assert_covers_series_passes()
+        tier.assert_covers_series_passes(field="restricted_to_membership_tiers_ids")
 
     if payload_dict:
         # save() will call full_clean() automatically via TimeStampedModel
