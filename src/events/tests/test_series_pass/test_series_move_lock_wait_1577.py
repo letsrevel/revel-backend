@@ -44,4 +44,5 @@ def test_a_series_moved_during_the_lock_wait_is_refused(
 
     status, error = runner.outcome["purchase"]
     assert status == "err" and isinstance(error, SeriesPassNotPurchasableError), runner.outcome["purchase"]
+    assert str(error) == "The events of this pass changed. Please try again."
     assert not HeldSeriesPass.objects.filter(series_pass=series_pass).exists()

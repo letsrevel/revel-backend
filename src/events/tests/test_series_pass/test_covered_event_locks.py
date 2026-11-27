@@ -243,8 +243,13 @@ class TestStatusChangeBeforeTheEventLock:
 
     @pytest.mark.parametrize(
         ("move", "check_visibility"),
-        [("pass", False), ("series", False), ("pass", True)],
-        ids=["pass_to_other_series", "series_to_other_org", "before_the_visibility_check"],
+        [("pass", False), ("pass_same_org", False), ("series", False), ("pass", True)],
+        ids=[
+            "pass_to_other_series",
+            "pass_to_other_series_same_org",
+            "series_to_other_org",
+            "before_the_visibility_check",
+        ],
     )
     def test_purchase_refuses_when_the_pass_moves_to_another_organization(
         self,
@@ -263,6 +268,9 @@ class TestStatusChangeBeforeTheEventLock:
             name="Other", slug="other-1577", owner=organization_owner_user, visibility=Organization.Visibility.PRIVATE
         )
         other_series = EventSeries.objects.create(organization=other_org, name="Other", slug="other-1577")
+        same_org_series = EventSeries.objects.create(
+            organization_id=series_pass.event_series.organization_id, name="Same org", slug="same-org-1577"
+        )
         real_quote = series_pass_service.get_quote
         calls: list[int] = []
 
@@ -271,6 +279,8 @@ class TestStatusChangeBeforeTheEventLock:
             if not calls:
                 if move == "pass":
                     SeriesPass.objects.filter(pk=series_pass.pk).update(event_series=other_series)
+                elif move == "pass_same_org":
+                    SeriesPass.objects.filter(pk=series_pass.pk).update(event_series=same_org_series)
                 else:
                     EventSeries.objects.filter(pk=series_pass.event_series_id).update(organization=other_org)
             calls.append(1)
