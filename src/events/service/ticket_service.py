@@ -8,7 +8,8 @@ from decimal import Decimal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, F, Max, Q, QuerySet
+from django.db.models import Count, F, Max, Q, QuerySet, Value
+from django.db.models.functions import Greatest
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -523,6 +524,31 @@ def delete_ticket_tier(tier: TicketTier) -> None:
     """
     lock_for_cascade_delete(Ticket.objects.filter(tier=tier), tiers=TicketTier.objects.filter(pk=tier.pk))
     tier.delete()
+
+
+@transaction.atomic
+def delete_tickets(tickets: QuerySet[Ticket]) -> None:
+    """Delete tickets (the Django admin delete); their payments cascade and their tier capacity comes back.
+
+    A CANCELLED ticket already gave its slot back, so only the other tickets release one. The unfinished
+    checkouts end as in ``delete_ticket_tier``. Lock order: Payment, then every tier of the selection, then
+    ticket, then DiscountCode (``lock_for_cascade_delete``, ``lock_tier_then_ticket``). The tiers are all locked
+    before the discount release, so a mixed selection keeps the global order. The selection is fixed once, before
+    the first lock, as a list of pks. A filter of the admin changelist is not run again, so a ticket that changes
+    status later cannot drop out of a lock or the delete. The decrement is floored at zero.
+    """
+    pks = list(tickets.order_by().values_list("pk", flat=True))
+    selection = Ticket.objects.filter(pk__in=pks)
+    lock_for_cascade_delete(selection, tiers=TicketTier.objects.filter(pk__in=selection.values("tier_id")))
+    locked = lock_tier_then_ticket(selection)
+    holding = Counter(
+        ticket.tier_id for ticket in locked if ticket.tier_id and ticket.status != Ticket.TicketStatus.CANCELLED
+    )
+    for tier_id, count in sorted(holding.items()):
+        TicketTier.objects.filter(pk=tier_id).update(quantity_sold=Greatest(F("quantity_sold") - count, Value(0)))
+    Ticket.objects.filter(pk__in=[ticket.pk for ticket in locked]).delete()
+    for event_id in sorted({ticket.event_id for ticket in locked if ticket.tier_id in holding}):
+        enqueue_waitlist_processing(event_id)
 
 
 def _set_tier_membership_links(

@@ -179,6 +179,17 @@ def expire_stripe_sessions_best_effort(session_ids: list[str], stripe_account_id
             logger.warning("pending_checkout_session_expire_failed", session_id=session_id, error=str(exc))
 
 
+def is_unfinished_checkout(status: str, expires_at: datetime, session_id: str | None, now: datetime) -> bool:
+    """Whether a Payment is an unfinished checkout: PENDING, or FAILED with a Checkout session not yet expired.
+
+    The event-cancel sweep marks a pending checkout FAILED and leaves its session open, and a late payment is
+    refunded only while the Payment row exists.
+    """
+    if status == Payment.PaymentStatus.PENDING:
+        return True
+    return status == Payment.PaymentStatus.FAILED and bool(session_id) and expires_at > now
+
+
 def _lock_unfinished_sessions(tickets: QuerySet[Ticket]) -> dict[str | None, set[str]]:
     """Lock all Payment rows of ``tickets`` (pk order) and return the open sessions of the unfinished ones.
 
@@ -195,8 +206,7 @@ def _lock_unfinished_sessions(tickets: QuerySet[Ticket]) -> dict[str | None, set
     )
     now = timezone.now()
     for status, expires_at, session_id, account_id in locked:
-        open_failed = status == Payment.PaymentStatus.FAILED and expires_at > now
-        if session_id and (status == Payment.PaymentStatus.PENDING or open_failed):
+        if session_id and is_unfinished_checkout(status, expires_at, session_id, now):
             sessions_by_account[account_id].add(session_id)
     return sessions_by_account
 
@@ -298,8 +308,8 @@ def lock_for_cascade_delete(
 
     Args:
         tickets: The tickets that the delete removes.
-        tiers: The tiers that the delete removes. None when it removes no tier (a ticket delete): steps 2 to 4
-            are then skipped.
+        tiers: The tiers to lock: the tiers that the delete removes, or (a ticket delete) every tier of
+            ``tickets``, so that they are all locked before the discount release. None skips steps 2 to 4.
         parents: The parent rows that the delete removes, in lock order.
         passes: The series passes that the delete removes (a series or an organization delete). Only used
             with ``tiers``.

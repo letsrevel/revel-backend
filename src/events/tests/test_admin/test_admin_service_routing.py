@@ -7,15 +7,17 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+from django.db import connection
 from django.db.models import F
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import Event, EventSeries, HeldSeriesPass, Organization, Payment, SeriesPass, Ticket, TicketTier
 from events.models.discount_code import DiscountCode
-from events.service import discount_code_service, event_update_service
+from events.service import discount_code_service, event_update_service, pending_checkout, ticket_service
 
 pytestmark = pytest.mark.django_db
 
@@ -302,6 +304,146 @@ class TestBulkTierDeleteLockOrder:
         # One lock for the payments of both tiers, in ascending pk order (Django renders it as "ORDER BY 1 ASC").
         assert tier.pk.hex in lock and other_tier.pk.hex in lock and "ORDER BY 1 ASC" in lock, lock
         assert not TicketTier.objects.filter(pk__in=[tier.pk, other_tier.pk]).exists()
+
+
+class TestTicketDeleteReleasesCapacity:
+    """#1562: an admin ticket delete gives back the tier capacity of each ticket that held it."""
+
+    def test_ticket_delete_releases_tier_capacity(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        held = _checkout(tier, member_user, "cs_held", status=Payment.PaymentStatus.SUCCEEDED)
+        cancelled = _checkout(tier, member_user, "cs_cancelled", status=Payment.PaymentStatus.SUCCEEDED)
+        Ticket.objects.filter(pk=cancelled.pk).update(status=Ticket.TicketStatus.CANCELLED)
+        # 2, not 1: a release of the cancelled ticket too would give 0, and only the held one gives 1.
+        TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=2)
+
+        _bulk(admin_client, "ticket", "delete_selected", [held.pk, cancelled.pk], post="yes")
+
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 1
+
+    def test_delete_of_only_a_cancelled_ticket_releases_nothing(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        cancelled = _checkout(tier, member_user, "cs_cancelled", status=Payment.PaymentStatus.SUCCEEDED)
+        Ticket.objects.filter(pk=cancelled.pk).update(status=Ticket.TicketStatus.CANCELLED)
+        TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=2)
+
+        _delete_view(admin_client, "ticket", cancelled.pk)
+
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 2
+
+    def test_mixed_selection_locks_all_tiers_before_the_discount_code(
+        self, event: Event, tier: TicketTier, code: DiscountCode, member_user: RevelUser
+    ) -> None:
+        other_tier = TicketTier.objects.create(
+            event=event, name="Other", price=Decimal("10.00"), payment_method=TicketTier.PaymentMethod.ONLINE
+        )
+        coded = _checkout(tier, member_user, "cs_coded", code=code)
+        plain = _checkout(other_tier, member_user, "cs_plain", status=Payment.PaymentStatus.SUCCEEDED)
+
+        with CaptureQueriesContext(connection) as ctx:
+            ticket_service.delete_tickets(Ticket.objects.filter(pk__in=[coded.pk, plain.pk]))
+
+        locks = [q["sql"] for q in ctx.captured_queries if "FOR UPDATE" in q["sql"]]
+        discount_lock = next(i for i, q in enumerate(locks) if '"events_discountcode"' in q)
+        # Some tier lock before the discount lock covers the ticket without a code (a tier-id or ticket-id filter).
+        assert any(
+            '"events_tickettier"' in q and (other_tier.pk.hex in q or plain.pk.hex in q) for q in locks[:discount_lock]
+        ), locks
+        assert _used(code) == 0
+
+    def test_selection_is_fixed_before_the_first_lock(
+        self, event: Event, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        """A ticket that stops matching the changelist filter after the first lock is still locked and deleted."""
+        other_tier = TicketTier.objects.create(
+            event=event, name="Other", price=Decimal("10.00"), payment_method=TicketTier.PaymentMethod.ONLINE
+        )
+        first = _checkout(tier, member_user, "cs_first", status=Payment.PaymentStatus.SUCCEEDED)
+        second = _checkout(other_tier, member_user, "cs_second", status=Payment.PaymentStatus.SUCCEEDED)
+        TicketTier.objects.filter(pk__in=[tier.pk, other_tier.pk]).update(quantity_sold=1)
+        real_lock = pending_checkout.lock_for_cascade_delete
+
+        def lock_then_change(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            result = real_lock(*args, **kwargs)
+            # Another transaction would commit this between two statements of the delete.
+            Ticket.objects.filter(pk=second.pk).update(status=Ticket.TicketStatus.CHECKED_IN)
+            return result
+
+        changelist = Ticket.objects.filter(status=Ticket.TicketStatus.ACTIVE)
+        with patch("events.service.ticket_service.lock_for_cascade_delete", side_effect=lock_then_change):
+            ticket_service.delete_tickets(changelist)
+
+        assert not Ticket.objects.filter(pk__in=[first.pk, second.pk]).exists()
+        tier.refresh_from_db()
+        other_tier.refresh_from_db()
+        assert (tier.quantity_sold, other_tier.quantity_sold) == (0, 0)
+
+    def test_delete_enqueues_waitlist_only_for_a_held_ticket(
+        self,
+        admin_client: Client,
+        tier: TicketTier,
+        member_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        # The on_commit callbacks never fire in a test transaction, so capture and run them.
+        held = _checkout(tier, member_user, "cs_held", status=Payment.PaymentStatus.SUCCEEDED)
+        cancelled = _checkout(tier, member_user, "cs_cancelled", status=Payment.PaymentStatus.SUCCEEDED)
+        Ticket.objects.filter(pk=cancelled.pk).update(status=Ticket.TicketStatus.CANCELLED)
+
+        with patch("events.tasks.process_waitlist_for_event_task.delay") as delay:
+            with django_capture_on_commit_callbacks(execute=True):
+                _delete_view(admin_client, "ticket", cancelled.pk)
+            delay.assert_not_called()
+            with django_capture_on_commit_callbacks(execute=True):
+                _delete_view(admin_client, "ticket", held.pk)
+            delay.assert_called_once_with(str(tier.event_id))
+
+    def test_ticket_delete_never_drops_below_zero(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        held = _checkout(tier, member_user, "cs_held", status=Payment.PaymentStatus.SUCCEEDED)
+
+        _delete_view(admin_client, "ticket", held.pk)
+
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 0
+
+
+class TestFailedPaymentWithOpenSessionDelete:
+    """#1562: a FAILED payment whose Stripe session is still open is an unfinished checkout."""
+
+    def test_delete_of_failed_payment_with_open_session_is_refused(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        failed = _checkout(tier, member_user, "cs_open", status=Payment.PaymentStatus.FAILED).payment
+
+        response = _bulk(admin_client, "payment", "delete_selected", [failed.pk], post="yes")
+
+        assert Payment.objects.filter(pk=failed.pk).exists()
+        assert b"open checkout session" in response.content
+
+    def test_delete_of_failed_payment_with_expired_session_works(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        failed = _checkout(tier, member_user, "cs_old", status=Payment.PaymentStatus.FAILED).payment
+        Payment.objects.filter(pk=failed.pk).update(expires_at=timezone.now() - timedelta(hours=1))
+
+        _bulk(admin_client, "payment", "delete_selected", [failed.pk], post="yes")
+
+        assert not Payment.objects.filter(pk=failed.pk).exists()
+
+    def test_change_page_hides_delete_for_failed_payment_with_open_session(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        failed = _checkout(tier, member_user, "cs_open", status=Payment.PaymentStatus.FAILED).payment
+
+        page = admin_client.get(reverse("admin:events_payment_change", args=[failed.pk]))
+
+        assert page.context["show_delete"] is False
 
 
 class TestPendingPaymentDelete:

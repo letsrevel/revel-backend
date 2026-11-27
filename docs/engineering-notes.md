@@ -955,17 +955,19 @@ order, so such a loop could deadlock with them. The bulk lock ends no checkout: 
 loop still expires the sessions of its own rows, so a series delete that fails in its own savepoint
 expires nothing.
 
-The services are `event_update_service.delete_event`, `ticket_service.delete_ticket_tier` and
-`event_series_service.delete_event_series`. Call them, never `.delete()` on these models directly.
+The services are `event_update_service.delete_event`, `ticket_service.delete_ticket_tier`,
+`ticket_service.delete_tickets` and `event_series_service.delete_event_series`. Call them, never `.delete()` on these models directly.
 A tier delete still hard-deletes its issued tickets and their `Payment` and `Refund` rows.
 
 The Django admin follows the same rule (#1499). Deleting an event, a tier or a series calls these
-services. Deleting a ticket or an organization calls `pending_checkout.lock_for_cascade_delete`
-directly (a ticket delete passes no tiers, so it runs only steps 1 and 5). The organization "delete
+services. Deleting a ticket calls `ticket_service.delete_tickets`: it takes the locks, gives back one place for
+each ticket that is not CANCELLED (with a floor at zero), and queues the waitlist after commit. Deleting an
+organization calls `pending_checkout.lock_for_cascade_delete` directly. The organization "delete
 selected" action takes `lock_for_bulk_delete` for the whole selection, then runs `delete_model` once per
 row, so each organization delete also removes its image files (#1549). The tier and series inlines have `can_delete = False`, because an
 inline delete would call `.delete()` and skip the service. The admin also refuses to delete a
-PENDING `Payment`, because its pending ticket would never be reclaimed. The guard is in
+PENDING `Payment`, because its pending ticket would never be reclaimed. It also refuses a FAILED `Payment`
+whose Checkout session has not expired, because a late payment would have no row to reconcile. The guard is in
 `PaymentAdmin.get_deleted_objects`, not in `has_delete_permission`: Django checks that permission for
 every cascaded object, so it would also block deleting an event, tier or ticket that has a pending checkout.
 
