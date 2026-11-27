@@ -130,23 +130,6 @@ class MembershipSubscriptionAdmin(
         """Subscriptions are created by the subscription service only (it checks plan capacity and sales controls)."""
         return False
 
-    def get_readonly_fields(self, request: HttpRequest, obj: models.MembershipSubscription | None = None) -> t.Any:
-        """Lock the identity and lifecycle fields of existing rows (changes go through the service layer)."""
-        fields = list(super().get_readonly_fields(request, obj))
-        if obj is None:
-            return fields
-        return [
-            *fields,
-            "plan",
-            "organization",
-            "user",
-            "cancel_at_period_end",
-            "held_member",
-            "expired_at",
-            "stripe_checkout_session_id",
-            "renewal_reminded_for",
-        ]
-
     def has_change_permission(self, request: HttpRequest, obj: models.MembershipSubscription | None = None) -> bool:
         """Existing rows are view-only: a save writes the full row and could overwrite a webhook update."""
         if obj is not None:

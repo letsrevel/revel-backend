@@ -27,12 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OAuth applications: deleting an application (in the app settings, through client registration management, or in the Django admin, also with "delete selected") now removes its stored logo files that no other application uses.
 - Series passes: a checkout of a pass that moves to another event series or organization at the same moment now answers 409 ("The events of this pass changed. Please try again."). The buyer can then try again with the pass as it is now.
 - Admin: deleting a ticket in the Django admin now gives its place back to the ticket tier, and the admin refuses to delete a failed payment whose Stripe Checkout session is still open.
+- Django admin: the membership admins can no longer change billing data past the subscription service. An existing subscription is view-only, and the add view is refused. A history revert is refused on the subscription, plan, payment and customer-profile pages; the history stays viewable. Subscriptions and payments cannot be deleted from their own admin pages, while deleting a user still works.
 
 ## [3.1.2] - 2026-11-26
 
 ### Fixed
 
-- Django admin: the membership subscription pages now show the history only, cannot delete a subscription or a payment, and lock the user, the cancel flag and the other lifecycle fields of an existing subscription, so an admin edit can no longer bypass the subscription service.
 - Series passes: the activation of a pass (offline confirm or completed checkout) no longer issues a new ticket for an event whose pass ticket was cancelled meanwhile. A checkout of a pass that the organizer hides or deactivates at the same moment now answers 404.
 - Events: the attendee count and the attendee visibility of an event are now updated also when a logo or cover image file of the event is missing from storage. Before, the update failed for such an event. A status change now also ignores invalid values in fields that it does not change; a cross-field rule that an earlier edit broke (for example a waitlist cutoff after the start) still blocks it, and the error names the field to fix.
 - Events: the attendee count and the attendee visibility of an event are now rebuilt also when the background job could not be queued after a series pass issued tickets. A sweep every 15 minutes finds an event whose count is stale, for tickets written in the last 24 hours, and queues its rebuild again on each run until the count is correct. It cannot find a lost rebuild whose changes leave the count unchanged.

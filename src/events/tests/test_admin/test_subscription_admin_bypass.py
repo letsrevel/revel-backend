@@ -104,14 +104,16 @@ class TestSubscriptionAdminBypass:
         assert admin_client.get(history_url).status_code == 200
         assert admin_client.get(form_url).status_code == 200
 
-    def test_change_post_does_not_alter_locked_fields(
+    def test_change_post_is_refused_because_existing_row_is_view_only(
         self, admin_client: Client, subscription: MembershipSubscription, django_user_model: t.Any
     ) -> None:
         other = django_user_model.objects.create_user(username="other", email="other@example.com", password="x")
         original_user_id = subscription.user_id
         url = reverse("admin:events_membershipsubscription_change", args=[subscription.pk])
 
-        admin_client.post(url, {"user": str(other.pk), "cancel_at_period_end": "on", "held_member": "True"})
+        response = admin_client.post(url, {"user": str(other.pk), "cancel_at_period_end": "on", "held_member": "True"})
+
+        assert response.status_code == 403
 
         subscription.refresh_from_db()
         assert subscription.user_id == original_user_id
@@ -147,7 +149,7 @@ def payment(subscription: MembershipSubscription) -> MembershipPayment:
     )
 
 
-def test_user_delete_cascades_through_subscription_and_payment(
+def test_user_delete_is_not_blocked_and_queues_the_erasure(
     admin_client: Client, member_user: RevelUser, subscription: MembershipSubscription, payment: MembershipPayment
 ) -> None:
     """The membership admins refuse their own deletes, but a user delete must still queue the erasure."""
@@ -155,15 +157,22 @@ def test_user_delete_cascades_through_subscription_and_payment(
     with mock.patch("accounts.admin.user._queue_account_erasure") as queue:
         response = admin_client.post(url, {"post": "yes"})
     assert response.status_code == 302
-    queue.assert_called_once()
+    queue.assert_called_once_with([member_user.pk])
 
 
 def test_subscription_change_page_is_view_only(admin_client: Client, subscription: MembershipSubscription) -> None:
     url = reverse("admin:events_membershipsubscription_change", args=[subscription.pk])
     response = admin_client.get(url)
     assert response.status_code == 200
-    assert b"deletelink" not in response.content
+    delete_url = reverse("admin:events_membershipsubscription_delete", args=[subscription.pk])
+    assert delete_url not in response.content.decode()
     assert admin_client.post(url, {"cancel_at_period_end": "on"}).status_code == 403
+
+
+def test_payment_change_page_hides_the_delete_button(admin_client: Client, payment: MembershipPayment) -> None:
+    response = admin_client.get(reverse("admin:events_membershippayment_change", args=[payment.pk]))
+    assert response.status_code == 200
+    assert reverse("admin:events_membershippayment_delete", args=[payment.pk]) not in response.content.decode()
 
 
 class TestSiblingAdmins:
