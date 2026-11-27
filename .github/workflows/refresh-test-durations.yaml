@@ -8,10 +8,12 @@ name: Refresh test durations
 # Two jobs, so the App token never shares a runner with installed packages:
 #   measure - installs the dev dependencies and runs the test suite with a
 #             read-only token and no persisted git credentials. It uploads
-#             `.test_durations` as an artifact.
-#   pr      - mints the revel-release-bot App token, downloads the artifact,
-#             then commits, pushes and opens the PR. It installs no Python and
-#             runs no package code.
+#             `.test_durations` as a non-hidden `test_durations.json` artifact.
+#   pr      - mints the revel-release-bot App token, downloads the artifact
+#             outside the checkout and validates it before it is copied in,
+#             so code from the measure job cannot reach the token through it.
+#             Then it commits, pushes and opens the PR. It installs no Python
+#             and runs no package code.
 #
 # The branch is pushed and the PR opened with the revel-release-bot App token,
 # not GITHUB_TOKEN: events created by GITHUB_TOKEN don't fire `pull_request`
@@ -113,13 +115,16 @@ jobs:
             --clean-durations \
             src
 
-      # `.test_durations` is a dotfile; upload-artifact skips those by default.
+      # Upload a non-hidden copy: no hidden files (.git/config, hooks) can ride
+      # along in the artifact.
+      - name: Prepare durations artifact
+        run: cp .test_durations test_durations.json
+
       - name: Upload durations
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: test-durations
-          path: .test_durations
-          include-hidden-files: true
+          path: test_durations.json
           if-no-files-found: error
           retention-days: 1
 
@@ -127,6 +132,7 @@ jobs:
     name: Open PR with refreshed durations
     runs-on: ubuntu-24.04
     needs: measure
+    permissions: {}
     timeout-minutes: 10
     steps:
       - name: Mint GitHub App token
@@ -139,11 +145,6 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
-      - uses: actions/checkout@v6
-        with:
-          ref: main
-          token: ${{ steps.app-token.outputs.token }}
-
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: main
@@ -153,7 +154,21 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: test-durations
-          path: .
+          path: ${{ runner.temp }}/durations
+
+      # The artifact comes from a job that ran untrusted-ish code: accept only
+      # one regular JSON file, before any git command runs with the token.
+      - name: Validate durations artifact
+        env:
+          DIR: ${{ runner.temp }}/durations
+        run: |
+          set -euo pipefail
+          F="$DIR/test_durations.json"
+          [ "$(find "$DIR" -mindepth 1 -maxdepth 1 | wc -l)" -eq 1 ]
+          [ -f "$F" ] && [ ! -L "$F" ]
+          [ "$(stat -c %s "$F")" -lt 5242880 ]
+          jq -e 'type=="object"' "$F" >/dev/null
+          install -m 644 "$F" "$GITHUB_WORKSPACE/.test_durations"
 
       # Idempotent: force-pushes the same branch each week and only opens a PR
       # if none is already open for it. Skips entirely when the durations file
