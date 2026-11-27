@@ -3,18 +3,27 @@
 import typing as t
 
 import structlog
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 
 from accounts.models import RevelUser
 from accounts.utils.email_normalization import normalize_telegram_for_matching
 from events.models import Blacklist, Organization
 from events.service.blacklist_service import lock_organization_for_staff_changes
+from events.service.holder_visibility import is_known_holder
 from telegram.models import TelegramUser
 
 logger = structlog.get_logger(__name__)
 
 _IDENTIFIER_FIELDS = ("email", "phone_number", "telegram_username")
+
+
+class _Identifiers(t.TypedDict):
+    """Identifier values by field."""
+
+    email: list[str]
+    phone_number: list[str]
+    telegram_username: list[str]
 
 
 def _holder_query(entry: Blacklist) -> Q:
@@ -93,7 +102,7 @@ def _lock_entries_and_organizations(user: RevelUser) -> list[Blacklist]:
             return entries
 
 
-def _current_identifiers(user: RevelUser) -> dict[str, list[str]]:
+def _current_identifiers(user: RevelUser) -> _Identifiers:
     """The identifiers of the account now: email (lowercase), phone number and Telegram usernames (normalized)."""
     usernames = [
         normalize_telegram_for_matching(name)
@@ -102,33 +111,41 @@ def _current_identifiers(user: RevelUser) -> dict[str, list[str]]:
         .values_list("telegram_username", flat=True)
         if name
     ]
-    return {
-        "email": [user.email.strip().lower()] if user.email else [],
-        "phone_number": [user.phone_number] if user.phone_number else [],
-        "telegram_username": [u for u in dict.fromkeys(usernames) if u],
-    }
+    return _Identifiers(
+        email=[user.email.strip().lower()] if user.email else [],
+        phone_number=[user.phone_number] if user.phone_number else [],
+        telegram_username=[u for u in dict.fromkeys(usernames) if u],
+    )
 
 
-def _fill_and_find_extras(entry: Blacklist, current: dict[str, list[str]]) -> dict[str, list[str]]:
+def _fill_and_find_extras(entry: Blacklist, current: _Identifiers) -> _Identifiers:
     """Fill each empty identifier of ``entry`` from the account. Return the current values that differ from it."""
-    extras: dict[str, list[str]] = {}
+    extras = _Identifiers(email=[], phone_number=[], telegram_username=[])
     for field in _IDENTIFIER_FIELDS:
-        values = list(current[field])
+        values = list(current[field])  # type: ignore[literal-required]
         if not getattr(entry, field) and values:
             setattr(entry, field, values.pop(0))
         stored = getattr(entry, field)
-        extras[field] = [v for v in values if not (stored and _holds(entry, field, v))]
+        extras[field] = [v for v in values if not (stored and _holds(entry, field, v))]  # type: ignore[literal-required]
     return extras
 
 
-def _keep_extras(entry: Blacklist, extras: dict[str, list[str]]) -> bool:
+def _identifiers_for(entry: Blacklist, user: RevelUser, current: _Identifiers) -> _Identifiers:
+    """The account identifiers that may go on ``entry``: the email always, phone and Telegram for a known holder."""
+    if is_known_holder(entry.organization, user):
+        return current
+    return _Identifiers(email=current["email"], phone_number=[], telegram_username=[])
+
+
+def _keep_extras(entry: Blacklist, extras: _Identifiers) -> bool:
     """Put the extra identifiers that no unlinked entry of the organization holds on one new unlinked entry.
 
     Returns:
         Whether a new entry was created.
     """
     new_values: dict[str, str] = {}
-    for field, values in extras.items():
+    for field in _IDENTIFIER_FIELDS:
+        values = extras[field]  # type: ignore[literal-required]
         free = [v for v in values if not _holder_query_for(field, v, entry.organization_id).exists()]
         if free:
             new_values[field] = free[0]
@@ -136,16 +153,22 @@ def _keep_extras(entry: Blacklist, extras: dict[str, list[str]]) -> bool:
         # Upgrade path: one new entry per extra handle.
     if not new_values:
         return False
-    Blacklist.objects.bulk_create(
-        [
-            Blacklist(
-                organization_id=entry.organization_id,
-                reason=entry.reason,
-                created_by_id=entry.created_by_id,
-                **new_values,
+    try:
+        with transaction.atomic():
+            Blacklist.objects.bulk_create(
+                [
+                    Blacklist(
+                        organization_id=entry.organization_id,
+                        reason=entry.reason,
+                        created_by_id=entry.created_by_id,
+                        **new_values,
+                    )
+                ]
             )
-        ]
-    )
+    except IntegrityError:
+        # A concurrent insert (the Django admin does not take the organization lock) already holds the value,
+        # so the ban stays and the deletion must not fail.
+        return False
     return True
 
 
@@ -160,7 +183,9 @@ def detach_blacklist_entries_of_account(user: RevelUser) -> None:
 
     The email, phone number, Telegram username and reason stay. The name fields are cleared.
     The entry also keeps the email, phone number and Telegram username that the account has now. An empty
-    field of the entry is filled from the account. A current value that differs from the stored value of the
+    field of the entry is filled from the account. The phone number and Telegram username of the account are
+    used only when the account is a known holder of the organization of the entry; the email always is.
+    A current value that differs from the stored value of the
     entry goes on one new unlinked entry of the same organization (same reason and creator, no names),
     unless an unlinked entry of the organization already holds it.
     If an unlinked entry of the same organization already holds one of the identifiers, the
@@ -190,7 +215,7 @@ def detach_blacklist_entries_of_account(user: RevelUser) -> None:
         current = _current_identifiers(user)
         kept = merged_away = dropped = extra_created = 0
         for entry in entries:
-            extras = _fill_and_find_extras(entry, current)
+            extras = _fill_and_find_extras(entry, _identifiers_for(entry, user, current))
             q = _holder_query(entry)
             holders = (
                 list(
@@ -228,19 +253,17 @@ def detach_blacklist_entries_of_account(user: RevelUser) -> None:
             user_id = str(user.pk)
             entry_ids = [str(e.pk) for e in entries]
             organization_ids = [str(e.organization_id) for e in entries]
-            counts = {
-                "count": len(entries),
-                "kept": kept,
-                "merged_away": merged_away,
-                "dropped": dropped,
-                "extra_created": extra_created,
-            }
+            count = len(entries)
             transaction.on_commit(
                 lambda: logger.info(
                     "blacklist_entries_detached",
                     user_id=user_id,
                     entry_ids=entry_ids,
                     organization_ids=organization_ids,
-                    **counts,
+                    count=count,
+                    kept=kept,
+                    merged_away=merged_away,
+                    dropped=dropped,
+                    extra_created=extra_created,
                 )
             )

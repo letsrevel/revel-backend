@@ -4,12 +4,12 @@ import typing as t
 from unittest.mock import patch
 
 import pytest
-from django.db import connection
+from django.db import IntegrityError, connection
 from django.test.utils import CaptureQueriesContext
 
 from accounts.models import RevelUser
 from accounts.service.account_erasure import erase_account_keeping_holdings
-from events.models import Blacklist, Organization
+from events.models import Blacklist, Organization, OrganizationMember
 from events.service.account_deletion_service import KeptHoldings
 from events.service.blacklist_service import check_user_hard_blacklisted
 from telegram.models import TelegramUser
@@ -320,15 +320,55 @@ def test_an_entry_without_stored_identifiers_takes_them_from_the_account(org: Or
     assert entry.reason == "fk only"
 
 
-def test_the_current_phone_and_telegram_are_kept(org: Organization, account: RevelUser) -> None:
+def _give_phone_and_telegram(account: RevelUser) -> None:
     account.phone_number = PHONE
     account.save(update_fields=["phone_number"])
     TelegramUser.objects.create(user=account, telegram_id=7001, telegram_username="@Current_Handle")
+
+
+def test_the_current_phone_and_telegram_are_kept_for_a_known_holder(org: Organization, account: RevelUser) -> None:
+    _give_phone_and_telegram(account)
+    OrganizationMember.objects.create(organization=org, user=account)
     Blacklist.objects.create(organization=org, user=account, email=EMAIL, reason="r")
 
     account.delete()
 
     _assert_every_identifier_held(org, email=EMAIL, phone_number=PHONE, telegram_username="current_handle")
+
+
+def test_the_current_phone_and_telegram_are_not_kept_for_a_stranger(org: Organization, account: RevelUser) -> None:
+    _give_phone_and_telegram(account)
+    Blacklist.objects.create(organization=org, user=account, email=EMAIL, reason="r")
+
+    account.delete()
+
+    entries = Blacklist.objects.filter(organization=org)
+    assert set(entries.values_list("email", flat=True)) == {EMAIL}
+    assert not entries.exclude(phone_number=None).exists()
+    assert not entries.exclude(telegram_username=None).exists()
+
+
+def test_a_lost_race_on_the_extra_entry_does_not_fail_the_deletion(org: Organization, account: RevelUser) -> None:
+    _linked_entry(org, account, phone_number=None, telegram_username=None)
+    account.email = NEW_EMAIL
+    account.save(update_fields=["email"])
+
+    with patch.object(Blacklist.objects, "bulk_create", side_effect=IntegrityError("duplicate")):
+        account.delete()
+
+    assert not RevelUser.objects.filter(pk=account.pk).exists()
+    entry = Blacklist.objects.get(organization=org)
+    assert (entry.user_id, entry.email, entry.reason) == (None, EMAIL, "linked reason")
+
+
+def test_the_identifiers_are_read_fresh_from_the_database(org: Organization, account: RevelUser) -> None:
+    Blacklist.objects.create(organization=org, user=account, email=EMAIL, reason="r")
+    stale = RevelUser.objects.get(pk=account.pk)
+    RevelUser.objects.filter(pk=account.pk).update(email=NEW_EMAIL)
+
+    stale.delete()
+
+    assert set(Blacklist.objects.filter(organization=org).values_list("email", flat=True)) == {EMAIL, NEW_EMAIL}
 
 
 def test_an_extra_identifier_held_by_another_unlinked_entry_creates_no_entry(

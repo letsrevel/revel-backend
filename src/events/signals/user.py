@@ -129,5 +129,5 @@ def keep_blacklist_entries_of_deleted_user(sender: type[RevelUser], instance: Re
     The receiver locks the account row (``FOR NO KEY UPDATE``) first. Then the function locks the
     ``Organization`` rows. The erase-in-place path already holds the account row.
     """
-    RevelUser.objects.select_for_update(no_key=True).filter(pk=instance.pk).first()
-    detach_blacklist_entries_of_account(instance)
+    fresh = RevelUser.objects.select_for_update(no_key=True).filter(pk=instance.pk).first()
+    detach_blacklist_entries_of_account(fresh or instance)
