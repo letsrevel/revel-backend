@@ -946,7 +946,7 @@ pass purchase or a checkout on such a new row can deadlock with the delete. A se
 paid with no `Payment` row is refunded in full (`refund_orphaned_checkout_session`, #1489).
 
 A loop that runs a delete service once per row in one transaction (the admin bulk deletes of events,
-tiers and series) first calls `pending_checkout.lock_for_bulk_delete` for the whole selection. It takes
+tiers, series and organizations) first calls `pending_checkout.lock_for_bulk_delete` for the whole selection. It takes
 steps 1 to 4 for all the rows at once: the payments, the series passes, the tiers, then the parent rows,
 the passes and tiers again, and the payments again, each in pk order.
 Each service locks only the rows of its own delete, so the loop alone would not lock them in pk order.
@@ -961,7 +961,9 @@ A tier delete still hard-deletes its issued tickets and their `Payment` and `Ref
 
 The Django admin follows the same rule (#1499). Deleting an event, a tier or a series calls these
 services. Deleting a ticket or an organization calls `pending_checkout.lock_for_cascade_delete`
-directly (a ticket delete passes no tiers, so it runs only steps 1 and 5). The tier and series inlines have `can_delete = False`, because an
+directly (a ticket delete passes no tiers, so it runs only steps 1 and 5). The organization "delete
+selected" action takes `lock_for_bulk_delete` for the whole selection, then runs `delete_model` once per
+row, so each organization delete also removes its image files (#1549). The tier and series inlines have `can_delete = False`, because an
 inline delete would call `.delete()` and skip the service. The admin also refuses to delete a
 PENDING `Payment`, because its pending ticket would never be reclaimed. The guard is in
 `PaymentAdmin.get_deleted_objects`, not in `has_delete_permission`: Django checks that permission for

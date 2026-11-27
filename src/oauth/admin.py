@@ -87,6 +87,11 @@ class OAuthApplicationAdmin(ModelAdmin, ApplicationAdmin):  # type: ignore[misc]
             kwargs["help_texts"] = {"algorithm": _NO_SIGNING_KEY_HELP, **kwargs.get("help_texts", {})}
         return super().get_form(request, obj, change=change, **kwargs)
 
+    def delete_queryset(self, request: HttpRequest, queryset: t.Any) -> None:
+        # One delete() per app: a queryset delete skips the logo-file cleanup in OAuthApplication.delete (#1549).
+        for app in queryset:
+            self.delete_model(request, app)
+
     def save_model(self, request: HttpRequest, obj: OAuthApplication, form: t.Any, change: bool) -> None:
         """Save, then make the edit reach DOT's tables when it withdrew authority.
 

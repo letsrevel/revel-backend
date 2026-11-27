@@ -192,6 +192,20 @@ class TestLogoFilesOnDelete:
         assert not OAuthApplication.objects.filter(pk=oauth_app.pk).exists()
         assert not any(default_storage.exists(path) for path in stored_logo)
 
+    def test_the_admin_bulk_delete_removes_the_logo_files(
+        self, oauth_app: OAuthApplication, stored_logo: list[str], django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        """The admin "delete selected" action runs one ``delete()`` per app, not a queryset delete."""
+        from django.contrib import admin
+        from django.test import RequestFactory
+
+        model_admin = admin.site._registry[OAuthApplication]
+        with django_capture_on_commit_callbacks(execute=True):
+            model_admin.delete_queryset(RequestFactory().post("/"), OAuthApplication.objects.filter(pk=oauth_app.pk))
+
+        assert not OAuthApplication.objects.filter(pk=oauth_app.pk).exists()
+        assert not any(default_storage.exists(path) for path in stored_logo)
+
     def test_a_file_that_another_app_names_is_kept(
         self,
         oauth_app: OAuthApplication,
