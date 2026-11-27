@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-11-27
+
 ### Added
 
 - Storage: a daily task counts the stored image files (logos, cover images, profile pictures, OAuth application logos and their derived images) that no row uses and that are older than 7 days.
