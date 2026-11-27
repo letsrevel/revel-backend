@@ -9,7 +9,7 @@ from django.dispatch import receiver
 
 from common.models import SiteSettings
 from events.models import EventInvitation, EventInvitationRequest, PendingEventInvitation
-from events.tasks import build_attendee_visibility_flags
+from events.tasks.attendees import dispatch_attendee_rebuild
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.enums import NotificationType
 from notifications.service.notification_helpers import (
@@ -27,7 +27,7 @@ def handle_invitation_save(
     sender: type[EventInvitation], instance: EventInvitation, created: bool, **kwargs: t.Any
 ) -> None:
     """Send notifications after invitation is created."""
-    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(str(instance.event_id)))
+    dispatch_attendee_rebuild(instance.event_id)
     if not created:
         return
 

@@ -4,7 +4,6 @@ import typing as t
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from django.db import transaction
 from django.utils import timezone
 from pydantic import BaseModel
 
@@ -12,7 +11,7 @@ from accounts.models import RevelUser
 from events.models import Event, EventInvitation, EventRSVP, GeneralUserPreferences, Ticket
 from events.service import update_db_instance
 from events.service.location_service import invalidate_user_location_cache
-from events.tasks import build_attendee_visibility_flags
+from events.tasks.attendees import dispatch_attendee_rebuild
 from events.utils.membership_access import visible_member_user_ids, visible_memberships
 
 
@@ -137,13 +136,8 @@ def trigger_visibility_flags_for_user(user_id: UUID) -> None:
             ).values_list("event_id", flat=True)
         )
     )
-    event_id_strs = [str(event_id) for event_id in event_ids]
-
-    def _dispatch_visibility_flags() -> None:
-        for event_id in event_id_strs:
-            build_attendee_visibility_flags.delay(event_id)
-
-    transaction.on_commit(_dispatch_visibility_flags)
+    for event_id in event_ids:
+        dispatch_attendee_rebuild(event_id)
 
 
 def resolve_visibility_fast(

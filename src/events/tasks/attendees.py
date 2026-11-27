@@ -1,5 +1,6 @@
 """Celery tasks for attendee visibility flags and guest confirmation emails."""
 
+import functools
 import hashlib
 import typing as t
 from datetime import timedelta
@@ -21,7 +22,7 @@ from accounts.utils.language import recipient_language
 from common.keys import decode_jwt, verification_keys
 from common.models import SiteSettings
 from common.tasks import send_email
-from common.utils import render_plain_text
+from common.utils import on_commit_independent, render_plain_text
 from events.models import AttendeeVisibilityFlag, Event, EventRSVP, Organization, Ticket
 from events.utils.frontend_urls import frontend_base_url_for
 from notifications.service.org_sender import SENDER_ORG_FIELDS, is_white_label_tenant, org_from_address, org_reply_to
@@ -192,6 +193,22 @@ def build_attendee_visibility_flags(event_id: str) -> None:
             update_fields=["is_visible"],
             unique_fields=["user", "event", "target"],
         )
+
+
+def dispatch_attendee_rebuild(event_id: UUID | str, **log_ids: str) -> None:
+    """Queue ``build_attendee_visibility_flags`` for one event after commit, independent of the other callbacks.
+
+    A broker failure is logged as ``visibility_flags_dispatch_failed`` and does not fail the committed request or
+    skip the later commit callbacks (#1575). The ``reconcile_attendee_counts`` sweep then rebuilds the event, when
+    the write stamped ``updated_at`` on a ticket or an RSVP.
+    """
+    event_id = str(event_id)
+    on_commit_independent(
+        functools.partial(build_attendee_visibility_flags.delay, event_id),
+        "visibility_flags_dispatch_failed",
+        event_id=event_id,
+        **log_ids,
+    )
 
 
 def _token_event_id(token: str) -> UUID | None:

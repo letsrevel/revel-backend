@@ -183,7 +183,7 @@ class TestWebhookActivationBackfill:
         event = _completed_checkout_event("cs_backfill_flags")
         with (
             patch("events.service.series_pass_service.build_attendee_visibility_flags") as service_task,
-            patch("events.signals.attendance.build_attendee_visibility_flags") as signal_task,
+            patch("events.tasks.attendees.build_attendee_visibility_flags") as signal_task,
         ):
             with django_capture_on_commit_callbacks(execute=True):
                 StripeEventHandler(event).handle_checkout_session_completed(event)

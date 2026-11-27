@@ -10,7 +10,7 @@ from events.models import Event, Organization, OrganizationMember, Ticket, Ticke
 
 pytestmark = pytest.mark.django_db
 
-TASK = "events.service.user_preferences_service.build_attendee_visibility_flags"
+TASK = "events.tasks.attendees.build_attendee_visibility_flags"
 
 
 @patch(TASK)
