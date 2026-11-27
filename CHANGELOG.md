@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.2] - 2026-11-26
+
 ### Fixed
 
 - Series passes: the activation of a pass (offline confirm or completed checkout) no longer issues a new ticket for an event whose pass ticket was cancelled meanwhile. A checkout of a pass that the organizer hides or deactivates at the same moment now answers 404.
