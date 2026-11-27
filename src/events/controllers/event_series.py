@@ -18,10 +18,14 @@ from events.service import follow_service
 @api_controller("/event-series", auth=OptionalAuth(), tags=["Event Series"])
 class EventSeriesController(UserAwareController):
     def get_queryset(self, full: bool = True) -> QuerySet[models.EventSeries]:
-        """Get the queryset of event series visible to the current user."""
+        """The series that the current user can open by a direct link (#1599).
+
+        The organization rule, or a visible event of the series: a public event of a private organization links to a
+        series page that answers 200. The discovery list keeps the organization rule (``get_discovery_queryset``).
+        """
         if not full:
-            return models.EventSeries.objects.for_user(self.maybe_user())
-        return models.EventSeries.objects.full().for_user(self.maybe_user())
+            return models.EventSeries.objects.viewable_for_user(self.maybe_user())
+        return models.EventSeries.objects.full().viewable_for_user(self.maybe_user())
 
     def get_discovery_queryset(self) -> QuerySet[models.EventSeries]:
         """Get the queryset for discovery listings (hides UNLISTED from non-owner/non-staff users)."""

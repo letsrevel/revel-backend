@@ -70,6 +70,26 @@ class EventSeriesQuerySet(models.QuerySet["EventSeries"]):
         # This results in a simple and fast query.
         return self.filter(organization_id__in=visible_org_ids).distinct()
 
+    def viewable_for_user(self, user: RevelUser | AnonymousUser) -> t.Self:
+        """Series that the user can open by a direct link: the organization rule, or a visible event (#1599).
+
+        A series has no visibility of its own. It takes the visibility of its most visible event: a public event of a
+        private organization makes its series page visible. Past events count, so the page of a past event still
+        links to its series.
+
+        Use it only for the series pages and for following a series. ``for_user`` stays the gate for series passes,
+        discovery listings, the dashboard and the admin controllers, so a private organization's passes stay hidden.
+        """
+        if user.is_superuser or user.is_staff:
+            return self.all()
+        from .event import Event
+
+        via_organization = self.for_user(user).values("pk")
+        via_event = (
+            Event.objects.for_user(user, include_past=True).filter(event_series__isnull=False).values("event_series_id")
+        )
+        return self.filter(Q(pk__in=via_organization) | Q(pk__in=via_event))
+
     def discoverable_for_user(self, user: RevelUser | AnonymousUser) -> t.Self:
         """Get queryset for discovery listings (browse/search).
 
@@ -92,6 +112,10 @@ class EventSeriesManager(models.Manager["EventSeries"]):
     def for_user(self, user: RevelUser | AnonymousUser) -> EventSeriesQuerySet:
         """Get the queryset based on the user."""
         return self.get_queryset().for_user(user)
+
+    def viewable_for_user(self, user: RevelUser | AnonymousUser) -> EventSeriesQuerySet:
+        """Get the series that the user can open by a direct link (#1599)."""
+        return self.get_queryset().viewable_for_user(user)
 
     def discoverable_for_user(self, user: RevelUser | AnonymousUser) -> EventSeriesQuerySet:
         """Get queryset for discovery listings."""

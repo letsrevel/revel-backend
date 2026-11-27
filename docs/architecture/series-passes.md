@@ -182,6 +182,9 @@ Per-ticket purchase/confirm/cancel signals early-return for any ticket with `hel
 
 **Public** — `SeriesPassController` (`/series-passes`, `OptionalAuth`, visibility-filtered):
 
+The pass routes check the series with `EventSeries.objects.for_user`, the organization rule. A series page can also be visible through a public event of the series (`viewable_for_user`, #1599), but its passes then stay hidden: a visitor who sees a private organization's series only through a public event sees no pass and cannot buy one.
+
+
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/event-series/{series_id}` | List a series' visible passes. |

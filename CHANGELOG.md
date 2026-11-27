@@ -15,8 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Event series: a series page (by id, or by organization and series slug) now opens when the visitor can see at least one event of the series, also when the organization is private.
+  - Before, a public event of a private organization linked to a series page that answered 404.
+  - The visitor can follow such a series.
+  - The series list and search, the series passes and the series resources still follow the organization rule, so they show nothing of a private organization.
 - A save of a partly loaded record now writes only the fields that were loaded or set, as Django intends.
   - Before, it wrote every column, so it could undo a change that another request had saved to a column that was not loaded.
+
+### Changed
+
+- Django admin: the event series list shows the organization visibility (also as a filter) and the number of events, with a link to them. The series page shows its effective public visibility and the reason for it.
 
 ## [3.2.0] - 2026-11-27
 
