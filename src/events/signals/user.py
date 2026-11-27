@@ -19,7 +19,7 @@ from events.service.blacklist_service import (
     link_blacklist_entries_for_user,
 )
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
-from events.tasks.blacklist import link_blacklist_entries_for_user_task
+from events.tasks.blacklist import link_after_verification, link_blacklist_entries_for_user_task
 from events.tasks.member_register import auto_link_member_records
 from events.utils import get_invitation_message
 
@@ -124,11 +124,22 @@ def link_blacklist_entries_on_verified_email(
     if not _became_verified(instance):
         return
     user_id = str(instance.pk)
+
     # After commit, in a task: the verification, password-reset and email-change paths hold the account row
     # FOR UPDATE, and the link takes Organization locks, so linking inside their transaction could deadlock with a
-    # blacklist add. The task retries, and robust=True keeps a broker failure from failing the verified request.
+    # blacklist add. The task retries; if it cannot be queued, the link runs here. robust=True keeps any failure
+    # from failing the verified request.
     # The ban applies in the meantime, because enforcement matches the email on every entry.
-    transaction.on_commit(lambda: link_blacklist_entries_for_user_task.delay(user_id), robust=True)
+    def _dispatch() -> None:
+        try:
+            link_blacklist_entries_for_user_task.delay(user_id)
+        except Exception:  # the broker is down: link now, after commit, so the consequences are not lost
+            # ponytail: if this inline link fails too, it is only logged; no sweep finds it again.
+            # Upgrade path: a beat sweep for verified accounts with a matching unlinked entry and no linked one.
+            logger.exception("blacklist_link_task_not_queued", user_id=user_id)
+            link_after_verification(user_id)
+
+    transaction.on_commit(_dispatch, robust=True)
 
 
 @receiver(post_save, sender=RevelUser)

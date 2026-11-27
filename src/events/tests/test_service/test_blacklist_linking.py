@@ -856,3 +856,48 @@ class TestConsequencesForEveryMatchedAccount:
 
         member_c.refresh_from_db()
         assert member_c.status != OrganizationMember.MembershipStatus.BANNED
+
+
+class TestLinkTaskAfterVerification:
+    """The link after a verification skips a gone or erased account and survives a broker failure."""
+
+    def test_the_task_skips_a_deleted_account(self) -> None:
+        from events.tasks.blacklist import link_blacklist_entries_for_user_task
+
+        link_blacklist_entries_for_user_task("00000000-0000-0000-0000-000000000000")  # no error, nothing to do
+
+    def test_the_task_does_not_link_an_erased_account(
+        self, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
+    ) -> None:
+        from events.tasks.blacklist import link_blacklist_entries_for_user_task
+
+        user = django_user_model.objects.create_user(username="erased_late", email="late-erased@example.com")
+        _verify(user)
+        entry = Blacklist.objects.create(organization=blacklist_org, email=user.email, created_by=blacklist_admin)
+        RevelUser.objects.filter(pk=user.pk).update(erased_at=timezone.now())
+
+        link_blacklist_entries_for_user_task(str(user.pk))
+
+        entry.refresh_from_db()
+        assert entry.user_id is None
+
+    def test_a_broker_failure_links_inline_and_keeps_the_verification(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        user = django_user_model.objects.create_user(username="broker_down", email="broker@example.com")
+        entry = Blacklist.objects.create(organization=blacklist_org, email=user.email, created_by=blacklist_admin)
+
+        with patch("events.signals.user.link_blacklist_entries_for_user_task") as task:
+            task.delay.side_effect = ConnectionError("broker down")
+            user.email_verified = True
+            with django_capture_on_commit_callbacks(execute=True):
+                user.save(update_fields=["email_verified"])
+
+        user.refresh_from_db()
+        entry.refresh_from_db()
+        assert user.email_verified is True
+        assert entry.user_id == user.pk
