@@ -50,11 +50,28 @@ def test_an_invitation_save_survives_a_broker_failure(
 ) -> None:
     with (
         patch(DELAY, side_effect=ConnectionError("broker down")),
-        django_capture_on_commit_callbacks(execute=True) as callbacks,
+        patch("common.utils.logger") as log,
+        django_capture_on_commit_callbacks(execute=True),
     ):
         EventInvitation.objects.create(event=event, user=member_user)
 
-    assert callbacks  # the callbacks ran, and none raised
+    assert [c.args[0] for c in log.error.call_args_list] == ["visibility_flags_dispatch_failed"]
+
+
+def test_an_rsvp_delete_survives_a_broker_failure(
+    event: Event, member_user: RevelUser, django_capture_on_commit_callbacks: t.Any
+) -> None:
+    with patch("notifications.signals.rsvp._send_rsvp_confirmation_notifications"):
+        rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
+
+    with (
+        patch(DELAY, side_effect=ConnectionError("broker down")),
+        patch("common.utils.logger") as log,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        rsvp.delete()
+
+    assert "visibility_flags_dispatch_failed" in [c.args[0] for c in log.error.call_args_list]
 
 
 def test_one_failed_dispatch_does_not_skip_the_other_events(

@@ -136,9 +136,9 @@ def handle_event_rsvp_save(sender: type[EventRSVP], instance: EventRSVP, created
 
     Sends notifications to:
     - Organization staff and owners (NOT the user who RSVPed)
+    The attendee rebuild is dispatched by events.signals.attendance for every RSVP save and delete (#1575).
     """
 
-    # The attendee rebuild is dispatched by events.signals.attendance for every RSVP save and delete (#1575).
     def send_notifications() -> None:
         if created:
             _send_rsvp_confirmation_notifications(instance)
@@ -162,9 +162,9 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
 
     Sends notifications to:
     - Organization staff and owners (the user already knows they cancelled)
+    The attendee rebuild is dispatched by events.signals.attendance for every RSVP save and delete (#1575).
     """
 
-    # The attendee rebuild is dispatched by events.signals.attendance for every RSVP save and delete (#1575).
     # Send notifications after transaction commits
     def send_notifications() -> None:
         from common.models import SiteSettings
