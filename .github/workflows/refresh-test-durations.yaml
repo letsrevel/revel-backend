@@ -5,11 +5,20 @@ name: Refresh test durations
 # missing from the file are distributed by count), so this is a hygiene sweep,
 # not a correctness gate — failures just mean the refresh waits a week.
 #
+# Two jobs, so the App token never shares a runner with installed packages:
+#   measure - installs the dev dependencies and runs the test suite with a
+#             read-only token and no persisted git credentials. It uploads
+#             `.test_durations` as an artifact.
+#   pr      - mints the revel-release-bot App token, downloads the artifact,
+#             then commits, pushes and opens the PR. It installs no Python and
+#             runs no package code.
+#
 # The branch is pushed and the PR opened with the revel-release-bot App token,
 # not GITHUB_TOKEN: events created by GITHUB_TOKEN don't fire `pull_request`
 # workflows, so the required status checks would never run and the PR could
-# not be merged. Checkout persists the App token so `git push` uses it too —
-# otherwise weekly force-pushes to an already-open PR would not re-trigger CI.
+# not be merged. Checkout in `pr` persists the App token so `git push` uses it
+# too — otherwise weekly force-pushes to an already-open PR would not
+# re-trigger CI.
 # PR-branch commits are unsigned; main's required_signatures rule is satisfied
 # by the squash commit GitHub signs at merge time.
 
@@ -43,10 +52,13 @@ jobs:
       packages: write
     uses: ./.github/workflows/ci-image.yaml
 
-  refresh:
-    name: Regenerate .test_durations
+  measure:
+    name: Measure test durations
     runs-on: ubuntu-24.04
     needs: ci-image
+    permissions:
+      contents: read
+      packages: read
     container:
       image: ${{ needs.ci-image.outputs.image }}
       credentials:
@@ -80,20 +92,10 @@ jobs:
           --health-timeout 3s
           --health-retries 5
     steps:
-      - name: Mint GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          # Least privilege: only what checkout + branch push + PR creation need.
-          permission-contents: write
-          permission-pull-requests: write
-
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: main
-          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
 
       - name: Setup backend environment
         uses: ./.github/actions/setup-backend
@@ -110,6 +112,48 @@ jobs:
             --store-durations \
             --clean-durations \
             src
+
+      # `.test_durations` is a dotfile; upload-artifact skips those by default.
+      - name: Upload durations
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-durations
+          path: .test_durations
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  pr:
+    name: Open PR with refreshed durations
+    runs-on: ubuntu-24.04
+    needs: measure
+    timeout-minutes: 10
+    steps:
+      - name: Mint GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # Least privilege: only what checkout + branch push + PR creation need.
+          permission-contents: write
+          permission-pull-requests: write
+
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Download durations
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: test-durations
+          path: .
 
       # Idempotent: force-pushes the same branch each week and only opens a PR
       # if none is already open for it. Skips entirely when the durations file

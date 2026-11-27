@@ -59,7 +59,7 @@ dependencies, make sure to run `uv sync` and commit the updated lockfile.
 | `deps.yaml` / `deps-noop.yaml` | PRs and pushes to `main` touching `pyproject.toml`, `uv.lock`, `Makefile` (the no-op twin reports success when they are untouched) | `make licensecheck` and `make audit` |
 | `nightly-audit.yml` | Daily 03:17 UTC | `pip-audit` and `licensecheck` on `main`; opens a tracker issue on failure |
 | `bandit.yaml` | PRs and pushes touching `src/**/*.py` or dependencies | Bandit security scan |
-| `refresh-test-durations.yaml` | Weekly (Monday) | Refreshes `.test_durations` for shard balancing |
+| `refresh-test-durations.yaml` | Weekly (Monday) | Refreshes `.test_durations` for shard balancing (a read-only `measure` job runs the tests; a separate `pr` job holds the App token and opens the PR) |
 | `publish.yaml` | GitHub release published | Builds and pushes the multi-arch image (amd64 + best-effort arm64) to GHCR |
 | `release.yaml` | Merge of a `release/vX.Y.Z` PR | Tags and creates the GitHub release |
 | `docs.yaml` | PRs and pushes touching `docs/**` or `mkdocs.yml` | Builds (and on `main`, deploys) the docs |
