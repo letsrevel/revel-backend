@@ -14,6 +14,10 @@ def _loaded_fields_of_deferred_save(instance: models.Model, kwargs: dict[str, t.
     ``full_clean()`` of a full save, or the EXIF strip, would read every deferred field first, and Django would then
     write every column, also one that another request changed meanwhile (#1572). So both saves name the loaded
     fields first, as Django's ``save()`` does. None when the save is not such a save.
+
+    As in Django, ``updated_at`` (``auto_now``) is written only when it was loaded, and ``post_save`` receives the
+    loaded fields as ``update_fields``. A change that ``clean()`` makes to a field that was not loaded is not
+    written, the same as for an explicit ``update_fields``.
     """
     if kwargs.get("update_fields") is not None or instance._state.adding or kwargs.get("force_insert"):
         return None

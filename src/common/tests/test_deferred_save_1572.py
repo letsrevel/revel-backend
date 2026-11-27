@@ -74,3 +74,36 @@ def test_an_explicit_update_fields_is_kept(organization: Organization) -> None:
 
     [update] = _update_sql(queries, "events_organization")
     assert '"slug"' not in update
+
+
+def test_updated_at_is_written_only_when_it_was_loaded(organization: Organization) -> None:
+    """Django's own rule for a deferred save: ``auto_now`` runs only for the fields that are written."""
+    stamp = Organization.objects.values_list("updated_at", flat=True).get(pk=organization.pk)
+    without = Organization.objects.only("id", "name", "slug", "owner_id").get(pk=organization.pk)
+    without.name = "A"
+    without.save()
+    assert Organization.objects.values_list("updated_at", flat=True).get(pk=organization.pk) == stamp
+
+    with_stamp = Organization.objects.only("id", "name", "slug", "owner_id", "updated_at").get(pk=organization.pk)
+    with_stamp.name = "B"
+    with_stamp.save()
+    assert Organization.objects.values_list("updated_at", flat=True).get(pk=organization.pk) > stamp
+
+
+def test_post_save_receives_the_loaded_fields(organization: Organization) -> None:
+    from django.db.models.signals import post_save
+
+    seen: list[t.Any] = []
+
+    def receiver(sender: t.Any, update_fields: t.Any = None, **kwargs: t.Any) -> None:
+        seen.append(update_fields)
+
+    post_save.connect(receiver, sender=Organization, weak=False)
+    try:
+        loaded = Organization.objects.only("id", "name", "slug", "owner_id").get(pk=organization.pk)
+        loaded.name = "C"
+        loaded.save()
+    finally:
+        post_save.disconnect(receiver, sender=Organization)
+
+    assert seen and set(seen[-1]) == {"name", "slug", "owner_id"}
