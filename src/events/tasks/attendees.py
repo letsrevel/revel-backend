@@ -199,8 +199,9 @@ def dispatch_attendee_rebuild(event_id: UUID | str, **log_ids: str) -> None:
     """Queue ``build_attendee_visibility_flags`` for one event after commit, independent of the other callbacks.
 
     A broker failure is logged as ``visibility_flags_dispatch_failed`` and does not fail the committed request or
-    skip the later commit callbacks (#1575). The ``reconcile_attendee_counts`` sweep then rebuilds the event, when
-    the write stamped ``updated_at`` on a ticket or an RSVP.
+    skip the later commit callbacks (#1575). The ``reconcile_attendee_counts`` sweep then rebuilds the event only
+    when its live attendee count differs from ``attendee_count`` and a ticket or RSVP write stamped ``updated_at``
+    in the sweep window. A lost rebuild that leaves the count unchanged stays until the next rebuild of the event.
     """
     event_id = str(event_id)
     on_commit_independent(
