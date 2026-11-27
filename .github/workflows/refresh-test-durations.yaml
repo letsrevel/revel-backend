@@ -165,7 +165,8 @@ jobs:
           set -euo pipefail
           F="$DIR/test_durations.json"
           [ "$(find "$DIR" -mindepth 1 -maxdepth 1 | wc -l)" -eq 1 ]
-          [ -f "$F" ] && [ ! -L "$F" ]
+          [ ! -L "$F" ]
+          [ -f "$F" ]
           [ "$(stat -c %s "$F")" -lt 5242880 ]
           jq -e 'type=="object"' "$F" >/dev/null
           install -m 644 "$F" "$GITHUB_WORKSPACE/.test_durations"
