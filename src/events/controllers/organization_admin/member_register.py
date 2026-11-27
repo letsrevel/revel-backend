@@ -9,10 +9,11 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
 from ninja.errors import HttpError
-from ninja_extra import api_controller, route
+from ninja_extra import route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.models import FileExport
 from common.schema import ErrorDetail

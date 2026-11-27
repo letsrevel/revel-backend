@@ -4,8 +4,9 @@ from django.conf import settings
 from django.http import Http404, HttpRequest
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from notifications.service import email_events
 
 

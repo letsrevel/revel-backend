@@ -6,9 +6,10 @@ from django.utils.translation import gettext_lazy as _
 from ninja import File, Query
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
 from accounts.schema import LinkTokenErrorSchema, VerifyEmailSchema
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth, ScopedJWTAuth
 from common.schema import EmailSchema, ErrorDetail, ValidationErrorResponse
 from common.service.upload_service import safe_save_uploaded_file

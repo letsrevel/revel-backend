@@ -6,9 +6,10 @@ from uuid import UUID
 from django.db.models import QuerySet
 from ninja.files import UploadedFile
 from ninja.params import File
-from ninja_extra import api_controller, route
+from ninja_extra import route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.throttling import UserDefaultThrottle, WriteThrottle

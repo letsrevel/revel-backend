@@ -7,11 +7,12 @@ from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query, Schema
 from ninja.errors import HttpError
-from ninja_extra import ControllerBase, api_controller, route
+from ninja_extra import ControllerBase, route
 
 from accounts import schema
 from accounts.models import ReferralApplication, ReferralCode
 from accounts.service import referral_application_service
+from common.api_controller import api_controller
 from common.schema import ResponseOk
 from common.throttling import ReferralApplicationThrottle
 

@@ -10,9 +10,10 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja import Body
 from ninja.errors import HttpError
-from ninja_extra import api_controller, route
+from ninja_extra import route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
+from common.api_controller import api_controller
 from common.authentication import ScopedJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema

@@ -4,12 +4,10 @@ from uuid import UUID
 from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
-from ninja_extra import (
-    api_controller,
-    route,
-)
+from ninja_extra import route
 
 from accounts.service.turnstile import verify_turnstile_request
+from common.api_controller import api_controller
 from common.authentication import OptionalAuth
 from common.schema import ErrorDetail
 from common.throttling import WriteThrottle

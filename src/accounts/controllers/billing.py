@@ -1,7 +1,7 @@
 """User billing profile management endpoints."""
 
 from django.shortcuts import get_object_or_404
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
 from accounts.models import UserBillingProfile
 from accounts.schema import (
@@ -11,6 +11,7 @@ from accounts.schema import (
     UserVATIdUpdateSchema,
 )
 from accounts.service import billing_profile_service
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.controllers.base import UserAwareController
 from common.schema import VIESUnavailableErrorSchema

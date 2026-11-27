@@ -7,11 +7,9 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja import Body
 from ninja.errors import HttpError
-from ninja_extra import (
-    api_controller,
-    route,
-)
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth, OptionalAuth
 from common.schema import ErrorDetail, ResponseMessage
 from common.throttling import QuestionnaireSubmissionThrottle, WriteThrottle

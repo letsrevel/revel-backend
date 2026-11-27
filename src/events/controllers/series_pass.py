@@ -8,10 +8,11 @@ from django.http import HttpResponse, HttpResponseRedirect
 from django.utils.translation import gettext_lazy as _
 from ninja import Body, Query
 from ninja.errors import HttpError
-from ninja_extra import api_controller, route
+from ninja_extra import route
 from ninja_extra.exceptions import NotFound
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth, OptionalAuth
 from common.controllers import UserAwareController
 from common.schema import ErrorDetail

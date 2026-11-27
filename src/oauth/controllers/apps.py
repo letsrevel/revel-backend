@@ -11,8 +11,9 @@ import uuid
 from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 from ninja import File, UploadedFile
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ErrorDetail, ValidationErrorResponse

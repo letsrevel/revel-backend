@@ -5,15 +5,12 @@ import structlog
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
-from ninja_extra import (
-    api_controller,
-    route,
-    status,
-)
+from ninja_extra import route, status
 
 from accounts import schema
 from accounts.models import RevelUser
 from accounts.service import totp as totp_service
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.controllers.base import UserAwareController
 from common.throttling import OTPThrottle

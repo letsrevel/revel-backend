@@ -6,8 +6,9 @@ from uuid import UUID
 from django.conf import settings
 from django.http import HttpResponse
 from ninja import Query
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.schema import ResponseOk
 from common.throttling import UserDefaultThrottle, WriteThrottle

@@ -9,7 +9,10 @@ Revel uses [Django Ninja Extra](https://django-ninja-extra.readthedocs.io/) cont
 All controllers follow the same blueprint:
 
 - Inherit from `UserAwareController` for common user/auth functionality
-- Use `@api_controller` decorator with consistent tagging
+- Use the `@api_controller` decorator with consistent tagging. Import it from `common.api_controller`, not from
+  `ninja_extra`: it turns off ninja_extra's random operationId suffix, so the OpenAPI dump and the generated frontend
+  types stay the same between dumps (#1551). A ruff rule (TID251) refuses the `ninja_extra` import, and
+  `dump_openapi` refuses a duplicate operationId: give one of the two routes an explicit `operation_id=`.
 - Define authentication and throttling at **class level** when shared
 - Override throttling **per-endpoint** only for mutations
 

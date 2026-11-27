@@ -8,14 +8,12 @@ from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
 from ninja.errors import HttpError
-from ninja_extra import (
-    api_controller,
-    route,
-)
+from ninja_extra import route
 from ninja_extra.exceptions import NotFound
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth, OptionalAuth
 from common.controllers import DistinctSearching, UserAwareController
 from common.schema import ResponseMessage

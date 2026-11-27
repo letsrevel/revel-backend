@@ -1,6 +1,7 @@
 from django.http import HttpRequest
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from events.exceptions import InvalidStripeWebhookSignatureError
 from events.service import stripe_webhooks
 

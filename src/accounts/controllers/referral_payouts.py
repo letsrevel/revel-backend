@@ -6,10 +6,11 @@ from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
-from ninja_extra import api_controller, route
+from ninja_extra import route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
 from accounts import models, schema
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.controllers.base import UserAwareController
 from common.signing import get_file_url

@@ -2,9 +2,10 @@
 
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
 from accounts.models import ReferralCode
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.controllers.base import UserAwareController
 from common.models import SiteSettings

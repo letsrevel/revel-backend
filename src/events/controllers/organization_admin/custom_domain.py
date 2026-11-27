@@ -4,8 +4,9 @@ Owner-only and gated on the platform's ``custom_domain_enabled`` switch (403 whe
 it is deliberately absent from the app-token allow-list.
 """
 
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.schema import ErrorDetail, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle

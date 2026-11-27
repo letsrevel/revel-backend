@@ -4,9 +4,10 @@ from urllib.parse import quote
 
 from django.http import HttpResponseRedirect
 from django.utils.translation import gettext as _
-from ninja_extra import ControllerBase, api_controller, route
+from ninja_extra import ControllerBase, route
 
 from accounts.schema import LinkTokenErrorSchema
+from common.api_controller import api_controller
 from common.models import SiteSettings
 from common.schema import ErrorDetail, ResponseMessage
 from notifications.service.unsubscribe import one_click_unsubscribe

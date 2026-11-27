@@ -7,8 +7,9 @@ from uuid import UUID
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.models import FileExport
 from common.throttling import ExportThrottle, UserDefaultThrottle

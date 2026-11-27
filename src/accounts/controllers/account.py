@@ -6,7 +6,7 @@ from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
 from ninja import File, Path
 from ninja.files import UploadedFile
-from ninja_extra import api_controller, route, status
+from ninja_extra import route, status
 
 from accounts import schema
 from accounts.models import RevelUser
@@ -19,6 +19,7 @@ from accounts.service import account as account_service
 from accounts.service import oidc as oidc_service
 from accounts.service.auth import get_token_pair_for_user
 from accounts.service.turnstile import verify_turnstile_request
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth, ScopedJWTAuth
 from common.controllers.base import UserAwareController
 from common.schema import EmailSchema, ErrorDetail, ResponseMessage

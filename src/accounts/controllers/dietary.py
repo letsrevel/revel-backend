@@ -6,7 +6,7 @@ from django.db.models import Q, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
-from ninja_extra import api_controller, route, status
+from ninja_extra import route, status
 
 from accounts import schema
 from accounts.models import (
@@ -15,6 +15,7 @@ from accounts.models import (
     FoodItem,
     UserDietaryPreference,
 )
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.throttling import UserDefaultThrottle, WriteThrottle

@@ -3,8 +3,9 @@
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.schema import ErrorDetail
 from common.throttling import MemberRegisterBulkInviteThrottle, UserDefaultThrottle, WriteThrottle
