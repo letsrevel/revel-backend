@@ -22,7 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Storage: a daily task counts the stored image files (logos, cover images, profile pictures, OAuth application logos and their derived images) that no row uses and that are older than 7 days. It starts as a dry run that only counts. An admin can turn on its deletes in the beat task settings, with no deploy.
+- Storage: a daily task counts the stored image files (logos, cover images, profile pictures, OAuth application logos and their derived images) that no row uses and that are older than 7 days.
+  - It starts as a dry run that only counts.
+  - An admin can turn on its deletes in the beat task settings, with no deploy.
 
 ## [3.1.2] - 2026-11-26
 
