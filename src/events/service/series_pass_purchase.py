@@ -296,6 +296,18 @@ class SeriesPassPurchaseService:
             .select_related("event_series__organization__city")
             .get(pk=self.series_pass.pk)
         )
+        # Every check before the lock used the series and organization of the first read (#1577). The locked pass
+        # row is read again after a lock wait, but the joined series row keeps the statement's snapshot, so the
+        # organization is read in a new statement. The series row is not locked: a move that commits after this
+        # read is not seen, the same limit as _series_still_visible.
+        if (
+            locked_pass.event_series_id != self.series_pass.event_series_id
+            or EventSeries.objects.filter(pk=locked_pass.event_series_id)
+            .values_list("organization_id", flat=True)
+            .get()
+            != self.org.pk
+        ):
+            raise SeriesPassNotPurchasableError(str(_("The events of this pass changed. Please try again.")))
         # The checkout route's visibility rule again, after the lock wait (#1566). The lock-free gates above ran on
         # the route's read, so a pass hidden meanwhile can still get their answer (a 400 or 409) first.
         if self.check_visibility and not (

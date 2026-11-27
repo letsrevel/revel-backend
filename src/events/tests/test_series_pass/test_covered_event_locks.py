@@ -14,6 +14,7 @@ from accounts.models import RevelUser
 from events.exceptions import SeriesPassNotPurchasableError
 from events.models import (
     Event,
+    EventSeries,
     HeldSeriesPass,
     Organization,
     SeriesPass,
@@ -239,6 +240,57 @@ class TestStatusChangeBeforeTheEventLock:
             _refused_before_any_write("The events of this pass changed"),
         ):
             SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+    @pytest.mark.parametrize(
+        ("move", "check_visibility"),
+        [("pass", False), ("pass_same_org", False), ("series", False), ("pass", True)],
+        ids=[
+            "pass_to_other_series",
+            "pass_to_other_series_same_org",
+            "series_to_other_org",
+            "before_the_visibility_check",
+        ],
+    )
+    def test_purchase_refuses_when_the_pass_moves_to_another_organization(
+        self,
+        series_pass: SeriesPass,
+        three_upcoming: list[Event],
+        revel_user: RevelUser,
+        organization_owner_user: RevelUser,
+        move: str,
+        check_visibility: bool,
+    ) -> None:
+        """The checks before the pass lock used the old series and organization (#1577).
+
+        The other organization is private, so a visibility check before this one would answer 404, not 409.
+        """
+        other_org = Organization.objects.create(
+            name="Other", slug="other-1577", owner=organization_owner_user, visibility=Organization.Visibility.PRIVATE
+        )
+        other_series = EventSeries.objects.create(organization=other_org, name="Other", slug="other-1577")
+        same_org_series = EventSeries.objects.create(
+            organization_id=series_pass.event_series.organization_id, name="Same org", slug="same-org-1577"
+        )
+        real_quote = series_pass_service.get_quote
+        calls: list[int] = []
+
+        def quote_then_move(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            quote = real_quote(*args, **kwargs)
+            if not calls:
+                if move == "pass":
+                    SeriesPass.objects.filter(pk=series_pass.pk).update(event_series=other_series)
+                elif move == "pass_same_org":
+                    SeriesPass.objects.filter(pk=series_pass.pk).update(event_series=same_org_series)
+                else:
+                    EventSeries.objects.filter(pk=series_pass.event_series_id).update(organization=other_org)
+            calls.append(1)
+            return quote
+
+        with (
+            patch.object(series_pass_service, "get_quote", side_effect=quote_then_move),
+            _refused_before_any_write("The events of this pass changed"),
+        ):
+            SeriesPassPurchaseService(series_pass, revel_user, check_visibility=check_visibility).purchase()
 
     def test_purchase_refuses_a_swap_that_keeps_the_price_and_the_count(
         self, series_pass: SeriesPass, three_upcoming: list[Event], revel_user: RevelUser
