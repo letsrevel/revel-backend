@@ -111,21 +111,27 @@ def erase_account_keeping_holdings(user: RevelUser, kept: "KeptHoldings") -> Non
     1. Copy the holder name and email onto the kept tickets and passes, and clear the stored Stripe
        payload (``raw_response``) of their payments. ``buyer_billing_snapshot`` stays.
     2. Blacklist the session tokens and revoke the OAuth tokens, before the cascade nulls their user.
-    3. Delete or null every other related row, as ``user.delete()`` would.
-    4. Clear every personal field on the account, deactivate it and set ``erased_at``.
+    3. Keep the blacklist entries of the account as unlinked entries. They also keep the current email, phone
+       number and Telegram username of the account, so this step runs before step 5.
+    4. Delete or null every other related row, as ``user.delete()`` would.
+    5. Clear every personal field on the account, deactivate it and set ``erased_at``.
 
     Raises:
-        RuntimeError: If a kept ticket or pass is gone after step 3 (a cascade reached it). The
+        RuntimeError: If a kept ticket or pass is gone after step 4 (a cascade reached it). The
             transaction rolls back, so the account stays as it was.
+        IntegrityError: If a blacklist identifier of the account cannot be kept (step 3). The transaction
+            rolls back, so the account stays as it was.
     """
     from events.models import HeldSeriesPass, Payment, Ticket
     from events.service.account_deletion_service import snapshot_holders
+    from events.service.blacklist_retention import detach_blacklist_entries_of_account
 
     snapshot_holders(user, kept)
     # The stored Stripe payload of a kept payment holds the buyer's details; the amounts, VAT and
     # buyer_billing_snapshot stay, since a late invoice or credit note needs them.
     Payment.objects.filter(ticket_id__in=kept.ticket_ids).update(raw_response={})
     blacklist_user_tokens(user)
+    detach_blacklist_entries_of_account(user)
     _detach_relations(user, kept)
     if Ticket.objects.filter(pk__in=kept.ticket_ids).count() != len(kept.ticket_ids) or HeldSeriesPass.objects.filter(
         pk__in=kept.pass_ids

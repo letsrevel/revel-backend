@@ -4,7 +4,7 @@ import typing as t
 
 import structlog
 from django.db import transaction
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_save, pre_delete, pre_save
 from django.dispatch import receiver
 
 from accounts.models import RevelUser
@@ -14,6 +14,7 @@ from events.models import (
     MembershipRecord,
     PendingEventInvitation,
 )
+from events.service.blacklist_retention import detach_blacklist_entries_of_account
 from events.service.blacklist_service import (
     link_blacklist_entries_for_user,
 )
@@ -119,3 +120,14 @@ def auto_link_member_records_on_verified_email(
     if not MembershipRecord.objects.unlinked().filter(email__iexact=instance.email).exists():
         return
     transaction.on_commit(lambda: auto_link_member_records.delay(str(instance.id)))
+
+
+@receiver(pre_delete, sender=RevelUser)
+def keep_blacklist_entries_of_deleted_user(sender: type[RevelUser], instance: RevelUser, **kwargs: t.Any) -> None:
+    """Keep the blacklist entries of an account in place, as unlinked entries, when the account is deleted.
+
+    The receiver locks the account row (``FOR NO KEY UPDATE``) first. Then the function locks the
+    ``Organization`` rows. The erase-in-place path already holds the account row.
+    """
+    fresh = RevelUser.objects.select_for_update(no_key=True).filter(pk=instance.pk).first()
+    detach_blacklist_entries_of_account(fresh or instance)

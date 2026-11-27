@@ -82,6 +82,11 @@ Policy-level intended behaviour that reviewers must not report as a finding. Eac
 - boundary: a route that accepts an arbitrary user id and returns account data (name, email, existence) for an account with no connection to the organization, or a blacklist response that reveals more about the account than staff could already see on those rows, is still a bug.
 - reference: issue #1453 (closed); maintainer decision.
 
+## Blacklist entries kept after an account is deleted
+- behaviour: when an account is deleted or erased, its blacklist entries stay as unlinked entries with their identifiers and the identifiers that the account had at that time (phone number and Telegram username only for a known holder of the organization). This keeps the ban only. It applies no new consequences to other accounts that match those identifiers, because enforcement checks them at the gates.
+- boundary: losing an identifier, showing staff a phone number or Telegram username of an account that was not a known holder, or a deletion that fails because of a concurrent entry, is a valid finding.
+- reference: maintainer decision.
+
 ## Review scope rules
 - Present-day only: a hypothetical future regression ("if someone removes this check") is not a finding.
 - Legitimate access: if the "attack" needs access the caller already has, or the impact is trivial or indistinguishable from normal use, it is not a vulnerability.

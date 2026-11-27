@@ -274,6 +274,12 @@ deferred foreign-key checks of other transactions (`FOR KEY SHARE` at commit) ar
   `Payment`) are the exceptions to the global order, but only for a row that committed between the first
   lock of its model and the second one (see
   [Deletes that cascade pending checkouts](#deletes-that-cascade-pending-checkouts-1490)).
+- Account deletion and erasure hold the account row: the erase-in-place path holds it already, and the `pre_delete`
+  receiver of `user.delete()` locks it (`FOR NO KEY UPDATE`) first. Then they lock the `Organization` rows of the
+  account's blacklist entries (pk order, `lock_organization_for_staff_changes`) to keep the entries as unlinked
+  entries. The entry also keeps the email, phone number and Telegram username that the account has at that time, so the
+  detach runs before the erase path anonymises the account. A bulk delete of several accounts takes these locks account by
+  account.
 - The image-path locks (`common/thumbnails`: upload, derived-path write, image delete, admin image change) take one
   row of one model and change only image columns. The malware quarantine (`files.detach_image_everywhere`) locks
   every row that names a flagged image, model by model in this order (`RevelUser`, `Organization`, `EventSeries`,
@@ -787,13 +793,24 @@ runs in the same transaction:
    A later Stripe event (a refund, a late completion, a cancelled intent) stores `{}` for an erased buyer:
    every writer of `Payment.raw_response` goes through `erased_holder.stripe_payload_to_store`.
 2. `blacklist_user_tokens`, before the cascade nulls `OutstandingToken.user`.
-3. Walk every relation to `RevelUser` (`get_candidate_relations_to_delete`, so hidden M2M through rows
+3. Keep the blacklist entries of the account as unlinked entries
+   (`events.service.blacklist_retention.detach_blacklist_entries_of_account`). Each entry keeps its email, phone,
+   Telegram username and reason. The names are cleared. An identifier that another unlinked entry of the
+   organization holds stays on that entry. The entry is deleted only when no identifier is left.
+   The entry also keeps the email, phone number and Telegram username that the account has at the time of deletion
+   (this step runs before step 5, which anonymises them). An empty field of the entry is filled from the account
+   first. A value that the entry does not hold then goes on one new unlinked entry of the organization, unless
+   another unlinked entry already holds it. The email always comes from the account. The phone number and Telegram
+   username come from the account only when it is a known holder of the organization of the entry.
+   The `pre_delete` receiver on `RevelUser` does the same for `user.delete()`. `Blacklist.user` is `SET_NULL` as a
+   safety net.
+4. Walk every relation to `RevelUser` (`get_candidate_relations_to_delete`, so hidden M2M through rows
    too) and give each the outcome of `user.delete()`: CASCADE rows deleted, SET_NULL columns nulled,
    PROTECT rows refuse. The exceptions are the kept tickets, passes and their payments, and
    `NotificationPreference` (kept and **not** silenced: the event-cancel audience skips silenced accounts,
    and the dispatcher already drops every type but the five cancellation and refund emails). Tickets go first because of the `RESTRICT`. If a kept row
    is gone afterwards, the task raises and the transaction rolls back.
-4. Anonymise the row: placeholder `username`/`email` (`erased-<id>@erased.invalid`), names, phone, bio,
+5. Anonymise the row: placeholder `username`/`email` (`erased-<id>@erased.invalid`), names, phone, bio,
    pictures, Stripe Connect, TOTP and `last_login` cleared, unusable password, `is_active`/`is_staff`/
    `is_superuser`/`guest`/`email_verified` False, `credentials_changed_at` and `erased_at` set.
 
