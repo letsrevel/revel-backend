@@ -17,7 +17,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from events.models import Event, EventSeries, HeldSeriesPass, Organization, Payment, SeriesPass, Ticket, TicketTier
 from events.models.discount_code import DiscountCode
-from events.service import discount_code_service, event_update_service, ticket_service
+from events.service import discount_code_service, event_update_service, pending_checkout, ticket_service
 
 pytestmark = pytest.mark.django_db
 
@@ -354,6 +354,33 @@ class TestTicketDeleteReleasesCapacity:
             '"events_tickettier"' in q and (other_tier.pk.hex in q or plain.pk.hex in q) for q in locks[:discount_lock]
         ), locks
         assert _used(code) == 0
+
+    def test_selection_is_fixed_before_the_first_lock(
+        self, event: Event, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        """A ticket that stops matching the changelist filter after the first lock is still locked and deleted."""
+        other_tier = TicketTier.objects.create(
+            event=event, name="Other", price=Decimal("10.00"), payment_method=TicketTier.PaymentMethod.ONLINE
+        )
+        first = _checkout(tier, member_user, "cs_first", status=Payment.PaymentStatus.SUCCEEDED)
+        second = _checkout(other_tier, member_user, "cs_second", status=Payment.PaymentStatus.SUCCEEDED)
+        TicketTier.objects.filter(pk__in=[tier.pk, other_tier.pk]).update(quantity_sold=1)
+        real_lock = pending_checkout.lock_for_cascade_delete
+
+        def lock_then_change(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            result = real_lock(*args, **kwargs)
+            # Another transaction would commit this between two statements of the delete.
+            Ticket.objects.filter(pk=second.pk).update(status=Ticket.TicketStatus.CHECKED_IN)
+            return result
+
+        changelist = Ticket.objects.filter(status=Ticket.TicketStatus.ACTIVE)
+        with patch("events.service.ticket_service.lock_for_cascade_delete", side_effect=lock_then_change):
+            ticket_service.delete_tickets(changelist)
+
+        assert not Ticket.objects.filter(pk__in=[first.pk, second.pk]).exists()
+        tier.refresh_from_db()
+        other_tier.refresh_from_db()
+        assert (tier.quantity_sold, other_tier.quantity_sold) == (0, 0)
 
     def test_delete_enqueues_waitlist_only_for_a_held_ticket(
         self,

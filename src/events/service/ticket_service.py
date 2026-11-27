@@ -533,12 +533,14 @@ def delete_tickets(tickets: QuerySet[Ticket]) -> None:
     A CANCELLED ticket already gave its slot back, so only the other tickets release one. The unfinished
     checkouts end as in ``delete_ticket_tier``. Lock order: Payment, then every tier of the selection, then
     ticket, then DiscountCode (``lock_for_cascade_delete``, ``lock_tier_then_ticket``). The tiers are all locked
-    before the discount release, so a mixed selection keeps the global order. The rows are selected by pk, so a
-    filter of the admin changelist cannot drop a row from the locks. The decrement is floored at zero.
+    before the discount release, so a mixed selection keeps the global order. The selection is fixed once, before
+    the first lock, as a list of pks. A filter of the admin changelist is not run again, so a ticket that changes
+    status later cannot drop out of a lock or the delete. The decrement is floored at zero.
     """
-    tickets = Ticket.objects.filter(pk__in=tickets.order_by().values("pk"))
-    lock_for_cascade_delete(tickets, tiers=TicketTier.objects.filter(pk__in=tickets.values("tier_id")))
-    locked = lock_tier_then_ticket(tickets)
+    pks = list(tickets.order_by().values_list("pk", flat=True))
+    selection = Ticket.objects.filter(pk__in=pks)
+    lock_for_cascade_delete(selection, tiers=TicketTier.objects.filter(pk__in=selection.values("tier_id")))
+    locked = lock_tier_then_ticket(selection)
     holding = Counter(
         ticket.tier_id for ticket in locked if ticket.tier_id and ticket.status != Ticket.TicketStatus.CANCELLED
     )
