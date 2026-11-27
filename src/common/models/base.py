@@ -7,6 +7,27 @@ from django.db import models
 from django.db.models import Q
 
 
+def _loaded_fields_of_deferred_save(instance: models.Model, kwargs: dict[str, t.Any]) -> list[str] | None:
+    """The fields to write when a deferred instance (``.only()``/``.defer()``) is saved without ``update_fields``.
+
+    Django writes only the loaded fields of such an instance. But a read of a deferred field loads it: the
+    ``full_clean()`` of a full save, or the EXIF strip, would read every deferred field first, and Django would then
+    write every column, also one that another request changed meanwhile (#1572). So both saves name the loaded
+    fields first, as Django's ``save()`` does. None when the save is not such a save.
+    """
+    if kwargs.get("update_fields") is not None or instance._state.adding or kwargs.get("force_insert"):
+        return None
+    deferred = instance.get_deferred_fields()
+    if not deferred:
+        return None
+    loaded = [
+        f.attname
+        for f in instance._meta.concrete_fields
+        if not f.primary_key and not hasattr(f, "through") and f.attname not in deferred
+    ]
+    return loaded or None
+
+
 class TimeStampedModel(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -24,6 +45,8 @@ class TimeStampedModel(models.Model):
         run on the whole row: a cross-field rule that an earlier edit broke still blocks the save, and its error
         names the field to fix.
         """
+        if (loaded := _loaded_fields_of_deferred_save(self, kwargs)) is not None:
+            kwargs["update_fields"] = loaded
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             # A list, so that a one-shot iterator is not used up here and then reaches Django empty.
@@ -253,6 +276,8 @@ class ExifStripMixin(models.Model):
 
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
         """Override save to auto-strip exif from image fields (only those in ``update_fields``, if given)."""
+        if (loaded := _loaded_fields_of_deferred_save(self, kwargs)) is not None:
+            kwargs["update_fields"] = loaded
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             # A list, so that a one-shot iterator is not used up here and then reaches Django empty.
