@@ -317,12 +317,12 @@ def _link_candidate_entry(
     if reason and not entry.reason:
         fill["reason"] = reason
     if telegram_username:
-        if entry.telegram_username is None:
+        if not entry.telegram_username:  # None, or an empty string from a raw write
             fill["telegram_username"] = telegram_username
         elif entry.telegram_username.lower() != telegram_username.lower():
             raise HttpError(400, str(_("The existing entry for this email has a different Telegram username.")))
     if phone_number:
-        if entry.phone_number is None:
+        if not entry.phone_number:  # None, or an empty string from a raw write
             fill["phone_number"] = phone_number
         elif entry.phone_number != phone_number:
             raise HttpError(400, str(_("The existing entry for this email has a different phone number.")))

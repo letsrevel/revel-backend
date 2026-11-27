@@ -598,10 +598,12 @@ class TestBlacklistLinkingOnUserCreation:
         )
 
         # Create new user with email matching the entry
+        # Verified, so the new account reaches entry selection through the email path
         django_user_model.objects.create_user(
             username="new",
             email="shared@example.com",
             password="pass",
+            email_verified=True,
         )
 
         # Entry should still be linked to existing user, not new user

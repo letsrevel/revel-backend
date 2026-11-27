@@ -546,8 +546,9 @@ class TestLinkOneEntryPerOrganization:
         # The oldest created_at wins, not the insertion order: make the phone entry the older one.
         Blacklist.objects.filter(pk=by_phone.pk).update(created_at=timezone.now() - datetime.timedelta(days=1))
 
+        # Verified, so both entries are candidates and the ordering decides.
         user = django_user_model.objects.create_user(
-            username="newbie", email="new@example.com", phone_number="+393331112222"
+            username="newbie", email="new@example.com", phone_number="+393331112222", email_verified=True
         )
 
         by_email.refresh_from_db()
@@ -563,7 +564,7 @@ class TestLinkOneEntryPerOrganization:
         Blacklist.objects.create(organization=blacklist_org, email="new@example.com", created_by=blacklist_admin)
         Blacklist.objects.create(organization=blacklist_org, phone_number="+393331112222", created_by=blacklist_admin)
         user = django_user_model.objects.create_user(
-            username="newbie", email="new@example.com", phone_number="+393331112222"
+            username="newbie", email="new@example.com", phone_number="+393331112222", email_verified=True
         )
         member = OrganizationMember.objects.create(organization=blacklist_org, user=user)
 
@@ -901,3 +902,29 @@ class TestLinkTaskAfterVerification:
         entry.refresh_from_db()
         assert user.email_verified is True
         assert entry.user_id == user.pk
+
+
+@pytest.mark.parametrize("blank", [None, ""], ids=["none", "empty-string"])
+def test_a_link_fills_a_blank_phone_and_telegram(
+    blank: str | None, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
+) -> None:
+    """An entry with blank identifier fields (None, or "" from a raw write) gets the typed values."""
+    holder = django_user_model.objects.create_user(username="blank_holder", email="blank@example.com")
+    _verify(holder)
+    entry = Blacklist.objects.create(organization=blacklist_org, email=holder.email, created_by=blacklist_admin)
+    Blacklist.objects.filter(pk=entry.pk).update(phone_number=blank, telegram_username=blank)
+
+    linked = blacklist_service.add_to_blacklist(
+        organization=blacklist_org,
+        created_by=blacklist_admin,
+        email=holder.email,
+        phone_number="+393337770001",
+        telegram_username="blank_handle",
+    )
+
+    assert linked.pk == entry.pk
+    assert (linked.user_id, linked.phone_number, linked.telegram_username) == (
+        holder.pk,
+        "+393337770001",
+        "blank_handle",
+    )

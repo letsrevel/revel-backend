@@ -134,8 +134,8 @@ def link_blacklist_entries_on_verified_email(
         try:
             link_blacklist_entries_for_user_task.delay(user_id)
         except Exception:  # the broker is down: link now, after commit, so the consequences are not lost
-            # ponytail: if this inline link fails too, it is only logged; no sweep finds it again.
-            # Upgrade path: a beat sweep for verified accounts with a matching unlinked entry and no linked one.
+            # ponytail: if this inline link fails too, it is only logged; no sweep finds it again yet.
+            # Upgrade path: the recovery sweep in #1622.
             logger.exception("blacklist_link_task_not_queued", user_id=user_id)
             link_after_verification(user_id)
 
