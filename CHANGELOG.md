@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Storage: a daily task counts the stored image files (logos, cover images, profile pictures, OAuth application logos and their derived images) that no row uses and that are older than 7 days.
+  - It starts as a dry run that only counts.
+  - An admin can turn on its deletes in the beat task settings, with no deploy.
+
 ### Changed
 
 - Uploads: a new logo, cover image, profile picture or OAuth application logo is now stored under a random file name, not the name of the uploaded file. Files that are already stored keep their names.

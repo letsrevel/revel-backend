@@ -987,3 +987,34 @@ back data, so a dispatch that other dispatches follow must not stop them.
   expiry loop use this pattern. Most other `on_commit` sites do not use it yet.
 - Test it: make the first dispatch raise inside
   `django_capture_on_commit_callbacks(execute=True)`, and assert that the second still runs.
+
+## Image files: reference-checked deletes and the daily sweep
+
+Rows can share an image file: a duplicated or recurring event keeps the template's logo, cover art and their
+derived images. So a file is deleted only when no row of a model with thumbnails names it, and only after the
+commit that removed the reference (`common/thumbnails/files.py`, `delete_unreferenced_files`).
+
+Some files escape that delete: a delete that failed, a queryset delete or a cascade that skips `delete()`, and
+files from before the delete existed. The daily beat task `common.sweep_unreferenced_image_files`
+(`common/thumbnails/sweep.py`, #1548) finds them:
+
+- It lists `logos/`, `cover-art/` and `oauth-logos/` without recursion (the seed and demo subfolders stay out),
+  and each `protected/profile-pictures/<user id>/` folder.
+- A file is a candidate when it is older than 7 days and no row names it. The age is the file's modification time
+  (its upload): it keeps an upload in progress safe, but it does not protect a backup restore that names a file
+  again (the delete after commit does not either). A delete runs under the path locks of the delete after commit,
+  and checks the references again under them.
+- Only image fields count as references. A URL of the file in Markdown, in a stored notification context or in an
+  email that was already sent does not keep the file, as for the delete after commit.
+- One run deletes at most 500 files. The log has counts only, because a path can hold a user id.
+- The beat row "Sweep unreferenced image files" starts with the kwarg `{"dry_run": true}`: it only counts.
+
+To turn deletes on:
+
+1. Read the `unreferenced_image_files_swept` log lines of a few runs in Loki.
+2. Check `named_paths_missing`: the paths in the swept folders that rows name but storage lacks. A large number means
+   that the path matching does not work, and deletes must stay off. A number near 0 does not prove the opposite: it
+   cannot show an image field that the sweep does not read. So also check that every model field that stores a file in
+   these folders is in `THUMBNAIL_CONFIGS`, as `test_files_that_users_events_and_apps_name_are_kept` does for the
+   current models.
+3. In the Django admin, set the kwargs of the beat row to `{"dry_run": false}`. No deploy is necessary.
