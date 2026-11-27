@@ -189,3 +189,27 @@ def test_a_deferred_foreign_key_that_clean_reads_is_not_written(organization: Or
 
     [update] = _update_sql(queries, "events_event")
     assert '"event_series_id"' not in update
+
+
+def test_a_failed_check_still_defers_the_fields_it_read(organization: Organization) -> None:
+    """``Event.clean`` runs after a field error and reads ``event_series``: a retry must not write that column."""
+    from django.core.exceptions import ValidationError
+
+    from events.models import EventSeries
+
+    series = EventSeries.objects.create(organization=organization, name="S", slug="s-1572-retry")
+    event = Event.objects.create(
+        organization=organization, event_series=series, name="E", slug="e-1572-retry", start=timezone.now()
+    )
+    loaded = Event.objects.only("id", "name", "organization_id", "start").get(pk=event.pk)
+    loaded.name = ""
+
+    with pytest.raises(ValidationError):
+        loaded.save()
+
+    assert "event_series_id" in loaded.get_deferred_fields()
+    loaded.name = "Fixed"
+    with CaptureQueriesContext(connection) as queries:
+        loaded.save()
+    [update] = _update_sql(queries, "events_event")
+    assert '"event_series_id"' not in update

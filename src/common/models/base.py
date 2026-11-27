@@ -63,20 +63,26 @@ class TimeStampedModel(models.Model):
                 if f.attname in deferred
                 or (update_fields is not None and f.name not in written and f.attname not in written)
             ]
-            self.full_clean(exclude=unchanged, validate_unique=False, validate_constraints=False)
-            # A check on a field that was not loaded is skipped (the database constraint still applies): else the
-            # check reads every deferred field, one query each.
-            not_loaded = {f.name for f in self._meta.concrete_fields if f.attname in deferred}
-            self.validate_unique(exclude=not_loaded)
-            self.validate_constraints(exclude=not_loaded)
-            for field in self._meta.concrete_fields:
-                if field.attname in deferred and field.attname in self.__dict__:
-                    # Read by a check only: defer it again, so Django does not write it. A cached related object
-                    # would make Django read the column again before the write.
-                    del self.__dict__[field.attname]
-                    if isinstance(field, FieldCacheMixin) and field.is_cached(self):
-                        field.delete_cached_value(self)
+            try:
+                self.full_clean(exclude=unchanged, validate_unique=False, validate_constraints=False)
+                # A check on a field that was not loaded is skipped (the database constraint still applies): else
+                # the check reads every deferred field, one query each.
+                not_loaded = {f.name for f in self._meta.concrete_fields if f.attname in deferred}
+                self.validate_unique(exclude=not_loaded)
+                self.validate_constraints(exclude=not_loaded)
+            finally:
+                # Also when a check fails: a retry of the same instance must not write a field that a check read.
+                self._defer_again(deferred)
         super().save(*args, **kwargs)
+
+    def _defer_again(self, deferred: set[str]) -> None:
+        """Defer again the fields that a check read, so Django does not write them (#1572)."""
+        for field in self._meta.concrete_fields:
+            if field.attname in deferred and field.attname in self.__dict__:
+                del self.__dict__[field.attname]
+                # A cached related object would make Django read the column again before the write.
+                if isinstance(field, FieldCacheMixin) and field.is_cached(self):
+                    field.delete_cached_value(self)
 
 
 class EmailDeliverableMixin(models.Model):
