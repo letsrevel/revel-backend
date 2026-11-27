@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OAuth applications: deleting an application (in the app settings, through client registration management, or in the Django admin, also with "delete selected") now removes its stored logo files that no other application uses.
 - Series passes: a checkout of a pass that moves to another event series or organization at the same moment now answers 409 ("The events of this pass changed. Please try again."). The buyer can then try again with the pass as it is now.
 - Admin: deleting a ticket in the Django admin now gives its place back to the ticket tier, and the admin refuses to delete a failed payment whose Stripe Checkout session is still open.
+- Django admin: the membership admins can no longer change billing data past the subscription service. An existing subscription is view-only, and the add view is refused. A history revert is refused on the subscription, plan, payment and customer-profile pages; the history stays viewable. Subscriptions and payments cannot be deleted from their own admin pages, while deleting a user still works.
 
 ## [3.1.2] - 2026-11-26
 

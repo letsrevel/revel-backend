@@ -3,16 +3,43 @@
 import typing as t
 
 from django.contrib import admin
-from django.http import HttpRequest
+from django.core.exceptions import PermissionDenied
+from django.http import HttpRequest, HttpResponse
 from unfold.admin import ModelAdmin
 
-from common.admin import GuardedHistoryAdmin
+from common.admin import GuardedHistoryAdmin, ViewOnlyHistoryMixin
 from events import models
 from events.admin.base import OrganizationLinkMixin, UserLinkMixin
 
 
+class NoOwnDeleteMixin:
+    """Refuse a delete on the admin's own pages, but let a cascade from a user or organization delete pass.
+
+    ``has_delete_permission`` is not overridden on purpose: ``get_deleted_objects`` checks it on the admin of
+    every cascaded row, so returning False there would block the delete of a user or organization.
+    """
+
+    def get_actions(self, request: HttpRequest) -> t.Any:
+        """Remove the bulk delete action."""
+        actions = super().get_actions(request)  # type: ignore[misc]
+        actions.pop("delete_selected", None)
+        return actions
+
+    def delete_view(self, request: HttpRequest, object_id: str, extra_context: t.Any = None) -> HttpResponse:
+        """Refuse the delete page and its POST."""
+        raise PermissionDenied
+
+    def change_view(
+        self, request: HttpRequest, object_id: str, form_url: str = "", extra_context: t.Any = None
+    ) -> HttpResponse:
+        """Hide the delete button."""
+        return super().change_view(  # type: ignore[misc, no-any-return]
+            request, object_id, form_url, {**(extra_context or {}), "show_delete": False}
+        )
+
+
 @admin.register(models.MembershipSubscriptionPlan)
-class MembershipSubscriptionPlanAdmin(GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+class MembershipSubscriptionPlanAdmin(ViewOnlyHistoryMixin, GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
     """Admin for MembershipSubscriptionPlan."""
 
     list_display = [
@@ -50,7 +77,14 @@ class MembershipSubscriptionPlanAdmin(GuardedHistoryAdmin, ModelAdmin):  # type:
 
 
 @admin.register(models.MembershipSubscription)
-class MembershipSubscriptionAdmin(GuardedHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
+class MembershipSubscriptionAdmin(
+    NoOwnDeleteMixin,
+    ViewOnlyHistoryMixin,
+    GuardedHistoryAdmin,
+    ModelAdmin,  # type: ignore[misc]
+    UserLinkMixin,
+    OrganizationLinkMixin,
+):
     """Admin for MembershipSubscription.
 
     Lifecycle fields (``status``, ``cancelled_at``, ``current_period_*``) are
@@ -92,14 +126,19 @@ class MembershipSubscriptionAdmin(GuardedHistoryAdmin, ModelAdmin, UserLinkMixin
     ]
     date_hierarchy = "current_period_end"
 
-    def get_readonly_fields(self, request: HttpRequest, obj: models.MembershipSubscription | None = None) -> t.Any:
-        """Make ``plan`` and ``organization`` readonly on existing rows (plan switches go through the service layer)."""
-        fields = list(super().get_readonly_fields(request, obj))
-        return [*fields, "plan", "organization"] if obj is not None else fields
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Subscriptions are created by the subscription service only (it checks plan capacity and sales controls)."""
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: models.MembershipSubscription | None = None) -> bool:
+        """Existing rows are view-only: a save writes the full row and could overwrite a webhook update."""
+        if obj is not None:
+            return False
+        return bool(super().has_change_permission(request, obj))
 
 
 @admin.register(models.MembershipPayment)
-class MembershipPaymentAdmin(GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+class MembershipPaymentAdmin(NoOwnDeleteMixin, ViewOnlyHistoryMixin, GuardedHistoryAdmin, ModelAdmin):  # type: ignore[misc]
     """Admin for MembershipPayment.
 
     ``status`` and the period fields are readonly to keep refunds and
@@ -138,7 +177,7 @@ class MembershipPaymentAdmin(GuardedHistoryAdmin, ModelAdmin):  # type: ignore[m
 
 
 @admin.register(models.CustomerProfile)
-class CustomerProfileAdmin(GuardedHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
+class CustomerProfileAdmin(ViewOnlyHistoryMixin, GuardedHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for the per-(user, organization) Stripe Customer reference."""
 
     list_display = ["__str__", "user_link", "organization_link", "stripe_customer_id", "created_at"]

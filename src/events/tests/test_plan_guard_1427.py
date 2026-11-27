@@ -480,8 +480,8 @@ def test_subscription_admin_cannot_change_plan_of_existing_subscription(
     data["plan"] = str(other.pk)
     data["_save"] = "Save"
     response = client.post(url, data)
-    # A 302 proves the save succeeded (a form error re-renders with 200), so the check below can fail.
-    assert response.status_code == 302
+    # The change page is view-only for existing rows, so the forged POST is refused before any save.
+    assert response.status_code == 403
     sub.refresh_from_db()
     assert sub.plan_id == plan.pk
 
