@@ -274,8 +274,10 @@ deferred foreign-key checks of other transactions (`FOR KEY SHARE` at commit) ar
   `Payment`) are the exceptions to the global order, but only for a row that committed between the first
   lock of its model and the second one (see
   [Deletes that cascade pending checkouts](#deletes-that-cascade-pending-checkouts-1490)).
-- Account deletion and erasure hold the account row. Then they lock the `Organization` rows of the account's
-  blacklist entries (pk order, `lock_organization_for_staff_changes`) to keep the entries as unlinked entries.
+- Account deletion and erasure hold the account row: the erase-in-place path holds it already, and the `pre_delete`
+  receiver of `user.delete()` locks it (`FOR NO KEY UPDATE`) first. Then they lock the `Organization` rows of the
+  account's blacklist entries (pk order, `lock_organization_for_staff_changes`) to keep the entries as unlinked
+  entries. A bulk delete of several accounts takes these locks account by account.
 - The image-path locks (`common/thumbnails`: upload, derived-path write, image delete, admin image change) take one
   row of one model and change only image columns. The malware quarantine (`files.detach_image_everywhere`) locks
   every row that names a flagged image, model by model in this order (`RevelUser`, `Organization`, `EventSeries`,

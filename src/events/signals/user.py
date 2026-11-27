@@ -124,5 +124,10 @@ def auto_link_member_records_on_verified_email(
 
 @receiver(pre_delete, sender=RevelUser)
 def keep_blacklist_entries_of_deleted_user(sender: type[RevelUser], instance: RevelUser, **kwargs: t.Any) -> None:
-    """Keep the blacklist entries of an account in place, as unlinked entries, when the account is deleted."""
+    """Keep the blacklist entries of an account in place, as unlinked entries, when the account is deleted.
+
+    The receiver locks the account row (``FOR NO KEY UPDATE``) first. Then the function locks the
+    ``Organization`` rows. The erase-in-place path already holds the account row.
+    """
+    RevelUser.objects.select_for_update(no_key=True).filter(pk=instance.pk).first()
     detach_blacklist_entries_of_account(instance)

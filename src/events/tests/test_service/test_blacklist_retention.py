@@ -1,6 +1,7 @@
 """A blacklist entry stays in place when its linked account is deleted or erased."""
 
 import typing as t
+from unittest.mock import patch
 
 import pytest
 
@@ -242,12 +243,43 @@ def test_erase_in_place_merges_into_the_holder_and_keeps_every_identifier(
     _assert_every_identifier_held(org, email=EMAIL, phone_number=PHONE, telegram_username=TELEGRAM)
 
 
+def test_leftover_identifier_goes_to_the_oldest_holder_with_an_empty_field(
+    org: Organization, account: RevelUser
+) -> None:
+    h1 = Blacklist.objects.create(organization=org, telegram_username=TELEGRAM, email="x@example.com", reason="h1")
+    h2 = Blacklist.objects.create(organization=org, phone_number=PHONE, reason="h2")
+    linked = _linked_entry(org, account)
+
+    account.delete()
+
+    assert not Blacklist.objects.filter(pk=linked.pk).exists()
+    h1.refresh_from_db()
+    h2.refresh_from_db()
+    assert h1.email == "x@example.com"
+    assert h2.email == EMAIL
+    _assert_every_identifier_held(org, email=EMAIL, phone_number=PHONE, telegram_username=TELEGRAM)
+
+
+def test_entry_without_any_identifier_is_deleted(org: Organization, account: RevelUser) -> None:
+    Blacklist.objects.create(organization=org, user=account, first_name="Ada", reason="no identifier")
+
+    account.delete()
+
+    assert not Blacklist.objects.filter(organization=org).exists()
+
+
 def test_detach_logs_only_after_commit(
     org: Organization, account: RevelUser, django_capture_on_commit_callbacks: t.Any
 ) -> None:
     _linked_entry(org, account)
 
-    with django_capture_on_commit_callbacks(execute=False) as callbacks:
-        account.delete()
+    with patch("events.service.blacklist_retention.logger") as logger:
+        with django_capture_on_commit_callbacks(execute=False) as callbacks:
+            account.delete()
+        assert not [c for c in logger.info.call_args_list if c.args[0] == "blacklist_entries_detached"]
+        for callback in callbacks:
+            callback()
 
-    assert len(callbacks) >= 1
+    calls = [c for c in logger.info.call_args_list if c.args[0] == "blacklist_entries_detached"]
+    assert len(calls) == 1
+    assert (calls[0].kwargs["count"], calls[0].kwargs["kept"], calls[0].kwargs["merged_away"]) == (1, 1, 0)

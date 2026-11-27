@@ -35,36 +35,53 @@ def _holds(other: Blacklist, field: str, value: str) -> bool:
     return bool(stored.lower() == value.lower() if field in ("email", "telegram_username") else stored == value)
 
 
-def _merge_into_unlinked(entry: Blacklist, holders: list[Blacklist]) -> None:
+def _merge_into_unlinked(entry: Blacklist, holders: list[Blacklist]) -> bool:
     """Move the identifiers of ``entry`` onto unlinked entries, so every identifier stays enforced.
 
     An identifier that a holder already holds is dropped from ``entry``. Each other identifier moves to the
-    oldest holder when that holder has no value for the field. The reason moves when the holder has none.
-    If an identifier is left, ``entry`` stays as an unlinked entry with only those identifiers.
-    Otherwise ``entry`` is deleted.
+    oldest holder that has no value for the field. The reason moves to the oldest holder when it has none.
+    If no holder can take an identifier, it stays on ``entry``, which stays as an unlinked entry with only
+    those identifiers. Otherwise ``entry`` is deleted.
+
+    Returns:
+        Whether ``entry`` was deleted.
     """
-    target = holders[0]
-    updates: dict[str, str] = {}
+    updates: dict[Blacklist, dict[str, str]] = {}
     leftover: dict[str, str] = {}
     for field in _IDENTIFIER_FIELDS:
         value = getattr(entry, field)
         if not value or any(_holds(other, field, value) for other in holders):
             continue
-        if getattr(target, field):
+        free = next((other for other in holders if not getattr(other, field)), None)
+        if free is None:
             leftover[field] = value
         else:
-            updates[field] = value
-    if entry.reason and not target.reason:
-        updates["reason"] = entry.reason
-    if updates:
-        Blacklist.objects.filter(pk=target.pk).update(**updates)
+            updates.setdefault(free, {})[field] = value
+    if entry.reason and not holders[0].reason:
+        updates.setdefault(holders[0], {})["reason"] = entry.reason
+    for holder, values in updates.items():
+        Blacklist.objects.filter(pk=holder.pk).update(**values)
     if leftover:
         cleared: dict[str, t.Any] = {f: None for f in _IDENTIFIER_FIELDS if f not in leftover}
         Blacklist.objects.filter(pk=entry.pk).update(
             user=None, first_name=None, last_name=None, preferred_name=None, **cleared
         )
-    else:
-        Blacklist.objects.filter(pk=entry.pk).delete()
+        return False
+    Blacklist.objects.filter(pk=entry.pk).delete()
+    return True
+
+
+def _lock_entries_and_organizations(user: RevelUser) -> list[Blacklist]:
+    """Lock the organizations of the linked entries (pk order), then the entries, until the set is stable."""
+    locked: set[t.Any] = set()
+    while True:
+        new_ids = set(Blacklist.objects.filter(user=user).values_list("organization_id", flat=True)) - locked
+        for organization in Organization.objects.filter(pk__in=new_ids).order_by("pk"):
+            lock_organization_for_staff_changes(organization)
+        locked |= new_ids
+        entries = list(Blacklist.objects.select_for_update().filter(user=user).order_by("created_at", "pk"))
+        if {e.organization_id for e in entries} <= locked:
+            return entries
 
 
 def detach_blacklist_entries_of_account(user: RevelUser) -> None:
@@ -73,16 +90,18 @@ def detach_blacklist_entries_of_account(user: RevelUser) -> None:
     The email, phone number, Telegram username and reason stay. The name fields are cleared.
     If an unlinked entry of the same organization already holds one of the identifiers, the
     entry cannot be unlinked without breaking the unique constraints. Then each identifier that no
-    unlinked entry holds moves to the oldest holder when the holder has no value for it. An identifier
-    that an unlinked entry already holds stays on that entry. The reason moves when the holder has none.
+    unlinked entry holds moves to the oldest holder that has no value for it. An identifier
+    that an unlinked entry already holds stays on that entry. The reason moves when the oldest holder has none.
     If an identifier cannot move, the entry stays as an unlinked entry with only that identifier.
-    The entry is deleted only when no identifier is left.
+    The entry is deleted only when no identifier is left. An entry with no identifier at all is deleted.
 
-    The organizations of the entries are locked first, one at a time in ascending pk order, with
-    ``lock_organization_for_staff_changes``. It is the lock that ``add_to_blacklist`` takes, so a
-    concurrent manual add or a second deletion in the same organization waits. The caller holds the
-    account row already, so the lock order is ``RevelUser`` then ``Organization``
-    (see "Lock order" in ``docs/engineering-notes.md``).
+    The caller holds the account row, so the lock order is ``RevelUser`` then ``Organization``
+    (see "Lock order" in ``docs/engineering-notes.md``). The organizations of the entries are locked one at a
+    time in ascending pk order with ``lock_organization_for_staff_changes``. It is the lock that
+    ``add_to_blacklist`` takes, so a concurrent manual add or a second deletion in the same organization waits.
+    The entries are read under lock after the organizations. If an entry then belongs to an organization that
+    is not locked yet, that organization is locked and the entries are read again, until the set is stable.
+    Only then the holders are read.
 
     Writes use queryset updates, so no model save logic runs.
 
@@ -90,11 +109,9 @@ def detach_blacklist_entries_of_account(user: RevelUser) -> None:
         user: The account that is deleted or erased.
     """
     with transaction.atomic():
-        organization_ids = set(Blacklist.objects.filter(user=user).values_list("organization_id", flat=True))
-        for organization in Organization.objects.filter(pk__in=organization_ids).order_by("pk"):
-            lock_organization_for_staff_changes(organization)
-        entries = list(Blacklist.objects.select_for_update().filter(user=user).order_by("created_at", "pk"))
-        merged = 0
+        entries = _lock_entries_and_organizations(user)
+        kept = 0
+        merged_away = 0
         for entry in entries:
             q = _holder_query(entry)
             holders = (
@@ -108,18 +125,32 @@ def detach_blacklist_entries_of_account(user: RevelUser) -> None:
                 else []
             )
             if holders:
-                _merge_into_unlinked(entry, holders)
-                merged += 1
+                deleted = _merge_into_unlinked(entry, holders)
+            elif not q:
+                Blacklist.objects.filter(pk=entry.pk).delete()
+                deleted = True
             else:
                 Blacklist.objects.filter(pk=entry.pk).update(
                     user=None, first_name=None, last_name=None, preferred_name=None
                 )
+                deleted = False
+            if deleted:
+                merged_away += 1
+            else:
+                kept += 1
         if entries:
-            log_fields = {
-                "user_id": str(user.pk),
-                "entry_ids": [str(e.pk) for e in entries],
-                "organization_ids": [str(e.organization_id) for e in entries],
-                "count": len(entries),
-                "merged": merged,
-            }
-            transaction.on_commit(lambda: logger.info("blacklist_entries_detached", **log_fields))
+            user_id = str(user.pk)
+            entry_ids = [str(e.pk) for e in entries]
+            organization_ids = [str(e.organization_id) for e in entries]
+            count = len(entries)
+            transaction.on_commit(
+                lambda: logger.info(
+                    "blacklist_entries_detached",
+                    user_id=user_id,
+                    entry_ids=entry_ids,
+                    organization_ids=organization_ids,
+                    count=count,
+                    kept=kept,
+                    merged_away=merged_away,
+                )
+            )
