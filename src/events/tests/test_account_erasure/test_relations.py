@@ -50,7 +50,7 @@ EXPECTED: dict[str, str] = {
     "events.AttendeeVisibilityFlag.target": DELETED,
     "events.AttendeeVisibilityFlag.user": DELETED,
     "events.Blacklist.created_by": NULLED,
-    "events.Blacklist.user": DELETED,
+    "events.Blacklist.user": NULLED,
     "events.CustomerProfile.user": DELETED,
     "events.EventBookmark.user": DELETED,
     "events.EventInvitation.user": DELETED,
