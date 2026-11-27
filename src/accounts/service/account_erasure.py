@@ -111,7 +111,8 @@ def erase_account_keeping_holdings(user: RevelUser, kept: "KeptHoldings") -> Non
     1. Copy the holder name and email onto the kept tickets and passes, and clear the stored Stripe
        payload (``raw_response``) of their payments. ``buyer_billing_snapshot`` stays.
     2. Blacklist the session tokens and revoke the OAuth tokens, before the cascade nulls their user.
-    3. Keep the blacklist entries of the account as unlinked entries.
+    3. Keep the blacklist entries of the account as unlinked entries. They also keep the current email, phone
+       number and Telegram username of the account, so this step runs before step 5.
     4. Delete or null every other related row, as ``user.delete()`` would.
     5. Clear every personal field on the account, deactivate it and set ``erased_at``.
 

@@ -4,12 +4,15 @@ import typing as t
 from unittest.mock import patch
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from accounts.models import RevelUser
 from accounts.service.account_erasure import erase_account_keeping_holdings
 from events.models import Blacklist, Organization
 from events.service.account_deletion_service import KeptHoldings
 from events.service.blacklist_service import check_user_hard_blacklisted
+from telegram.models import TelegramUser
 
 pytestmark = pytest.mark.django_db
 
@@ -262,6 +265,8 @@ def test_leftover_identifier_goes_to_the_oldest_holder_with_an_empty_field(
 
 def test_entry_without_any_identifier_is_deleted(org: Organization, account: RevelUser) -> None:
     Blacklist.objects.create(organization=org, user=account, first_name="Ada", reason="no identifier")
+    RevelUser.objects.filter(pk=account.pk).update(email="")
+    account.refresh_from_db()
 
     account.delete()
 
@@ -283,3 +288,112 @@ def test_detach_logs_only_after_commit(
     calls = [c for c in logger.info.call_args_list if c.args[0] == "blacklist_entries_detached"]
     assert len(calls) == 1
     assert (calls[0].kwargs["count"], calls[0].kwargs["kept"], calls[0].kwargs["merged_away"]) == (1, 1, 0)
+
+
+NEW_EMAIL = "renamed@example.com"
+_NO_HOLDINGS = KeptHoldings(ticket_ids=frozenset(), pass_ids=frozenset())
+
+
+def test_the_current_email_of_the_account_is_kept_with_the_stored_one(
+    org: Organization, account: RevelUser, django_user_model: type[RevelUser]
+) -> None:
+    _linked_entry(org, account, phone_number=None, telegram_username=None)
+    account.email = NEW_EMAIL
+    account.save(update_fields=["email"])
+
+    account.delete()
+
+    old_holder = django_user_model.objects.create_user(username="ret_old", email=EMAIL, password="pass")
+    new_holder = django_user_model.objects.create_user(username="ret_new_mail", email=NEW_EMAIL, password="pass")
+    assert check_user_hard_blacklisted(old_holder, org)
+    assert check_user_hard_blacklisted(new_holder, org)
+
+
+def test_an_entry_without_stored_identifiers_takes_them_from_the_account(org: Organization, account: RevelUser) -> None:
+    Blacklist.objects.create(organization=org, user=account, first_name="Ada", reason="fk only")
+
+    account.delete()
+
+    entry = Blacklist.objects.get(organization=org)
+    assert entry.user_id is None
+    assert entry.email == EMAIL
+    assert entry.reason == "fk only"
+
+
+def test_the_current_phone_and_telegram_are_kept(org: Organization, account: RevelUser) -> None:
+    account.phone_number = PHONE
+    account.save(update_fields=["phone_number"])
+    TelegramUser.objects.create(user=account, telegram_id=7001, telegram_username="@Current_Handle")
+    Blacklist.objects.create(organization=org, user=account, email=EMAIL, reason="r")
+
+    account.delete()
+
+    _assert_every_identifier_held(org, email=EMAIL, phone_number=PHONE, telegram_username="current_handle")
+
+
+def test_an_extra_identifier_held_by_another_unlinked_entry_creates_no_entry(
+    org: Organization, account: RevelUser
+) -> None:
+    held = Blacklist.objects.create(organization=org, email=NEW_EMAIL.upper(), reason="held")
+    Blacklist.objects.filter(pk=held.pk).update(email=NEW_EMAIL.upper())
+    _linked_entry(org, account, phone_number=None, telegram_username=None)
+    account.email = NEW_EMAIL
+    account.save(update_fields=["email"])
+
+    account.delete()
+
+    assert Blacklist.objects.filter(organization=org).count() == 2
+    assert Blacklist.objects.filter(organization=org, email__iexact=NEW_EMAIL).count() == 1
+
+
+def test_the_extra_entry_copies_reason_and_creator_and_has_no_names(
+    org: Organization, account: RevelUser, django_user_model: type[RevelUser]
+) -> None:
+    creator = django_user_model.objects.create_user(username="ret_creator", email="creator@example.com", password="x")
+    _linked_entry(org, account, phone_number=None, telegram_username=None, created_by=creator)
+    account.email = NEW_EMAIL
+    account.save(update_fields=["email"])
+
+    account.delete()
+
+    extra = Blacklist.objects.get(organization=org, email=NEW_EMAIL)
+    assert extra.user_id is None
+    assert (extra.reason, extra.created_by_id) == ("linked reason", creator.pk)
+    assert (extra.first_name, extra.last_name, extra.preferred_name) == (None, None, None)
+
+
+def test_the_reason_goes_to_every_holder_that_receives_an_identifier(org: Organization, account: RevelUser) -> None:
+    Blacklist.objects.create(organization=org, telegram_username=TELEGRAM, email="x@example.com", reason="oldest")
+    receiver = Blacklist.objects.create(organization=org, phone_number=PHONE, reason="")
+    _linked_entry(org, account)
+
+    account.delete()
+
+    receiver.refresh_from_db()
+    assert receiver.email == EMAIL
+    assert receiver.reason == "linked reason"
+
+
+def test_the_erase_in_place_path_keeps_the_current_email_too(org: Organization, account: RevelUser) -> None:
+    Blacklist.objects.create(organization=org, user=account, email="stored-old@example.com", reason="r")
+
+    erase_account_keeping_holdings(account, _NO_HOLDINGS)
+
+    assert set(Blacklist.objects.filter(organization=org).values_list("email", flat=True)) == {
+        "stored-old@example.com",
+        EMAIL,
+    }
+
+
+def test_the_account_row_is_locked_before_the_organization_rows(org: Organization, account: RevelUser) -> None:
+    _linked_entry(org, account)
+    user_table = RevelUser._meta.db_table
+    org_table = Organization._meta.db_table
+
+    with CaptureQueriesContext(connection) as ctx:
+        account.delete()
+
+    sqls = [q["sql"] for q in ctx.captured_queries]
+    account_lock = next(i for i, q in enumerate(sqls) if "FOR NO KEY UPDATE" in q and f'"{user_table}"' in q)
+    org_lock = next(i for i, q in enumerate(sqls) if "FOR NO KEY UPDATE" in q and f'FROM "{org_table}"' in q)
+    assert account_lock < org_lock
