@@ -505,9 +505,15 @@ The threaded regression test is `events/tests/test_plan_guard_1427.py`
 
 `TimeStampedModel.save()` validates the row before it writes it:
 
-- A full save runs `full_clean()`.
+- A full save of a fully loaded instance runs `full_clean()`.
 - A save with `update_fields` runs `clean_fields()` only on the fields that it writes. `clean()`, the
   unique checks and the constraints still run on the whole row.
+- A full save of an instance loaded with `.only()` or `.defer()` (#1572) checks only the loaded fields.
+  `clean()` still runs. The unique and constraint checks skip the fields that were not loaded; the
+  database constraint still applies, so a violation is an `IntegrityError` (500), not a 400. Then the
+  fields that a check read are deferred again, and Django writes only the loaded fields and the fields
+  that a save step sets. `updated_at` is written only when it was loaded, and a change that `clean()`
+  makes to a field that was not loaded is not written.
 
 So an unrelated field cannot fail a counter or status update. A cross-field rule in `clean()` that an
 earlier edit broke (for example a waitlist cutoff after the event start) still blocks every save of the

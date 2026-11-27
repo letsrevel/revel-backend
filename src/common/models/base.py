@@ -5,6 +5,20 @@ import uuid
 
 from django.db import models
 from django.db.models import Q
+from django.db.models.fields.mixins import FieldCacheMixin
+
+
+def _deferred_fields_of_full_save(instance: models.Model, kwargs: dict[str, t.Any]) -> set[str]:
+    """The deferred fields (``.only()``/``.defer()``) of an instance that is saved without ``update_fields``.
+
+    Django writes only the loaded fields of such an instance, and it finds them at the end of the save chain. But a
+    read of a deferred field loads it: ``full_clean()`` would read every deferred field first, one query each, and
+    Django would then write every column, also one that another request changed meanwhile (#1572). Empty when the
+    save is not such a save.
+    """
+    if kwargs.get("update_fields") is not None or instance._state.adding or kwargs.get("force_insert"):
+        return set()
+    return instance.get_deferred_fields()
 
 
 class TimeStampedModel(models.Model):
@@ -23,7 +37,15 @@ class TimeStampedModel(models.Model):
         cannot fail a counter or status update (#1563). ``clean()``, the unique checks and the constraints still
         run on the whole row: a cross-field rule that an earlier edit broke still blocks the save, and its error
         names the field to fix.
+
+        A full save of a deferred instance checks only the loaded fields. Its unique and constraint checks skip
+        the fields that were not loaded; the database constraints still apply to them. Then the fields that the
+        checks read become deferred again, so Django writes only the loaded fields and the fields that a later
+        save step (for example ``LocationMixin``) sets (#1572). As in Django, ``updated_at`` is written only when
+        it was loaded. A change that ``clean()`` makes to a field that was not loaded is not written, the same as
+        for an explicit ``update_fields``.
         """
+        deferred = _deferred_fields_of_full_save(self, kwargs)
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             # A list, so that a one-shot iterator is not used up here and then reaches Django empty.
@@ -31,17 +53,36 @@ class TimeStampedModel(models.Model):
             if not update_fields:
                 super().save(*args, **kwargs)  # Django writes nothing for an empty list, so validate nothing
                 return
-        if update_fields is None:
+        if update_fields is None and not deferred:
             self.full_clean()
         else:
-            written = set(update_fields)
+            written = set(update_fields) if update_fields is not None else set()
             unchanged = [
-                f.name for f in self._meta.concrete_fields if f.name not in written and f.attname not in written
+                f.name
+                for f in self._meta.concrete_fields
+                if f.attname in deferred
+                or (update_fields is not None and f.name not in written and f.attname not in written)
             ]
-            self.full_clean(exclude=unchanged, validate_unique=False, validate_constraints=False)
-            self.validate_unique()
-            self.validate_constraints()
+            try:
+                self.full_clean(exclude=unchanged, validate_unique=False, validate_constraints=False)
+                # A check on a field that was not loaded is skipped (the database constraint still applies): else
+                # the check reads every deferred field, one query each.
+                not_loaded = {f.name for f in self._meta.concrete_fields if f.attname in deferred}
+                self.validate_unique(exclude=not_loaded)
+                self.validate_constraints(exclude=not_loaded)
+            finally:
+                # Also when a check fails: a retry of the same instance must not write a field that a check read.
+                self._defer_again(deferred)
         super().save(*args, **kwargs)
+
+    def _defer_again(self, deferred: set[str]) -> None:
+        """Defer again the fields that a check read, so Django does not write them (#1572)."""
+        for field in self._meta.concrete_fields:
+            if field.attname in deferred and field.attname in self.__dict__:
+                del self.__dict__[field.attname]
+                # A cached related object would make Django read the column again before the write.
+                if isinstance(field, FieldCacheMixin) and field.is_cached(self):
+                    field.delete_cached_value(self)
 
 
 class EmailDeliverableMixin(models.Model):
@@ -237,8 +278,8 @@ class ExifStripMixin(models.Model):
         # A partial save writes only update_fields, so only those images are processed (#1563).
         written = None if update_fields is None else set(update_fields)
         for field_name in self.IMAGE_FIELDS:
-            if written is not None and field_name not in written:
-                continue
+            if (written is not None and field_name not in written) or field_name in self.get_deferred_fields():
+                continue  # a deferred image is a stored file, not a new upload: do not load it (#1572)
             file = getattr(self, field_name, None)
             # Only strip files not yet committed to storage (fresh uploads).
             # Committed files were already stripped on upload; re-stripping marks

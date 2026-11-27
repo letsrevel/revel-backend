@@ -65,9 +65,9 @@ def reconcile_attendee_counts() -> int:
     compares the stored count with the live one (attending tickets plus YES RSVPs, as
     ``build_attendee_visibility_flags`` counts). It runs every 15 minutes.
 
-    It finds only a write that stamps ``updated_at``: a ``bulk_create``, a full save, a ``bulk_update`` that
-    lists ``updated_at``, or a ``save(update_fields=...)`` that lists it. A ``save(update_fields=["status"])``
-    or a delete leaves no trace in the window.
+    It finds only a write that stamps ``updated_at``: a ``bulk_create``, a full save of a fully loaded instance,
+    a ``bulk_update`` that lists ``updated_at``, or a ``save(update_fields=...)`` that lists it. A
+    ``save(update_fields=["status"])`` or a delete leaves no trace in the window.
 
     Returns:
         The number of events dispatched.
