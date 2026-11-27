@@ -136,6 +136,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS("✓ Deleted series-pass holders"))
 
             # Delete all organizations (cascade will handle related objects)
+            # A queryset delete skips the image-file cleanup of Organization.delete(); the files stay (#1549).
             Organization.objects.all().delete()
             Questionnaire.objects.all().delete()
             self.stdout.write(self.style.SUCCESS(f"✓ Deleted {org_count} organizations"))

@@ -1,10 +1,15 @@
 """Tests for the swapped ``OAuthApplication`` model and its validation rules."""
 
+import typing as t
+
 import pytest
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 
 from accounts.models import RevelUser
 from oauth.models import OAuthApplication
+from oauth.service import app_service
 
 pytestmark = pytest.mark.django_db
 
@@ -160,3 +165,65 @@ def test_save_does_not_write_fields_update_fields_did_not_name() -> None:
     app.refresh_from_db()
     assert app.name == "Renamed"
     assert app.allowed_scopes == []
+
+
+class TestLogoFilesOnDelete:
+    """An app delete removes its logo files after commit, when no other row names them (#1549)."""
+
+    @pytest.fixture
+    def stored_logo(self, oauth_app: OAuthApplication, settings: t.Any, tmp_path: t.Any) -> list[str]:
+        settings.MEDIA_ROOT = str(tmp_path)
+        paths = [
+            default_storage.save(f"oauth-logos/{oauth_app.pk}-{name}.jpg", ContentFile(b"image"))
+            for name in ("logo", "logo_thumbnail")
+        ]
+        OAuthApplication.objects.filter(pk=oauth_app.pk).update(logo=paths[0], logo_thumbnail=paths[1])
+        return paths
+
+    def test_a_delete_removes_the_logo_files_after_commit(
+        self, oauth_app: OAuthApplication, stored_logo: list[str], django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        """``oauth_app`` was loaded before the paths were written: the delete reads them under the row lock."""
+        assert not oauth_app.logo
+
+        with django_capture_on_commit_callbacks(execute=True):
+            app_service.delete_app(oauth_app)
+
+        assert not OAuthApplication.objects.filter(pk=oauth_app.pk).exists()
+        assert not any(default_storage.exists(path) for path in stored_logo)
+
+    def test_the_admin_bulk_delete_removes_the_logo_files(
+        self, oauth_app: OAuthApplication, stored_logo: list[str], django_capture_on_commit_callbacks: t.Any
+    ) -> None:
+        """The admin "delete selected" action runs one ``delete()`` per app, not a queryset delete."""
+        from django.contrib import admin
+        from django.test import RequestFactory
+
+        model_admin = admin.site._registry[OAuthApplication]
+        with django_capture_on_commit_callbacks(execute=True):
+            model_admin.delete_queryset(RequestFactory().post("/"), OAuthApplication.objects.filter(pk=oauth_app.pk))
+
+        assert not OAuthApplication.objects.filter(pk=oauth_app.pk).exists()
+        assert not any(default_storage.exists(path) for path in stored_logo)
+
+    def test_a_file_that_another_app_names_is_kept(
+        self,
+        oauth_app: OAuthApplication,
+        stored_logo: list[str],
+        user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        other = OAuthApplication.objects.create(
+            user=user,
+            name="Other",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            redirect_uris="https://other.example/cb",
+            registration_source=OAuthApplication.RegistrationSource.MANUAL,
+        )
+        OAuthApplication.objects.filter(pk=other.pk).update(logo=stored_logo[0])
+
+        with django_capture_on_commit_callbacks(execute=True):
+            oauth_app.delete()
+
+        assert default_storage.exists(stored_logo[0])
+        assert not default_storage.exists(stored_logo[1])
