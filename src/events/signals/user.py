@@ -19,6 +19,7 @@ from events.service.blacklist_service import (
     link_blacklist_entries_for_user,
 )
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
+from events.tasks.blacklist import link_blacklist_entries_for_user_task
 from events.tasks.member_register import auto_link_member_records
 from events.utils import get_invitation_message
 
@@ -122,18 +123,12 @@ def link_blacklist_entries_on_verified_email(
         return
     if not _became_verified(instance):
         return
-    user_id = instance.pk
-
-    def _link() -> None:
-        # After commit: the verification, password-reset and email-change paths hold the account row FOR UPDATE,
-        # and the link takes Organization locks. Linking inside their transaction could deadlock with a blacklist
-        # add that holds an Organization lock and needs KEY SHARE on the account at commit. The ban applies in the
-        # meantime, because enforcement matches the email on every entry.
-        user = RevelUser.objects.filter(pk=user_id).first()
-        if user is not None and (linked_count := link_blacklist_entries_for_user(user)):
-            logger.info("blacklist_entries_linked", user_id=str(user_id), count=linked_count)
-
-    transaction.on_commit(_link)
+    user_id = str(instance.pk)
+    # After commit, in a task: the verification, password-reset and email-change paths hold the account row
+    # FOR UPDATE, and the link takes Organization locks, so linking inside their transaction could deadlock with a
+    # blacklist add. The task retries, and robust=True keeps a broker failure from failing the verified request.
+    # The ban applies in the meantime, because enforcement matches the email on every entry.
+    transaction.on_commit(lambda: link_blacklist_entries_for_user_task.delay(user_id), robust=True)
 
 
 @receiver(post_save, sender=RevelUser)

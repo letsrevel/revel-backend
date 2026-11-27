@@ -657,6 +657,7 @@ class TestLinkTriggers:
         user.guest = False
         with django_capture_on_commit_callbacks(execute=True):
             user.save(update_fields=["guest"])
+            assert Blacklist.objects.get(pk=entry.pk).user_id is None  # not inside the transaction
 
         entry.refresh_from_db()
         assert entry.user == user
@@ -677,6 +678,7 @@ class TestLinkTriggers:
         user.email = "after@example.com"
         with django_capture_on_commit_callbacks(execute=True):
             user.save(update_fields=["email"])
+            assert Blacklist.objects.get(pk=entry.pk).user_id is None  # not inside the transaction
 
         entry.refresh_from_db()
         assert entry.user == user
@@ -687,12 +689,13 @@ class TestLinkTriggers:
         """Saving a field that is not link-relevant never calls the linker."""
         user = self._verified_user(django_user_model, "plain@example.com")
 
-        with patch("events.signals.user.link_blacklist_entries_for_user", new_callable=MagicMock) as linker:
+        with patch("events.signals.user.link_blacklist_entries_for_user_task", new_callable=MagicMock) as task:
             user.first_name = "Changed"
-            with django_capture_on_commit_callbacks(execute=True):
+            with django_capture_on_commit_callbacks(execute=True) as callbacks:
                 user.save(update_fields=["first_name"])
 
-        linker.assert_not_called()
+        task.delay.assert_not_called()
+        assert not callbacks
 
 
 class TestLinkOrganizationsMatchedByOtherAccountEntry:
