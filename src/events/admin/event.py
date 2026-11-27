@@ -268,6 +268,11 @@ class EventAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # t
 
 @admin.register(models.EventSeries)
 class EventSeriesAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+    def get_readonly_fields(self, request: HttpRequest, obj: models.EventSeries | None = None) -> t.Sequence[str]:
+        """Make ``organization`` create-only (#1596): a series pass checkout pays the organization that it reserved."""
+        fields = list(super().get_readonly_fields(request, obj))
+        return [*fields, "organization"] if obj is not None else fields
+
     list_display = [
         "name",
         "slug",

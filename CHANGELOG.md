@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Django admin: the parent of a product is now fixed after creation, so that an open checkout cannot pay or issue tickets against a new parent.
+  - The series of a series pass, the organization of an event series and the event of a ticket tier are read-only on the change page.
 - Django admin: the event series admin shows more about the visibility of each series.
   - The series list shows the organization visibility (also as a filter) and the number of events, with a link to them.
   - The series page shows its effective public visibility and the reason for it.
