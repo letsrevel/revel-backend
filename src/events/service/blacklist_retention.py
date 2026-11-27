@@ -75,9 +75,8 @@ def _merge_into_unlinked(entry: Blacklist, holders: list[Blacklist]) -> bool:
         for holder in {holders[0], *updates}:
             if not holder.reason:
                 updates.setdefault(holder, {})["reason"] = entry.reason
-    # ponytail: a Django admin save does not take the organization lock. A concurrent admin entry with the same
-    # identifier makes these updates fail, and the deletion rolls back (no ban is lost; it can run again).
-    # Upgrade path: take lock_organization_for_staff_changes in the admin save of Blacklist.
+    # A Django admin save takes the same organization lock (BlacklistAdmin.save_model), so no admin entry can
+    # appear between the holder read and these updates.
     for holder, values in updates.items():
         Blacklist.objects.filter(pk=holder.pk).update(**values)
     if leftover:
@@ -92,9 +91,12 @@ def _merge_into_unlinked(entry: Blacklist, holders: list[Blacklist]) -> bool:
 
 def _lock_entries_and_organizations(user: RevelUser) -> list[Blacklist]:
     """Lock the organizations of the linked entries (pk order), then the entries, until the set is stable."""
-    # ponytail: a bulk delete of several accounts, and a later pass that finds a new organization, can take
-    # locks out of the global order. Postgres then aborts one transaction. No entry is lost and the deletion
-    # can run again. Upgrade path: lock all accounts and organizations of a bulk delete up front in pk order.
+    # ponytail: a bulk delete of several accounts, or a later pass that finds a new organization, can take locks
+    # out of the global order. Postgres then aborts one transaction, and the whole deletion rolls back: nothing is
+    # written and no entry is lost. delete_user_account does not retry it. A self-service deletion comes back
+    # active and must be requested again; an admin, ban or sweep run stays inactive with the existing
+    # `account_deletion_failed` error log (no alert) until an operator queues it again. Every production path
+    # deletes one account per task. Upgrade path: lock all accounts and organizations of a bulk delete up front.
     locked: set[t.Any] = set()
     while True:
         new_ids = set(Blacklist.objects.filter(user=user).values_list("organization_id", flat=True)) - locked
@@ -157,11 +159,16 @@ def _keep_extras(entry: Blacklist, extras: _Identifiers) -> bool:
     """Put the extra identifiers that no unlinked entry of the organization holds on one new unlinked entry.
 
     The new entry has no creator: the creator may be an account that the same bulk delete removes.
-    The Django admin does not take the organization lock, so a concurrent save can take a value between the
-    check and the insert. The insert then fails in its savepoint, and the free values are checked again once.
+    A manual add, the Django admin save and this code take the organization lock. So no other entry should
+    take a value between the check and the insert. The insert still runs in a savepoint. When it loses a race,
+    the free values are checked again once. When the second attempt fails too, it raises, and the whole
+    deletion rolls back.
 
     Returns:
         Whether a new entry was created.
+
+    Raises:
+        IntegrityError: When both inserts lose a race. The whole deletion then rolls back.
     """
     for _attempt in range(2):
         new_values = _free_values(entry, extras)
@@ -176,8 +183,8 @@ def _keep_extras(entry: Blacklist, extras: _Identifiers) -> bool:
         except IntegrityError:
             # The value that clashed is held by the concurrent entry, so its ban stays; retry with the rest.
             continue
-    logger.warning("blacklist_extra_entry_not_created", organization_id=str(entry.organization_id))
-    return False
+    # Both attempts lost a race: fail the deletion (it rolls back) rather than drop an identifier.
+    raise IntegrityError("A blacklist identifier of the deleted account could not be kept.")
 
 
 def _holder_query_for(field: str, value: str, organization_id: t.Any) -> t.Any:
@@ -217,6 +224,10 @@ def detach_blacklist_entries_of_account(user: RevelUser) -> None:
 
     Args:
         user: The account that is deleted or erased. Call this before the account is anonymised.
+
+    Raises:
+        IntegrityError: When an identifier of the account cannot be kept because a concurrent entry won
+            both inserts. The caller's transaction then rolls back the whole deletion.
     """
     with transaction.atomic():
         entries = _lock_entries_and_organizations(user)

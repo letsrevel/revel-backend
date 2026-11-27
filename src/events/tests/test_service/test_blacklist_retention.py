@@ -4,7 +4,7 @@ import typing as t
 from unittest.mock import patch
 
 import pytest
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
 from django.test.utils import CaptureQueriesContext
 
 from accounts.models import RevelUser
@@ -375,6 +375,33 @@ def test_a_lost_race_keeps_the_other_extra_identifiers(org: Organization, accoun
     assert not RevelUser.objects.filter(pk=account.pk).exists()
     _assert_every_identifier_held(org, email=NEW_EMAIL, phone_number=NEW_PHONE)
     assert Blacklist.objects.filter(organization=org, phone_number=NEW_PHONE).count() == 1
+
+
+def test_two_lost_races_roll_back_the_deletion(org: Organization, account: RevelUser) -> None:
+    """When both inserts of the extra entry lose a race, the deletion fails and nothing is lost."""
+    from events.service import blacklist_retention
+
+    OrganizationMember.objects.create(organization=org, user=account)
+    linked = _linked_entry(org, account, telegram_username=None)
+    account.email = NEW_EMAIL
+    account.phone_number = NEW_PHONE
+    account.save(update_fields=["email", "phone_number"])
+    original = blacklist_retention._free_values
+    clashes = iter([{"phone_number": NEW_PHONE}, {"email": NEW_EMAIL}])
+
+    def racing_free_values(entry: Blacklist, extras: t.Any) -> dict[str, str]:
+        values = original(entry, extras)
+        Blacklist.objects.bulk_create([Blacklist(organization=org, reason="admin", **next(clashes))])
+        return values
+
+    with patch.object(blacklist_retention, "_free_values", side_effect=racing_free_values):
+        # user.delete() runs without its own savepoint; production wraps it in the deletion task's atomic block.
+        with pytest.raises(IntegrityError), transaction.atomic():
+            account.delete()
+
+    assert RevelUser.objects.filter(pk=account.pk).exists()
+    linked.refresh_from_db()
+    assert linked.user_id == account.pk
 
 
 def test_the_identifiers_are_read_fresh_from_the_database(org: Organization, account: RevelUser) -> None:

@@ -5,6 +5,7 @@ import typing as t
 
 from django.contrib import admin
 from django.db.models import Count
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
@@ -55,6 +56,20 @@ class BlacklistAdmin(CreatedByDefaultMixin, ModelAdmin, OrganizationLinkMixin): 
         ("Name Fields (for fuzzy matching)", {"fields": ["first_name", "last_name", "preferred_name"]}),
         ("Metadata", {"fields": [("created_at", "updated_at")]}),
     ]
+
+    def save_model(self, request: HttpRequest, obj: models.Blacklist, form: t.Any, change: bool) -> None:
+        """Take the organization lock first, like every other blacklist write.
+
+        A manual add and the entries kept after an account deletion take this lock too, so an admin save
+        cannot insert an identifier between their check and their write.
+        """
+        from events.service.blacklist_service import lock_organization_for_staff_changes
+
+        # ponytail: an admin save is last-write-wins. A change form loaded before a concurrent service write
+        # (for example an account deletion that moved an identifier onto this entry) saves its old values back.
+        # Upgrade path: compare form.initial with the locked row and refuse, or save only form.changed_data.
+        lock_organization_for_staff_changes(obj.organization)
+        super().save_model(request, obj, form, change)
 
     @admin.display(description="User")
     def user_link(self, obj: models.Blacklist) -> str | None:

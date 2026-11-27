@@ -21,7 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The visitor can follow such a series.
   - The series list and search, the series passes and the series resources still follow the organization rule, so they show nothing of a private organization.
 - RSVPs, invitations, notification preferences and event-cancellation refunds: a failure to queue the attendee count update no longer turns a saved change into an error response, and no longer stops the steps after it (for example the staff notification of an RSVP). For an RSVP save or a ticket write that stamps its update time, a sweep every 15 minutes then corrects the count; after an RSVP delete, a lost update stays until the next rebuild of that event. An RSVP change also queues the update once, not twice.
-- Blacklist: an entry stays in place when its linked account is deleted or erased. The entry keeps its email, phone number, Telegram username and reason, loses its name fields, and is no longer linked to the account. The entry also keeps the email, phone number and Telegram username that the account had at the time of deletion. A value that the entry does not hold yet goes on it when the field is empty, or else on one new entry of the organization, unless another unlinked entry already holds it. The phone number and Telegram username of the account are kept only when the account is a known holder of the organization; the email always is. A new account that registers with the same identifiers is linked to it again. If an unlinked entry of the organization already holds one of the identifiers, that identifier stays on that entry. The other identifiers move to it when it has no value for them. The entry is deleted only when no identifier is left.
+- Blacklist: an entry stays in place when its linked account is deleted or erased.
+  - The entry is no longer linked to the account. It keeps its email, phone number, Telegram username and reason, and loses its name fields.
+  - It also keeps the email that the account had at the time of deletion. It keeps the account's phone number and Telegram username only when the account is a known holder of the organization.
+  - A value that the entry does not hold yet goes on it when the field is empty. Otherwise it goes on one new entry of the organization, unless another unlinked entry already holds it.
+  - If an unlinked entry of the organization already holds one of the identifiers, that identifier stays on that entry. The other identifiers move to it when it has no value for them. The entry is deleted only when no identifier is left.
+  - A new account that registers with the same identifiers is linked to it again.
+  - A save of a blacklist entry in the Django admin now waits for the organization lock, like the other blacklist changes.
 
 ## [3.2.1] - 2026-11-27
 

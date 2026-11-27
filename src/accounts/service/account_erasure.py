@@ -119,6 +119,8 @@ def erase_account_keeping_holdings(user: RevelUser, kept: "KeptHoldings") -> Non
     Raises:
         RuntimeError: If a kept ticket or pass is gone after step 4 (a cascade reached it). The
             transaction rolls back, so the account stays as it was.
+        IntegrityError: If a blacklist identifier of the account cannot be kept (step 3). The transaction
+            rolls back, so the account stays as it was.
     """
     from events.models import HeldSeriesPass, Payment, Ticket
     from events.service.account_deletion_service import snapshot_holders
