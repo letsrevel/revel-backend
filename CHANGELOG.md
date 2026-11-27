@@ -34,7 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The entry is deleted only when no identifier is left.
   - A new account that registers with the same identifiers is linked to it again.
   - A save of a blacklist entry in the Django admin now waits for the organization lock.
-  - In the Django admin, the organization, the linked account and the identifiers of an existing entry are read-only.
 
 ## [3.2.1] - 2026-11-27
 

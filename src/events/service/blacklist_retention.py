@@ -75,8 +75,8 @@ def _merge_into_unlinked(entry: Blacklist, holders: list[Blacklist]) -> bool:
         for holder in {holders[0], *updates}:
             if not holder.reason:
                 updates.setdefault(holder, {})["reason"] = entry.reason
-    # A Django admin save takes the same organization lock (BlacklistAdmin.save_model), so no admin entry can
-    # appear between the holder read and these updates.
+    # A Django admin save takes the same organization lock (BlacklistAdmin.save_model), so no new admin entry can
+    # appear between the holder read and these updates. An admin edit of an existing entry is last-write-wins (#1616).
     for holder, values in updates.items():
         Blacklist.objects.filter(pk=holder.pk).update(**values)
     if leftover:
