@@ -7,7 +7,6 @@ import string
 import typing as t
 from datetime import datetime, time, timedelta
 
-import faker
 import pytest
 from django.utils import timezone, translation
 from pytest import MonkeyPatch
@@ -137,10 +136,17 @@ def user_with_questionnaire_submission(user: RevelUser, questionnaire: Questionn
     return user
 
 
+def _random_name() -> str:
+    """A name of 11 random letters: it matches no real name and no other factory name (#1537).
+
+    The blacklist matcher compares names with a fuzzy ratio (the last name alone too), so a Faker surname such as
+    "Smith" matched a name-based entry by chance. A test that needs a real name sets it.
+    """
+    return "".join(secrets.choice(string.ascii_lowercase) for _ in range(11)).capitalize()
+
+
 class RevelUserFactory:
     """Factory for creating RevelUser instances for testing."""
-
-    fake = faker.Faker()
 
     def create_user(self, **kwargs: t.Any) -> RevelUser:
         username = kwargs.pop(
@@ -148,8 +154,8 @@ class RevelUserFactory:
         )
         email = kwargs.pop("email", username + ("@test.com" if "@" not in username else ""))
         password = kwargs.pop("password", "password")
-        first_name = kwargs.pop("first_name", self.fake.first_name())
-        last_name = kwargs.pop("last_name", self.fake.last_name())
+        first_name = kwargs.pop("first_name") if "first_name" in kwargs else _random_name()
+        last_name = kwargs.pop("last_name") if "last_name" in kwargs else _random_name()
         preferred_name = kwargs.pop("preferred_name", f"{first_name} {last_name}")
         pronouns = kwargs.pop("pronouns", secrets.choice(["they/them", "he/him", "she/her"]))
         return RevelUser.objects.create_user(
