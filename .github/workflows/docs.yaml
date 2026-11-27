@@ -20,6 +20,7 @@ on:
       - "mkdocs.yml"
       - "pyproject.toml"
       - "uv.lock"
+      - ".python-version"
       - .github/workflows/docs.yaml
   pull_request:
     branches: [main]
@@ -28,6 +29,7 @@ on:
       - "mkdocs.yml"
       - "pyproject.toml"
       - "uv.lock"
+      - ".python-version"
       - .github/workflows/docs.yaml
 
 jobs:
@@ -46,7 +48,7 @@ jobs:
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
 
       - name: Install MkDocs
-        run: uv sync --frozen --only-group docs --no-install-project
+        run: uv sync --locked --only-group docs --no-install-project
 
       - name: Build docs
         run: uv run --no-sync mkdocs build --strict
@@ -66,6 +68,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    concurrency:
+      group: docs-deploy
+      cancel-in-progress: false
 
     steps:
       - name: Download site
@@ -75,9 +80,11 @@ jobs:
           path: site/
 
       - name: Setup SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p ${{ secrets.SERVER_PORT }} ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
