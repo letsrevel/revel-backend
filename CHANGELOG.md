@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-11-27
+
 ### Fixed
 
 - A save of a partly loaded record now writes only the fields that were loaded or set, as Django intends.
