@@ -531,10 +531,13 @@ def delete_tickets(tickets: QuerySet[Ticket]) -> None:
     """Delete tickets (the Django admin delete); their payments cascade and their tier capacity comes back.
 
     A CANCELLED ticket already gave its slot back, so only the other tickets release one. The unfinished
-    checkouts end as in ``delete_ticket_tier``. Lock order: Payment, then tier, then ticket
-    (``lock_for_cascade_delete``, ``lock_tier_then_ticket``). The decrement is floored at zero.
+    checkouts end as in ``delete_ticket_tier``. Lock order: Payment, then every tier of the selection, then
+    ticket, then DiscountCode (``lock_for_cascade_delete``, ``lock_tier_then_ticket``). The tiers are all locked
+    before the discount release, so a mixed selection keeps the global order. The rows are selected by pk, so a
+    filter of the admin changelist cannot drop a row from the locks. The decrement is floored at zero.
     """
-    lock_for_cascade_delete(tickets)
+    tickets = Ticket.objects.filter(pk__in=tickets.order_by().values("pk"))
+    lock_for_cascade_delete(tickets, tiers=TicketTier.objects.filter(pk__in=tickets.values("tier_id")))
     locked = lock_tier_then_ticket(tickets)
     holding = Counter(
         ticket.tier_id for ticket in locked if ticket.tier_id and ticket.status != Ticket.TicketStatus.CANCELLED

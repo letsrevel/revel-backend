@@ -7,15 +7,17 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+from django.db import connection
 from django.db.models import F
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import Event, EventSeries, HeldSeriesPass, Organization, Payment, SeriesPass, Ticket, TicketTier
 from events.models.discount_code import DiscountCode
-from events.service import discount_code_service, event_update_service
+from events.service import discount_code_service, event_update_service, ticket_service
 
 pytestmark = pytest.mark.django_db
 
@@ -307,22 +309,71 @@ class TestBulkTierDeleteLockOrder:
 class TestTicketDeleteReleasesCapacity:
     """#1562: an admin ticket delete gives back the tier capacity of each ticket that held it."""
 
-    @pytest.mark.parametrize("via", ["delete_view", "delete_selected"])
     def test_ticket_delete_releases_tier_capacity(
-        self, admin_client: Client, tier: TicketTier, member_user: RevelUser, via: str
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
     ) -> None:
         held = _checkout(tier, member_user, "cs_held", status=Payment.PaymentStatus.SUCCEEDED)
         cancelled = _checkout(tier, member_user, "cs_cancelled", status=Payment.PaymentStatus.SUCCEEDED)
         Ticket.objects.filter(pk=cancelled.pk).update(status=Ticket.TicketStatus.CANCELLED)
-        TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=1)  # the cancelled ticket gave its slot back
+        # 2, not 1: a release of the cancelled ticket too would give 0, and only the held one gives 1.
+        TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=2)
 
-        if via == "delete_view":
-            _delete_view(admin_client, "ticket", held.pk)
-        else:
-            _bulk(admin_client, "ticket", "delete_selected", [held.pk, cancelled.pk], post="yes")
+        _bulk(admin_client, "ticket", "delete_selected", [held.pk, cancelled.pk], post="yes")
 
         tier.refresh_from_db()
-        assert tier.quantity_sold == 0  # not -1: the cancelled ticket releases nothing
+        assert tier.quantity_sold == 1
+
+    def test_delete_of_only_a_cancelled_ticket_releases_nothing(
+        self, admin_client: Client, tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        cancelled = _checkout(tier, member_user, "cs_cancelled", status=Payment.PaymentStatus.SUCCEEDED)
+        Ticket.objects.filter(pk=cancelled.pk).update(status=Ticket.TicketStatus.CANCELLED)
+        TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=2)
+
+        _delete_view(admin_client, "ticket", cancelled.pk)
+
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 2
+
+    def test_mixed_selection_locks_all_tiers_before_the_discount_code(
+        self, event: Event, tier: TicketTier, code: DiscountCode, member_user: RevelUser
+    ) -> None:
+        other_tier = TicketTier.objects.create(
+            event=event, name="Other", price=Decimal("10.00"), payment_method=TicketTier.PaymentMethod.ONLINE
+        )
+        coded = _checkout(tier, member_user, "cs_coded", code=code)
+        plain = _checkout(other_tier, member_user, "cs_plain", status=Payment.PaymentStatus.SUCCEEDED)
+
+        with CaptureQueriesContext(connection) as ctx:
+            ticket_service.delete_tickets(Ticket.objects.filter(pk__in=[coded.pk, plain.pk]))
+
+        locks = [q["sql"] for q in ctx.captured_queries if "FOR UPDATE" in q["sql"]]
+        discount_lock = next(i for i, q in enumerate(locks) if '"events_discountcode"' in q)
+        # Some tier lock before the discount lock covers the ticket without a code (a tier-id or ticket-id filter).
+        assert any(
+            '"events_tickettier"' in q and (other_tier.pk.hex in q or plain.pk.hex in q) for q in locks[:discount_lock]
+        ), locks
+        assert _used(code) == 0
+
+    def test_delete_enqueues_waitlist_only_for_a_held_ticket(
+        self,
+        admin_client: Client,
+        tier: TicketTier,
+        member_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        # The on_commit callbacks never fire in a test transaction, so capture and run them.
+        held = _checkout(tier, member_user, "cs_held", status=Payment.PaymentStatus.SUCCEEDED)
+        cancelled = _checkout(tier, member_user, "cs_cancelled", status=Payment.PaymentStatus.SUCCEEDED)
+        Ticket.objects.filter(pk=cancelled.pk).update(status=Ticket.TicketStatus.CANCELLED)
+
+        with patch("events.tasks.process_waitlist_for_event_task.delay") as delay:
+            with django_capture_on_commit_callbacks(execute=True):
+                _delete_view(admin_client, "ticket", cancelled.pk)
+            delay.assert_not_called()
+            with django_capture_on_commit_callbacks(execute=True):
+                _delete_view(admin_client, "ticket", held.pk)
+            delay.assert_called_once_with(str(tier.event_id))
 
     def test_ticket_delete_never_drops_below_zero(
         self, admin_client: Client, tier: TicketTier, member_user: RevelUser

@@ -244,20 +244,18 @@ class PaymentAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[m
         FAILED with a session that has not expired is one too: the event-cancel sweep leaves that session open,
         and a late payment is refunded only while the row exists (#1562).
         """
+        if not pending_checkout.is_unfinished_checkout(
+            payment.status, payment.expires_at, payment.stripe_session_id, timezone.now()
+        ):
+            return None
         if payment.status == models.Payment.PaymentStatus.PENDING:
             return "pending payment: deleting it would strand its pending ticket"
-        if (
-            payment.status == models.Payment.PaymentStatus.FAILED
-            and payment.stripe_session_id
-            and payment.expires_at > timezone.now()
-        ):
-            return "failed payment with an open checkout session: a late payment would have no row to reconcile"
-        return None
+        return "failed payment with an open checkout session: a late payment would have no row to reconcile"
 
-    # Deleting a PENDING payment would leave its PENDING ticket with no payment, so the expiry sweep
-    # could never reclaim the seat. Not enforced in has_delete_permission: Django checks it for every
-    # object a cascade removes, so it would also make deleting an event, tier or ticket with a pending
-    # checkout a 403.
+    # Deleting an unfinished checkout (PENDING, or FAILED with an open session) would leave its ticket with no
+    # payment, so the expiry sweep could never reclaim the seat. Not enforced in has_delete_permission:
+    # Django checks it for every object a cascade removes, so it would also make deleting an event, tier or
+    # ticket with a pending checkout a 403.
     def get_deleted_objects(self, objs: t.Any, request: HttpRequest) -> t.Any:
         deleted, model_count, perms_needed, protected = super().get_deleted_objects(objs, request)
         protected = [
