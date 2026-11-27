@@ -158,6 +158,52 @@ def _apply_consequences_to_matched_holders(entry: Blacklist) -> None:
         apply_blacklist_consequences(holder, organization)
 
 
+def _apply_consequences_to_typed_holders(
+    organization: Organization, *, linked_user: RevelUser, phone_number: str | None, telegram_username: str | None
+) -> None:
+    """Apply consequences to other staff/members of the org whose phone or Telegram handle staff typed.
+
+    For a manual entry that links ``linked_user`` by verified email. Only the typed phone number and Telegram
+    username reach other accounts: never the email, and never an identifier copied from a profile (quick mode).
+    The linked account gets its consequences through the link itself; the owner is exempt.
+    """
+    match = Q()
+    if phone_number:
+        match |= Q(phone_number=phone_number)
+    if telegram_username:
+        match |= Q(telegram_users__telegram_username__iexact=telegram_username)
+    if not match:
+        return
+    holders = (
+        RevelUser.objects.filter(match)
+        .filter(
+            Exists(OrganizationStaff.objects.filter(organization=organization, user=OuterRef("pk")))
+            | Exists(OrganizationMember.objects.filter(organization=organization, user=OuterRef("pk")))
+        )
+        .exclude(pk__in=[organization.owner_id, linked_user.pk])
+        .distinct()
+    )
+    for holder in holders:
+        apply_blacklist_consequences(holder, organization)
+
+
+def _apply_entry_consequences(
+    entry: Blacklist, *, manual_mode: bool, phone_number: str | None, telegram_username: str | None
+) -> None:
+    """Apply the consequences of a new or newly linked entry to the other accounts it reaches.
+
+    An unlinked entry reaches every staff member and member it hard-matches. A linked entry reaches other
+    accounts only through a phone or Telegram handle typed in manual mode (never its email, never a value copied
+    from a profile in quick mode). Its own account gets its consequences through the link itself.
+    """
+    if entry.user is None:
+        _apply_consequences_to_matched_holders(entry)
+    elif manual_mode:
+        _apply_consequences_to_typed_holders(
+            entry.organization, linked_user=entry.user, phone_number=phone_number, telegram_username=telegram_username
+        )
+
+
 def lock_organization_for_staff_changes(organization: Organization) -> None:
     """Serialize adding staff and creating a blacklist entry for one organization.
 
@@ -307,7 +353,8 @@ def add_to_blacklist(
        is copied only when the account is a known holder for the organization (ADR-0020).
     2. Manual mode: Provide individual identifiers. An account is linked only by an exact verified-email
        match. An unlinked entry still applies the ban consequences to existing staff and members of the
-       organization that it matches by email, phone or telegram (the owner is exempt).
+       organization that it matches by email, phone or telegram (the owner is exempt). An entry that links an
+       account applies them also to other staff and members whose typed phone or Telegram handle it holds.
 
     When an account is resolved (quick mode, or manual mode with a verified-email match), in this order:
 
@@ -409,7 +456,7 @@ def add_to_blacklist(
         raise HttpError(403, str(_("Only the organization owner can blacklist a staff member.")))
 
     if user and candidate:
-        return _link_candidate_entry(
+        linked = _link_candidate_entry(
             organization,
             user,
             candidate,
@@ -417,6 +464,10 @@ def add_to_blacklist(
             phone_number=phone_number if manual_mode else None,
             reason=reason,
         )
+        _apply_entry_consequences(
+            linked, manual_mode=manual_mode, phone_number=phone_number, telegram_username=telegram_username
+        )
+        return linked
 
     entry = Blacklist.objects.create(
         organization=organization,
@@ -430,8 +481,9 @@ def add_to_blacklist(
         reason=reason,
         created_by=created_by,
     )
-    if entry.user is None:
-        _apply_consequences_to_matched_holders(entry)
+    _apply_entry_consequences(
+        entry, manual_mode=manual_mode, phone_number=phone_number, telegram_username=telegram_username
+    )
     return entry
 
 

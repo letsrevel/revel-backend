@@ -1,6 +1,7 @@
 """Blacklist duplicate identifiers (#1554) and one linked entry per organization (#1553)."""
 
 import datetime
+import typing as t
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,6 +12,7 @@ from accounts.models import RevelUser
 from common.email_backend import erased_placeholder_email
 from events.models import Blacklist, Organization, OrganizationMember, OrganizationStaff
 from events.service import blacklist_service
+from telegram.models import TelegramUser
 
 pytestmark = pytest.mark.django_db
 
@@ -695,3 +697,131 @@ class TestLinkOrganizationsMatchedByOtherAccountEntry:
         member.refresh_from_db()
         assert member.status == OrganizationMember.MembershipStatus.BANNED
         assert not Blacklist.objects.filter(organization=blacklist_org, user=user).exists()
+
+
+def _count_consequences() -> t.Any:
+    """Patch every lookup of apply_blacklist_consequences with one spy (the linked-entry signal imports it by name)."""
+    from contextlib import ExitStack
+
+    from events.signals import membership as membership_signals
+
+    spy = MagicMock(wraps=blacklist_service.apply_blacklist_consequences)
+    stack = ExitStack()
+    stack.enter_context(patch.object(blacklist_service, "apply_blacklist_consequences", spy))
+    stack.enter_context(patch.object(membership_signals, "apply_blacklist_consequences", spy))
+    return stack, spy
+
+
+class TestConsequencesForEveryMatchedAccount:
+    """An entry that matches several accounts applies the consequences to each one (owner exempt)."""
+
+    PHONE_B = "+393330000111"
+
+    def _accounts(
+        self, org: Organization, django_user_model: type[RevelUser]
+    ) -> tuple[RevelUser, RevelUser, OrganizationMember, OrganizationMember]:
+        a = django_user_model.objects.create_user(username="acc_a", email="acc-a@example.com", password="x")
+        _verify(a)
+        b = django_user_model.objects.create_user(
+            username="acc_b", email="acc-b@example.com", password="x", phone_number=self.PHONE_B
+        )
+        OrganizationStaff.objects.create(organization=org, user=b)
+        member_a = OrganizationMember.objects.create(organization=org, user=a)
+        member_b = OrganizationMember.objects.create(organization=org, user=b)
+        return a, b, member_a, member_b
+
+    @pytest.mark.parametrize("existing_email_entry", [False, True], ids=["create", "link"])
+    def test_typed_phone_of_another_staff_member_applies_consequences_to_both(
+        self,
+        existing_email_entry: bool,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        a, b, member_a, member_b = self._accounts(blacklist_org, django_user_model)
+        if existing_email_entry:
+            Blacklist.objects.create(organization=blacklist_org, email=a.email, created_by=blacklist_admin)
+
+        entry = blacklist_service.add_to_blacklist(
+            organization=blacklist_org, created_by=blacklist_admin, email=a.email, phone_number=self.PHONE_B
+        )
+
+        assert entry.user == a
+        assert not OrganizationStaff.objects.filter(organization=blacklist_org, user=b).exists()
+        member_a.refresh_from_db()
+        member_b.refresh_from_db()
+        assert member_a.status == OrganizationMember.MembershipStatus.BANNED
+        assert member_b.status == OrganizationMember.MembershipStatus.BANNED
+
+    def test_the_owner_is_never_touched(
+        self, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
+    ) -> None:
+        a, _b, _member_a, _member_b = self._accounts(blacklist_org, django_user_model)
+        RevelUser.objects.filter(pk=blacklist_admin.pk).update(phone_number="+393330000999")
+        owner_member = OrganizationMember.objects.create(organization=blacklist_org, user=blacklist_admin)
+
+        stack, spy = _count_consequences()
+        with stack:
+            blacklist_service.add_to_blacklist(
+                organization=blacklist_org, created_by=blacklist_admin, email=a.email, phone_number="+393330000999"
+            )
+
+        assert all(call.args[0].pk != blacklist_admin.pk for call in spy.call_args_list)
+        owner_member.refresh_from_db()
+        assert owner_member.status != OrganizationMember.MembershipStatus.BANNED
+        blacklist_org.refresh_from_db()
+        assert blacklist_org.owner_id == blacklist_admin.pk
+
+    @pytest.mark.parametrize("existing_email_entry", [False, True], ids=["create", "link"])
+    def test_the_same_person_gets_the_consequences_once(
+        self,
+        existing_email_entry: bool,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        a = django_user_model.objects.create_user(
+            username="acc_same", email="acc-same@example.com", password="x", phone_number=self.PHONE_B
+        )
+        _verify(a)
+        OrganizationStaff.objects.create(organization=blacklist_org, user=a)
+        if existing_email_entry:
+            Blacklist.objects.create(organization=blacklist_org, email=a.email, created_by=blacklist_admin)
+
+        stack, spy = _count_consequences()
+        with stack:
+            blacklist_service.add_to_blacklist(
+                organization=blacklist_org, created_by=blacklist_admin, email=a.email, phone_number=self.PHONE_B
+            )
+
+        assert [call.args[0].pk for call in spy.call_args_list].count(a.pk) == 1
+        assert not OrganizationStaff.objects.filter(organization=blacklist_org, user=a).exists()
+
+    def test_quick_mode_does_not_reach_another_account_through_a_copied_handle(
+        self, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
+    ) -> None:
+        """Quick mode copies the profile; a copied Telegram handle must not ban another account that shares it."""
+        a = django_user_model.objects.create_user(username="quick_a", email="quick-a@example.com", password="x")
+        OrganizationMember.objects.create(organization=blacklist_org, user=a)  # a known holder: the handle is copied
+        TelegramUser.objects.create(user=a, telegram_id=9101, telegram_username="shared_handle")
+        b = django_user_model.objects.create_user(username="quick_b", email="quick-b@example.com", password="x")
+        OrganizationStaff.objects.create(organization=blacklist_org, user=b)
+        TelegramUser.objects.create(user=b, telegram_id=9102, telegram_username="shared_handle")
+
+        blacklist_service.add_to_blacklist(organization=blacklist_org, created_by=blacklist_admin, user=a)
+
+        assert OrganizationStaff.objects.filter(organization=blacklist_org, user=b).exists()
+
+    def test_the_linked_email_does_not_reach_another_account_with_the_same_email(
+        self, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
+    ) -> None:
+        """Only a typed phone or Telegram handle reaches other accounts, never the email of the linked entry."""
+        a = django_user_model.objects.create_user(username="mail_a", email="same@example.com", password="x")
+        _verify(a)
+        c = django_user_model.objects.create_user(username="mail_c", email="SAME@example.com", password="x")
+        member_c = OrganizationMember.objects.create(organization=blacklist_org, user=c)
+
+        blacklist_service.add_to_blacklist(organization=blacklist_org, created_by=blacklist_admin, email=a.email)
+
+        member_c.refresh_from_db()
+        assert member_c.status != OrganizationMember.MembershipStatus.BANNED
