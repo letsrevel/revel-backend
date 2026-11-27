@@ -116,12 +116,24 @@ def link_blacklist_entries_on_verified_email(
 
     The entries that match the account's identifiers (email, phone, Telegram) are linked, not only by email.
     Creation is handled by ``handle_user_creation``. A manual entry made while the email was unverified
-    stays unlinked until now.
+    stays unlinked until now. The link runs after commit (see the comment below).
     """
     if created or instance.guest or not instance.email_verified or not instance.email:
         return
-    if _became_verified(instance) and (linked_count := link_blacklist_entries_for_user(instance)):
-        logger.info("blacklist_entries_linked", user_id=str(instance.id), count=linked_count)
+    if not _became_verified(instance):
+        return
+    user_id = instance.pk
+
+    def _link() -> None:
+        # After commit: the verification, password-reset and email-change paths hold the account row FOR UPDATE,
+        # and the link takes Organization locks. Linking inside their transaction could deadlock with a blacklist
+        # add that holds an Organization lock and needs KEY SHARE on the account at commit. The ban applies in the
+        # meantime, because enforcement matches the email on every entry.
+        user = RevelUser.objects.filter(pk=user_id).first()
+        if user is not None and (linked_count := link_blacklist_entries_for_user(user)):
+            logger.info("blacklist_entries_linked", user_id=str(user_id), count=linked_count)
+
+    transaction.on_commit(_link)
 
 
 @receiver(post_save, sender=RevelUser)

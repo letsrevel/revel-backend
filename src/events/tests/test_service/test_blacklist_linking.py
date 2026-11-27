@@ -475,7 +475,11 @@ class TestRegistrationLinksOnlyVerifiedEmail:
     """Registration links by email only for a verified, non-guest account. Phone and Telegram always link."""
 
     def test_unverified_registration_does_not_link_email_entry_until_verified(
-        self, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         """The entry stays unlinked, the account is still hard-blacklisted, and verification links it."""
         entry = Blacklist.objects.create(
@@ -489,7 +493,8 @@ class TestRegistrationLinksOnlyVerifiedEmail:
         assert blacklist_service.check_user_hard_blacklisted(user, blacklist_org)
 
         user.email_verified = True
-        user.save(update_fields=["email_verified"])
+        with django_capture_on_commit_callbacks(execute=True):
+            user.save(update_fields=["email_verified"])
 
         entry.refresh_from_db()
         assert entry.user == user
@@ -597,7 +602,11 @@ class TestLinkOnEmailVerification:
     """Verifying an email links matching blacklist entries (#1553)."""
 
     def test_verification_links_entry_and_applies_consequences(
-        self, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         """An entry created while the email was unverified links when the account verifies."""
         user = django_user_model.objects.create_user(username="late", email="late@example.com")
@@ -610,7 +619,11 @@ class TestLinkOnEmailVerification:
         assert entry.user_id is None
 
         user.email_verified = True
-        user.save(update_fields=["email_verified"])
+        with django_capture_on_commit_callbacks(execute=True):
+            user.save(update_fields=["email_verified"])
+            # Not inside the verifying transaction: it holds the account row FOR UPDATE, and the link takes
+            # Organization locks (a lock-order deadlock with a concurrent blacklist add).
+            assert Blacklist.objects.get(pk=entry.pk).user_id is None
 
         entry.refresh_from_db()
         member.refresh_from_db()
@@ -628,7 +641,11 @@ class TestLinkTriggers:
         return user
 
     def test_guest_conversion_links_matching_entry(
-        self, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         """A verified guest that becomes a full account gets its matching entry linked."""
         user = self._verified_user(django_user_model, "guest@example.com", guest=True)
@@ -638,13 +655,18 @@ class TestLinkTriggers:
         assert entry.user_id is None
 
         user.guest = False
-        user.save(update_fields=["guest"])
+        with django_capture_on_commit_callbacks(execute=True):
+            user.save(update_fields=["guest"])
 
         entry.refresh_from_db()
         assert entry.user == user
 
     def test_verified_email_change_links_matching_entry(
-        self, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         """A verified user that changes to a listed address gets the entry linked."""
         user = self._verified_user(django_user_model, "before@example.com")
@@ -653,18 +675,22 @@ class TestLinkTriggers:
         )
 
         user.email = "after@example.com"
-        user.save(update_fields=["email"])
+        with django_capture_on_commit_callbacks(execute=True):
+            user.save(update_fields=["email"])
 
         entry.refresh_from_db()
         assert entry.user == user
 
-    def test_unrelated_save_does_not_link(self, django_user_model: type[RevelUser]) -> None:
+    def test_unrelated_save_does_not_link(
+        self, django_user_model: type[RevelUser], django_capture_on_commit_callbacks: t.Any
+    ) -> None:
         """Saving a field that is not link-relevant never calls the linker."""
         user = self._verified_user(django_user_model, "plain@example.com")
 
         with patch("events.signals.user.link_blacklist_entries_for_user", new_callable=MagicMock) as linker:
             user.first_name = "Changed"
-            user.save(update_fields=["first_name"])
+            with django_capture_on_commit_callbacks(execute=True):
+                user.save(update_fields=["first_name"])
 
         linker.assert_not_called()
 
@@ -677,6 +703,7 @@ class TestLinkOrganizationsMatchedByOtherAccountEntry:
         blacklist_org: Organization,
         blacklist_admin: RevelUser,
         django_user_model: type[RevelUser],
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         """Nothing can be linked, but the member that holds the listed email must still be banned."""
         erased = django_user_model.objects.create_user(username="erased", email=erased_placeholder_email("x"))
@@ -692,7 +719,8 @@ class TestLinkOrganizationsMatchedByOtherAccountEntry:
         assert not Blacklist.objects.filter(organization=blacklist_org, user=user).exists()
 
         user.email_verified = True
-        user.save(update_fields=["email_verified"])
+        with django_capture_on_commit_callbacks(execute=True):
+            user.save(update_fields=["email_verified"])
 
         member.refresh_from_db()
         assert member.status == OrganizationMember.MembershipStatus.BANNED
