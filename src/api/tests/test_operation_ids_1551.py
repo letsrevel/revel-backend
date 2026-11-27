@@ -43,3 +43,21 @@ def test_the_guard_refuses_a_duplicate_operation_id() -> None:
 
 def test_the_guard_accepts_unique_ids() -> None:
     assert_unique_operation_ids({"paths": {"/a": {"get": {"operationId": "a"}, "post": {"operationId": "b"}}}})
+
+
+def test_dump_openapi_refuses_a_duplicate_operation_id(settings: t.Any, tmp_path: t.Any) -> None:
+    """The command runs the guard, and it writes no artifact for a refused schema."""
+    from unittest.mock import patch
+
+    from django.core.management import call_command
+
+    settings.BASE_DIR = tmp_path / "src"
+    duplicate = {"paths": {"/a": {"get": {"operationId": "x_list"}}, "/b": {"post": {"operationId": "x_list"}}}}
+
+    with (
+        patch.object(api, "get_openapi_schema", return_value=duplicate),
+        pytest.raises(DuplicateOperationIdError),
+    ):
+        call_command("dump_openapi")
+
+    assert not (tmp_path / ".artifacts" / "openapi.json").exists()
