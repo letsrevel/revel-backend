@@ -19,6 +19,7 @@ from .mixins import VisibilityMixin
 from .ticket_number import PreserveTicketNumberMixin
 from .ticket_queryset import TicketManager
 from .ticket_tier_queryset import TicketTierManager
+from .ticket_tier_queryset import TicketTierQuerySet as TicketTierQuerySet  # re-exported: the old import path (#1473)
 from .venue import Venue, VenueSeat, VenueSector
 
 if t.TYPE_CHECKING:
