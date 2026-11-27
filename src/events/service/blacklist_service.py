@@ -217,6 +217,42 @@ def _refuse_duplicate_identifiers(
         raise HttpError(400, str(_("An entry with this phone number already exists.")))
 
 
+def _refuse_if_account_already_covered(organization: Organization, user: RevelUser, email: str | None) -> None:
+    """Raise 400 when the organization already has an entry for ``user`` or a linked entry that holds its email.
+
+    Only linked rows are read: the entry of the account itself, or the entry of another account (for example
+    an erased one) that keeps this email. No hidden profile field of the account is read (ADR-0020).
+    """
+    existing = Blacklist.objects.filter(organization=organization)
+    covered = existing.filter(user=user).exists()
+    if not covered and email:
+        covered = existing.filter(user__isnull=False, email__iexact=email).exists()
+    if covered:
+        raise HttpError(400, str(_("This user is already blacklisted.")))
+
+
+def _link_existing_email_entry(organization: Organization, user: RevelUser, email: str | None) -> Blacklist | None:
+    """Link the oldest unlinked entry of the organization that holds ``email`` to ``user``, if there is one.
+
+    The link is a queryset update, so the ``Blacklist`` post_save receiver does not run. The consequences are
+    applied here instead. Returns the linked entry, or ``None`` when no unlinked entry holds the email.
+    """
+    if not email:
+        return None
+    entry = (
+        Blacklist.objects.select_for_update(of=("self",))
+        .filter(organization=organization, user__isnull=True, email__iexact=email)
+        .order_by("created_at", "pk")
+        .first()
+    )
+    if entry is None:
+        return None
+    Blacklist.objects.filter(pk=entry.pk).update(user=user)
+    apply_blacklist_consequences(user, organization)
+    entry.refresh_from_db()
+    return entry
+
+
 @transaction.atomic
 def add_to_blacklist(
     organization: Organization,
@@ -240,6 +276,21 @@ def add_to_blacklist(
        match. An unlinked entry still applies the ban consequences to existing staff and members of the
        organization that it matches by email, phone or telegram (the owner is exempt).
 
+    When an account is resolved (quick mode, or manual mode with a verified-email match), in this order:
+
+    - The request is refused (400) when the organization has an entry for the account, or a linked entry
+      of another account (for example an erased one) that holds the account's email.
+    - In manual mode, the typed Telegram username and phone number are refused (400) when another entry
+      holds them. Identifiers copied from the account profile are never checked, so no hidden profile
+      field decides the outcome.
+    - A current staff member can be blacklisted only by the organization owner (403).
+    - When an unlinked entry of the organization holds the account's email, that entry is linked to the
+      account and returned. No new row is created. The reason and names given in this call are not applied
+      to the existing entry.
+    - Otherwise a linked entry is created.
+
+    Without a resolved account, every typed identifier is refused (400) when any entry holds it.
+
     An entry that matches a current staff member (in either mode) removes their staff role, so only the
     organization owner can create it.
 
@@ -256,14 +307,15 @@ def add_to_blacklist(
         reason: Reason for blacklisting
 
     Returns:
-        The created Blacklist entry
+        The created Blacklist entry, or the existing unlinked entry that was linked to the account
 
     Raises:
-        HttpError: If no identifiers provided or user already blacklisted (400), or if the entry matches a
-            current staff member and ``created_by`` is not the organization owner (403)
+        HttpError: If no identifiers provided or the user or an identifier is already blacklisted (400), or
+            if the entry matches a current staff member and ``created_by`` is not the organization owner (403)
     """
     lock_organization_for_staff_changes(organization)
 
+    manual_mode = user is None
     if user:
         # Quick mode - populate from user. The profile is copied only for an account that acted toward the
         # organization; a stranger's entry keeps the email alone (ADR-0020).
@@ -296,19 +348,24 @@ def add_to_blacklist(
     telegram_username = _normalize_telegram_username(telegram_username)
     phone_number = _normalize_phone(phone_number)
 
-    # An account is refused when any entry already covers it: its own entry, an unlinked entry that matches
-    # its email, phone or telegram handle, or an erased account's linked entry that still holds its email.
-    if user and check_user_hard_blacklisted(user, organization):
-        raise HttpError(400, str(_("This user is already blacklisted.")))
-    # Also with a linked account: a manual entry can carry a typed phone or handle that another entry holds.
-    _refuse_duplicate_identifiers(
-        organization, email=email, telegram_username=telegram_username, phone_number=phone_number
-    )
+    if user is None:
+        _refuse_duplicate_identifiers(
+            organization, email=email, telegram_username=telegram_username, phone_number=phone_number
+        )
+    else:
+        _refuse_if_account_already_covered(organization, user, email)
+        if manual_mode:  # typed identifiers only; the email is owned by the checks above and the link below
+            _refuse_duplicate_identifiers(
+                organization, email=None, telegram_username=telegram_username, phone_number=phone_number
+            )
 
     if created_by.pk != organization.owner_id and _matches_current_staff(
         organization, user=user, email=email, telegram_username=telegram_username, phone_number=phone_number
     ):
         raise HttpError(403, str(_("Only the organization owner can blacklist a staff member.")))
+
+    if user and (linked := _link_existing_email_entry(organization, user, email)):
+        return linked
 
     entry = Blacklist.objects.create(
         organization=organization,
@@ -617,14 +674,19 @@ def _link_matching_entries(user: RevelUser, match: Q) -> int:
     """Link at most one matching unlinked entry per organization to ``user`` and apply the consequences.
 
     A user holds one linked entry per organization (``unique_blacklist_user_per_org``). In each organization
-    that has matching unlinked entries:
+    that has matching entries:
 
     - If the user already has a linked entry there, nothing is linked.
-    - Otherwise the oldest matching entry (``created_at``, then ``pk``) is linked.
+    - Otherwise the oldest matching unlinked entry (``created_at``, then ``pk``) is linked.
 
     The other matching entries stay unlinked. They still enforce the ban by identifier.
-    The consequences apply in every matched organization, including the ones where nothing was linked.
+    The consequences apply in every matched organization, including the ones where nothing was linked, and
+    including the ones where the only match is an entry linked to another account (for example an erased one).
     The link is a queryset update, so the ``Blacklist`` post_save signal does not apply them a second time.
+
+    Each matched organization is locked with ``lock_organization_for_staff_changes`` before the link state is
+    read, in ascending pk order so that two linkers cannot deadlock. ``add_to_blacklist`` takes the same lock,
+    so a concurrent manual add and this link serialize instead of both creating a linked entry.
 
     Args:
         user: The user to link an entry for
@@ -633,16 +695,20 @@ def _link_matching_entries(user: RevelUser, match: Q) -> int:
     Returns:
         Number of entries linked
     """
+    org_ids = set(Blacklist.objects.filter(match).values_list("organization_id", flat=True))
+    if not org_ids:
+        return 0
+
+    organizations = list(Organization.objects.filter(id__in=org_ids).order_by("pk"))
+    for org in organizations:
+        lock_organization_for_staff_changes(org)
+
     candidates = list(
         Blacklist.objects.select_for_update(of=("self",))
-        .filter(user__isnull=True)
+        .filter(user__isnull=True, organization_id__in=org_ids)
         .filter(match)
         .order_by("created_at", "pk")
     )
-    if not candidates:
-        return 0
-
-    org_ids = {entry.organization_id for entry in candidates}
     already_linked = set(
         Blacklist.objects.filter(user=user, organization_id__in=org_ids).values_list("organization_id", flat=True)
     )
@@ -653,7 +719,7 @@ def _link_matching_entries(user: RevelUser, match: Q) -> int:
 
     linked_count = Blacklist.objects.filter(pk__in=[entry.pk for entry in to_link.values()]).update(user=user)
 
-    for org in Organization.objects.filter(id__in=org_ids):
+    for org in organizations:
         apply_blacklist_consequences(user, org)
 
     return linked_count

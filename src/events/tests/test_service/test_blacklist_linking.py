@@ -1,11 +1,15 @@
 """Blacklist duplicate identifiers (#1554) and one linked entry per organization (#1553)."""
 
+import datetime
+from unittest.mock import MagicMock, patch
+
 import pytest
+from django.utils import timezone
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from common.email_backend import erased_placeholder_email
-from events.models import Blacklist, Organization, OrganizationMember
+from events.models import Blacklist, Organization, OrganizationMember, OrganizationStaff
 from events.service import blacklist_service
 
 pytestmark = pytest.mark.django_db
@@ -71,18 +75,80 @@ class TestManualModeDuplicateIdentifiers:
 class TestAddWhenAccountResolved:
     """A resolved account is refused when any entry already covers it (#1553)."""
 
-    def test_quick_mode_refused_after_unverified_email_entry(
+    def test_quick_mode_links_existing_unlinked_email_entry(
         self, blacklist_org: Organization, blacklist_admin: RevelUser, target_user: RevelUser
     ) -> None:
-        """An unlinked entry with the account's email already blacklists the account."""
+        """An unlinked entry with the account's email is linked to the account instead of a second row."""
+        entry = Blacklist.objects.create(
+            organization=blacklist_org, email=target_user.email, created_by=blacklist_admin
+        )
+        member = OrganizationMember.objects.create(organization=blacklist_org, user=target_user)
+
+        result = blacklist_service.add_to_blacklist(
+            organization=blacklist_org, created_by=blacklist_admin, user=target_user
+        )
+
+        entry.refresh_from_db()
+        member.refresh_from_db()
+        assert result.pk == entry.pk
+        assert entry.user == target_user
+        assert Blacklist.objects.filter(organization=blacklist_org).count() == 1
+        assert member.status == OrganizationMember.MembershipStatus.BANNED
+
+    def test_quick_mode_link_removes_staff_role(
+        self, blacklist_org: Organization, blacklist_admin: RevelUser, target_user: RevelUser
+    ) -> None:
+        """Linking an existing entry applies the consequences, which remove the staff role."""
         Blacklist.objects.create(organization=blacklist_org, email=target_user.email, created_by=blacklist_admin)
+        OrganizationStaff.objects.create(organization=blacklist_org, user=target_user)
+
+        blacklist_service.add_to_blacklist(organization=blacklist_org, created_by=blacklist_admin, user=target_user)
+
+        assert not OrganizationStaff.objects.filter(organization=blacklist_org, user=target_user).exists()
+
+    def test_quick_mode_refused_when_account_already_has_entry(
+        self, blacklist_org: Organization, blacklist_admin: RevelUser, target_user: RevelUser
+    ) -> None:
+        """An entry linked to the account itself is refused."""
+        Blacklist.objects.create(organization=blacklist_org, user=target_user, created_by=blacklist_admin)
 
         with pytest.raises(HttpError) as exc_info:
             blacklist_service.add_to_blacklist(organization=blacklist_org, created_by=blacklist_admin, user=target_user)
 
         assert exc_info.value.status_code == 400
         assert "already blacklisted" in str(exc_info.value.message)
-        assert Blacklist.objects.filter(organization=blacklist_org).count() == 1
+
+    def test_quick_mode_phone_held_by_unlinked_entry_of_stranger_does_not_refuse(
+        self, blacklist_org: Organization, blacklist_admin: RevelUser, target_user: RevelUser
+    ) -> None:
+        """A phone-only entry must not decide the outcome: the phone is a hidden field of a stranger (S1)."""
+        Blacklist.objects.create(
+            organization=blacklist_org, phone_number=target_user.phone_number, created_by=blacklist_admin
+        )
+
+        result = blacklist_service.add_to_blacklist(
+            organization=blacklist_org, created_by=blacklist_admin, user=target_user
+        )
+
+        assert result.user == target_user
+        assert Blacklist.objects.filter(organization=blacklist_org).count() == 2
+
+    def test_quick_mode_phone_held_by_unlinked_entry_of_known_holder_does_not_refuse(
+        self, blacklist_org: Organization, blacklist_admin: RevelUser, target_user: RevelUser
+    ) -> None:
+        """A known holder (an org member) with a covered phone still gets a new linked entry (G2)."""
+        OrganizationMember.objects.create(organization=blacklist_org, user=target_user)
+        Blacklist.objects.create(
+            organization=blacklist_org, phone_number=target_user.phone_number, created_by=blacklist_admin
+        )
+
+        result = blacklist_service.add_to_blacklist(
+            organization=blacklist_org, created_by=blacklist_admin, user=target_user
+        )
+
+        assert result.user == target_user
+        assert Blacklist.objects.filter(organization=blacklist_org, user=target_user).count() == 1
+        assert Blacklist.objects.filter(organization=blacklist_org).count() == 2
 
     def test_manual_email_refused_when_linked_entry_of_other_account_holds_email(
         self,
@@ -104,8 +170,52 @@ class TestAddWhenAccountResolved:
             )
 
         assert exc_info.value.status_code == 400
+        assert "already blacklisted" in str(exc_info.value.message)
         assert Blacklist.objects.filter(organization=blacklist_org).count() == 1
         assert not Blacklist.objects.filter(organization=blacklist_org, user=new_holder).exists()
+
+    def test_manual_email_refused_when_account_has_linked_entry_without_email(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """The account's own entry blocks a manual add by its verified email, even when the entry has no email."""
+        holder = django_user_model.objects.create_user(username="holder", email="holder@example.com")
+        RevelUser.objects.filter(pk=holder.pk).update(email_verified=True)
+        Blacklist.objects.create(organization=blacklist_org, user=holder, created_by=blacklist_admin)
+
+        with pytest.raises(HttpError) as exc_info:
+            blacklist_service.add_to_blacklist(
+                organization=blacklist_org, created_by=blacklist_admin, email="holder@example.com"
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "already blacklisted" in str(exc_info.value.message)
+        assert Blacklist.objects.filter(organization=blacklist_org).count() == 1
+
+    def test_manual_email_links_existing_unlinked_entry(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """A manual add by the verified email of an account links the entry that already holds the email."""
+        holder = django_user_model.objects.create_user(username="holder", email="holder@example.com")
+        RevelUser.objects.filter(pk=holder.pk).update(email_verified=True)
+        entry = Blacklist.objects.create(
+            organization=blacklist_org, email="holder@example.com", reason="first", created_by=blacklist_admin
+        )
+
+        result = blacklist_service.add_to_blacklist(
+            organization=blacklist_org, created_by=blacklist_admin, email="Holder@Example.com", reason="second"
+        )
+
+        entry.refresh_from_db()
+        assert result.pk == entry.pk
+        assert entry.user == holder
+        assert entry.reason == "first"
+        assert Blacklist.objects.filter(organization=blacklist_org).count() == 1
 
     def test_manual_linked_entry_refused_when_typed_telegram_is_held_by_another_entry(
         self,
@@ -137,13 +247,15 @@ class TestLinkOneEntryPerOrganization:
     def test_registration_with_two_matching_entries_links_one(
         self, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
     ) -> None:
-        """Email entry and phone entry both match a new user: no IntegrityError, the oldest is linked."""
+        """Email entry and phone entry both match a new user: no IntegrityError, the earliest created_at is linked."""
         by_email = Blacklist.objects.create(
             organization=blacklist_org, email="new@example.com", created_by=blacklist_admin
         )
         by_phone = Blacklist.objects.create(
             organization=blacklist_org, phone_number="+393331112222", created_by=blacklist_admin
         )
+        # The oldest created_at wins, not the insertion order: make the phone entry the older one.
+        Blacklist.objects.filter(pk=by_phone.pk).update(created_at=timezone.now() - datetime.timedelta(days=1))
 
         user = django_user_model.objects.create_user(
             username="newbie", email="new@example.com", phone_number="+393331112222"
@@ -151,8 +263,8 @@ class TestLinkOneEntryPerOrganization:
 
         by_email.refresh_from_db()
         by_phone.refresh_from_db()
-        assert by_email.user == user
-        assert by_phone.user is None
+        assert by_phone.user == user
+        assert by_email.user is None
         assert Blacklist.objects.filter(organization=blacklist_org, user=user).count() == 1
 
     def test_registration_applies_consequences(
@@ -220,3 +332,84 @@ class TestLinkOnEmailVerification:
         member.refresh_from_db()
         assert entry.user == user
         assert member.status == OrganizationMember.MembershipStatus.BANNED
+
+
+class TestLinkTriggers:
+    """The post_save receiver links on guest conversion and email change, not on an unrelated save (T1)."""
+
+    def _verified_user(self, django_user_model: type[RevelUser], email: str, *, guest: bool = False) -> RevelUser:
+        user = django_user_model.objects.create_user(username=email, email=email)
+        RevelUser.objects.filter(pk=user.pk).update(email_verified=True, guest=guest)
+        user.refresh_from_db()
+        return user
+
+    def test_guest_conversion_links_matching_entry(
+        self, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
+    ) -> None:
+        """A verified guest that becomes a full account gets its matching entry linked."""
+        user = self._verified_user(django_user_model, "guest@example.com", guest=True)
+        entry = Blacklist.objects.create(
+            organization=blacklist_org, email="guest@example.com", created_by=blacklist_admin
+        )
+        assert entry.user_id is None
+
+        user.guest = False
+        user.save(update_fields=["guest"])
+
+        entry.refresh_from_db()
+        assert entry.user == user
+
+    def test_verified_email_change_links_matching_entry(
+        self, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
+    ) -> None:
+        """A verified user that changes to a listed address gets the entry linked."""
+        user = self._verified_user(django_user_model, "before@example.com")
+        entry = Blacklist.objects.create(
+            organization=blacklist_org, email="after@example.com", created_by=blacklist_admin
+        )
+
+        user.email = "after@example.com"
+        user.save(update_fields=["email"])
+
+        entry.refresh_from_db()
+        assert entry.user == user
+
+    def test_unrelated_save_does_not_link(self, django_user_model: type[RevelUser]) -> None:
+        """Saving a field that is not link-relevant never calls the linker."""
+        user = self._verified_user(django_user_model, "plain@example.com")
+
+        with patch("events.signals.user.link_blacklist_entries_for_user", new_callable=MagicMock) as linker:
+            user.first_name = "Changed"
+            user.save(update_fields=["first_name"])
+
+        linker.assert_not_called()
+
+
+class TestLinkOrganizationsMatchedByOtherAccountEntry:
+    """Consequences apply in an organization whose only match is an entry linked to another account (G4)."""
+
+    def test_verification_bans_member_when_only_match_is_erased_accounts_entry(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """Nothing can be linked, but the member that holds the listed email must still be banned."""
+        erased = django_user_model.objects.create_user(username="erased", email=erased_placeholder_email("x"))
+        Blacklist.objects.create(
+            organization=blacklist_org, user=erased, email="held@example.com", created_by=blacklist_admin
+        )
+        user = django_user_model.objects.create_user(username="holder", email="held@example.com")
+        RevelUser.objects.filter(pk=user.pk).update(email_verified=False)
+        user.refresh_from_db()
+        member = OrganizationMember.objects.create(
+            organization=blacklist_org, user=user, status=OrganizationMember.MembershipStatus.ACTIVE
+        )
+        assert not Blacklist.objects.filter(organization=blacklist_org, user=user).exists()
+
+        user.email_verified = True
+        user.save(update_fields=["email_verified"])
+
+        member.refresh_from_db()
+        assert member.status == OrganizationMember.MembershipStatus.BANNED
+        assert not Blacklist.objects.filter(organization=blacklist_org, user=user).exists()

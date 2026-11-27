@@ -112,15 +112,16 @@ def _became_verified(instance: RevelUser) -> bool:
 def link_blacklist_entries_on_verified_email(
     sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: t.Any
 ) -> None:
-    """Link blacklist entries that match the email of a user who just became verified (#1553).
+    """Link blacklist entries that match a user who just became verified (#1553).
 
+    The entries that match the account's identifiers (email, phone, Telegram) are linked, not only by email.
     Creation is handled by ``handle_user_creation``. A manual entry made while the email was unverified
     stays unlinked until now.
     """
     if created or instance.guest or not instance.email_verified or not instance.email:
         return
-    if _became_verified(instance):
-        link_blacklist_entries_for_user(instance)
+    if _became_verified(instance) and (linked_count := link_blacklist_entries_for_user(instance)):
+        logger.info("blacklist_entries_linked", user_id=str(instance.id), count=linked_count)
 
 
 @receiver(post_save, sender=RevelUser)
