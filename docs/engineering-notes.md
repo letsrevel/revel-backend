@@ -245,6 +245,10 @@ nothing. The data-export task takes the same lock for the whole export.
   cannot deadlock against such a transaction. `FOR UPDATE` would.
 - A new path that holds one of the locks above must not lock or update a `RevelUser` row afterwards. Take the
   account lock first.
+- Blacklist linking at registration, email verification and Telegram connect runs while the account row is held
+  (the `RevelUser` save). It then locks `Organization` rows with `lock_organization_for_staff_changes`, in pk
+  order. This follows the account-row-first rule. A path that holds an `Organization` lock must not update a
+  `RevelUser` row afterwards.
 - The lock is on one account: two checkouts of the same buyer wait for each other, and so does the buyer's own
   token refresh. Checkouts of different buyers do not.
 - Not serialized: tickets that a kept series pass gets later (`series_pass_service.materialize_tickets` from a

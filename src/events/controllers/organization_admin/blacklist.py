@@ -106,10 +106,8 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
                 reason=payload.reason,
             )
 
-        # Refetch with user relationship (may have been auto-linked)
-        # created_by is already available from current request
-        entry = models.Blacklist.objects.select_related("user", "organization").get(pk=entry.pk)
-        entry.created_by = current_user
+        # Refetch with relations: the entry may be an existing one that was linked, so keep its real creator
+        entry = models.Blacklist.objects.select_related("user", "organization", "created_by").get(pk=entry.pk)
         return 201, entry
 
     @route.get(

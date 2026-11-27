@@ -201,14 +201,21 @@ def _matches_current_staff(
 
 
 def _refuse_duplicate_identifiers(
-    organization: Organization, *, email: str | None, telegram_username: str | None, phone_number: str | None
+    organization: Organization,
+    *,
+    email: str | None,
+    telegram_username: str | None,
+    phone_number: str | None,
+    exclude_pk: UUID | None = None,
 ) -> None:
     """Raise 400 when any entry of the organization already holds one of these normalized identifiers.
 
     Linked entries count too: the ban matches the identifiers on every entry, and an erased account's
-    linked entry keeps them (#1543).
+    linked entry keeps them (#1543). The entry ``exclude_pk`` is not checked: it is the entry the caller links.
     """
     existing = Blacklist.objects.filter(organization=organization)
+    if exclude_pk:
+        existing = existing.exclude(pk=exclude_pk)
     if email and existing.filter(email__iexact=email).exists():
         raise HttpError(400, str(_("An entry with this email already exists.")))
     if telegram_username and existing.filter(telegram_username__iexact=telegram_username).exists():
@@ -231,23 +238,45 @@ def _refuse_if_account_already_covered(organization: Organization, user: RevelUs
         raise HttpError(400, str(_("This user is already blacklisted.")))
 
 
-def _link_existing_email_entry(organization: Organization, user: RevelUser, email: str | None) -> Blacklist | None:
-    """Link the oldest unlinked entry of the organization that holds ``email`` to ``user``, if there is one.
-
-    The link is a queryset update, so the ``Blacklist`` post_save receiver does not run. The consequences are
-    applied here instead. Returns the linked entry, or ``None`` when no unlinked entry holds the email.
-    """
+def _lock_link_candidate(organization: Organization, email: str | None) -> Blacklist | None:
+    """Lock and return the oldest unlinked entry of the organization that holds ``email``, or ``None``."""
     if not email:
         return None
-    entry = (
+    return (
         Blacklist.objects.select_for_update(of=("self",))
         .filter(organization=organization, user__isnull=True, email__iexact=email)
         .order_by("created_at", "pk")
         .first()
     )
-    if entry is None:
-        return None
-    Blacklist.objects.filter(pk=entry.pk).update(user=user)
+
+
+def _link_candidate_entry(
+    organization: Organization,
+    user: RevelUser,
+    entry: Blacklist,
+    *,
+    telegram_username: str | None,
+    phone_number: str | None,
+) -> Blacklist:
+    """Link the locked ``entry`` to ``user`` and apply the consequences.
+
+    The typed Telegram username and phone number that the entry does not hold are set on it in the same
+    update. A typed value that differs from a value the entry holds is refused (400).
+    The link is a queryset update, so the ``Blacklist`` post_save receiver does not run. The consequences are
+    applied here instead.
+    """
+    fill: dict[str, str] = {}
+    if telegram_username:
+        if entry.telegram_username is None:
+            fill["telegram_username"] = telegram_username
+        elif entry.telegram_username.lower() != telegram_username.lower():
+            raise HttpError(400, str(_("An entry with this email already exists.")))
+    if phone_number:
+        if entry.phone_number is None:
+            fill["phone_number"] = phone_number
+        elif entry.phone_number != phone_number:
+            raise HttpError(400, str(_("An entry with this email already exists.")))
+    Blacklist.objects.filter(pk=entry.pk).update(user=user, **fill)
     apply_blacklist_consequences(user, organization)
     entry.refresh_from_db()
     return entry
@@ -279,14 +308,16 @@ def add_to_blacklist(
     When an account is resolved (quick mode, or manual mode with a verified-email match), in this order:
 
     - The request is refused (400) when the organization has an entry for the account, or a linked entry
-      of another account (for example an erased one) that holds the account's email.
+      of another account (for example an erased one) that holds the account's email. The email counts only
+      when the account is not a guest and its email is verified. An unverified email is only the account's claim.
     - In manual mode, the typed Telegram username and phone number are refused (400) when another entry
-      holds them. Identifiers copied from the account profile are never checked, so no hidden profile
-      field decides the outcome.
+      holds them. The entry that is linked below is not checked. Identifiers copied from the account
+      profile are never checked, so no hidden profile field decides the outcome.
     - A current staff member can be blacklisted only by the organization owner (403).
-    - When an unlinked entry of the organization holds the account's email, that entry is linked to the
-      account and returned. No new row is created. The reason and names given in this call are not applied
-      to the existing entry.
+    - When an unlinked entry of the organization holds the account's (verified) email, the oldest such entry
+      is linked to the account and returned. No new row is created. In manual mode, a typed Telegram username
+      or phone number that the entry lacks is set on it. A typed value that differs from the entry's value
+      is refused (400). The reason and names given in this call are not applied to the existing entry.
     - Otherwise a linked entry is created.
 
     Without a resolved account, every typed identifier is refused (400) when any entry holds it.
@@ -348,15 +379,23 @@ def add_to_blacklist(
     telegram_username = _normalize_telegram_username(telegram_username)
     phone_number = _normalize_phone(phone_number)
 
+    candidate: Blacklist | None = None
     if user is None:
         _refuse_duplicate_identifiers(
             organization, email=email, telegram_username=telegram_username, phone_number=phone_number
         )
     else:
-        _refuse_if_account_already_covered(organization, user, email)
+        # Only a verified, non-guest email may cover or link: an unverified email is the account's own claim.
+        link_email = email if user.email_verified and not user.guest else None
+        candidate = _lock_link_candidate(organization, link_email)
+        _refuse_if_account_already_covered(organization, user, link_email)
         if manual_mode:  # typed identifiers only; the email is owned by the checks above and the link below
             _refuse_duplicate_identifiers(
-                organization, email=None, telegram_username=telegram_username, phone_number=phone_number
+                organization,
+                email=None,
+                telegram_username=telegram_username,
+                phone_number=phone_number,
+                exclude_pk=candidate.pk if candidate else None,
             )
 
     if created_by.pk != organization.owner_id and _matches_current_staff(
@@ -364,8 +403,14 @@ def add_to_blacklist(
     ):
         raise HttpError(403, str(_("Only the organization owner can blacklist a staff member.")))
 
-    if user and (linked := _link_existing_email_entry(organization, user, email)):
-        return linked
+    if user and candidate:
+        return _link_candidate_entry(
+            organization,
+            user,
+            candidate,
+            telegram_username=telegram_username if manual_mode else None,
+            phone_number=phone_number if manual_mode else None,
+        )
 
     entry = Blacklist.objects.create(
         organization=organization,
@@ -399,10 +444,12 @@ def add_user_to_blacklist(
         reason: Reason for blacklisting
 
     Returns:
-        The created Blacklist entry
+        The created Blacklist entry, or the existing unlinked entry that was linked to the account
 
     Raises:
-        HttpError: If user not found or already blacklisted
+        HttpError: If the user is not found (404), if no identifiers are provided or the user or an identifier
+            is already blacklisted (400), or if the entry matches a current staff member and ``created_by`` is
+            not the organization owner (403)
     """
     if not (user := RevelUser.objects.filter(id=user_id).first()):
         raise HttpError(404, str(_("User not found.")))
@@ -685,8 +732,11 @@ def _link_matching_entries(user: RevelUser, match: Q) -> int:
     The link is a queryset update, so the ``Blacklist`` post_save signal does not apply them a second time.
 
     Each matched organization is locked with ``lock_organization_for_staff_changes`` before the link state is
-    read, in ascending pk order so that two linkers cannot deadlock. ``add_to_blacklist`` takes the same lock,
-    so a concurrent manual add and this link serialize instead of both creating a linked entry.
+    read, in ascending pk order so that two linkers cannot deadlock. The set of matched organizations is read
+    before the locks. An entry that another transaction adds in a new organization at the same moment is
+    therefore not linked by this call. Its ban still applies by identifier. Within the locked organizations,
+    a concurrent ``add_to_blacklist`` (which takes the same lock) and this link serialize instead of both
+    creating a linked entry.
 
     Args:
         user: The user to link an entry for

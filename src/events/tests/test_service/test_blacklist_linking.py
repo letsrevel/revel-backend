@@ -15,6 +15,12 @@ from events.service import blacklist_service
 pytestmark = pytest.mark.django_db
 
 
+def _verify(user: RevelUser) -> None:
+    """Mark the account's email as verified."""
+    RevelUser.objects.filter(pk=user.pk).update(email_verified=True)
+    user.refresh_from_db()
+
+
 class TestManualModeDuplicateIdentifiers:
     """Manual entries refuse a repeated email, telegram handle or phone number (#1554)."""
 
@@ -79,6 +85,7 @@ class TestAddWhenAccountResolved:
         self, blacklist_org: Organization, blacklist_admin: RevelUser, target_user: RevelUser
     ) -> None:
         """An unlinked entry with the account's email is linked to the account instead of a second row."""
+        _verify(target_user)
         entry = Blacklist.objects.create(
             organization=blacklist_org, email=target_user.email, created_by=blacklist_admin
         )
@@ -99,6 +106,7 @@ class TestAddWhenAccountResolved:
         self, blacklist_org: Organization, blacklist_admin: RevelUser, target_user: RevelUser
     ) -> None:
         """Linking an existing entry applies the consequences, which remove the staff role."""
+        _verify(target_user)
         Blacklist.objects.create(organization=blacklist_org, email=target_user.email, created_by=blacklist_admin)
         OrganizationStaff.objects.create(organization=blacklist_org, user=target_user)
 
@@ -239,6 +247,135 @@ class TestAddWhenAccountResolved:
         assert exc_info.value.status_code == 400
         assert "Telegram username" in str(exc_info.value.message)
         assert Blacklist.objects.filter(organization=blacklist_org).count() == 1
+
+
+class TestLinkByVerifiedEmailOnly:
+    """An existing entry links to an account only by a verified email (D1, D6)."""
+
+    def test_quick_mode_unverified_account_does_not_link_entry_holding_its_email(
+        self, blacklist_org: Organization, blacklist_admin: RevelUser, target_user: RevelUser
+    ) -> None:
+        """An unverified email is only the account's claim: a new linked entry is created, the old one stays."""
+        old = Blacklist.objects.create(organization=blacklist_org, email=target_user.email, created_by=blacklist_admin)
+
+        result = blacklist_service.add_to_blacklist(
+            organization=blacklist_org, created_by=blacklist_admin, user=target_user
+        )
+
+        old.refresh_from_db()
+        assert result.pk != old.pk
+        assert result.user == target_user
+        assert old.user is None
+        assert Blacklist.objects.filter(organization=blacklist_org).count() == 2
+
+    def test_quick_mode_unverified_account_not_refused_by_other_accounts_entry_with_its_email(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        target_user: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """An erased account's linked entry keeps the email; it must not refuse an unverified claimant."""
+        erased = django_user_model.objects.create_user(username="erased", email=erased_placeholder_email("x"))
+        Blacklist.objects.create(
+            organization=blacklist_org, user=erased, email=target_user.email, created_by=blacklist_admin
+        )
+
+        result = blacklist_service.add_to_blacklist(
+            organization=blacklist_org, created_by=blacklist_admin, user=target_user
+        )
+
+        assert result.user == target_user
+        assert Blacklist.objects.filter(organization=blacklist_org).count() == 2
+
+
+class TestLinkCandidateBeforeTypedChecks:
+    """The typed duplicate check ignores the entry that the call links (D4), and the link fills gaps (D3)."""
+
+    def test_manual_add_with_email_and_phone_of_the_entry_links_it(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """The entry that will be linked must not be refused as a duplicate of its own phone."""
+        holder = django_user_model.objects.create_user(
+            username="holder", email="holder@example.com", email_verified=True
+        )
+        entry = Blacklist.objects.create(
+            organization=blacklist_org,
+            email="holder@example.com",
+            phone_number="+393331234567",
+            created_by=blacklist_admin,
+        )
+
+        result = blacklist_service.add_to_blacklist(
+            organization=blacklist_org,
+            created_by=blacklist_admin,
+            email="holder@example.com",
+            phone_number="+393331234567",
+        )
+
+        entry.refresh_from_db()
+        assert result.pk == entry.pk
+        assert entry.user == holder
+        assert Blacklist.objects.filter(organization=blacklist_org).count() == 1
+
+    def test_link_fills_missing_typed_identifiers(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """A typed phone and Telegram handle that the entry lacks are set when the entry is linked."""
+        holder = django_user_model.objects.create_user(
+            username="holder", email="holder@example.com", email_verified=True
+        )
+        entry = Blacklist.objects.create(
+            organization=blacklist_org, email="holder@example.com", created_by=blacklist_admin
+        )
+
+        blacklist_service.add_to_blacklist(
+            organization=blacklist_org,
+            created_by=blacklist_admin,
+            email="holder@example.com",
+            phone_number="+393331234567",
+            telegram_username="@Foo",
+        )
+
+        entry.refresh_from_db()
+        assert entry.user == holder
+        assert entry.phone_number == "+393331234567"
+        assert entry.telegram_username == "foo"
+
+    def test_link_refused_when_typed_phone_conflicts_with_entry_phone(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """A different phone on the entry is not overwritten: 400, the entry stays unlinked and unchanged."""
+        django_user_model.objects.create_user(username="holder", email="holder@example.com", email_verified=True)
+        entry = Blacklist.objects.create(
+            organization=blacklist_org,
+            email="holder@example.com",
+            phone_number="+393331234567",
+            created_by=blacklist_admin,
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            blacklist_service.add_to_blacklist(
+                organization=blacklist_org,
+                created_by=blacklist_admin,
+                email="holder@example.com",
+                phone_number="+393339999999",
+            )
+
+        entry.refresh_from_db()
+        assert exc_info.value.status_code == 400
+        assert "email already exists" in str(exc_info.value.message)
+        assert entry.user is None
+        assert entry.phone_number == "+393331234567"
 
 
 class TestLinkOneEntryPerOrganization:
