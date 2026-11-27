@@ -7,11 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-- RSVPs, invitations, notification preferences and event-cancellation refunds: a failure to queue the attendee count update no longer turns a saved change into an error response, and no longer stops the steps after it (for example the staff notification of an RSVP). For an RSVP save or a ticket write that stamps its update time, a sweep every 15 minutes then corrects the count; after an RSVP delete, a lost update stays until the next rebuild of that event. An RSVP change also queues the update once, not twice.
-
-## [3.2.1] - 2026-11-27
+- Django admin: the event series admin shows more about the visibility of each series.
+  - The series list shows the organization visibility (also as a filter) and the number of events, with a link to them.
+  - The series page shows its effective public visibility and the reason for it.
 
 ### Fixed
 
@@ -19,12 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Before, a public event of a private organization linked to a series page that answered 404.
   - The visitor can follow such a series.
   - The series list and search, the series passes and the series resources still follow the organization rule, so they show nothing of a private organization.
+- RSVPs, invitations, notification preferences and event-cancellation refunds: a failure to queue the attendee count update no longer turns a saved change into an error response, and no longer stops the steps after it (for example the staff notification of an RSVP). For an RSVP save or a ticket write that stamps its update time, a sweep every 15 minutes then corrects the count; after an RSVP delete, a lost update stays until the next rebuild of that event. An RSVP change also queues the update once, not twice.
+
+## [3.2.1] - 2026-11-27
+
+### Fixed
+
 - A save of a partly loaded record now writes only the fields that were loaded or set, as Django intends.
   - Before, it wrote every column, so it could undo a change that another request had saved to a column that was not loaded.
-
-### Changed
-
-- Django admin: the event series list shows the organization visibility (also as a filter) and the number of events, with a link to them. The series page shows its effective public visibility and the reason for it.
 
 ## [3.2.0] - 2026-11-27
 
