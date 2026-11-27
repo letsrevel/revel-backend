@@ -4,9 +4,14 @@
 the tier afterwards would let the pass bypass it.
 """
 
+import orjson
 import pytest
 from django.core.exceptions import ValidationError
+from django.test.client import Client
+from django.urls import reverse
+from ninja_jwt.tokens import RefreshToken
 
+from accounts.models import RevelUser
 from events.models import MembershipTier, Organization, SeriesPass, SeriesPassTierLink, TicketTier
 from events.schema import TicketTierUpdateSchema
 from events.service import ticket_service
@@ -49,6 +54,8 @@ def test_a_new_membership_tier_restriction_on_a_covered_tier_is_refused(
         _update(tier, restricted_to_membership_tiers_ids=[gold.pk])
 
     assert "purchasable_by" in exc.value.message_dict
+    # The link is written before the check; only the service's transaction removes it again.
+    assert not TicketTier.objects.get(pk=tier.pk).restricted_to_membership_tiers.exists()
 
 
 def test_a_looser_rule_on_a_covered_tier_is_allowed(series_pass: SeriesPass) -> None:
@@ -114,3 +121,18 @@ def test_an_inactive_pass_still_refuses_the_change(series_pass: SeriesPass) -> N
 
     with pytest.raises(ValidationError):
         _update(tier, purchasable_by=P.MEMBERS)
+
+
+def test_the_endpoint_answers_400_and_keeps_the_rule(
+    series_pass: SeriesPass, organization_owner_user: RevelUser
+) -> None:
+    """The organizer's PUT gets a 400 with the error on ``purchasable_by``, and the stored rule does not change."""
+    _, tier = cover(series_pass, "endpoint", days=3)
+    client = Client(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(organization_owner_user).access_token}")  # type: ignore[attr-defined]
+    url = reverse("api:update_ticket_tier", kwargs={"event_id": tier.event_id, "tier_id": tier.id})
+
+    response = client.put(url, data=orjson.dumps({"purchasable_by": P.MEMBERS}), content_type="application/json")
+
+    assert response.status_code == 400, response.content
+    assert "purchasable_by" in response.json()["errors"]
+    assert TicketTier.objects.get(pk=tier.pk).purchasable_by == P.PUBLIC
