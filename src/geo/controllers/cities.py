@@ -2,10 +2,11 @@ import typing as t
 
 from django.db.models import QuerySet
 from ninja import Query
-from ninja_extra import ControllerBase, api_controller, route
+from ninja_extra import ControllerBase, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
+from common.api_controller import api_controller
 from common.throttling import GeoThrottle
 from geo.filters import CityFilterSchema
 from geo.models import City

@@ -4,9 +4,10 @@ import typing as t
 from uuid import UUID
 
 from ninja import Query
-from ninja_extra import api_controller, route
+from ninja_extra import route
 from pydantic import AwareDatetime
 
+from common.api_controller import api_controller
 from common.authentication import ScopedJWTAuth
 from common.throttling import UserDefaultThrottle
 from events import models, schema

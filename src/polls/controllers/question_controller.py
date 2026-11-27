@@ -33,8 +33,9 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from common.authentication import ScopedJWTAuth
 from common.controllers import UserAwareController
 from common.throttling import WriteThrottle

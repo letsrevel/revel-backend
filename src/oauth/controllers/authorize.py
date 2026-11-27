@@ -1,8 +1,9 @@
 """Headless consent endpoints consumed by the frontend ``/oauth/authorize`` page (spec §8.2)."""
 
 from django.http import HttpRequest
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.throttling import UserDefaultThrottle, WriteThrottle

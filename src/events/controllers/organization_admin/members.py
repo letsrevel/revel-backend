@@ -6,11 +6,12 @@ from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Path, Query
 from ninja.errors import HttpError
-from ninja_extra import api_controller, route
+from ninja_extra import route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth, ScopedJWTAuth
 from common.models import Tag
 from common.schema import ErrorDetail, TagSchema

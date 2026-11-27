@@ -14,7 +14,7 @@ because path params compile to a plain ``str`` converter — is kept correct
 inside ``submissions.py``.
 """
 
-from ninja_extra import api_controller
+from common.api_controller import api_controller
 
 from common.authentication import ScopedJWTAuth
 from common.throttling import WriteThrottle

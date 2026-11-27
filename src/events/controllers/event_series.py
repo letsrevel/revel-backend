@@ -3,13 +3,11 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 from ninja import Query
-from ninja_extra import (
-    api_controller,
-    route,
-)
+from ninja_extra import route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth, OptionalAuth
 from common.controllers import DistinctSearching, UserAwareController
 from common.throttling import WriteThrottle

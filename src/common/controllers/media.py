@@ -16,8 +16,9 @@ Note:
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from common.signing import parse_signed_url_params, verify_signature
 from common.throttling import MediaValidationThrottle
 

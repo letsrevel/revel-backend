@@ -8,7 +8,7 @@ from django.http import HttpRequest, HttpResponseRedirect
 from django.utils.translation import gettext_lazy as _
 from ninja import Path, Query
 from ninja.errors import HttpError
-from ninja_extra import api_controller, route
+from ninja_extra import route
 from ninja_jwt.controller import TokenObtainPairController
 from ninja_jwt.schema import (
     TokenObtainPairInputSchema,
@@ -23,6 +23,7 @@ from accounts.service import auth as auth_service
 from accounts.service import impersonation as impersonation_service
 from accounts.service import oidc as oidc_service
 from accounts.service import tenant_session, token_refresh
+from common.api_controller import api_controller
 from common.throttling import AuthThrottle
 from events.service.tenant_service import tenant_host_from_origin
 from revel.oidc_config import KEY_PATTERN

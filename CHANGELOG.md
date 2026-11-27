@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- API: OpenAPI operationIds no longer end in a random 8-character suffix, so they are the same in every schema dump (for example `auth_obtain_token`). A generated client gets stable type names after one regeneration.
 - Uploads: a new logo, cover image, profile picture or OAuth application logo is now stored under a random file name, not the name of the uploaded file. Files that are already stored keep their names.
 
 ### Fixed

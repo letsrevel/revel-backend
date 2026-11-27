@@ -1,9 +1,10 @@
 # src/api/controllers/tags.py (a new file)
 from django.db.models import Count, QuerySet
-from ninja_extra import api_controller, route
+from ninja_extra import route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
+from common.api_controller import api_controller
 from common.controllers import UserAwareController
 from common.models import Tag
 from common.schema import TagSchema

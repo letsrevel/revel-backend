@@ -133,8 +133,9 @@ Revel is a Django-based event management & ticketing platform (apps under `src/`
 ### Key patterns
 - **Service layer** — business logic in `<app>/service/`. Hybrid: function-based for stateless
   ops, class-based for request-scoped workflows (see [Service Layer Patterns](#service-layer-patterns)).
-- **Controllers (Django Ninja Extra)** — inherit `UserAwareController`; `@api_controller` with
-  consistent tags; `PageNumberPaginationExtra`; `@searching` for search.
+- **Controllers (Django Ninja Extra)** — inherit `UserAwareController`; `@api_controller` (import it from
+  `common.api_controller`, never `ninja_extra`: stable operationIds, #1551) with consistent tags;
+  `PageNumberPaginationExtra`; `@searching` for search.
 - **Permissions** — `events/controllers/permissions.py`; org roles (Owner/Staff/Member);
   event-level eligibility; JWT auth with optional anonymous access.
 - **Brand tokens** — colors, gradient (vertical, Hearty Purple → Light Crimson), and

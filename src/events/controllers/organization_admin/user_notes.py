@@ -2,8 +2,9 @@
 
 from uuid import UUID
 
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema

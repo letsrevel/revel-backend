@@ -64,6 +64,35 @@ def schema_name_collision_guard() -> t.Iterator[None]:
         OpenAPISchema.add_schema_definitions = original  # type: ignore[method-assign]
 
 
+class DuplicateOperationIdError(Exception):
+    """Two operations share an operationId (#1551)."""
+
+
+def assert_unique_operation_ids(schema: dict[str, t.Any]) -> None:
+    """Refuse a schema in which two operations have the same operationId.
+
+    The ids are stable (``common.api_controller``), so two routes with the same controller and function name
+    collide. Ninja only logs a warning for that, and a generated client then drops one of the two operations.
+    """
+    seen: dict[str, str] = {}
+    duplicates: list[str] = []
+    for path, operations in schema.get("paths", {}).items():
+        for method, operation in operations.items():
+            operation_id = operation.get("operationId") if isinstance(operation, dict) else None
+            if operation_id is None:
+                continue
+            where = f"{method.upper()} {path}"
+            if operation_id in seen:
+                duplicates.append(f"{operation_id!r}: {seen[operation_id]} and {where}")
+            else:
+                seen[operation_id] = where
+    if duplicates:
+        raise DuplicateOperationIdError(
+            "Duplicate OpenAPI operationIds; give one route of each pair an explicit operation_id=: "
+            + "; ".join(duplicates)
+        )
+
+
 class Command(BaseCommand):
     help = "Dump the OpenAPI schema in a json file."
 
@@ -73,5 +102,6 @@ class Command(BaseCommand):
         output_file.parent.mkdir(parents=True, exist_ok=True)
         with schema_name_collision_guard():
             schema = api.get_openapi_schema()
+        assert_unique_operation_ids(schema)
         output_file.write_text(json.dumps(schema, indent=2, cls=NinjaJSONEncoder))
         self.stdout.write(self.style.SUCCESS(f"OpenAPI schema dumped to {output_file}"))

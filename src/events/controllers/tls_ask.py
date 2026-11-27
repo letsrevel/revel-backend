@@ -6,8 +6,9 @@ hostname Caddy calls ``GET <ask>?domain=<host>`` and only proceeds on a 200.
 """
 
 from django.http import HttpRequest, HttpResponse
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from events.service import tenant_service
 
 

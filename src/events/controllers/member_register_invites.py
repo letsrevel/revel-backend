@@ -3,8 +3,9 @@
 import typing as t
 
 from django.utils.translation import gettext_lazy as _
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ErrorDetail

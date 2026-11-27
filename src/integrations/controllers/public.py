@@ -6,8 +6,9 @@ from urllib.parse import urlencode
 import structlog
 from django.http import HttpRequest, HttpResponseRedirect
 from ninja import Query
-from ninja_extra import ControllerBase, api_controller, route
+from ninja_extra import ControllerBase, route
 
+from common.api_controller import api_controller
 from common.models import SiteSettings
 from common.throttling import AnonDefaultThrottle
 from events.models import Organization

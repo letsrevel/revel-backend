@@ -214,7 +214,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 preview = true
 
 fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "EM", "ERA", "EXE", "FBT", "ICN", "INP", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PTH", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TCH", "TID", "TRY", "UP", "YTT"]
-select = ["C", "D", "E", "F", "I", "PLC2701", "PLR1702", "RUF022", "T201", "W"]
+select = ["C", "D", "E", "F", "I", "PLC2701", "PLR1702", "RUF022", "T201", "TID251", "W"]
 extend-select = ["I", "W", "E", "D"]
 ignore = ["D100", "D101", "D104", "D105", "D106"]
 unfixable = []
@@ -226,6 +226,10 @@ unfixable = []
 "**/admin/*.py" = ["D102"]
 "conftest.py" = ["D"]
 "benchmark/**" = ["T201"]  # load-test scripts report to the console by design
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# Random operationIds rename the generated frontend types on every dump (#1551).
+"ninja_extra.api_controller".msg = "Use common.api_controller.api_controller: it keeps OpenAPI operationIds stable."
 
 [tool.ruff.lint.mccabe]
 # Unlike Flake8, default to a complexity level of 10.

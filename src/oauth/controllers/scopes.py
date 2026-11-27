@@ -5,8 +5,9 @@ be able to read what they mean. Served from ``SCOPES`` so clients never keep a s
 the labels that could drift from the consent screen.
 """
 
-from ninja_extra import api_controller, route
+from ninja_extra import route
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.throttling import UserDefaultThrottle

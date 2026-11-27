@@ -6,11 +6,12 @@ from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from ninja import Query
 from ninja.errors import HttpError
-from ninja_extra import api_controller, route
+from ninja_extra import route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 from pydantic import UUID4
 
+from common.api_controller import api_controller
 from common.authentication import ScopedJWTAuth
 from common.throttling import SendAnnouncementThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models

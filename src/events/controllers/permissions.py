@@ -3,15 +3,12 @@ from uuid import UUID
 
 from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
-from ninja_extra import (
-    ControllerBase,
-    api_controller,
-    route,
-)
+from ninja_extra import ControllerBase, route
 from ninja_extra.exceptions import PermissionDenied
 from ninja_extra.permissions import BasePermission
 
 from accounts.models import RevelUser
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth, OAuthPrincipal
 from common.controllers import UserAwareController
 from events import models, schema

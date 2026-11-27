@@ -5,13 +5,11 @@ from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
-from ninja_extra import (
-    api_controller,
-    route,
-)
+from ninja_extra import route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import searching
 
+from common.api_controller import api_controller
 from common.authentication import I18nJWTAuth, OptionalAuth
 from common.controllers import DistinctSearching
 from common.schema import ErrorDetail, ResponseMessage
