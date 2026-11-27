@@ -8,10 +8,12 @@ from unittest.mock import patch
 import pytest
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from common.thumbnails import sweep
-from events.models import Organization
+from events.models import Event, Organization
+from oauth.models import OAuthApplication
 
 pytestmark = pytest.mark.django_db
 
@@ -101,3 +103,37 @@ def test_the_task_is_a_dry_run_by_default(media: dict[str, str]) -> None:
 
     assert result["files_unreferenced"] == len(SWEPT)
     assert result["files_deleted"] == 0
+
+
+def test_files_that_users_events_and_apps_name_are_kept(
+    media: dict[str, str], user: RevelUser, organization: Organization
+) -> None:
+    """Every model with image fields counts, the protected profile-picture paths included."""
+    event = Event.objects.create(organization=organization, name="E", slug="e-1548", start=timezone.now())
+    oauth_app = OAuthApplication.objects.create(
+        user=user,
+        name="App",
+        client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+        redirect_uris="https://app.example/cb",
+        registration_source=OAuthApplication.RegistrationSource.MANUAL,
+    )
+    picture = _store(f"protected/profile-pictures/{user.id}/mine.jpg")
+    picture_thumb = _store(f"protected/profile-pictures/{user.id}/mine_jpg_thumb.jpg")
+    event_cover = _store("cover-art/event.png")
+    app_logo = _store("oauth-logos/app.png")
+    RevelUser.objects.filter(pk=user.pk).update(profile_picture=picture, profile_picture_thumbnail=picture_thumb)
+    Event.objects.filter(pk=event.pk).update(cover_art=event_cover)
+    OAuthApplication.objects.filter(pk=oauth_app.pk).update(logo=app_logo)
+
+    sweep.sweep_unreferenced_image_files(dry_run=False)
+
+    assert all(default_storage.exists(path) for path in (picture, picture_thumb, event_cover, app_logo))
+    assert not default_storage.exists(media["profile"])
+
+
+def test_the_inverse_check_ignores_paths_outside_the_swept_folders(
+    media: dict[str, str], organization: Organization
+) -> None:
+    Organization.objects.filter(pk=organization.pk).update(cover_art="cover-art/seed/gone.png")
+
+    assert sweep.sweep_unreferenced_image_files().named_paths_missing == 0

@@ -4,8 +4,10 @@ The reference-checked delete after commit (``files.delete_unreferenced_files``) 
 failed, a queryset delete or a cascade that skips ``delete()``, and files from before that delete existed. This
 sweep finds them in the image upload folders.
 
-A file is a candidate when it is older than :data:`MIN_AGE` (so an upload in progress, and a backup restore, is
-safe) and no row names it in a source or derived image field. Deletes run under the same path locks as the
+A file is a candidate when it is older than :data:`MIN_AGE` and no row names it in a source or derived image field.
+The age is the file's modification time (its upload), so the grace period keeps an upload in progress safe. It is
+not the time since a row last named the file, so it does not protect a backup restore; the delete after commit
+does not either. Deletes run under the same path locks as the
 delete after commit, and the reference check runs again under those locks.
 
 The first runs are a dry run: they only count. The counts include the inverse check (paths that rows name but
@@ -33,7 +35,7 @@ logger = structlog.get_logger(__name__)
 FLAT_FOLDERS = ("logos", "cover-art", "oauth-logos")
 #: One subfolder per user, each listed without recursion.
 PER_USER_FOLDER = "protected/profile-pictures"
-#: The backup-restore horizon: a restored row can name a file of this age again.
+#: Measured from the file's modification time (its upload).
 MIN_AGE = timedelta(days=7)
 #: The most files that one run deletes.
 DELETE_BATCH = 500
@@ -86,13 +88,18 @@ def _chunks(paths: list[str]) -> t.Iterator[list[str]]:
         yield paths[start : start + CHECK_CHUNK]
 
 
+def _in_swept_folders(path: str) -> bool:
+    folder, _, name = path.rpartition("/")
+    return name != "" and (folder in FLAT_FOLDERS or folder.rpartition("/")[0] == PER_USER_FOLDER)
+
+
 def _count_missing_named_paths() -> int:
-    """How many distinct paths that rows name are not in storage (the inverse check)."""
+    """How many distinct paths in the swept folders that rows name are not in storage (the inverse check)."""
     named: set[str] = set()
     for config in THUMBNAIL_CONFIGS.values():
         names = [config.source_field, *(spec.field_name for spec in config.specs)]
         for row in apps.get_model(config.app_label, config.model_name).objects.values_list(*names):
-            named.update(path for path in row if path)
+            named.update(path for path in row if path and _in_swept_folders(path))
     return sum(1 for path in named if not default_storage.exists(path))
 
 

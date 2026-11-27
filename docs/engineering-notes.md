@@ -1000,14 +1000,18 @@ files from before the delete existed. The daily beat task `common.sweep_unrefere
 
 - It lists `logos/`, `cover-art/` and `oauth-logos/` without recursion (the seed and demo subfolders stay out),
   and each `protected/profile-pictures/<user id>/` folder.
-- A file is a candidate when it is older than 7 days (the backup-restore horizon) and no row names it. A delete
-  runs under the path locks of the delete after commit, and checks the references again under them.
+- A file is a candidate when it is older than 7 days and no row names it. The age is the file's modification time
+  (its upload): it keeps an upload in progress safe, but it does not protect a backup restore that names a file
+  again (the delete after commit does not either). A delete runs under the path locks of the delete after commit,
+  and checks the references again under them.
+- Only image fields count as references. A URL of the file in Markdown, in a stored notification context or in an
+  email that was already sent does not keep the file, as for the delete after commit.
 - One run deletes at most 500 files. The log has counts only, because a path can hold a user id.
 - The beat row "Sweep unreferenced image files" starts with the kwarg `{"dry_run": true}`: it only counts.
 
 To turn deletes on:
 
 1. Read the `unreferenced_image_files_swept` log lines of a few runs in Loki.
-2. Check `named_paths_missing`: the paths that rows name but storage lacks. A number near 0 means that the path
+2. Check `named_paths_missing`: the paths in the swept folders that rows name but storage lacks. A number near 0 means that the path
    matching works. A large number means that it does not, and deletes must stay off.
 3. In the Django admin, set the kwargs of the beat row to `{"dry_run": false}`. No deploy is necessary.
