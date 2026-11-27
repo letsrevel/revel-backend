@@ -2316,6 +2316,12 @@ msgstr "Une entrée avec ce nom d'utilisateur Telegram existe déjà."
 msgid "An entry with this phone number already exists."
 msgstr "Une entrée avec ce numéro de téléphone existe déjà."
 
+msgid "The existing entry for this email has a different Telegram username."
+msgstr "L'entrée existante pour cet e-mail a un autre nom d'utilisateur Telegram."
+
+msgid "The existing entry for this email has a different phone number."
+msgstr "L'entrée existante pour cet e-mail a un autre numéro de téléphone."
+
 msgid "User not found."
 msgstr "Compte introuvable."
 

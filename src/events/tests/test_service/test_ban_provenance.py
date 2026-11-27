@@ -91,6 +91,8 @@ class TestBlacklistingANonMember:
     def test_signup_auto_link_applies_consequences_without_a_row(
         self, organization: Organization, organization_owner_user: RevelUser, nonmember_user: RevelUser
     ) -> None:
+        RevelUser.objects.filter(pk=nonmember_user.pk).update(email_verified=True)
+        nonmember_user.refresh_from_db()
         OrganizationStaff.objects.create(organization=organization, user=nonmember_user)
         Blacklist.objects.create(
             organization=organization, email=nonmember_user.email, created_by=organization_owner_user
@@ -339,6 +341,9 @@ def test_removing_an_entry_linked_after_creation_lifts_every_holder_it_banned(
             organization, organization_owner_user, phone_number=b.phone_number, email=a.email
         )
         assert entry.user is None
+        # The email entry links only once the account is verified: set the flag without the verification receiver.
+        RevelUser.objects.filter(pk=a.pk).update(email_verified=True)
+        a.refresh_from_db()
         link_blacklist_entries_for_user(a)
     entry.refresh_from_db()
     assert entry.user_id == a.pk

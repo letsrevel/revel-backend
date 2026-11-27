@@ -505,6 +505,7 @@ class TestBlacklistLinkingOnUserCreation:
             username="blacklisted_user",
             email="blacklisted@example.com",
             password="pass",
+            email_verified=True,
         )
 
         # Entry should now be linked to the user
@@ -566,6 +567,7 @@ class TestBlacklistLinkingOnUserCreation:
             username="multi_user",
             email="multi@example.com",
             password="pass",
+            email_verified=True,
         )
 
         # Both entries should be linked
@@ -748,6 +750,7 @@ class TestBlacklistUserLinkedSignal:
             username="future_user",
             email="future_user@example.com",
             password="pass",
+            email_verified=True,
         )
 
         # Entry should be linked

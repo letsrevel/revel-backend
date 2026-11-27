@@ -373,9 +373,154 @@ class TestLinkCandidateBeforeTypedChecks:
 
         entry.refresh_from_db()
         assert exc_info.value.status_code == 400
-        assert "email already exists" in str(exc_info.value.message)
+        assert str(exc_info.value.message) == "The existing entry for this email has a different phone number."
         assert entry.user is None
         assert entry.phone_number == "+393331234567"
+
+    def test_link_refused_when_typed_telegram_conflicts_with_entry_telegram(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """A different handle on the entry is not overwritten: 400 with its own message, entry unchanged."""
+        django_user_model.objects.create_user(username="holder", email="holder@example.com", email_verified=True)
+        entry = Blacklist.objects.create(
+            organization=blacklist_org, email="holder@example.com", telegram_username="foo", created_by=blacklist_admin
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            blacklist_service.add_to_blacklist(
+                organization=blacklist_org,
+                created_by=blacklist_admin,
+                email="holder@example.com",
+                telegram_username="@bar",
+            )
+
+        entry.refresh_from_db()
+        assert exc_info.value.status_code == 400
+        assert str(exc_info.value.message) == "The existing entry for this email has a different Telegram username."
+        assert entry.user is None
+        assert entry.telegram_username == "foo"
+
+    def test_link_accepts_same_telegram_in_other_case(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """The same handle in another case is not a conflict. Guard: may already pass before the fix."""
+        holder = django_user_model.objects.create_user(
+            username="holder", email="holder@example.com", email_verified=True
+        )
+        entry = Blacklist.objects.create(
+            organization=blacklist_org, email="holder@example.com", telegram_username="foo", created_by=blacklist_admin
+        )
+
+        blacklist_service.add_to_blacklist(
+            organization=blacklist_org,
+            created_by=blacklist_admin,
+            email="holder@example.com",
+            telegram_username="@Foo",
+        )
+
+        entry.refresh_from_db()
+        assert entry.user == holder
+        assert entry.telegram_username == "foo"
+
+    def test_link_fills_empty_reason(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """An entry with no reason gets the typed reason when it is linked."""
+        django_user_model.objects.create_user(username="holder", email="holder@example.com", email_verified=True)
+        entry = Blacklist.objects.create(
+            organization=blacklist_org, email="holder@example.com", created_by=blacklist_admin
+        )
+
+        blacklist_service.add_to_blacklist(
+            organization=blacklist_org, created_by=blacklist_admin, email="holder@example.com", reason="Spam"
+        )
+
+        entry.refresh_from_db()
+        assert entry.user is not None
+        assert entry.reason == "Spam"
+
+    def test_link_keeps_existing_reason(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """An entry with a reason keeps it. Guard: may already pass before the fix."""
+        django_user_model.objects.create_user(username="holder", email="holder@example.com", email_verified=True)
+        entry = Blacklist.objects.create(
+            organization=blacklist_org, email="holder@example.com", reason="Original", created_by=blacklist_admin
+        )
+
+        blacklist_service.add_to_blacklist(
+            organization=blacklist_org, created_by=blacklist_admin, email="holder@example.com", reason="Typed"
+        )
+
+        entry.refresh_from_db()
+        assert entry.user is not None
+        assert entry.reason == "Original"
+
+
+class TestRegistrationLinksOnlyVerifiedEmail:
+    """Registration links by email only for a verified, non-guest account. Phone and Telegram always link."""
+
+    def test_unverified_registration_does_not_link_email_entry_until_verified(
+        self, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
+    ) -> None:
+        """The entry stays unlinked, the account is still hard-blacklisted, and verification links it."""
+        entry = Blacklist.objects.create(
+            organization=blacklist_org, email="new@example.com", created_by=blacklist_admin
+        )
+
+        user = django_user_model.objects.create_user(username="newbie", email="new@example.com")
+
+        entry.refresh_from_db()
+        assert entry.user is None
+        assert blacklist_service.check_user_hard_blacklisted(user, blacklist_org)
+
+        user.email_verified = True
+        user.save(update_fields=["email_verified"])
+
+        entry.refresh_from_db()
+        assert entry.user == user
+
+    def test_guest_registration_does_not_link_email_entry(
+        self, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
+    ) -> None:
+        """A guest account, even a marked-verified one, never links by email."""
+        entry = Blacklist.objects.create(
+            organization=blacklist_org, email="guest@example.com", created_by=blacklist_admin
+        )
+
+        django_user_model.objects.create_user(
+            username="guest@example.com", email="guest@example.com", guest=True, email_verified=True
+        )
+
+        entry.refresh_from_db()
+        assert entry.user is None
+
+    def test_unverified_registration_still_links_phone_entry(
+        self, blacklist_org: Organization, blacklist_admin: RevelUser, django_user_model: type[RevelUser]
+    ) -> None:
+        """Phone matching is unchanged for an unverified account."""
+        entry = Blacklist.objects.create(
+            organization=blacklist_org, phone_number="+393331112222", created_by=blacklist_admin
+        )
+
+        user = django_user_model.objects.create_user(
+            username="newbie", email="new@example.com", phone_number="+393331112222"
+        )
+
+        entry.refresh_from_db()
+        assert entry.user == user
 
 
 class TestLinkOneEntryPerOrganization:

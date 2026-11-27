@@ -75,8 +75,16 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
         Provide individual fields (email, telegram_username, phone_number, names).
         At least one identifier or name is required.
 
-        If the provided identifiers match an existing registered user, the entry
-        will be automatically linked to them.
+        A manual entry links an account only by a verified email of a non-guest account.
+        An unlinked entry of the organization that holds this email is linked and returned instead of a new row.
+        Its reason is kept. An empty reason is filled with the typed reason.
+        A typed phone number or Telegram username fills the entry when the entry has none.
+        Names are not applied to the existing entry.
+
+        Returns 400 when:
+        - The account already has an entry in the organization.
+        - A typed identifier is held by another entry.
+        - A typed phone number or Telegram username differs from the one on the linked entry.
 
         Only the organization owner can create an entry that matches a current
         staff member (by account, email, phone or telegram). Others get 403.

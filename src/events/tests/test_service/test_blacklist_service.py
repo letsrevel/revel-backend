@@ -632,6 +632,8 @@ class TestAutomaticLinking:
         Note: In practice, the signal auto-links on user creation, but this tests
         the function when called manually (e.g., for users created before the feature).
         """
+        RevelUser.objects.filter(pk=target_user.pk).update(email_verified=True)
+        target_user.refresh_from_db()
         # Create unlinked entry that matches target_user's email
         entry = Blacklist.objects.create(
             organization=blacklist_org,

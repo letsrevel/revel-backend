@@ -2327,6 +2327,12 @@ msgstr "Ein Eintrag mit diesem Telegram-Benutzernamen existiert bereits."
 msgid "An entry with this phone number already exists."
 msgstr "Ein Eintrag mit dieser Telefonnummer existiert bereits."
 
+msgid "The existing entry for this email has a different Telegram username."
+msgstr "Der vorhandene Eintrag für diese E-Mail hat einen anderen Telegram-Benutzernamen."
+
+msgid "The existing entry for this email has a different phone number."
+msgstr "Der vorhandene Eintrag für diese E-Mail hat eine andere Telefonnummer."
+
 msgid "User not found."
 msgstr "Konto nicht gefunden."
 

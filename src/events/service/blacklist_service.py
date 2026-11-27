@@ -257,25 +257,29 @@ def _link_candidate_entry(
     *,
     telegram_username: str | None,
     phone_number: str | None,
+    reason: str = "",
 ) -> Blacklist:
     """Link the locked ``entry`` to ``user`` and apply the consequences.
 
     The typed Telegram username and phone number that the entry does not hold are set on it in the same
-    update. A typed value that differs from a value the entry holds is refused (400).
+    update. A typed value that differs from a value the entry holds is refused (400). The refusal names the
+    identifier that conflicts. The ``reason`` is set only when the entry has none. Names are never applied.
     The link is a queryset update, so the ``Blacklist`` post_save receiver does not run. The consequences are
     applied here instead.
     """
     fill: dict[str, str] = {}
+    if reason and not entry.reason:
+        fill["reason"] = reason
     if telegram_username:
         if entry.telegram_username is None:
             fill["telegram_username"] = telegram_username
         elif entry.telegram_username.lower() != telegram_username.lower():
-            raise HttpError(400, str(_("An entry with this email already exists.")))
+            raise HttpError(400, str(_("The existing entry for this email has a different Telegram username.")))
     if phone_number:
         if entry.phone_number is None:
             fill["phone_number"] = phone_number
         elif entry.phone_number != phone_number:
-            raise HttpError(400, str(_("An entry with this email already exists.")))
+            raise HttpError(400, str(_("The existing entry for this email has a different phone number.")))
     Blacklist.objects.filter(pk=entry.pk).update(user=user, **fill)
     apply_blacklist_consequences(user, organization)
     entry.refresh_from_db()
@@ -317,7 +321,8 @@ def add_to_blacklist(
     - When an unlinked entry of the organization holds the account's (verified) email, the oldest such entry
       is linked to the account and returned. No new row is created. In manual mode, a typed Telegram username
       or phone number that the entry lacks is set on it. A typed value that differs from the entry's value
-      is refused (400). The reason and names given in this call are not applied to the existing entry.
+      is refused (400). The reason given in this call is set only when the entry has no reason. The names
+      are not applied to the existing entry.
     - Otherwise a linked entry is created.
 
     Without a resolved account, every typed identifier is refused (400) when any entry holds it.
@@ -410,6 +415,7 @@ def add_to_blacklist(
             candidate,
             telegram_username=telegram_username if manual_mode else None,
             phone_number=phone_number if manual_mode else None,
+            reason=reason,
         )
 
     entry = Blacklist.objects.create(
@@ -781,6 +787,9 @@ def link_blacklist_entries_for_user(user: RevelUser) -> int:
 
     Called after user registration, email verification or telegram connection to link
     the existing blacklist entries that match the user's identifiers.
+    The email matches only when the account is verified and is not a guest. An unverified email is only the
+    account's claim. The receiver for a verified email links the email entries later. Phone and Telegram
+    always match.
     At most one entry per organization is linked (see :func:`_link_matching_entries`).
     Also applies blacklist consequences (removes from staff, sets membership to BANNED).
 
@@ -792,8 +801,8 @@ def link_blacklist_entries_for_user(user: RevelUser) -> int:
     """
     q = Q()
 
-    # Email match
-    if user.email:
+    # Email match: only a verified, non-guest email
+    if user.email and user.email_verified and not user.guest:
         q |= Q(email__iexact=user.email)
 
     # Phone match
