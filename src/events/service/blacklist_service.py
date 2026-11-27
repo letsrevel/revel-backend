@@ -785,11 +785,11 @@ def _link_matching_entries(user: RevelUser, match: Q) -> int:
 def link_blacklist_entries_for_user(user: RevelUser) -> int:
     """Link unlinked blacklist entries to a user and apply consequences.
 
-    Called after user registration, email verification or telegram connection to link
+    Called after user registration and email verification to link
     the existing blacklist entries that match the user's identifiers.
     The email matches only when the account is verified and is not a guest. An unverified email is only the
     account's claim. The receiver for a verified email links the email entries later. Phone and Telegram
-    always match.
+    always match. Telegram connect uses :func:`link_blacklist_entries_by_telegram` instead.
     At most one entry per organization is linked (see :func:`_link_matching_entries`).
     Also applies blacklist consequences (removes from staff, sets membership to BANNED).
 
