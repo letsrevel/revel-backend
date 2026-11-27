@@ -607,3 +607,35 @@ class TestCreateWhitelistRequestEndpoint:
         response = public_user_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
         assert response.status_code == 400
+
+
+class TestCreateBlacklistEntryDuplicateIdentifiers:
+    """A manual entry that repeats a telegram handle or phone number answers 400, not 500 (#1554)."""
+
+    def test_duplicate_telegram_returns_400(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        """'@Foo' normalizes to the stored 'foo'."""
+        Blacklist.objects.create(organization=organization, telegram_username="foo", created_by=organization.owner)
+        url = reverse("api:create_blacklist_entry", kwargs={"slug": organization.slug})
+
+        response = organization_owner_client.post(
+            url, data=orjson.dumps({"telegram_username": "@Foo"}), content_type="application/json"
+        )
+
+        assert response.status_code == 400
+        assert "Telegram username already exists" in response.json()["detail"]
+        assert Blacklist.objects.filter(organization=organization).count() == 1
+
+    def test_duplicate_phone_returns_400(self, organization_owner_client: Client, organization: Organization) -> None:
+        """A repeated phone number is refused."""
+        Blacklist.objects.create(organization=organization, phone_number="+393331234567", created_by=organization.owner)
+        url = reverse("api:create_blacklist_entry", kwargs={"slug": organization.slug})
+
+        response = organization_owner_client.post(
+            url, data=orjson.dumps({"phone_number": "+393331234567"}), content_type="application/json"
+        )
+
+        assert response.status_code == 400
+        assert "phone number already exists" in response.json()["detail"]
+        assert Blacklist.objects.filter(organization=organization).count() == 1

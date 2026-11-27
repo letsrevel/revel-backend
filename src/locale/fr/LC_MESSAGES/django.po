@@ -2310,6 +2310,12 @@ msgstr "Cette personne est déjà sur liste de blocage."
 msgid "An entry with this email already exists."
 msgstr "Une entrée avec cet e-mail existe déjà."
 
+msgid "An entry with this Telegram username already exists."
+msgstr "Une entrée avec ce nom d'utilisateur Telegram existe déjà."
+
+msgid "An entry with this phone number already exists."
+msgstr "Une entrée avec ce numéro de téléphone existe déjà."
+
 msgid "User not found."
 msgstr "Compte introuvable."
 

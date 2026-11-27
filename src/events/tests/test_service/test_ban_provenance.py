@@ -511,9 +511,11 @@ class TestRemovingAnUnlinkedEntry:
         holder: RevelUser,
         banned_by_phone: Blacklist,
     ) -> None:
-        RevelUser.objects.filter(pk=holder.pk).update(email_verified=True)
-        linked = blacklist_service.add_to_blacklist(organization, organization_owner_user, email=holder.email)
-        assert linked.user_id == holder.pk
+        # add_to_blacklist refuses a second entry for a covered account (#1553); entries made before that
+        # rule, or linked at registration, can still leave two entries covering one holder.
+        linked = Blacklist.objects.create(
+            organization=organization, user=holder, email=holder.email, created_by=organization_owner_user
+        )
 
         blacklist_service.remove_from_blacklist(banned_by_phone)
         assert _row(organization, holder).status == Status.BANNED

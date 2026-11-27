@@ -2163,6 +2163,12 @@ msgstr "Esta conta já está na lista negra."
 msgid "An entry with this email already exists."
 msgstr "Já existe uma entrada com este e-mail."
 
+msgid "An entry with this Telegram username already exists."
+msgstr "Já existe uma entrada com este nome de utilizador do Telegram."
+
+msgid "An entry with this phone number already exists."
+msgstr "Já existe uma entrada com este número de telefone."
+
 msgid "User not found."
 msgstr "Conta não encontrada."
 

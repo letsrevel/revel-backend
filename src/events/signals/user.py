@@ -100,6 +100,29 @@ def stash_previous_link_state(
     )
 
 
+def _became_verified(instance: RevelUser) -> bool:
+    """Whether this save of an existing user made it hold a (new) verified email, from the pre_save stash."""
+    prev: dict[str, t.Any] | None = getattr(instance, "_register_link_prev", None)
+    if prev is None:  # save() touched none of the link-relevant fields
+        return False
+    return not (prev["email_verified"] and not prev["guest"] and prev["email"].casefold() == instance.email.casefold())
+
+
+@receiver(post_save, sender=RevelUser)
+def link_blacklist_entries_on_verified_email(
+    sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: t.Any
+) -> None:
+    """Link blacklist entries that match the email of a user who just became verified (#1553).
+
+    Creation is handled by ``handle_user_creation``. A manual entry made while the email was unverified
+    stays unlinked until now.
+    """
+    if created or instance.guest or not instance.email_verified or not instance.email:
+        return
+    if _became_verified(instance):
+        link_blacklist_entries_for_user(instance)
+
+
 @receiver(post_save, sender=RevelUser)
 def auto_link_member_records_on_verified_email(
     sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: t.Any
@@ -111,12 +134,8 @@ def auto_link_member_records_on_verified_email(
     """
     if instance.guest or not instance.email_verified or not instance.email:
         return
-    prev: dict[str, t.Any] | None = getattr(instance, "_register_link_prev", None)
-    if not created:
-        if prev is None:  # save() touched none of the link-relevant fields
-            return
-        if prev["email_verified"] and not prev["guest"] and prev["email"].casefold() == instance.email.casefold():
-            return
+    if not created and not _became_verified(instance):
+        return
     if not MembershipRecord.objects.unlinked().filter(email__iexact=instance.email).exists():
         return
     transaction.on_commit(lambda: auto_link_member_records.delay(str(instance.id)))
