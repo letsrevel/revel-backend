@@ -137,3 +137,36 @@ def test_the_inverse_check_ignores_paths_outside_the_swept_folders(
     Organization.objects.filter(pk=organization.pk).update(cover_art="cover-art/seed/gone.png")
 
     assert sweep.sweep_unreferenced_image_files().named_paths_missing == 0
+
+
+def test_a_failed_delete_is_counted_and_the_run_goes_on(media: dict[str, str]) -> None:
+    """One file that cannot be deleted must not stop the deletes of the others."""
+    real_delete = default_storage.delete
+
+    def delete_or_fail(path: str) -> None:
+        if path == media["logo"]:
+            raise PermissionError(path)
+        real_delete(path)
+
+    with patch.object(default_storage, "delete", side_effect=delete_or_fail):
+        counts = sweep.sweep_unreferenced_image_files(dry_run=False)
+
+    assert counts.files_failed == 1
+    assert counts.files_deleted == len(SWEPT) - 1
+    assert default_storage.exists(media["logo"])
+    assert not any(default_storage.exists(media[key]) for key in SWEPT if key != "logo")
+
+
+def test_the_beat_row_starts_as_a_dry_run_of_the_registered_task() -> None:
+    """Migration 0027: a wrong task name would never run, and ``dry_run: false`` would delete on the first run."""
+    import json
+
+    from django_celery_beat.models import PeriodicTask
+
+    from revel.celery import app
+
+    row = PeriodicTask.objects.get(name="Sweep unreferenced image files")
+    assert row.task in app.tasks
+    assert row.task == "common.sweep_unreferenced_image_files"
+    assert json.loads(row.kwargs) == {"dry_run": True}
+    assert row.enabled
