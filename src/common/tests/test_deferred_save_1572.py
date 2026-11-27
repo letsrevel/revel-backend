@@ -150,3 +150,42 @@ def test_positional_update_fields_still_works(organization: Organization) -> Non
 
     organization.refresh_from_db()
     assert organization.name == "Positional"
+
+
+def test_a_deferred_save_does_not_read_each_deferred_field(organization: Organization) -> None:
+    """The constraint and unique checks must not load every deferred field, one query each."""
+    event = Event.objects.create(organization=organization, name="E", slug="e-1572-q", start=timezone.now())
+    loaded = Event.objects.only("id", "name", "organization_id", "start").get(pk=event.pk)
+    loaded.name = "R"
+
+    with CaptureQueriesContext(connection) as queries:
+        loaded.save()
+
+    read_columns = {
+        m.group(1)
+        for q in queries.captured_queries
+        if (m := re.match(r'SELECT "events_event"\."id", "events_event"\."(\w+)" FROM', q["sql"]))
+    }
+    # Event.save and Event.clean read some fields for their rules; no rule reads these.
+    assert not read_columns & {"description", "logo", "cover_art", "invitation_message"}, read_columns
+
+
+def test_a_deferred_foreign_key_that_clean_reads_is_not_written(organization: Organization) -> None:
+    """``Event.clean`` reads ``event_series``: its cached object must not make Django write the column.
+
+    The event needs a series: Django skips a cached ``None`` before the write.
+    """
+    from events.models import EventSeries
+
+    series = EventSeries.objects.create(organization=organization, name="S", slug="s-1572")
+    event = Event.objects.create(
+        organization=organization, event_series=series, name="E", slug="e-1572-fk", start=timezone.now()
+    )
+    loaded = Event.objects.only("id", "name", "organization_id", "start").get(pk=event.pk)
+    loaded.name = "R"
+
+    with CaptureQueriesContext(connection) as queries:
+        loaded.save()
+
+    [update] = _update_sql(queries, "events_event")
+    assert '"event_series_id"' not in update

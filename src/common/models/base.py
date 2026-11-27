@@ -5,6 +5,7 @@ import uuid
 
 from django.db import models
 from django.db.models import Q
+from django.db.models.fields.mixins import FieldCacheMixin
 
 
 def _deferred_fields_of_full_save(instance: models.Model, kwargs: dict[str, t.Any]) -> set[str]:
@@ -37,11 +38,12 @@ class TimeStampedModel(models.Model):
         run on the whole row: a cross-field rule that an earlier edit broke still blocks the save, and its error
         names the field to fix.
 
-        A full save of a deferred instance checks only the loaded fields, the same as a save with ``update_fields``.
-        Then the fields that the checks read become deferred again, so Django writes only the loaded fields and the
-        fields that a later save step (for example ``LocationMixin``) sets (#1572). As in Django, ``updated_at`` is
-        written only when it was loaded. A change that ``clean()`` makes to a field that was not loaded is not
-        written, the same as for an explicit ``update_fields``.
+        A full save of a deferred instance checks only the loaded fields. Its unique and constraint checks skip
+        the fields that were not loaded; the database constraints still apply to them. Then the fields that the
+        checks read become deferred again, so Django writes only the loaded fields and the fields that a later
+        save step (for example ``LocationMixin``) sets (#1572). As in Django, ``updated_at`` is written only when
+        it was loaded. A change that ``clean()`` makes to a field that was not loaded is not written, the same as
+        for an explicit ``update_fields``.
         """
         deferred = _deferred_fields_of_full_save(self, kwargs)
         update_fields = kwargs.get("update_fields")
@@ -62,10 +64,18 @@ class TimeStampedModel(models.Model):
                 or (update_fields is not None and f.name not in written and f.attname not in written)
             ]
             self.full_clean(exclude=unchanged, validate_unique=False, validate_constraints=False)
-            self.validate_unique()
-            self.validate_constraints()
-            for attname in deferred - self.get_deferred_fields():
-                del self.__dict__[attname]  # read by a check only: defer it again, so Django does not write it
+            # A check on a field that was not loaded is skipped (the database constraint still applies): else the
+            # check reads every deferred field, one query each.
+            not_loaded = {f.name for f in self._meta.concrete_fields if f.attname in deferred}
+            self.validate_unique(exclude=not_loaded)
+            self.validate_constraints(exclude=not_loaded)
+            for field in self._meta.concrete_fields:
+                if field.attname in deferred and field.attname in self.__dict__:
+                    # Read by a check only: defer it again, so Django does not write it. A cached related object
+                    # would make Django read the column again before the write.
+                    del self.__dict__[field.attname]
+                    if isinstance(field, FieldCacheMixin) and field.is_cached(self):
+                        field.delete_cached_value(self)
         super().save(*args, **kwargs)
 
 
