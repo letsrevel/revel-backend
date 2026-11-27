@@ -84,6 +84,30 @@ def test_an_inactive_pass_still_refuses_the_change(series_pass: SeriesPass) -> N
     assert "event_type" in exc.value.message_dict
 
 
+@pytest.mark.parametrize(
+    ("field", "update_fields", "key"),
+    [
+        ("event_type", ["event_type"], "event_type"),
+        ("event_series", ["event_series"], "event_series"),
+        ("event_series", ["event_series_id"], "event_series"),
+    ],
+)
+def test_a_save_that_writes_the_field_through_update_fields_is_refused(
+    series_pass: SeriesPass, field: str, update_fields: list[str], key: str
+) -> None:
+    """``update_fields`` names a field by name or by attname; both must keep the check."""
+    event, _ = cover(series_pass, "covered", days=3)
+    event = Event.objects.get(pk=event.pk)
+    setattr(event, field, T.PRIVATE if field == "event_type" else None)
+
+    with pytest.raises(ValidationError) as exc:
+        event.save(update_fields=update_fields)
+
+    assert key in exc.value.message_dict
+    stored = Event.objects.get(pk=event.pk)
+    assert (stored.event_type, stored.event_series_id) == (T.PUBLIC, series_pass.event_series_id)
+
+
 def test_an_admin_form_gets_the_error_on_event_type(series_pass: SeriesPass) -> None:
     """A ModelForm, as the Django admin uses, runs the same check and puts the error on the field."""
     event, _ = cover(series_pass, "covered", days=3)
