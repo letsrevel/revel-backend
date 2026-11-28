@@ -52,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Series passes: two changes at the same moment can no longer together break the coverage rule of a series pass. The second change waits for the first, and is then refused.
   - This applies to a new link through the API, and to a change of the event, the tier, or the pass rule or currency.
   - It also applies to a stricter tier rule and a looser pass rule on the same link.
+- API: a request that the database stops because of a deadlock now answers 409 with the code `concurrent_change`, not 500. Nothing of the request is saved, so the client can send it again.
 - Ticket tiers: a tier that a series pass covers can no longer get a stricter purchase rule (a stricter "purchasable by" value, or a first membership-tier restriction) than the pass. The change answers 400; change the pass or unlink the tier first.
 - Event series: a series page (by id, or by organization and series slug) now opens when the visitor can see at least one event of the series, also when the organization is private.
   - Before, a public event of a private organization linked to a series page that answered 404.

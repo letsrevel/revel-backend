@@ -271,7 +271,9 @@ same row, `FOR NO KEY UPDATE`, so the second one waits and then reads the commit
   serializes with a looser rule of such a pass. Outside an atomic block the helper does nothing.
 - One exception to the order: a pass that a new link adds while a tier change waits for the tier lock. The tier
   change reads the links again after the tier lock and locks that pass then, after the tier. Postgres stops a
-  deadlock with it; the rule check stays correct. The event admin change view has the same case.
+  deadlock with it; the rule check stays correct. The event admin change view has the same case. The API answers a
+  deadlock (SQLSTATE `40P01`, any path) with a retryable 409 and the code `concurrent_change`
+  (`api.exception_handlers.handle_operational_error`); any other `OperationalError` stays a logged 500.
 - The event admin change view locks only for a user with change permission on the event.
 - The Django admin event change view (`EventAdmin.changeform_view`) locks the event's passes, its tiers and the
   event before it validates a submit, because the submit writes the event and then its tier inlines.
