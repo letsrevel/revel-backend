@@ -82,21 +82,28 @@ def _locks(ctx: CaptureQueriesContext) -> list[str]:
 
 
 def _post_data_of(form: t.Any, data: dict[str, t.Any]) -> None:
-    """Add the POST values of an unchanged bound form, as the browser would send them."""
+    """Add the POST values of an unchanged bound form, as the browser would send them.
+
+    A field with ``show_hidden_initial`` also sends its hidden ``initial-<name>`` input (the stale check, #1635).
+    """
     for bound in form:
         value = bound.value()
         if value is None or value is False or isinstance(value, FieldFile):
             continue  # an image field without an upload sends nothing
-        name = bound.html_name
-        widget = bound.field.widget
-        if isinstance(widget, MultiWidget):
-            for i, part in enumerate(widget.decompress(value) or ()):
-                if part is not None:
-                    data[f"{name}_{i}"] = part
-        elif isinstance(value, (list, tuple)):
-            data[name] = [getattr(v, "pk", v) for v in value]
-        else:
-            data[name] = getattr(value, "pk", value)
+        _put(data, bound.html_name, bound.field.widget, value)
+        if bound.field.show_hidden_initial:
+            _put(data, bound.html_initial_name, bound.field.widget, value)
+
+
+def _put(data: dict[str, t.Any], name: str, widget: t.Any, value: t.Any) -> None:
+    if isinstance(widget, MultiWidget):
+        for i, part in enumerate(widget.decompress(value) or ()):
+            if part is not None:
+                data[f"{name}_{i}"] = part
+    elif isinstance(value, (list, tuple)):
+        data[name] = [getattr(v, "pk", v) for v in value]
+    else:
+        data[name] = getattr(value, "pk", value)
 
 
 def _change_post_data(client: Client, event: Event) -> dict[str, t.Any]:
