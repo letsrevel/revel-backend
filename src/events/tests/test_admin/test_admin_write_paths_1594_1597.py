@@ -135,13 +135,16 @@ def _ticket_inline(rf: t.Any, superuser: RevelUser, event: models.Event) -> tupl
     return request, next(i for i in inlines if i.model is models.Ticket)
 
 
-@pytest.mark.parametrize("name", ["status", "tier"])
-def test_ticket_inline_status_and_tier_are_disabled(
-    rf: t.Any, superuser: RevelUser, event: models.Event, name: str
+def test_ticket_inline_status_is_disabled_and_tier_readonly(
+    rf: t.Any, superuser: RevelUser, event: models.Event
 ) -> None:
+    """Status stays on the form for the unique checks; tier is display text (no per-row tier query, #880)."""
     request, ticket_inline = _ticket_inline(rf, superuser, event)
+    form_class = ticket_inline.get_formset(request, event).form
 
-    assert ticket_inline.get_formset(request, event).form.base_fields[name].disabled
+    assert form_class.base_fields["status"].disabled
+    assert "tier" not in form_class.base_fields
+    assert "tier" in ticket_inline.get_readonly_fields(request, event)
 
 
 def test_a_seat_conflict_on_a_ticket_change_is_a_form_error(
@@ -165,6 +168,7 @@ def test_a_seat_conflict_on_a_ticket_change_is_a_form_error(
     form = form_class(data={**_initial(form_class, mine), "seat": str(seats[0].pk)}, instance=mine)
 
     assert not form.is_valid()
+    assert "unique_ticket_event_seat" in str(form.errors)
 
 
 def test_a_posted_held_pass_user_is_ignored(
@@ -362,3 +366,7 @@ def test_a_held_pass_delete_page_is_refused_but_a_user_delete_cascades(
     assert user_delete.status_code == 200
     assert not user_delete.context["perms_lacking"]
     assert not user_delete.context["protected"]
+
+    member_user.delete()
+
+    assert not models.HeldSeriesPass.objects.filter(pk=held_pass.pk).exists()

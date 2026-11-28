@@ -347,7 +347,7 @@ class EventRSVPInline(TabularInline):  # type: ignore[misc]
 class TicketInline(TabularInline):  # type: ignore[misc]
     model = models.Ticket
     extra = 0
-    autocomplete_fields = ["user", "tier"]
+    autocomplete_fields = ["user"]
     # raw_id: these rendered as plain <select>s over EVERY seat/venue/sector/discount
     # code/held pass in the DB, with one __str__ query per <option>, per ticket row +
     # empty form — thousands of queries on a seated event's change page (#880).
@@ -369,6 +369,9 @@ class TicketInline(TabularInline):  # type: ignore[misc]
         "discount_code",
         "held_pass",
         "file_content_hash",
+        # Only the ticket services move a ticket to another tier (#1594). Readonly, not disabled: no unique
+        # constraint reads it, and a form field would query the tier again for each row (#880).
+        "tier",
     ]
     can_delete = False
 
@@ -377,14 +380,13 @@ class TicketInline(TabularInline):  # type: ignore[misc]
         return False
 
     def get_formset(self, request: HttpRequest, obj: t.Any = None, **kwargs: t.Any) -> t.Any:
-        """Disable status and tier: only the ticket services change them, which keep the tier capacity (#1594).
+        """Disable status: only the ticket services change it, which keep the tier capacity (#1594).
 
         Disabled, not readonly, so the form still checks the unique constraints whose condition reads ``status``.
         """
         formset = super().get_formset(request, obj, **kwargs)
-        for name in ("status", "tier"):
-            if name in formset.form.base_fields:  # a user without change permission gets a form with no fields
-                formset.form.base_fields[name].disabled = True
+        if "status" in formset.form.base_fields:  # a user without change permission gets a form with no fields
+            formset.form.base_fields["status"].disabled = True
         return formset
 
 
