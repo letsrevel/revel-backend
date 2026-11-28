@@ -71,6 +71,28 @@ def handle_general_exception(request: HttpRequest, exc: Exception | t.Type[Excep
     return Response(status=500, data=data)
 
 
+DEADLOCK_SQLSTATE = "40P01"
+DEADLOCK_CODE = "concurrent_change"
+
+
+def handle_operational_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Answer a Postgres deadlock with a retryable 409; any other database error stays a logged 500.
+
+    Postgres stops one transaction of a deadlock and rolls it back, so nothing of the request was written and the
+    client can send it again. The row locks of the series pass coverage checks have one documented case (#1618).
+
+    Returns:
+        ``{"detail": <message>, "code": "concurrent_change"}`` with status 409, or the general 500.
+    """
+    cause = getattr(exc, "__cause__", None)
+    # psycopg3 exposes the SQLSTATE as ``sqlstate``; psycopg2 called it ``pgcode``.
+    if DEADLOCK_SQLSTATE not in {getattr(cause, "sqlstate", None), getattr(cause, "pgcode", None)}:
+        return handle_general_exception(request, exc)
+    logger.warning("deadlock_retryable", method=request.method, path=request.path)
+    detail = str(_("Another change to the same item happened at the same time. Please try again."))
+    return Response(status=409, data={"detail": detail, "code": DEADLOCK_CODE})
+
+
 def handle_django_validation_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
     """Handle a validation error.
 
