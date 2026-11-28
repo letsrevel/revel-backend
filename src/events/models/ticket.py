@@ -12,6 +12,7 @@ from django.utils.translation import gettext_lazy as _
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
 from events.utils import apple_wallet_configured, get_event_timezone, google_wallet_configured
+from events.utils.coverage_lock import lock_row
 from events.utils.purchase_rules import tier_rule_stricter_than_pass
 from events.utils.tier_pricing import validate_category_prices
 
@@ -552,7 +553,10 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
 
         Args:
             field: the error key, the input that made the rule stricter.
+
+        It first locks the tier row, as ``add_tier_links`` does, so a link and a change cannot both pass (#1618).
         """
+        lock_row(TicketTier, self.pk)
         restricted = self.restricted_to_membership_tiers.exists()
         pass_rules = set(self.series_pass_links.values_list("series_pass__purchasable_by", flat=True))
         if any(

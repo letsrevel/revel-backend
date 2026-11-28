@@ -9,6 +9,7 @@ from django.utils.translation import gettext_lazy as _
 
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
+from events.utils.coverage_lock import lock_row
 from events.utils.purchase_rules import tier_rule_stricter_than_pass
 
 from .event_series import EventSeries
@@ -96,6 +97,7 @@ class SeriesPass(TimeStampedModel, VisibilityMixin):
             # Reads the links as stored: an admin submit that also deletes the offending inline row still fails
             # here (inline deletes run after the parent saves); saving twice works around it.
             if self.purchasable_by != old["purchasable_by"]:
+                lock_row(SeriesPass, self.pk)  # a concurrent add_tier_links waits, or this waits for it (#1618)
                 links = self.tier_links.select_related("tier").prefetch_related("tier__restricted_to_membership_tiers")
                 if any(
                     tier_rule_stricter_than_pass(
@@ -241,6 +243,7 @@ def assert_event_change_keeps_coverage(event: "Event", exclude: t.Collection[str
     A field in ``exclude`` is not checked: a save that does not write it, a field that is not on the form, or a
     deferred field (``TimeStampedModel.save`` excludes those; ``clean_fields`` loads every other one first). The
     stored row is read only when a checked field is present, and the links only when a checked field changes.
+    A change first locks the event row, as ``add_tier_links`` does, so a link and a change cannot both pass (#1618).
     """
     if event._state.adding:
         return
@@ -255,5 +258,8 @@ def assert_event_change_keeps_coverage(event: "Event", exclude: t.Collection[str
         errors["event_type"] = _("A series pass covers this event, so it must stay public.")
     if "event_series_id" in stored and stored["event_series_id"] != event.event_series_id:
         errors["event_series"] = _("A series pass covers this event, so it must stay in its series.")
-    if errors and SeriesPassTierLink.objects.filter(event_id=event.pk).exists():
+    if not errors:
+        return
+    lock_row(type(event), event.pk)  # a concurrent add_tier_links waits, or this waits for it and sees its link (#1618)
+    if SeriesPassTierLink.objects.filter(event_id=event.pk).exists():
         raise DjangoValidationError(errors)

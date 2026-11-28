@@ -182,6 +182,14 @@ def update_event(
     was_waitlist_open = event.waitlist_open
     old_start, old_end = event.start, event.end
 
+    if payload.series_pass_links:
+        # The event save below locks the event row, so the pass and tier rows of the new links come first (#1618).
+        series_pass_service.lock_for_tier_links(
+            {link.series_pass_id for link in payload.series_pass_links},
+            {link.tier_id for link in payload.series_pass_links},
+            [event.pk],
+        )
+
     # Merge partial visibility toggles onto the stored blob rather than replacing
     # it: naming one toggle must not silently re-enable the ones left out.
     updated_event = update_db_instance(
