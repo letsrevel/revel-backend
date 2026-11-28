@@ -1,8 +1,9 @@
 """A new tier link and a change that breaks the coverage rule cannot both pass (#1618).
 
 ``add_tier_links`` locks the pass, the tiers and the events (``FOR NO KEY UPDATE``). A change of the event type or
-series (#1598), a stricter tier rule (#1341) and a looser pass rule (#1332) lock their own row before they read the links. Each test pauses
-one path while it holds its lock, and checks that the other path waits and then refuses.
+series (#1598), a stricter tier rule (#1341) and a looser pass rule (#1332) lock their own row before they read
+the links. Each test pauses one path while it holds its lock, and checks that the other path waits and then
+refuses.
 
 ``transaction=True`` is required: each thread uses its own connection and must see the other's real commits and
 lock waits, which the rollback-wrapped default ``django_db`` transaction (one connection) cannot provide.
@@ -23,7 +24,6 @@ from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
-
 from events.exceptions import SeriesPassCoverageError
 from events.models import Event, SeriesPass, SeriesPassTierLink, TicketTier
 from events.service import series_pass_service
