@@ -49,6 +49,7 @@ class CalendarParamsSchema(Schema):
             max_week = datetime.date(target_year, 12, 28).isocalendar().week
             if self.week > max_week:
                 raise ValueError(f"Year {target_year} has only {max_week} ISO weeks.")
+            self.year = target_year
         return self
 
 
