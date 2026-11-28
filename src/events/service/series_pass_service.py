@@ -230,6 +230,29 @@ def validate_events_coverable(series: EventSeries, events: t.Sequence[Event]) ->
             )
 
 
+def lock_for_tier_links(
+    series_pass_ids: t.Collection[UUID], tier_ids: t.Collection[UUID], event_ids: t.Collection[UUID]
+) -> list[Event]:
+    """Lock the rows that a new tier link depends on, in the global lock order (#1618).
+
+    SeriesPass, then TicketTier, then Event, each in pk order (``docs/engineering-notes.md``, "Lock order"), all
+    ``FOR NO KEY UPDATE``. The coverage checks of a rule change lock the same row (``events.utils.coverage_lock``),
+    so a link and a change that would break the rule cannot both pass: the second one waits and then reads the
+    committed state of the first.
+
+    Returns:
+        The locked events, read after the lock.
+    """
+    for model, ids in ((SeriesPass, series_pass_ids), (TicketTier, tier_ids)):
+        list(
+            model.objects.select_for_update(no_key=True, of=("self",))
+            .filter(pk__in=ids)
+            .order_by("pk")
+            .values_list("pk", flat=True)
+        )
+    return list(Event.objects.select_for_update(no_key=True, of=("self",)).filter(pk__in=event_ids).order_by("pk"))
+
+
 @transaction.atomic
 def add_tier_links(
     series_pass: SeriesPass, links: list[TierLinkInput], materialize: bool = True
@@ -265,7 +288,8 @@ def add_tier_links(
             validation (tier/event/series/currency/seat-mode mismatch).
     """
     requested_event_ids = {link["event_id"] for link in links}
-    events = list(Event.objects.filter(pk__in=requested_event_ids))
+    events = lock_for_tier_links([series_pass.pk], {link["tier_id"] for link in links}, requested_event_ids)
+    series_pass.refresh_from_db(fields=["purchasable_by", "currency"])  # the link checks read them as committed
     if len(events) != len(requested_event_ids):
         raise SeriesPassCoverageError(str(_("One or more events do not exist.")))
     validate_events_coverable(series_pass.event_series, events)

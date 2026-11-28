@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Membership payments cannot be added in the admin, and an existing payment is view-only.
   - Customer profiles cannot be added in the admin. The user and organization of an existing profile are read-only, and its own delete page is refused. A user or organization delete still removes the profile.
 
+### Fixed
+
+- Series passes: two changes at the same moment can no longer together break the coverage rule of a series pass. The second change waits for the first, and is then refused.
+  - This applies to a new link through the API, and to a change of the event, the tier, or the pass rule or currency.
+  - It also applies to a stricter tier rule and a looser pass rule on the same link.
+- API: a request that the database stops because of a deadlock now answers 409 with the code `concurrent_change`, not 500. Nothing of the request is saved, so the client can send it again.
+
 ## [3.3.0] - 2026-11-28
 
 ### Deployment notes

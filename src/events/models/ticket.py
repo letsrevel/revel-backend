@@ -12,6 +12,7 @@ from django.utils.translation import gettext_lazy as _
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
 from events.utils import apple_wallet_configured, get_event_timezone, google_wallet_configured
+from events.utils.coverage_lock import lock_row, lock_rows
 from events.utils.purchase_rules import tier_rule_stricter_than_pass
 from events.utils.tier_pricing import validate_category_prices
 
@@ -552,7 +553,20 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
 
         Args:
             field: the error key, the input that made the rule stricter.
+
+        It first locks the covering passes and then the tier row, in the global order, as ``add_tier_links`` does.
+        So a new link, or a looser rule of a covering pass (``SeriesPass.clean`` locks the pass), and this change
+        cannot both pass (#1618).
         """
+        from .series_pass import SeriesPass  # series_pass imports this module
+
+        first = set(self.series_pass_links.values_list("series_pass_id", flat=True))
+        lock_rows(SeriesPass, first)
+        lock_row(TicketTier, self.pk)
+        # ponytail: a pass linked while this waited for the tier lock is locked after the tier, out of the global
+        # order. Postgres stops a deadlock with it; the rule check stays correct. No new link can come once the tier
+        # lock is held, so one more read is enough.
+        lock_rows(SeriesPass, set(self.series_pass_links.values_list("series_pass_id", flat=True)) - first)
         restricted = self.restricted_to_membership_tiers.exists()
         pass_rules = set(self.series_pass_links.values_list("series_pass__purchasable_by", flat=True))
         if any(

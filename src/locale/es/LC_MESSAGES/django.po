@@ -9004,3 +9004,6 @@ msgstr "Un abono de serie cubre este evento, así que debe permanecer en su seri
 
 msgid "This value changed since you opened the page. Reload the page and make your change again."
 msgstr "Este valor cambió desde que abriste la página. Recarga la página y vuelve a hacer tu cambio."
+
+msgid "Another change to the same item happened at the same time. Please try again."
+msgstr "Otro cambio en el mismo elemento se produjo al mismo tiempo. Inténtalo de nuevo."

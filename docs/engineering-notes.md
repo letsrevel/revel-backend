@@ -260,6 +260,31 @@ nothing. The data-export task takes the same lock for the whole export.
   that overlaps the erasure itself can write a ticket without the snapshot; staff then see "Deleted user".
   The threaded tests are in `events/tests/test_account_erasure/test_serialization.py`.
 
+**Series pass coverage (#1618).** A new tier link and a change that breaks the coverage rule take a lock on the
+same row, `FOR NO KEY UPDATE`, so the second one waits and then reads the committed state of the first:
+
+- `series_pass_service.add_tier_links` calls `lock_for_tier_links`: the pass, then the tiers (pk order), then the
+  events (pk order). It reads the pass rule again after the lock, and runs the coverage gate on the locked events.
+- A change locks its own row when the change is found, before it reads the links (`events.utils.coverage_lock`):
+  the event for `event_type` or `event_series` (#1598), and the pass for a changed purchase rule (#1332) or
+  currency. A stricter tier rule (#1341) locks the passes that cover the tier and then the tier, so it also
+  serializes with a looser rule of such a pass. Outside an atomic block the helper does nothing.
+- One exception to the order: a pass that a new link adds while a tier change waits for the tier lock. The tier
+  change reads the links again after the tier lock and locks that pass then, after the tier. Postgres stops a
+  deadlock with it; the rule check stays correct. The event admin change view has the same case. The API answers a
+  deadlock (SQLSTATE `40P01`, any path) with a retryable 409 and the code `concurrent_change`
+  (`api.exception_handlers.handle_operational_error`); any other `OperationalError` stays a logged 500. Ninja
+  handles the error inside the view, so the `ATOMIC_REQUESTS` block would still commit; the handler calls
+  `transaction.set_rollback(True)`, so the earlier writes of the request and its `on_commit` callbacks are dropped.
+- The event admin change view locks only for a user with change permission on the event.
+- The Django admin event change view (`EventAdmin.changeform_view`) locks the event's passes, its tiers and the
+  event before it validates a submit, because the submit writes the event and then its tier inlines.
+- Not covered: the Django admin link forms (`SeriesPassTierLinkInline`, `SeriesPassTierLinkAdmin`) save a link
+  with no lock and without the coverage gate (#1625).
+- `update_event` saves the event (which locks the event row) before it creates the new links, so it calls
+  `lock_for_tier_links` for the passes and tiers of `series_pass_links` before the save.
+- The threaded tests are in `events/tests/test_series_pass/test_coverage_lock_race_1618.py`.
+
 **`Organization` and `EventSeries` (image files and recurrence).** They sit immediately before `Event`:
 `Organization` → `EventSeries` → `Event`. In the paths below, these row locks are `FOR NO KEY UPDATE`, so the
 deferred foreign-key checks of other transactions (`FOR KEY SHARE` at commit) are not blocked. Some other paths

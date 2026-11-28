@@ -4,6 +4,7 @@
 import typing as t
 
 from django.contrib import admin, messages
+from django.contrib.admin.utils import unquote
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery
@@ -38,7 +39,13 @@ from events.admin.base import (
 )
 from events.exceptions import EventRefundsStartedError, SeriesPassHasHoldersError
 from events.models.event import EventQuerySet
-from events.service import day_membership_service, event_series_service, event_update_service, pending_checkout
+from events.service import (
+    day_membership_service,
+    event_series_service,
+    event_update_service,
+    pending_checkout,
+    series_pass_service,
+)
 
 
 class EventOriginFilter(admin.SimpleListFilter):
@@ -135,6 +142,29 @@ class EventAdmin(CreateOnlyFieldsMixin, ImageSourceAdminMixin, ModelAdmin, Organ
         self._set_status(request, queryset, models.Event.EventStatus.CANCELLED)
 
     actions = ["open_events", "close_events", "draft_events", "cancel_events"]
+
+    def changeform_view(
+        self, request: HttpRequest, object_id: str | None = None, form_url: str = "", extra_context: t.Any = None
+    ) -> t.Any:
+        """Lock the event's passes, tiers and the event, in the global order, before a change is validated (#1618).
+
+        The submit writes the event and then its tier inlines, and its checks lock the event and then a tier. A new
+        series pass link (``add_tier_links``) locks the pass, then the tier, then the event, so without this lock the
+        two could deadlock. Django runs the view in one transaction; this block wraps it, so the locks hold to the end.
+        """
+        if request.method != "POST" or object_id is None:
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        with transaction.atomic():
+            event = self.get_object(request, unquote(object_id))
+            # ponytail: a pass linked between this read and the tier lock is locked later, by the tier check, out of
+            # the global order (``TicketTier.assert_covers_series_passes``); Postgres stops such a deadlock.
+            if event is not None and self.has_change_permission(request, event):
+                series_pass_service.lock_for_tier_links(
+                    set(models.SeriesPassTierLink.objects.filter(event=event).values_list("series_pass_id", flat=True)),
+                    list(event.ticket_tiers.values_list("pk", flat=True)),
+                    [event.pk],
+                )
+            return super().changeform_view(request, object_id, form_url, extra_context)
 
     def save_model(self, request: HttpRequest, obj: models.Event, form: t.Any, change: bool) -> None:
         """Keep day-membership records on the event window when staff move an upcoming event's dates."""

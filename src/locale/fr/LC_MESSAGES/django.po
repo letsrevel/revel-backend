@@ -9098,3 +9098,6 @@ msgstr "Un pass de série couvre cet événement, il doit donc rester dans sa s�
 
 msgid "This value changed since you opened the page. Reload the page and make your change again."
 msgstr "Cette valeur a changé depuis l'ouverture de la page. Recharge la page et refais ta modification."
+
+msgid "Another change to the same item happened at the same time. Please try again."
+msgstr "Une autre modification du même élément a eu lieu au même moment. Réessaie."

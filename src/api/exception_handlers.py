@@ -8,6 +8,7 @@ import orjson
 import structlog
 from django.conf import settings
 from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
+from django.db import transaction
 from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
 from ninja.responses import Response
@@ -69,6 +70,33 @@ def handle_general_exception(request: HttpRequest, exc: Exception | t.Type[Excep
         data["traceback"] = traceback.format_exc()
 
     return Response(status=500, data=data)
+
+
+DEADLOCK_SQLSTATE = "40P01"
+DEADLOCK_CODE = "concurrent_change"
+
+
+def handle_operational_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
+    """Answer a Postgres deadlock with a retryable 409; any other database error stays a logged 500.
+
+    Postgres stops one transaction of a deadlock. Ninja handles the error inside the view, so the request
+    transaction (``ATOMIC_REQUESTS``) would still commit: the writes before an inner savepoint, and the request's
+    ``on_commit`` callbacks. So the handler marks the request transaction for rollback: nothing of the request is
+    saved or sent, and the client can send it again. The row locks of the series pass coverage checks have one
+    documented deadlock case (#1618).
+
+    Returns:
+        ``{"detail": <message>, "code": "concurrent_change"}`` with status 409, or the general 500.
+    """
+    cause = getattr(exc, "__cause__", None)
+    # psycopg3 exposes the SQLSTATE as ``sqlstate``; psycopg2 called it ``pgcode``.
+    if DEADLOCK_SQLSTATE not in {getattr(cause, "sqlstate", None), getattr(cause, "pgcode", None)}:
+        return handle_general_exception(request, exc)
+    if transaction.get_connection().in_atomic_block:
+        transaction.set_rollback(True)
+    logger.warning("deadlock_retryable", method=request.method, path=request.path)
+    detail = str(_("Another change to the same item happened at the same time. Please try again."))
+    return Response(status=409, data={"detail": detail, "code": DEADLOCK_CODE})
 
 
 def handle_django_validation_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:

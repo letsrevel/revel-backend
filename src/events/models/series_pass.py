@@ -9,6 +9,7 @@ from django.utils.translation import gettext_lazy as _
 
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
+from events.utils.coverage_lock import lock_row
 from events.utils.purchase_rules import tier_rule_stricter_than_pass
 
 from .event_series import EventSeries
@@ -88,14 +89,13 @@ class SeriesPass(TimeStampedModel, VisibilityMixin):
             old = SeriesPass.objects.filter(pk=self.pk).values("currency", "payment_method", "purchasable_by").first()
             if old is None:
                 return
-            # Tier links are validated against the pass currency at link time;
-            # changing it afterwards would silently break that contract.
-            if self.currency != old["currency"] and self.tier_links.exists():
-                raise DjangoValidationError({"currency": _("Currency cannot be changed once the pass covers events.")})
+            if self.currency != old["currency"]:
+                self._assert_currency_change_allowed()
             # Only when the rule changes, so existing mismatched links do not block unrelated edits.
             # Reads the links as stored: an admin submit that also deletes the offending inline row still fails
             # here (inline deletes run after the parent saves); saving twice works around it.
             if self.purchasable_by != old["purchasable_by"]:
+                lock_row(SeriesPass, self.pk)  # a concurrent add_tier_links waits, or this waits for it (#1618)
                 links = self.tier_links.select_related("tier").prefetch_related("tier__restricted_to_membership_tiers")
                 if any(
                     tier_rule_stricter_than_pass(
@@ -121,6 +121,15 @@ class SeriesPass(TimeStampedModel, VisibilityMixin):
                 raise DjangoValidationError(
                     {"payment_method": _("Payment method cannot be changed while the pass has holders.")}
                 )
+
+    def _assert_currency_change_allowed(self) -> None:
+        """Tier links are validated against the pass currency at link time; a later change would break that.
+
+        It first locks the pass row, as ``add_tier_links`` does, so a new link and this change cannot both pass (#1618).
+        """
+        lock_row(SeriesPass, self.pk)
+        if self.tier_links.exists():
+            raise DjangoValidationError({"currency": _("Currency cannot be changed once the pass covers events.")})
 
 
 class SeriesPassTierLink(TimeStampedModel):
@@ -241,6 +250,7 @@ def assert_event_change_keeps_coverage(event: "Event", exclude: t.Collection[str
     A field in ``exclude`` is not checked: a save that does not write it, a field that is not on the form, or a
     deferred field (``TimeStampedModel.save`` excludes those; ``clean_fields`` loads every other one first). The
     stored row is read only when a checked field is present, and the links only when a checked field changes.
+    A change first locks the event row, as ``add_tier_links`` does, so a link and a change cannot both pass (#1618).
     """
     if event._state.adding:
         return
@@ -255,5 +265,8 @@ def assert_event_change_keeps_coverage(event: "Event", exclude: t.Collection[str
         errors["event_type"] = _("A series pass covers this event, so it must stay public.")
     if "event_series_id" in stored and stored["event_series_id"] != event.event_series_id:
         errors["event_series"] = _("A series pass covers this event, so it must stay in its series.")
-    if errors and SeriesPassTierLink.objects.filter(event_id=event.pk).exists():
+    if not errors:
+        return
+    lock_row(type(event), event.pk)  # a concurrent add_tier_links waits, or this waits for it and sees its link (#1618)
+    if SeriesPassTierLink.objects.filter(event_id=event.pk).exists():
         raise DjangoValidationError(errors)

@@ -2,6 +2,7 @@ import typing as t
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db import OperationalError
 from django.http import Http404, HttpRequest
 from django.utils.translation import gettext_lazy as _
 from ninja.openapi.schema import OpenAPISchema
@@ -55,7 +56,7 @@ from questionnaires.controllers import QuestionnaireFileController
 from telegram.controllers import TelegramController
 from wallet.controllers import MembershipWalletController, MembershipWalletSignedController, TicketWalletController
 
-from .exception_handlers import handle_django_validation_error, handle_general_exception
+from .exception_handlers import handle_django_validation_error, handle_general_exception, handle_operational_error
 from .openapi import RevelOpenAPISchema
 
 
@@ -241,6 +242,8 @@ EXCEPTION_HANDLERS: dict[type[Exception], ExceptionHandler] = {
     # the anti-enumeration 404s (a hard-blacklisted member hitting ``subscribe``)
     # must stay indistinguishable from any other miss.
     Http404: make_static_handler(404, _("Not found.")),
+    # A Postgres deadlock (SQLSTATE 40P01) is a retryable 409; any other ``OperationalError`` stays the general 500.
+    OperationalError: handle_operational_error,
 }
 
 register_handlers(api, EXCEPTION_HANDLERS)
