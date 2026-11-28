@@ -97,19 +97,23 @@ def edited_fields(form: forms.BaseForm, skip: str | None = None) -> list[str]:
 
 
 def _one_line_break_style(value: t.Any) -> str:
-    """The text with every line break as LF, as a browser round trip leaves it after ``CharField`` cleaning."""
+    """The text with every CRLF and CR changed to LF (a browser posts every line break as CRLF)."""
     return ("" if value is None else str(value)).replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _is_stale(field: forms.Field, initial: t.Any, posted_initial: t.Any) -> bool:
     """Whether the stored value differs from the hidden value of the page."""
-    # A text field that keeps the default ``has_changed`` (not ``JSONField`` or the postgres array fields, which
-    # compare structures) is cleaned on both sides, so the strip of the field and the CRLF of the browser match.
+    # A text field that keeps the default ``has_changed`` is cleaned on both sides, so the strip of the field and the
+    # CRLF of the browser match. A field that overrides ``has_changed`` (for example ``JSONField``) keeps its own.
     if isinstance(field, forms.CharField) and type(field).has_changed is forms.Field.has_changed:
         clean = field.to_python
-        return bool(
-            clean(_one_line_break_style(field.prepare_value(initial))) != clean(_one_line_break_style(posted_initial))
-        )
+        try:
+            return bool(
+                clean(_one_line_break_style(field.prepare_value(initial)))
+                != clean(_one_line_break_style(posted_initial))
+            )
+        except ValidationError:  # as ``Field.has_changed``: a value that does not parse counts as a change
+            return True
     return field.has_changed(initial, posted_initial)
 
 

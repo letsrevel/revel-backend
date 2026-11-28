@@ -13,6 +13,7 @@ from decimal import Decimal
 from html.parser import HTMLParser
 
 import pytest
+from django import forms
 from django.contrib.admin.sites import site
 from django.db import models as dj_models
 from django.db.models import F
@@ -22,6 +23,7 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from events import models
+from events.admin.base import _is_stale
 
 pytestmark = pytest.mark.django_db
 
@@ -473,3 +475,20 @@ def test_an_inline_row_that_a_service_changed_and_the_admin_edited_is_refused(
     assert not formset.is_valid()
     assert STALE in str(formset.forms[0].errors["name"])
     assert models.TicketTier.objects.get(pk=first.pk).name == "Service"
+
+
+@pytest.mark.parametrize(
+    ("field", "initial", "posted", "stale"),
+    [
+        pytest.param(forms.CharField(), "a\nb", "a\r\nb", False, id="crlf-only"),
+        pytest.param(forms.CharField(), "Hi ", "Hi", False, id="strip"),
+        pytest.param(forms.CharField(strip=False), "Hi ", "Hi", True, id="no-strip-keeps-spaces"),
+        pytest.param(forms.CharField(), "old", "new", True, id="text-changed"),
+        pytest.param(forms.JSONField(), None, "null", False, id="json-uses-has-changed"),
+        pytest.param(forms.UUIDField(), "not-a-uuid", "x", True, id="unparsable-is-stale"),
+    ],
+)
+def test_is_stale_compares_each_field_type_as_its_field_does(
+    field: forms.Field, initial: t.Any, posted: t.Any, stale: bool
+) -> None:
+    assert _is_stale(field, initial, posted) is stale
