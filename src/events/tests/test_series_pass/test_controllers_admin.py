@@ -245,6 +245,11 @@ def test_list_series_passes_returns_management_fields_coverage_and_holder_count(
     assert link["event_start"] is not None
     assert link["tier_id"] == str(ticket_tier.pk)
     assert link["tier_name"] == ticket_tier.name
+    # Access fields for the admin coverage warnings (#1603).
+    assert link["event_type"] == event.event_type
+    assert link["event_visibility"] == event.visibility
+    assert link["event_status"] == event.status
+    assert link["tier_purchasable_by"] == ticket_tier.purchasable_by
 
 
 def test_list_series_passes_query_count_does_not_grow_with_passes_or_coverage(
