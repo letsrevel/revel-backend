@@ -49,7 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Series passes: an event that a series pass covers can no longer become private or members-only, or move to another series or out of its series.
   - The API answers 400 on `event_type` or `event_series`, and the Django admin shows the error on that field.
   - An event that already broke this rule before the check can still be saved for other edits.
-- Series passes: a new link of a series pass and a change of the event, the tier or the pass that would break the coverage rule can no longer both succeed at the same moment. The second one waits for the first, and is then refused.
+- Series passes: two changes at the same moment can no longer together break the coverage rule of a series pass. The second change waits for the first, and is then refused.
+  - This applies to a new link through the API, and to a change of the event, the tier, or the pass rule or currency.
+  - It also applies to a stricter tier rule and a looser pass rule on the same link.
 - Ticket tiers: a tier that a series pass covers can no longer get a stricter purchase rule (a stricter "purchasable by" value, or a first membership-tier restriction) than the pass. The change answers 400; change the pass or unlink the tier first.
 - Event series: a series page (by id, or by organization and series slug) now opens when the visitor can see at least one event of the series, also when the organization is private.
   - Before, a public event of a private organization linked to a series page that answered 404.

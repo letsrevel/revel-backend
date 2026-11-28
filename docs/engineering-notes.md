@@ -266,8 +266,13 @@ same row, `FOR NO KEY UPDATE`, so the second one waits and then reads the commit
 - `series_pass_service.add_tier_links` calls `lock_for_tier_links`: the pass, then the tiers (pk order), then the
   events (pk order). It reads the pass rule again after the lock, and runs the coverage gate on the locked events.
 - A change locks its own row when the change is found, before it reads the links (`events.utils.coverage_lock`):
-  the event for `event_type` or `event_series` (#1598), the tier for a stricter purchase rule (#1341), and the
-  pass for a changed purchase rule (#1332). Outside an atomic block the helper does nothing.
+  the event for `event_type` or `event_series` (#1598), and the pass for a changed purchase rule (#1332) or
+  currency. A stricter tier rule (#1341) locks the passes that cover the tier and then the tier, so it also
+  serializes with a looser rule of such a pass. Outside an atomic block the helper does nothing.
+- The Django admin event change view (`EventAdmin.changeform_view`) locks the event's passes, its tiers and the
+  event before it validates a submit, because the submit writes the event and then its tier inlines.
+- Not covered: the Django admin link forms (`SeriesPassTierLinkInline`, `SeriesPassTierLinkAdmin`) save a link
+  with no lock and without the coverage gate (#1625).
 - `update_event` saves the event (which locks the event row) before it creates the new links, so it calls
   `lock_for_tier_links` for the passes and tiers of `series_pass_links` before the save.
 - The threaded tests are in `events/tests/test_series_pass/test_coverage_lock_race_1618.py`.
