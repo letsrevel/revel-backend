@@ -14,6 +14,7 @@ from events.tasks.attendees import (
     send_guest_rsvp_confirmation,
     send_guest_ticket_confirmation,
 )
+from events.tasks.blacklist import link_blacklist_entries_for_user_task
 from events.tasks.custom_domains import (
     delete_organization_cloudflare_hostnames,
     notify_custom_domain_problem,
@@ -74,6 +75,7 @@ from events.tasks.waitlist import (
 )
 
 __all__ = [
+    "link_blacklist_entries_for_user_task",
     "send_admin_recap_discord",
     "send_admin_recap_pushover",
     "send_daily_admin_recap",

@@ -83,14 +83,19 @@ def test_erase_in_place_keeps_the_entry_unlinked(org: Organization, account: Rev
 
 
 def test_a_new_account_with_the_same_email_is_blacklisted_and_linked(
-    org: Organization, account: RevelUser, django_user_model: type[RevelUser]
+    org: Organization, account: RevelUser, django_user_model: type[RevelUser], django_capture_on_commit_callbacks: t.Any
 ) -> None:
     _linked_entry(org, account, phone_number=None, telegram_username=None)
     account.delete()
 
     new_account = django_user_model.objects.create_user(username="ret_new", email=EMAIL, password="pass")
 
+    # The ban applies at once. An unverified email does not link the entry at registration; verification does.
     assert check_user_hard_blacklisted(new_account, org)
+    assert Blacklist.objects.get(organization=org).user_id is None
+    new_account.email_verified = True
+    with django_capture_on_commit_callbacks(execute=True):
+        new_account.save(update_fields=["email_verified"])
     assert Blacklist.objects.get(organization=org).user_id == new_account.pk
 
 

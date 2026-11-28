@@ -87,6 +87,10 @@ Policy-level intended behaviour that reviewers must not report as a finding. Eac
 - boundary: losing an identifier, showing staff a phone number or Telegram username of an account that was not a known holder, or a deletion that fails because of a concurrent entry, is a valid finding.
 - reference: maintainer decision.
 
+## Blacklist quick mode for an unverified account
+- behaviour: quick mode for an account whose email is not verified (or a guest) does not link an unlinked entry that holds that email, and it is not refused by it. It creates a second, linked entry. The old entry keeps the email ban, and the new entry ties the ban to the account. Two rows can show one person until staff remove one (owner decision, #1553).
+- boundary: linking a staff entry to an account through an email the account never verified, or refusing so that the ban stays tied only to an identifier the person can change, is a valid finding.
+
 ## Review scope rules
 - Present-day only: a hypothetical future regression ("if someone removes this check") is not a finding.
 - Legitimate access: if the "attack" needs access the caller already has, or the impact is trivial or indistinguishable from normal use, it is not a vulnerability.

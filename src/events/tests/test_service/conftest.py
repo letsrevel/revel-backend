@@ -194,3 +194,40 @@ def active_series_with_tier(
 # ---------------------------------------------------------------------------
 # tier_online_with_cancellation_enabled and tier_online_with_cancellation_disabled
 # are defined in src/events/tests/conftest.py for DRY access across both subtrees.
+
+
+# --- Blacklist fixtures (test_blacklist_service.py, test_blacklist_linking.py) ---
+
+
+@pytest.fixture
+def blacklist_admin(django_user_model: type[RevelUser]) -> RevelUser:
+    """Admin user who creates blacklist entries."""
+    return django_user_model.objects.create_user(
+        username="blacklist_admin",
+        email="admin@example.com",
+        password="pass",
+    )
+
+
+@pytest.fixture
+def target_user(django_user_model: type[RevelUser]) -> RevelUser:
+    """User to be blacklisted."""
+    return django_user_model.objects.create_user(
+        username="target_user",
+        email="target@example.com",
+        password="pass",
+        first_name="John",
+        last_name="Doe",
+        preferred_name="Johnny",
+        phone_number="+1234567890",
+    )
+
+
+@pytest.fixture
+def blacklist_org(blacklist_admin: RevelUser) -> Organization:
+    """Organization for blacklist testing."""
+    return Organization.objects.create(
+        name="Blacklist Test Org",
+        slug="blacklist-test-org",
+        owner=blacklist_admin,
+    )

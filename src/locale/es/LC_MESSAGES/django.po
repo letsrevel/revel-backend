@@ -2282,6 +2282,18 @@ msgstr "Esta persona ya está en la lista negra."
 msgid "An entry with this email already exists."
 msgstr "Ya existe un registro con este correo electrónico."
 
+msgid "An entry with this Telegram username already exists."
+msgstr "Ya existe un registro con este nombre de usuario de Telegram."
+
+msgid "An entry with this phone number already exists."
+msgstr "Ya existe un registro con este número de teléfono."
+
+msgid "The existing entry for this email has a different Telegram username."
+msgstr "El registro existente para este correo electrónico tiene otro nombre de usuario de Telegram."
+
+msgid "The existing entry for this email has a different phone number."
+msgstr "El registro existente para este correo electrónico tiene otro número de teléfono."
+
 msgid "User not found."
 msgstr "Usuario no encontrado."
 

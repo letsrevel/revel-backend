@@ -75,8 +75,20 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
         Provide individual fields (email, telegram_username, phone_number, names).
         At least one identifier or name is required.
 
-        If the provided identifiers match an existing registered user, the entry
-        will be automatically linked to them.
+        A manual entry links an account only by the verified email of an active, non-guest account.
+
+        **Both modes:**
+        When the account is verified and not a guest, an unlinked entry of the organization that holds its
+        email is linked and returned instead of a new row (status 201). Its reason is kept. An empty reason is
+        filled with the given reason. In manual mode, a typed phone number or Telegram username fills the entry
+        when the entry has none. Names are not applied to the existing entry.
+
+        Returns 400 when:
+        - No identifier or name is given (manual mode).
+        - The account already has an entry in the organization.
+        - A linked entry of another account (for example an erased one) holds the account's verified email.
+        - A typed identifier is held by another entry.
+        - A typed phone number or Telegram username differs from the one on the linked entry.
 
         Only the organization owner can create an entry that matches a current
         staff member (by account, email, phone or telegram). Others get 403.
@@ -106,10 +118,8 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
                 reason=payload.reason,
             )
 
-        # Refetch with user relationship (may have been auto-linked)
-        # created_by is already available from current request
-        entry = models.Blacklist.objects.select_related("user", "organization").get(pk=entry.pk)
-        entry.created_by = current_user
+        # Refetch with relations: the entry may be an existing one that was linked, so keep its real creator
+        entry = models.Blacklist.objects.select_related("user", "organization", "created_by").get(pk=entry.pk)
         return 201, entry
 
     @route.get(

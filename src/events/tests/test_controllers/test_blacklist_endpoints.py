@@ -607,3 +607,67 @@ class TestCreateWhitelistRequestEndpoint:
         response = public_user_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
         assert response.status_code == 400
+
+
+class TestCreateBlacklistEntryDuplicateIdentifiers:
+    """A manual entry that repeats a telegram handle or phone number answers 400, not 500 (#1554)."""
+
+    def test_duplicate_telegram_returns_400(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        """'@Foo' normalizes to the stored 'foo'."""
+        Blacklist.objects.create(organization=organization, telegram_username="foo", created_by=organization.owner)
+        url = reverse("api:create_blacklist_entry", kwargs={"slug": organization.slug})
+
+        response = organization_owner_client.post(
+            url, data=orjson.dumps({"telegram_username": "@Foo"}), content_type="application/json"
+        )
+
+        assert response.status_code == 400
+        assert "Telegram username already exists" in response.json()["detail"]
+        assert Blacklist.objects.filter(organization=organization).count() == 1
+
+    def test_duplicate_phone_returns_400(self, organization_owner_client: Client, organization: Organization) -> None:
+        """A repeated phone number is refused."""
+        Blacklist.objects.create(organization=organization, phone_number="+393331234567", created_by=organization.owner)
+        url = reverse("api:create_blacklist_entry", kwargs={"slug": organization.slug})
+
+        response = organization_owner_client.post(
+            url, data=orjson.dumps({"phone_number": "+393331234567"}), content_type="application/json"
+        )
+
+        assert response.status_code == 400
+        assert "phone number already exists" in response.json()["detail"]
+        assert Blacklist.objects.filter(organization=organization).count() == 1
+
+
+class TestCreateBlacklistEntryProvenance:
+    """A linked existing entry keeps its real creator in the response (D2)."""
+
+    def test_link_response_shows_original_creator(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        organization_staff_user: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """The owner links an entry that a staff member created: created_by_name is the staff member."""
+        RevelUser.objects.filter(pk=organization_staff_user.pk).update(first_name="Original", last_name="Creator")
+        organization_staff_user.refresh_from_db()
+        django_user_model.objects.create_user(username="holder", email="holder@example.com", email_verified=True)
+        entry = Blacklist.objects.create(
+            organization=organization, email="holder@example.com", created_by=organization_staff_user
+        )
+        url = reverse("api:create_blacklist_entry", kwargs={"slug": organization.slug})
+
+        response = organization_owner_client.post(
+            url, data=orjson.dumps({"email": "holder@example.com"}), content_type="application/json"
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        entry.refresh_from_db()
+        assert data["id"] == str(entry.pk)
+        assert data["user_id"] is not None
+        assert data["created_by_name"] == organization_staff_user.get_display_name()
+        assert entry.created_by == organization_staff_user

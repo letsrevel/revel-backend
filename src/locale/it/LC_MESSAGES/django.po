@@ -2289,6 +2289,18 @@ msgstr "Questo utente è già nella blacklist."
 msgid "An entry with this email already exists."
 msgstr "Esiste già una voce con questa email."
 
+msgid "An entry with this Telegram username already exists."
+msgstr "Esiste già una voce con questo nome utente Telegram."
+
+msgid "An entry with this phone number already exists."
+msgstr "Esiste già una voce con questo numero di telefono."
+
+msgid "The existing entry for this email has a different Telegram username."
+msgstr "La voce esistente per questa email ha un nome utente Telegram diverso."
+
+msgid "The existing entry for this email has a different phone number."
+msgstr "La voce esistente per questa email ha un numero di telefono diverso."
+
 msgid "User not found."
 msgstr "Utente non trovato."
 

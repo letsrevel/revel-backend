@@ -19,6 +19,7 @@ from events.service.blacklist_service import (
     link_blacklist_entries_for_user,
 )
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
+from events.tasks.blacklist import link_after_verification, link_blacklist_entries_for_user_task
 from events.tasks.member_register import auto_link_member_records
 from events.utils import get_invitation_message
 
@@ -100,6 +101,47 @@ def stash_previous_link_state(
     )
 
 
+def _became_verified(instance: RevelUser) -> bool:
+    """Whether this save of an existing user made it hold a (new) verified email, from the pre_save stash."""
+    prev: dict[str, t.Any] | None = getattr(instance, "_register_link_prev", None)
+    if prev is None:  # save() touched none of the link-relevant fields
+        return False
+    return not (prev["email_verified"] and not prev["guest"] and prev["email"].casefold() == instance.email.casefold())
+
+
+@receiver(post_save, sender=RevelUser)
+def link_blacklist_entries_on_verified_email(
+    sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: t.Any
+) -> None:
+    """Link blacklist entries that match a user who just became verified (#1553).
+
+    The entries that match the account's identifiers (email, phone, Telegram) are linked, not only by email.
+    Creation is handled by ``handle_user_creation``. A manual entry made while the email was unverified
+    stays unlinked until now. The link runs after commit (see the comment below).
+    """
+    if created or instance.guest or not instance.email_verified or not instance.email:
+        return
+    if not _became_verified(instance):
+        return
+    user_id = str(instance.pk)
+
+    # After commit, in a task: the verification, password-reset and email-change paths hold the account row
+    # FOR UPDATE, and the link takes Organization locks, so linking inside their transaction could deadlock with a
+    # blacklist add. The task retries; if it cannot be queued, the link runs here. robust=True keeps any failure
+    # from failing the verified request.
+    # The ban applies in the meantime, because enforcement matches the email on every entry.
+    def _dispatch() -> None:
+        try:
+            link_blacklist_entries_for_user_task.delay(user_id)
+        except Exception:  # the broker is down: link now, after commit, so the consequences are not lost
+            # ponytail: if this inline link fails too, it is only logged; no sweep finds it again yet.
+            # Upgrade path: the recovery sweep in #1622.
+            logger.exception("blacklist_link_task_not_queued", user_id=user_id)
+            link_after_verification(user_id)
+
+    transaction.on_commit(_dispatch, robust=True)
+
+
 @receiver(post_save, sender=RevelUser)
 def auto_link_member_records_on_verified_email(
     sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: t.Any
@@ -111,12 +153,8 @@ def auto_link_member_records_on_verified_email(
     """
     if instance.guest or not instance.email_verified or not instance.email:
         return
-    prev: dict[str, t.Any] | None = getattr(instance, "_register_link_prev", None)
-    if not created:
-        if prev is None:  # save() touched none of the link-relevant fields
-            return
-        if prev["email_verified"] and not prev["guest"] and prev["email"].casefold() == instance.email.casefold():
-            return
+    if not created and not _became_verified(instance):
+        return
     if not MembershipRecord.objects.unlinked().filter(email__iexact=instance.email).exists():
         return
     transaction.on_commit(lambda: auto_link_member_records.delay(str(instance.id)))

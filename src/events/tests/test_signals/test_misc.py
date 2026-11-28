@@ -505,6 +505,7 @@ class TestBlacklistLinkingOnUserCreation:
             username="blacklisted_user",
             email="blacklisted@example.com",
             password="pass",
+            email_verified=True,
         )
 
         # Entry should now be linked to the user
@@ -566,6 +567,7 @@ class TestBlacklistLinkingOnUserCreation:
             username="multi_user",
             email="multi@example.com",
             password="pass",
+            email_verified=True,
         )
 
         # Both entries should be linked
@@ -596,10 +598,12 @@ class TestBlacklistLinkingOnUserCreation:
         )
 
         # Create new user with email matching the entry
+        # Verified, so the new account reaches entry selection through the email path
         django_user_model.objects.create_user(
             username="new",
             email="shared@example.com",
             password="pass",
+            email_verified=True,
         )
 
         # Entry should still be linked to existing user, not new user
@@ -748,6 +752,7 @@ class TestBlacklistUserLinkedSignal:
             username="future_user",
             email="future_user@example.com",
             password="pass",
+            email_verified=True,
         )
 
         # Entry should be linked

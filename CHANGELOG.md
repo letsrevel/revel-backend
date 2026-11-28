@@ -35,8 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - An identifier that another unlinked entry of the organization already holds stays on that entry.
   - The other identifiers move to that entry when it has no value for them.
   - The entry is deleted only when no identifier is left.
-  - A new account that registers with the same identifiers is linked to it again.
+  - A new account with the same phone number or Telegram username is linked to it again. A new account with the same email is linked at registration when its email is verified, or else when it verifies the email.
   - A save of a blacklist entry in the Django admin now waits for the organization lock.
+- Blacklist: a manual entry with the phone number or the Telegram handle of an existing entry now answers 400 with a clear message. Before, it answered 500. When the account already has an entry, or the linked entry of another (erased) account holds its email, quick mode and manual mode now refuse with "This user is already blacklisted.". When an unlinked entry holds the account's verified email, that entry is linked to the account and no second entry is created. A phone number or Telegram handle typed in manual mode is added to that entry. The response of a linked entry now shows its real creator.
+- Blacklist: a registration or a Telegram connect no longer fails when two entries of one organization match the person, or when the account already has a linked entry there. Each organization links at most one entry to the account, and the ban applies in every matched organization, also when the only match is the entry of an erased account. Verifying an email, converting a guest account or changing to a new verified email now also links the matching entries. A registration links an entry by email only when the email is verified and the account is not a guest.
+- Blacklist: an entry that matches several accounts of the organization now applies the consequences to each one. For example, an entry that links one account by its email and also holds the phone number of a staff member now removes that staff member too. The owner is never affected.
 
 ## [3.2.1] - 2026-11-27
 
