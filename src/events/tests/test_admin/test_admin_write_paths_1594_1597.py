@@ -13,6 +13,7 @@ import pytest
 from django.contrib.admin.sites import site
 from django.contrib.auth.models import Permission
 from django.db import models as dj_models
+from django.db.models import F
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -81,7 +82,9 @@ def _request(rf: t.Any, superuser: RevelUser) -> t.Any:
 
 
 @pytest.mark.parametrize(
-    "model", [models.Ticket, models.HeldSeriesPass, models.MembershipPayment], ids=lambda m: m.__name__
+    "model",
+    [models.Ticket, models.HeldSeriesPass, models.MembershipPayment, models.CustomerProfile],
+    ids=lambda m: m.__name__,
 )
 def test_add_is_refused(rf: t.Any, superuser: RevelUser, model: type[dj_models.Model]) -> None:
     assert not site._registry[model].has_add_permission(_request(rf, superuser))
@@ -99,11 +102,10 @@ def test_ticket_inline_add_is_refused(rf: t.Any, superuser: RevelUser, event: mo
     ("model", "fixture", "fields"),
     [
         pytest.param(models.Ticket, "ticket", {"event", "tier", "status"}, id="ticket"),
-        pytest.param(models.HeldSeriesPass, "held_pass", {"series_pass", "status"}, id="held-pass"),
-        pytest.param(models.CustomerProfile, "profile", {"user", "organization"}, id="customer-profile"),
+        pytest.param(models.HeldSeriesPass, "held_pass", {"series_pass", "user", "status"}, id="held-pass"),
     ],
 )
-def test_the_parent_and_status_are_readonly_on_change(
+def test_the_parent_and_status_are_disabled_on_change(
     rf: t.Any,
     superuser: RevelUser,
     request: pytest.FixtureRequest,
@@ -111,25 +113,117 @@ def test_the_parent_and_status_are_readonly_on_change(
     fixture: str,
     fields: set[str],
 ) -> None:
+    """They are disabled, not readonly: a readonly field leaves the form, and the form skips its unique checks."""
     obj = request.getfixturevalue(fixture)
 
-    readonly = site._registry[model].get_readonly_fields(_request(rf, superuser), obj)
+    base_fields = site._registry[model].get_form(_request(rf, superuser), obj, change=True).base_fields
 
-    assert fields <= set(readonly)
+    assert all(base_fields[name].disabled for name in fields)
 
 
-def test_ticket_inline_status_and_tier_are_readonly(rf: t.Any, superuser: RevelUser, event: models.Event) -> None:
+def test_customer_profile_owner_is_readonly_on_change(
+    rf: t.Any, superuser: RevelUser, profile: models.CustomerProfile
+) -> None:
+    readonly = site._registry[models.CustomerProfile].get_readonly_fields(_request(rf, superuser), profile)
+
+    assert {"user", "organization"} <= set(readonly)
+
+
+def _ticket_inline(rf: t.Any, superuser: RevelUser, event: models.Event) -> tuple[t.Any, t.Any]:
     request = _request(rf, superuser)
     inlines = site._registry[models.Event].get_inline_instances(request, event)
-    ticket_inline = next(i for i in inlines if i.model is models.Ticket)
-
-    assert {"status", "tier"} <= set(ticket_inline.get_readonly_fields(request))
+    return request, next(i for i in inlines if i.model is models.Ticket)
 
 
-def test_customer_profile_owner_is_editable_on_add(rf: t.Any, superuser: RevelUser) -> None:
-    readonly = site._registry[models.CustomerProfile].get_readonly_fields(_request(rf, superuser), None)
+@pytest.mark.parametrize("name", ["status", "tier"])
+def test_ticket_inline_status_and_tier_are_disabled(
+    rf: t.Any, superuser: RevelUser, event: models.Event, name: str
+) -> None:
+    request, ticket_inline = _ticket_inline(rf, superuser, event)
 
-    assert not {"user", "organization"} & set(readonly)
+    assert ticket_inline.get_formset(request, event).form.base_fields[name].disabled
+
+
+def test_a_seat_conflict_on_a_ticket_change_is_a_form_error(
+    rf: t.Any,
+    superuser: RevelUser,
+    seated_event: tuple[models.Event, list[models.VenueSeat]],
+    event_ticket_tier: models.TicketTier,
+    member_user: RevelUser,
+    revel_user_factory: t.Any,
+) -> None:
+    """The unique seat check reads ``status``: with ``status`` readonly the form skipped it and the save raised."""
+    event, seats = seated_event
+    models.Ticket.objects.create(
+        event=event, tier=event_ticket_tier, user=revel_user_factory(), seat=seats[0], status="active"
+    )
+    mine = models.Ticket.objects.create(
+        event=event, tier=event_ticket_tier, user=member_user, seat=seats[1], status="active"
+    )
+    form_class = site._registry[models.Ticket].get_form(_request(rf, superuser), mine, change=True)
+
+    form = form_class(data={**_initial(form_class, mine), "seat": str(seats[0].pk)}, instance=mine)
+
+    assert not form.is_valid()
+
+
+def test_a_posted_held_pass_user_is_ignored(
+    rf: t.Any, superuser: RevelUser, held_pass: models.HeldSeriesPass, revel_user_factory: t.Any
+) -> None:
+    form_class = site._registry[models.HeldSeriesPass].get_form(_request(rf, superuser), held_pass, change=True)
+    data = {**_initial(form_class, held_pass), "user": str(revel_user_factory().pk)}
+
+    form = form_class(data=data, instance=held_pass)
+
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["user"] == held_pass.user
+
+
+@pytest.mark.parametrize("model", [models.TicketTier, models.SeriesPass], ids=lambda m: m.__name__)
+@pytest.mark.parametrize("on_add", [False, True], ids=["change", "add"])
+def test_quantity_sold_is_readonly(
+    rf: t.Any,
+    superuser: RevelUser,
+    event_ticket_tier: models.TicketTier,
+    held_pass: models.HeldSeriesPass,
+    model: type[dj_models.Model],
+    on_add: bool,
+) -> None:
+    obj = None if on_add else (event_ticket_tier if model is models.TicketTier else held_pass.series_pass)
+
+    assert "quantity_sold" in site._registry[model].get_readonly_fields(_request(rf, superuser), obj)
+
+
+@pytest.mark.parametrize("on_add", [False, True], ids=["change", "add"])
+def test_tier_inline_quantity_sold_is_readonly(
+    rf: t.Any, superuser: RevelUser, event: models.Event, on_add: bool
+) -> None:
+    request = _request(rf, superuser)
+    inlines = site._registry[models.Event].get_inline_instances(request, event)
+    tier_inline = next(i for i in inlines if i.model is models.TicketTier)
+
+    assert "quantity_sold" in tier_inline.get_readonly_fields(request, None if on_add else event)
+
+
+@pytest.mark.usefixtures("no_manifest_storage")
+def test_a_stale_tier_change_post_keeps_the_sold_count(
+    client: Client, superuser: RevelUser, event_ticket_tier: models.TicketTier
+) -> None:
+    client.force_login(superuser)
+    url = reverse("admin:events_tickettier_change", args=[event_ticket_tier.pk])
+    response = client.get(url)
+    assert response.status_code == 200
+    form = response.context["adminform"].form
+    data = {k: v for k, v in _initial(type(form), event_ticket_tier).items() if k != "quantity_sold"}
+    data["quantity_sold"] = "0"  # the stale value shown when the page opened
+
+    models.TicketTier.objects.filter(pk=event_ticket_tier.pk).update(quantity_sold=F("quantity_sold") + 3)
+    response = client.post(url, {**data, "name": "Renamed"})
+
+    assert response.status_code == 302
+    event_ticket_tier.refresh_from_db()
+    assert event_ticket_tier.quantity_sold == 3
+    assert event_ticket_tier.name == "Renamed"
 
 
 def test_event_organization_is_disabled_on_change_and_editable_on_add(
@@ -251,3 +345,20 @@ def test_a_view_only_staff_user_can_open_the_change_page(
     response = client.get(reverse(f"admin:{opts.app_label}_{opts.model_name}_change", args=[obj.pk]))
 
     assert response.status_code == 200
+
+
+@pytest.mark.usefixtures("no_manifest_storage")
+def test_a_held_pass_delete_page_is_refused_but_a_user_delete_cascades(
+    client: Client, rf: t.Any, superuser: RevelUser, held_pass: models.HeldSeriesPass, member_user: RevelUser
+) -> None:
+    client.force_login(superuser)
+    admin_obj = site._registry[models.HeldSeriesPass]
+
+    response = client.get(reverse("admin:events_heldseriespass_delete", args=[held_pass.pk]))
+    assert response.status_code == 403
+    assert "delete_selected" not in admin_obj.get_actions(_request(rf, superuser))
+
+    user_delete = client.get(reverse("admin:accounts_reveluser_delete", args=[member_user.pk]))
+    assert user_delete.status_code == 200
+    assert not user_delete.context["perms_lacking"]
+    assert not user_delete.context["protected"]

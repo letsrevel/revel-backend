@@ -30,6 +30,9 @@ class TicketTierAdmin(CreateOnlyFieldsMixin, GrantsTemporaryTierMixin, ModelAdmi
     """Admin view for TicketTier."""
 
     create_only_fields = ("event",)
+    # Only the ticket services change the count, with F() updates. An editable field would write back the count
+    # shown when the page opened, over the sales made since (#1594).
+    readonly_fields = ["quantity_sold"]
 
     list_display = [
         "__str__",
@@ -85,7 +88,11 @@ class TicketTierAdmin(CreateOnlyFieldsMixin, GrantsTemporaryTierMixin, ModelAdmi
 
 
 @admin.register(models.Ticket)
-class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
+class TicketAdmin(CreateOnlyFieldsMixin, ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
+    # Event, tier and status change only in the ticket services, which keep the tier capacity (#1594, #1619). The
+    # admin cannot add a ticket, so these fields are always disabled; they stay on the form for its unique checks.
+    create_only_fields = ("event", "tier", "status")
+
     list_display = [
         "id",
         "event_link",
@@ -111,13 +118,9 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  #
     ]
     list_filter_submit = True
     search_fields = ["event__name", "user__username", "user__email", "guest_name", "holder_email", "seat__label"]
-    autocomplete_fields = ["user", "checked_in_by", "venue", "sector", "seat"]
+    autocomplete_fields = ["event", "user", "tier", "checked_in_by", "venue", "sector", "seat"]
     readonly_fields = [
         "id",
-        # event, tier and status change only in the ticket services, which keep the tier capacity (#1594, #1619)
-        "event",
-        "tier",
-        "status",
         "holder_email",  # written only by the account erasure (#1476)
         "checked_in_at",
         "checked_in_by",

@@ -208,6 +208,10 @@ class CustomerProfileAdmin(
     autocomplete_fields = ["user", "organization"]
     readonly_fields = ["stripe_customer_id", "created_at", "updated_at"]
 
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Profiles are created by ``ensure_customer_profile`` only, together with their Stripe customer."""
+        return False
+
     def get_readonly_fields(self, request: HttpRequest, obj: models.CustomerProfile | None = None) -> t.Any:
         """Lock the owner of an existing profile."""
         fields = list(super().get_readonly_fields(request, obj))

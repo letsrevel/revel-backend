@@ -311,6 +311,7 @@ class TicketTierInline(GrantsTemporaryTierMixin, TabularInline):  # type: ignore
     extra = 1
     # No inline delete: it would call ``obj.delete()`` and skip ``ticket_service.delete_ticket_tier`` (#1499).
     can_delete = False
+    readonly_fields = ["quantity_sold"]  # only the ticket services change the count (#1594)
     # raw_id: plain <select>s here enumerate every venue/sector/membership-tier in the DB
     # and fire one __str__ query per <option>, per row + empty form (#880).
     raw_id_fields = [
@@ -346,7 +347,7 @@ class EventRSVPInline(TabularInline):  # type: ignore[misc]
 class TicketInline(TabularInline):  # type: ignore[misc]
     model = models.Ticket
     extra = 0
-    autocomplete_fields = ["user"]
+    autocomplete_fields = ["user", "tier"]
     # raw_id: these rendered as plain <select>s over EVERY seat/venue/sector/discount
     # code/held pass in the DB, with one __str__ query per <option>, per ticket row +
     # empty form — thousands of queries on a seated event's change page (#880).
@@ -368,14 +369,23 @@ class TicketInline(TabularInline):  # type: ignore[misc]
         "discount_code",
         "held_pass",
         "file_content_hash",
-        "status",  # status and tier change only in the ticket services, which keep the tier capacity (#1594)
-        "tier",
     ]
     can_delete = False
 
     def has_add_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
         """Tickets are created by the checkout and box office services only (#1594)."""
         return False
+
+    def get_formset(self, request: HttpRequest, obj: t.Any = None, **kwargs: t.Any) -> t.Any:
+        """Disable status and tier: only the ticket services change them, which keep the tier capacity (#1594).
+
+        Disabled, not readonly, so the form still checks the unique constraints whose condition reads ``status``.
+        """
+        formset = super().get_formset(request, obj, **kwargs)
+        for name in ("status", "tier"):
+            if name in formset.form.base_fields:  # a user without change permission gets a form with no fields
+                formset.form.base_fields[name].disabled = True
+        return formset
 
 
 class EventWaitListInline(TabularInline):  # type: ignore[misc]

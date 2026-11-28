@@ -29,10 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The organization of an event and the series pass of a held pass are read-only on the change page too.
 - Django admin: the admin can no longer change ticket or series pass capacity behind the services.
   - Tickets and held series passes cannot be added in the admin. Their status and tier (or pass) are read-only.
-  - Before, an admin add or status edit left the sold count of the tier wrong, so a tier could oversell.
+  - The holder of a held series pass is read-only, and its own delete page is refused. A user delete still removes it.
+  - The sold count of a ticket tier and of a series pass is read-only, so a save cannot write back an old count.
+  - Before, an admin add, status edit or held pass delete left the sold count wrong, so a tier or pass could oversell or lose places.
 - Django admin: membership payments and customer profiles are protected like membership subscriptions.
   - Membership payments cannot be added in the admin, and an existing payment is view-only.
-  - The user and organization of an existing customer profile are read-only, and its own delete page is refused. A user or organization delete still removes the profile.
+  - Customer profiles cannot be added in the admin. The user and organization of an existing profile are read-only, and its own delete page is refused. A user or organization delete still removes the profile.
 - Django admin: the event series admin shows more about the visibility of each series.
   - The series list shows the organization visibility (also as a filter) and the number of events, with a link to them.
   - The series page shows its effective public visibility and the reason for it.

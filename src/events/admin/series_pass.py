@@ -12,6 +12,7 @@ from events.admin.base import (
     SeriesPassTierLinkInline,
     UserLinkMixin,
 )
+from events.admin.subscription import NoOwnDeleteMixin
 
 
 @admin.register(models.SeriesPass)
@@ -19,6 +20,7 @@ class SeriesPassAdmin(CreateOnlyFieldsMixin, ModelAdmin):  # type: ignore[misc]
     """Admin view for SeriesPass (season-ticket product on an EventSeries)."""
 
     create_only_fields = ("event_series",)
+    readonly_fields = ["quantity_sold"]  # only the series pass services change the count (#1594)
 
     list_display = [
         "name",
@@ -49,17 +51,17 @@ class SeriesPassTierLinkAdmin(ModelAdmin, EventLinkMixin):  # type: ignore[misc]
 
 
 @admin.register(models.HeldSeriesPass)
-class HeldSeriesPassAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
+class HeldSeriesPassAdmin(NoOwnDeleteMixin, CreateOnlyFieldsMixin, ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     """Admin view for HeldSeriesPass (a user's purchased series pass).
 
-    No ``has_delete_permission`` override: ``series_pass`` is PROTECT and ``tickets``
-    is RESTRICT, but Django's admin already catches both ProtectedError and
-    RestrictedError in its delete view (see ``django.contrib.admin.utils.NestedObjects``)
-    and renders a readable "cannot delete because of related objects" page instead of a
-    500 — the same default other admins in this module rely on for FK-guarded models, so
-    there's nothing to add here. Teardown of a held pass with materialized tickets goes
-    through the service layer, not admin delete.
+    The admin cannot add, move or delete a held pass: only the series pass services create one, change its status
+    and give its place on the pass back (#1594, #1619). ``NoOwnDeleteMixin`` refuses the admin's own delete but
+    keeps the cascade from a user delete.
     """
+
+    # A held pass never moves to another pass or person, and only the services change its status. The admin cannot
+    # add one, so these fields are always disabled; they stay on the form for its unique checks.
+    create_only_fields = ("series_pass", "user", "status")
 
     list_display = ["id", "series_pass", "user_link", "status", "price_paid", "created_at"]
     list_select_related = ["series_pass", "user"]
@@ -68,8 +70,6 @@ class HeldSeriesPassAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     autocomplete_fields = ["series_pass", "user"]
     readonly_fields = [
         "id",
-        "series_pass",  # a held pass never moves to another pass (#1619)
-        "status",  # status and capacity change only in the series pass service (#1594)
         "holder_name",  # holder_name and holder_email are written only by the account erasure (#1476)
         "holder_email",
         "stripe_session_id",
