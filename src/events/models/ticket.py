@@ -560,8 +560,13 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         """
         from .series_pass import SeriesPass  # series_pass imports this module
 
-        lock_rows(SeriesPass, set(self.series_pass_links.values_list("series_pass_id", flat=True)))
+        first = set(self.series_pass_links.values_list("series_pass_id", flat=True))
+        lock_rows(SeriesPass, first)
         lock_row(TicketTier, self.pk)
+        # ponytail: a pass linked while this waited for the tier lock is locked after the tier, out of the global
+        # order. Postgres stops a deadlock with it; the rule check stays correct. No new link can come once the tier
+        # lock is held, so one more read is enough.
+        lock_rows(SeriesPass, set(self.series_pass_links.values_list("series_pass_id", flat=True)) - first)
         restricted = self.restricted_to_membership_tiers.exists()
         pass_rules = set(self.series_pass_links.values_list("series_pass__purchasable_by", flat=True))
         if any(

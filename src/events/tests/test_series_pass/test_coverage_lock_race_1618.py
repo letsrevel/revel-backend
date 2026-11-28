@@ -249,3 +249,29 @@ def test_a_stricter_tier_and_a_looser_pass_on_one_link_cannot_both_pass(
     assert runner.outcome["first"][0] == "ok", runner.outcome["first"]
     status, exc = runner.outcome["second"]
     assert status == "err" and isinstance(exc, ValidationError), runner.outcome["second"]
+
+
+def test_a_tier_change_locks_a_pass_that_was_linked_while_it_waited(series_pass: SeriesPass) -> None:
+    """A link holds the tier while the tier change waits. After the link commits, the tier change reads it again and
+    locks the new pass, so a looser rule of that pass waits and is then refused."""
+    event, tier = _setup(series_pass, _make_pass_public)  # a members pass and a members tier
+    TicketTier.objects.filter(pk=tier.pk).update(purchasable_by=TicketTier.PurchasableBy.PUBLIC)
+    link_pause = _Pause(_row_lock_on("events_event"))
+    late_pass_lock = _Pause(_row_lock_on("events_seriespass"))  # no link at first, so this is the late lock
+    runner = _Runner()
+
+    runner.start("link", _link(series_pass, event, tier), link_pause)
+    assert link_pause.reached.wait(timeout=10)
+    tier_change = runner.start("tier", _make_tier_members_only(series_pass, event, tier), late_pass_lock)
+    _assert_waits_on_lock(tier_change)
+    link_pause.release.set()
+    assert late_pass_lock.reached.wait(timeout=10)
+    pass_change = runner.start("pass", _make_pass_public(series_pass, event, tier))
+    _assert_waits_on_lock(pass_change)
+    late_pass_lock.release.set()
+    runner.join()
+
+    assert runner.outcome["link"][0] == "ok", runner.outcome["link"]
+    assert runner.outcome["tier"][0] == "ok", runner.outcome["tier"]
+    status, exc = runner.outcome["pass"]
+    assert status == "err" and isinstance(exc, ValidationError), runner.outcome["pass"]

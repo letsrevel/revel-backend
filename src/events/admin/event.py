@@ -156,7 +156,9 @@ class EventAdmin(CreateOnlyFieldsMixin, ImageSourceAdminMixin, ModelAdmin, Organ
             return super().changeform_view(request, object_id, form_url, extra_context)
         with transaction.atomic():
             event = self.get_object(request, unquote(object_id))
-            if event is not None:
+            # ponytail: a pass linked between this read and the tier lock is locked later, by the tier check, out of
+            # the global order (``TicketTier.assert_covers_series_passes``); Postgres stops such a deadlock.
+            if event is not None and self.has_change_permission(request, event):
                 series_pass_service.lock_for_tier_links(
                     set(models.SeriesPassTierLink.objects.filter(event=event).values_list("series_pass_id", flat=True)),
                     list(event.ticket_tiers.values_list("pk", flat=True)),
