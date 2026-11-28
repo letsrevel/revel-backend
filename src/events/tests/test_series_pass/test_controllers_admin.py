@@ -220,6 +220,12 @@ def test_list_series_passes_returns_management_fields_coverage_and_holder_count(
 ) -> None:
     """The admin list exposes management state, per-event coverage, and the active+pending holder count."""
     SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=ticket_tier)
+    # Distinct, non-default access values, so a swapped field fails the test. ``update()`` skips full_clean:
+    # the coverage rules would refuse these values on a covered event, and only serialization is under test.
+    Event.objects.filter(pk=event.pk).update(
+        event_type=Event.EventType.MEMBERS_ONLY, visibility=Event.Visibility.UNLISTED, status=Event.EventStatus.CLOSED
+    )
+    TicketTier.objects.filter(pk=ticket_tier.pk).update(purchasable_by=TicketTier.PurchasableBy.NON_MEMBERS)
     statuses = (
         HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
         HeldSeriesPass.HeldSeriesPassStatus.PENDING,
@@ -246,10 +252,10 @@ def test_list_series_passes_returns_management_fields_coverage_and_holder_count(
     assert link["tier_id"] == str(ticket_tier.pk)
     assert link["tier_name"] == ticket_tier.name
     # Access fields for the admin coverage warnings (#1603).
-    assert link["event_type"] == event.event_type
-    assert link["event_visibility"] == event.visibility
-    assert link["event_status"] == event.status
-    assert link["tier_purchasable_by"] == ticket_tier.purchasable_by
+    assert link["event_type"] == "members-only"
+    assert link["event_visibility"] == "unlisted"
+    assert link["event_status"] == "closed"
+    assert link["tier_purchasable_by"] == "non_members"
 
 
 def test_list_series_passes_query_count_does_not_grow_with_passes_or_coverage(
