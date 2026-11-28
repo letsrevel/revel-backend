@@ -91,8 +91,12 @@ class SeriesPass(TimeStampedModel, VisibilityMixin):
                 return
             # Tier links are validated against the pass currency at link time;
             # changing it afterwards would silently break that contract.
-            if self.currency != old["currency"] and self.tier_links.exists():
-                raise DjangoValidationError({"currency": _("Currency cannot be changed once the pass covers events.")})
+            if self.currency != old["currency"]:
+                lock_row(SeriesPass, self.pk)  # as below, for a concurrent add_tier_links (#1618)
+                if self.tier_links.exists():
+                    raise DjangoValidationError(
+                        {"currency": _("Currency cannot be changed once the pass covers events.")}
+                    )
             # Only when the rule changes, so existing mismatched links do not block unrelated edits.
             # Reads the links as stored: an admin submit that also deletes the offending inline row still fails
             # here (inline deletes run after the parent saves); saving twice works around it.

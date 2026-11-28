@@ -103,6 +103,18 @@ def _make_pass_public(series_pass: SeriesPass, event: Event, tier: TicketTier) -
     return run
 
 
+def _change_pass_currency(series_pass: SeriesPass, event: Event, tier: TicketTier) -> t.Callable[[], None]:
+    """The currency contract: a link needs the tier currency to match the pass currency."""
+
+    def run() -> None:
+        with transaction.atomic():
+            fresh = SeriesPass.objects.get(pk=series_pass.pk)
+            fresh.currency = "USD"
+            fresh.save()
+
+    return run
+
+
 def _setup(series_pass: SeriesPass, change: _Change) -> tuple[Event, TicketTier]:
     event, tier = _uncovered(series_pass)
     if change is _make_pass_public:
@@ -112,11 +124,13 @@ def _setup(series_pass: SeriesPass, change: _Change) -> tuple[Event, TicketTier]
     return event, tier
 
 
-def _state(series_pass: SeriesPass, event: Event, tier: TicketTier) -> tuple[str, str, str]:
+def _state(series_pass: SeriesPass, event: Event, tier: TicketTier) -> tuple[str, ...]:
+    fresh_pass = SeriesPass.objects.get(pk=series_pass.pk)
     return (
         Event.objects.get(pk=event.pk).event_type,
         TicketTier.objects.get(pk=tier.pk).purchasable_by,
-        SeriesPass.objects.get(pk=series_pass.pk).purchasable_by,
+        fresh_pass.purchasable_by,
+        fresh_pass.currency,
     )
 
 
@@ -126,6 +140,7 @@ def _state(series_pass: SeriesPass, event: Event, tier: TicketTier) -> tuple[str
         pytest.param(_make_event_private, id="event-type"),
         pytest.param(_make_tier_members_only, id="tier-rule"),
         pytest.param(_make_pass_public, id="pass-rule"),
+        pytest.param(_change_pass_currency, id="pass-currency"),
     ],
 )
 def test_a_change_waits_for_a_concurrent_link_and_is_then_refused(series_pass: SeriesPass, change: _Change) -> None:
@@ -154,6 +169,7 @@ def test_a_change_waits_for_a_concurrent_link_and_is_then_refused(series_pass: S
         pytest.param(_make_event_private, "events_event", SeriesPassCoverageError, id="event-type"),
         pytest.param(_make_tier_members_only, "events_tickettier", ValidationError, id="tier-rule"),
         pytest.param(_make_pass_public, "events_seriespass", ValidationError, id="pass-rule"),
+        pytest.param(_change_pass_currency, "events_seriespass", ValidationError, id="pass-currency"),
     ],
 )
 def test_a_link_waits_for_a_concurrent_change_and_is_then_refused(

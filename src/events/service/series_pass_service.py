@@ -289,7 +289,7 @@ def add_tier_links(
     """
     requested_event_ids = {link["event_id"] for link in links}
     events = lock_for_tier_links([series_pass.pk], {link["tier_id"] for link in links}, requested_event_ids)
-    series_pass.refresh_from_db(fields=["purchasable_by"])  # the link checks read the rule as committed
+    series_pass.refresh_from_db(fields=["purchasable_by", "currency"])  # the link checks read them as committed
     if len(events) != len(requested_event_ids):
         raise SeriesPassCoverageError(str(_("One or more events do not exist.")))
     validate_events_coverable(series_pass.event_series, events)
