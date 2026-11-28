@@ -204,3 +204,32 @@ def test_an_event_edit_with_new_links_locks_the_pass_and_the_tier_before_the_eve
     }
     assert first["pass"] < first["tier"] < first["event_write"], first
     assert SeriesPassTierLink.objects.filter(event=event, tier=tier).exists()
+
+
+@pytest.mark.parametrize(
+    ("first", "first_lock", "second"),
+    [
+        pytest.param(_make_tier_members_only, "events_tickettier", _make_pass_public, id="tier-first"),
+        pytest.param(_make_pass_public, "events_seriespass", _make_tier_members_only, id="pass-first"),
+    ],
+)
+def test_a_stricter_tier_and_a_looser_pass_on_one_link_cannot_both_pass(
+    series_pass: SeriesPass, first: _Change, first_lock: str, second: _Change
+) -> None:
+    """Each change locks the covering pass first (pass, then tier), so the second change waits and is refused."""
+    event, tier = _setup(series_pass, _make_pass_public)  # a members pass and a members tier
+    TicketTier.objects.filter(pk=tier.pk).update(purchasable_by=TicketTier.PurchasableBy.PUBLIC)
+    SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=tier)
+    pause = _Pause(_row_lock_on(first_lock))  # the last lock of the first change, before it reads the other row
+    runner = _Runner()
+
+    runner.start("first", first(series_pass, event, tier), pause)
+    assert pause.reached.wait(timeout=10)
+    waiter = runner.start("second", second(series_pass, event, tier))
+    _assert_waits_on_lock(waiter)
+    pause.release.set()
+    runner.join()
+
+    assert runner.outcome["first"][0] == "ok", runner.outcome["first"]
+    status, exc = runner.outcome["second"]
+    assert status == "err" and isinstance(exc, ValidationError), runner.outcome["second"]

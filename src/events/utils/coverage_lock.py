@@ -15,5 +15,11 @@ def lock_row(model: type[models.Model], pk: t.Any) -> None:
     Outside an atomic block there is no transaction to hold the lock (and ``select_for_update`` raises), so the
     call does nothing.
     """
-    if transaction.get_connection().in_atomic_block:
-        list(model._base_manager.select_for_update(no_key=True).filter(pk=pk).values_list("pk", flat=True))
+    lock_rows(model, [pk])
+
+
+def lock_rows(model: type[models.Model], pks: t.Collection[t.Any]) -> None:
+    """Lock several rows of one model as ``lock_row`` does, in pk order (the global lock order)."""
+    if pks and transaction.get_connection().in_atomic_block:
+        rows = model._base_manager.select_for_update(no_key=True).filter(pk__in=pks).order_by("pk")
+        list(rows.values_list("pk", flat=True))
