@@ -143,8 +143,13 @@ class SeriesPassTierLinkAdminSchema(Schema):
     event_id: UUID
     event_name: str
     event_start: AwareDatetime
+    # Access fields for the admin coverage warnings (#1603).
+    event_type: Event.EventType
+    event_visibility: Event.Visibility
+    event_status: Event.EventStatus
     tier_id: UUID
     tier_name: str
+    tier_purchasable_by: TicketTier.PurchasableBy
 
 
 class SeriesPassAdminSchema(ModelSchema):
@@ -188,8 +193,12 @@ class SeriesPassAdminSchema(ModelSchema):
                 event_id=link.event_id,
                 event_name=link.event.name,
                 event_start=link.event.start,
+                event_type=Event.EventType(link.event.event_type),
+                event_visibility=Event.Visibility(link.event.visibility),
+                event_status=Event.EventStatus(link.event.status),
                 tier_id=link.tier_id,
                 tier_name=link.tier.name,
+                tier_purchasable_by=TicketTier.PurchasableBy(link.tier.purchasable_by),
             )
             for link in obj.tier_links.all()
         ]

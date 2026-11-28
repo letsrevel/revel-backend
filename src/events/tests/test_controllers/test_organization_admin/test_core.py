@@ -17,7 +17,13 @@ from accounts.models import RevelUser
 from common.models import SiteSettings
 from common.utils import assert_image_equal
 from events import schema
-from events.models import Organization, OrganizationQuestionnaire, OrganizationStaff
+from events.models import (
+    MembershipSubscriptionPlan,
+    MembershipTier,
+    Organization,
+    OrganizationQuestionnaire,
+    OrganizationStaff,
+)
 from questionnaires.models import Questionnaire
 
 pytestmark = pytest.mark.django_db
@@ -99,6 +105,27 @@ def test_update_response_uses_admin_detail_schema(
     assert "contact_email_verified" in data
     assert "revenue_report_cadence" in data
     assert "membership_grace_period_days" in data
+
+
+def test_get_organization_admin_has_membership_plans_counts_own_active_plans_only(
+    organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """``has_membership_plans`` is True only for an active plan of this organization (#1603)."""
+    url = reverse("api:get_organization_admin", kwargs={"slug": organization.slug})
+    other_org = Organization.objects.create(name="Other Org", slug="other-org-1603", owner=organization_owner_user)
+    other_tier = MembershipTier.objects.create(organization=other_org, name="Other tier")
+    MembershipSubscriptionPlan.objects.create(
+        tier=other_tier, name="Other", price=Decimal("10.00"), currency="EUR", period_unit="month"
+    )
+    tier = MembershipTier.objects.create(organization=organization, name="Tier 1603")
+    plan = MembershipSubscriptionPlan.objects.create(
+        tier=tier, name="Archived", price=Decimal("10.00"), currency="EUR", period_unit="month", is_active=False
+    )
+    assert organization_owner_client.get(url).json()["has_membership_plans"] is False
+
+    plan.is_active = True
+    plan.save(update_fields=["is_active"])
+    assert organization_owner_client.get(url).json()["has_membership_plans"] is True
 
 
 def test_update_membership_grace_period_rejects_negative(

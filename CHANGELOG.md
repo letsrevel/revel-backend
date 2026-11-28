@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Organization admin API: the organization details now include `has_membership_plans` (true when the organization has an active membership plan).
+- Series pass admin API: each coverage row of a pass now includes the covered event's `event_type`, `event_visibility` and `event_status`, and the linked tier's `tier_purchasable_by`. The admin UI uses these fields to warn about coverage that buyers cannot use.
+
 ## [3.3.0] - 2026-11-28
 
 ### Deployment notes

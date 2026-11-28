@@ -446,11 +446,20 @@ class OrganizationAdminDetailSchema(
     platform_fee_vat_rate: str
     platform_fee_reverse_charge: bool
     compliance: OrganizationComplianceSchema
+    # True when the organization has an active membership plan (same filter as the tenant lookup).
+    # The admin UI combines it with ``accept_membership_requests`` to warn about a members-only
+    # event that nobody can join (#1603).
+    has_membership_plans: bool
 
     @staticmethod
     def resolve_compliance(obj: Organization) -> OrganizationComplianceSchema:
         """Country-compliance capabilities for the organization."""
         return _compliance(obj)
+
+    @staticmethod
+    def resolve_has_membership_plans(obj: Organization) -> bool:
+        """Whether an active membership plan exists. One EXISTS query: this schema serializes a single org."""
+        return models.MembershipSubscriptionPlan.objects.filter(tier__organization=obj, is_active=True).exists()
 
     @staticmethod
     def resolve_platform_fee_vat_rate(obj: Organization, context: t.Any) -> str:
