@@ -185,4 +185,6 @@ def test_the_locks_take_the_rows_of_one_table_in_pk_order(
         client.post(reverse("admin:events_event_change", args=[event.pk]), data={})
 
     tier_lock = next(sql for sql in _locks(ctx) if 'FROM "events_tickettier"' in sql)
-    assert "ORDER BY" in tier_lock
+    # Column 1 is the pk. The model's default ordering (event, display_order, name) would show its own columns here.
+    assert tier_lock.startswith('SELECT "events_tickettier"."id" AS "pk" FROM'), tier_lock
+    assert tier_lock.endswith('ORDER BY 1 ASC FOR NO KEY UPDATE OF "events_tickettier"'), tier_lock
