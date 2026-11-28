@@ -21,6 +21,7 @@ from accounts.models import RevelUser
 from common.models import STRIPE_CONNECTED_Q
 from events import models
 from events.admin.base import (
+    EditGuardForm,
     EventSeriesInline,
     InclusiveRangeDateFilter,
     MembershipTierInline,
@@ -28,6 +29,7 @@ from events.admin.base import (
     OrganizationMemberInline,
     OrganizationQuestionnaireInline,
     OrganizationStaffInline,
+    SaveEditedFieldsMixin,
     UserLinkMixin,
     VenueInline,
     format_city,
@@ -692,8 +694,14 @@ class OrganizationMembershipRequestAdmin(ModelAdmin, UserLinkMixin, Organization
 
 
 @admin.register(models.OrganizationToken)
-class OrganizationTokenAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
-    """Admin for OrganizationToken model."""
+class OrganizationTokenAdmin(SaveEditedFieldsMixin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
+    """Admin for OrganizationToken model.
+
+    ``uses`` is counted by the claim service with an ``F()`` update, so it is read-only, a save writes only the form
+    fields, and ``EditGuardForm`` refuses a save over a value that changed after the page opened (#1633).
+    """
+
+    form = EditGuardForm
 
     list_display = [
         "name",
@@ -717,7 +725,7 @@ class OrganizationTokenAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin): 
     list_filter_submit = True
     search_fields = ["name", "organization__name", "issuer__username"]
     autocomplete_fields = ["organization", "issuer", "membership_tier"]
-    readonly_fields = ["id", "created_at", "updated_at"]
+    readonly_fields = ["id", "uses", "created_at", "updated_at"]
     date_hierarchy = "created_at"
 
     @admin.display(description="Tier")

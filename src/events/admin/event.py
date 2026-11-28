@@ -22,12 +22,14 @@ from common.thumbnails.admin_mixins import ImageSourceAdminMixin
 from events import models
 from events.admin.base import (
     CreateOnlyFieldsMixin,
+    EditGuardForm,
     EventInvitationInline,
     EventLinkMixin,
     EventRSVPInline,
     EventWaitListInline,
     InclusiveRangeDateFilter,
     OrganizationLinkMixin,
+    SaveEditedFieldsMixin,
     TicketInline,
     TicketTierInline,
     UserLinkMixin,
@@ -425,8 +427,14 @@ class PendingEventInvitationAdmin(ModelAdmin, EventLinkMixin):  # type: ignore[m
 
 
 @admin.register(models.EventToken)
-class EventTokenAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[misc]
-    """Admin for EventToken model."""
+class EventTokenAdmin(SaveEditedFieldsMixin, ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[misc]
+    """Admin for EventToken model.
+
+    ``uses`` is counted by the claim services with ``F()`` updates, so it is read-only, a save writes only the form
+    fields, and ``EditGuardForm`` refuses a save over a value that changed after the page opened (#1633).
+    """
+
+    form = EditGuardForm
 
     list_display = ["__str__", "name", "event_link", "issuer_link", "uses_display", "expires_at", "created_at"]
     list_select_related = ["event", "issuer"]
@@ -440,7 +448,7 @@ class EventTokenAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignor
     search_fields = ["name", "event__name", "issuer__username"]
     autocomplete_fields = ["event", "issuer"]
     filter_horizontal = ["ticket_tiers"]
-    readonly_fields = ["id", "created_at", "updated_at"]
+    readonly_fields = ["id", "uses", "created_at", "updated_at"]
     date_hierarchy = "created_at"
 
     @admin.display(description="Issuer")
