@@ -2,6 +2,7 @@
 """Admin classes for SeriesPass, SeriesPassTierLink, and HeldSeriesPass models."""
 
 from django.contrib import admin
+from django.http import HttpRequest
 from unfold.admin import ModelAdmin
 
 from events import models
@@ -67,6 +68,8 @@ class HeldSeriesPassAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     autocomplete_fields = ["series_pass", "user"]
     readonly_fields = [
         "id",
+        "series_pass",  # a held pass never moves to another pass (#1619)
+        "status",  # status and capacity change only in the series pass service (#1594)
         "holder_name",  # holder_name and holder_email are written only by the account erasure (#1476)
         "holder_email",
         "stripe_session_id",
@@ -76,3 +79,7 @@ class HeldSeriesPassAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         "updated_at",
     ]
     date_hierarchy = "created_at"
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Held passes are created by the series pass service only: it counts the place on the pass (#1594)."""
+        return False

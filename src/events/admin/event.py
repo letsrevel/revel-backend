@@ -61,8 +61,10 @@ class EventOriginFilter(admin.SimpleListFilter):
 
 
 @admin.register(models.Event)
-class EventAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+class EventAdmin(CreateOnlyFieldsMixin, ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin model for Events."""
+
+    create_only_fields = ("organization",)  # a checkout reads the organization in two steps (#1619)
 
     def get_readonly_fields(self, request: HttpRequest, obj: models.Event | None = None) -> t.Sequence[str]:
         """Make ``requires_ticket`` create-only (#1295) and ``status`` action-only (#1535).

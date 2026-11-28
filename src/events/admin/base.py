@@ -346,7 +346,7 @@ class EventRSVPInline(TabularInline):  # type: ignore[misc]
 class TicketInline(TabularInline):  # type: ignore[misc]
     model = models.Ticket
     extra = 0
-    autocomplete_fields = ["user", "tier"]
+    autocomplete_fields = ["user"]
     # raw_id: these rendered as plain <select>s over EVERY seat/venue/sector/discount
     # code/held pass in the DB, with one __str__ query per <option>, per ticket row +
     # empty form — thousands of queries on a seated event's change page (#880).
@@ -368,8 +368,14 @@ class TicketInline(TabularInline):  # type: ignore[misc]
         "discount_code",
         "held_pass",
         "file_content_hash",
+        "status",  # status and tier change only in the ticket services, which keep the tier capacity (#1594)
+        "tier",
     ]
     can_delete = False
+
+    def has_add_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
+        """Tickets are created by the checkout and box office services only (#1594)."""
+        return False
 
 
 class EventWaitListInline(TabularInline):  # type: ignore[misc]

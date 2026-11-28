@@ -111,9 +111,13 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  #
     ]
     list_filter_submit = True
     search_fields = ["event__name", "user__username", "user__email", "guest_name", "holder_email", "seat__label"]
-    autocomplete_fields = ["event", "user", "tier", "checked_in_by", "venue", "sector", "seat"]
+    autocomplete_fields = ["user", "checked_in_by", "venue", "sector", "seat"]
     readonly_fields = [
         "id",
+        # event, tier and status change only in the ticket services, which keep the tier capacity (#1594, #1619)
+        "event",
+        "tier",
+        "status",
         "holder_email",  # written only by the account erasure (#1476)
         "checked_in_at",
         "checked_in_by",
@@ -172,6 +176,10 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  #
     @admin.display(description="Seat")
     def seat_label(self, obj: models.Ticket) -> str | None:
         return obj.seat.label if obj.seat else "—"
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Tickets are created by the checkout and box office services only: they count the place on the tier."""
+        return False
 
     def delete_model(self, request: HttpRequest, obj: models.Ticket) -> None:
         ticket_service.delete_tickets(models.Ticket.objects.filter(pk=obj.pk))
