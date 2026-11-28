@@ -269,6 +269,10 @@ same row, `FOR NO KEY UPDATE`, so the second one waits and then reads the commit
   the event for `event_type` or `event_series` (#1598), and the pass for a changed purchase rule (#1332) or
   currency. A stricter tier rule (#1341) locks the passes that cover the tier and then the tier, so it also
   serializes with a looser rule of such a pass. Outside an atomic block the helper does nothing.
+- One exception to the order: a pass that a new link adds while a tier change waits for the tier lock. The tier
+  change reads the links again after the tier lock and locks that pass then, after the tier. Postgres stops a
+  deadlock with it; the rule check stays correct. The event admin change view has the same case.
+- The event admin change view locks only for a user with change permission on the event.
 - The Django admin event change view (`EventAdmin.changeform_view`) locks the event's passes, its tiers and the
   event before it validates a submit, because the submit writes the event and then its tier inlines.
 - Not covered: the Django admin link forms (`SeriesPassTierLinkInline`, `SeriesPassTierLinkAdmin`) save a link
