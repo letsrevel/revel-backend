@@ -6,9 +6,11 @@ holds the saved payment methods of one person. So the admin does not add these r
 """
 
 import json
+import re
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
+from html.parser import HTMLParser
 
 import pytest
 from django.contrib.admin.sites import site
@@ -697,40 +699,218 @@ def test_the_event_change_page_renders_the_hidden_initial_values_of_a_tier_row(
     assert 'name="initial-ticket_tiers-0-name"' in html
 
 
-def test_a_field_that_a_service_changed_is_refused(
-    rf: t.Any, superuser: RevelUser, discount_code: models.DiscountCode
+class _FormParser(HTMLParser):
+    """Collect what a browser would submit for the admin change form: (name, value) pairs in document order."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.in_form = False
+        self.pairs: list[tuple[str, str]] = []
+        self._textarea: str | None = None
+        self._textarea_text = ""
+        self._select: str | None = None
+        self._multiple = False
+        self._selected: list[str] = []
+        self._first: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        a = {k: (v or "") for k, v in attrs}
+        if tag == "form" and a.get("id", "").endswith("_form"):
+            self.in_form = True
+        name = a.get("name", "")
+        if tag == "option" and self._select:
+            value = a.get("value", "")
+            self._first = value if self._first is None else self._first
+            if "selected" in a:
+                self._selected.append(value)
+        if not self.in_form or not name or "disabled" in a or "__prefix__" in name:
+            return
+        if tag == "input":
+            kind = a.get("type", "text").lower()
+            if kind in ("submit", "button", "file", "image", "reset"):
+                return
+            if kind in ("checkbox", "radio") and "checked" not in a:
+                return
+            self.pairs.append((name, a.get("value", "on" if kind == "checkbox" else "")))
+        elif tag == "textarea":
+            self._textarea, self._textarea_text = name, ""
+        elif tag == "select":
+            self._select, self._multiple = name, "multiple" in a
+            self._selected, self._first = [], None
+
+    def handle_data(self, data: str) -> None:
+        if self._textarea is not None:
+            self._textarea_text += data
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "form":
+            self.in_form = False
+        elif tag == "textarea" and self._textarea is not None:
+            # The HTML parser of a browser drops the first newline of a textarea.
+            self.pairs.append((self._textarea, self._textarea_text.removeprefix("\n")))
+            self._textarea = None
+        elif tag == "select" and self._select:
+            if self._selected:
+                values = self._selected if self._multiple else self._selected[-1:]
+            else:
+                values = [] if self._multiple or self._first is None else [self._first]
+            self.pairs.extend((self._select, v) for v in values)
+            self._select = None
+
+
+def _round_trip(
+    client: Client,
+    url: str,
+    normalize_newlines: bool = True,
+    edit: dict[str, str] | None = None,
+    before_post: t.Callable[[], object] | None = None,
+    drop: t.Container[str] = (),
+) -> t.Any:
+    """GET the change page, submit its values as a browser does, and return the response of the POST.
+
+    A browser changes every line break of every entry (hidden inputs too) to CRLF. ``edit`` replaces entries,
+    ``drop`` removes entries, and ``before_post`` runs between the GET and the POST (a service write).
+    """
+    parser = _FormParser()
+    parser.feed(client.get(url).content.decode())
+    data: dict[str, list[str]] = {}
+    for name, value in parser.pairs:
+        if name in drop:
+            continue
+        if normalize_newlines:
+            value = re.sub(r"\r\n|\r|\n", "\r\n", value)
+        data.setdefault(name, []).append(value)
+    data["_save"] = ["Save"]
+    for name, value in (edit or {}).items():
+        data[name] = [value]
+    if before_post:
+        before_post()
+    return client.post(url, data)
+
+
+@pytest.mark.usefixtures("no_manifest_storage")
+def test_a_stale_discount_code_save_is_refused_and_keeps_the_service_value(
+    client: Client, superuser: RevelUser, discount_code: models.DiscountCode
 ) -> None:
-    form = _change_form_after_service_write(
-        rf,
-        superuser,
-        discount_code,
-        {"max_uses": "20"},
-        lambda: models.DiscountCode.objects.filter(pk=discount_code.pk).update(is_active=False),
+    client.force_login(superuser)
+
+    response = _round_trip(
+        client,
+        reverse("admin:events_discountcode_change", args=[discount_code.pk]),
+        edit={"max_uses": "20"},
+        before_post=lambda: models.DiscountCode.objects.filter(pk=discount_code.pk).update(is_active=False),
     )
 
-    assert STALE in str(form.errors["is_active"])
-    assert "max_uses" not in form.errors
+    assert response.status_code == 200
+    assert STALE in response.content.decode()
     discount_code.refresh_from_db()
     assert discount_code.is_active is False
     assert discount_code.max_uses == 10
 
 
-def test_a_ticket_field_that_a_service_changed_is_refused(
-    rf: t.Any, superuser: RevelUser, event: models.Event, event_ticket_tier: models.TicketTier, member_user: RevelUser
+@pytest.mark.usefixtures("no_manifest_storage")
+def test_a_stale_ticket_save_is_refused_and_keeps_the_service_value(
+    client: Client,
+    superuser: RevelUser,
+    event: models.Event,
+    event_ticket_tier: models.TicketTier,
+    member_user: RevelUser,
 ) -> None:
+    client.force_login(superuser)
     ticket = models.Ticket.objects.create(
         event=event, tier=event_ticket_tier, user=member_user, status=models.Ticket.TicketStatus.ACTIVE
     )
 
-    form = _change_form_after_service_write(
-        rf,
-        superuser,
-        ticket,
-        {"guest_name": "Guest"},
-        lambda: models.Ticket.objects.filter(pk=ticket.pk).update(guest_name="Box office"),
+    response = _round_trip(
+        client,
+        reverse("admin:events_ticket_change", args=[ticket.pk]),
+        edit={"guest_name": "Edited"},
+        before_post=lambda: models.Ticket.objects.filter(pk=ticket.pk).update(guest_name="Service"),
     )
 
-    assert STALE in str(form.errors["guest_name"])
+    assert response.status_code == 200
+    assert STALE in response.content.decode()
+    ticket.refresh_from_db()
+    assert ticket.guest_name == "Service"
+
+
+@pytest.fixture
+def ticket(event: models.Event, event_ticket_tier: models.TicketTier, member_user: RevelUser) -> models.Ticket:
+    return models.Ticket.objects.create(
+        event=event, tier=event_ticket_tier, user=member_user, status=models.Ticket.TicketStatus.ACTIVE
+    )
+
+
+@pytest.mark.usefixtures("no_manifest_storage")
+@pytest.mark.parametrize("normalize_newlines", [False, True], ids=["lf", "browser-crlf"])
+@pytest.mark.parametrize(
+    ("model", "field", "value"),
+    [
+        (models.Announcement, "title", "Hi "),
+        (models.Announcement, "body", "Hello\nWorld"),
+        (models.TicketTier, "description", "line1\nline2"),
+        (models.TicketTier, "description", "  padded  "),
+        (models.Ticket, "guest_name", "Guest "),
+    ],
+    ids=["announcement-title", "announcement-body", "tier-lf", "tier-padded", "ticket-guest"],
+)
+def test_an_unedited_save_of_text_with_a_line_break_or_edge_space_is_not_stale(
+    client: Client,
+    superuser: RevelUser,
+    organization: models.Organization,
+    event_ticket_tier: models.TicketTier,
+    ticket: models.Ticket,
+    model: type[models.Announcement] | type[models.TicketTier] | type[models.Ticket],
+    field: str,
+    value: str,
+    normalize_newlines: bool,
+) -> None:
+    client.force_login(superuser)
+    if model is models.Announcement:
+        obj: t.Any = models.Announcement.objects.create(
+            organization=organization, title="Hi", body="Hello", created_by=superuser
+        )
+    else:
+        obj = {models.TicketTier: event_ticket_tier, models.Ticket: ticket}[model]
+    model.objects.filter(pk=obj.pk).update(**{field: value})
+    url = reverse(f"admin:events_{model._meta.model_name}_change", args=[obj.pk])
+
+    response = _round_trip(client, url, normalize_newlines)
+
+    assert response.status_code == 302, response.context["adminform"].form.errors
+
+
+@pytest.mark.usefixtures("no_manifest_storage")
+def test_an_unedited_save_of_each_guarded_admin_is_not_stale(
+    client: Client,
+    superuser: RevelUser,
+    organization: models.Organization,
+    event: models.Event,
+    event_ticket_tier: models.TicketTier,
+    ticket: models.Ticket,
+    held_pass: models.HeldSeriesPass,
+    discount_code: models.DiscountCode,
+) -> None:
+    client.force_login(superuser)
+    discount_code.events.add(event)
+    discount_code.tiers.add(event_ticket_tier)
+    models.DiscountCode.objects.filter(pk=discount_code.pk).update(
+        valid_from=timezone.now().replace(microsecond=123456), valid_until=timezone.now() + timedelta(days=3)
+    )
+    announcement = models.Announcement.objects.create(
+        organization=organization, title="Hi", body="Hello", created_by=superuser
+    )
+    urls = [
+        reverse("admin:events_tickettier_change", args=[event_ticket_tier.pk]),
+        reverse("admin:events_ticket_change", args=[ticket.pk]),
+        reverse("admin:events_seriespass_change", args=[held_pass.series_pass.pk]),
+        reverse("admin:events_heldseriespass_change", args=[held_pass.pk]),
+        reverse("admin:events_discountcode_change", args=[discount_code.pk]),
+        reverse("admin:events_announcement_change", args=[announcement.pk]),
+        reverse("admin:events_event_change", args=[event.pk]),
+    ]
+
+    assert [_round_trip(client, url).status_code for url in urls] == [302] * len(urls)
 
 
 def test_a_missing_hidden_initial_is_refused(
@@ -743,6 +923,19 @@ def test_a_missing_hidden_initial_is_refused(
 
     assert not form.is_valid()
     assert STALE in str(form.errors["max_uses"])
+
+
+def test_a_missing_hidden_initial_of_an_empty_value_is_not_stale(
+    rf: t.Any, superuser: RevelUser, discount_code: models.DiscountCode
+) -> None:
+    models.DiscountCode.objects.filter(pk=discount_code.pk).update(is_active=False)
+    discount_code.refresh_from_db()
+    form_class = site._registry[models.DiscountCode].get_form(_request(rf, superuser), discount_code, change=True)
+    data = {k: v for k, v in _initial(form_class, discount_code).items() if k != "initial-is_active"}
+
+    form = form_class(data=data, instance=discount_code)
+
+    assert form.is_valid(), form.errors
 
 
 def test_an_untouched_change_form_saves(rf: t.Any, superuser: RevelUser, discount_code: models.DiscountCode) -> None:
@@ -768,7 +961,7 @@ def test_a_refused_form_keeps_the_hidden_initial_of_the_page(
     hidden = str(form["is_active"].as_hidden(only_initial=True))
 
     assert 'name="initial-is_active"' in hidden
-    assert "checked" in hidden or 'value="True"' in hidden
+    assert 'value="True"' in hidden
 
 
 @pytest.fixture

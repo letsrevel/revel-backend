@@ -96,6 +96,19 @@ def edited_fields(form: forms.BaseForm, skip: str | None = None) -> list[str]:
     return names
 
 
+def _normalized_text(value: t.Any) -> str:
+    """Text as a browser round trip leaves it: one line break style, no space at the ends."""
+    return ("" if value is None else str(value)).replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def _is_stale(field: forms.Field, initial: t.Any, posted_initial: t.Any) -> bool:
+    """Whether the stored value differs from the hidden value of the page."""
+    # ``JSONField`` is a ``CharField`` subclass, but its value is a structure: ``has_changed`` compares it right.
+    if isinstance(field, forms.CharField) and not isinstance(field, forms.JSONField):
+        return _normalized_text(field.prepare_value(initial)) != _normalized_text(posted_initial)
+    return field.has_changed(initial, posted_initial)
+
+
 class EditGuardForm(forms.ModelForm):  # type: ignore[type-arg]
     """Refuse a save that would revert a value which changed after the page opened (optimistic concurrency).
 
@@ -103,15 +116,23 @@ class EditGuardForm(forms.ModelForm):  # type: ignore[type-arg]
     in between (for example ``is_active`` set by a service, or a seat moved by the box office) would be put back
     silently. Each enabled field of an existing row renders a hidden ``initial-<name>`` input with the value of the
     ``GET`` (``show_hidden_initial``). On save, a field whose stored value differs from that hidden value is a form
-    error, and the admin reloads the page. A missing hidden input counts as stale. A form that is re-rendered after
-    an error keeps the old hidden value, so the baseline stays the one of the first ``GET`` until a reload.
+    error, and the person must reload the page and make the change again. A missing hidden input counts as stale
+    when the stored value is not empty. A form that is re-rendered after an error keeps the old hidden value, so the
+    baseline stays the one of the first ``GET`` until a reload.
+
+    Text fields are compared after the same clean-up that a browser and ``CharField`` apply: every line break style
+    becomes LF and the ends are stripped. A browser changes every LF to CRLF on submit, and ``CharField`` strips
+    only the posted side, so a plain comparison would refuse every save of a value with a line break or a space at
+    an end.
 
     A digest of ``updated_at`` does not work here: services write with ``QuerySet.update`` and ``update_fields``,
     often without ``updated_at``. An inline row is checked only when the user changed it, so an untouched row that a
     service changed is not saved and the service write stays.
 
-    Limits: ``save_m2m`` still replaces the whole set of a many-to-many field, and the race between the load and the
-    save inside one request remains (see :class:`SaveEditedFieldsMixin` for the columns it writes).
+    Limits: Django renders a hidden initial input with a ``to_python`` call, so each non-null foreign key of an
+    inline row costs one more query on the ``POST`` of the event page. ``save_m2m`` still replaces the whole set of a
+    many-to-many field, and the race between the load and the save inside one request remains (see
+    :class:`SaveEditedFieldsMixin` for the columns it writes).
     """
 
     def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
@@ -142,7 +163,7 @@ class EditGuardForm(forms.ModelForm):  # type: ignore[type-arg]
             posted_initial = self._widget_data_value(  # type: ignore[attr-defined]
                 field.hidden_widget(), bound_field.html_initial_name
             )
-            if field.has_changed(bound_field.initial, posted_initial):
+            if _is_stale(field, bound_field.initial, posted_initial):
                 self.add_error(
                     name,
                     _("This value changed since you opened the page. Reload the page and make your change again."),
