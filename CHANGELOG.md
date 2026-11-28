@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Django admin: the use count of event and organization tokens is read-only. A save of a token page writes only the fields of the form, so claims made while the page is open are kept, and a save over a value that changed after the page opened is refused.
+- Django admin: the use count of event and organization tokens is read-only. A save of a token page writes only the fields of the form, so claims made while the page is open are kept, and a save over a value that changed after the page opened is refused. To re-open a used-up token, staff raise its maximum uses.
 - Django admin: the organization of an event and the series pass of a held pass are fixed after creation, so that an open checkout cannot pay against a new parent.
 - Django admin: the admin can no longer change ticket or series pass capacity behind the services.
   - Tickets and held series passes cannot be added in the admin. Their status and tier (or pass) are read-only.

@@ -16,7 +16,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import EventToken, OrganizationToken
+from events.models import EventToken, OrganizationToken, TicketTier
 from events.tests.test_admin.test_admin_edit_guard import STALE, _request, _round_trip
 from events.tests.test_admin.test_admin_write_paths_1594_1597 import _save_with_concurrent_write
 
@@ -51,6 +51,7 @@ def test_a_concurrent_claim_is_kept(rf: t.Any, superuser: RevelUser, token: t.An
     model = type(token)
     model.objects.filter(pk=token.pk).update(updated_at=timezone.now() - timedelta(days=1))
     token.refresh_from_db()
+    before = token.updated_at
 
     _save_with_concurrent_write(
         rf,
@@ -63,6 +64,7 @@ def test_a_concurrent_claim_is_kept(rf: t.Any, superuser: RevelUser, token: t.An
     token.refresh_from_db()
     assert token.uses == 1
     assert token.name == "Renamed"
+    assert token.updated_at > before
 
 
 @pytest.mark.usefixtures("no_manifest_storage")
@@ -92,3 +94,20 @@ def test_a_stale_edit_is_refused(client: Client, superuser: RevelUser, token: t.
     assert STALE in response.content.decode()
     token.refresh_from_db()
     assert token.name == "Service"
+
+
+@pytest.mark.usefixtures("no_manifest_storage")
+def test_an_unedited_round_trip_with_values_saves(
+    client: Client, superuser: RevelUser, event_token: EventToken, event_ticket_tier: TicketTier
+) -> None:
+    """The expiry (split datetime with microseconds), the JSON payload and the tiers all round-trip unchanged."""
+    EventToken.objects.filter(pk=event_token.pk).update(
+        expires_at=timezone.now() + timedelta(days=3, microseconds=123456),
+        invitation_payload={"waives_questionnaire": True},
+    )
+    event_token.ticket_tiers.add(event_ticket_tier)
+    client.force_login(superuser)
+
+    response = _round_trip(client, reverse("admin:events_eventtoken_change", args=[event_token.pk]))
+
+    assert response.status_code == 302
