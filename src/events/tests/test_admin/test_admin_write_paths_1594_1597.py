@@ -5,6 +5,7 @@ tier, pass or status, would skip that count. A membership payment holds the fee 
 holds the saved payment methods of one person. So the admin does not add these rows, and it fixes their parents.
 """
 
+import json
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
@@ -275,8 +276,10 @@ def _initial(form_class: t.Any, obj: dj_models.Model) -> dict[str, t.Any]:
         data[name] = (
             [str(v.pk if hasattr(v, "pk") else v) for v in value]
             if isinstance(value, (list, tuple))
-            else (str(value.pk) if hasattr(value, "pk") else value)
+            else (str(value.pk) if hasattr(value, "pk") else json.dumps(value) if isinstance(value, dict) else value)
         )
+        if field.show_hidden_initial:  # the value of the GET, which the edit guard compares with the stored one
+            data[f"initial-{name}"] = data[name]
     return data
 
 
@@ -491,6 +494,13 @@ def test_a_tier_add_still_saves(rf: t.Any, superuser: RevelUser, event: models.E
     assert models.TicketTier.objects.filter(event=event, name="Added").exists()
 
 
+def _prefixed(prefix: str, index: int, key: str) -> str:
+    """The POST key of a formset field; the hidden initial value keeps its ``initial-`` first."""
+    if key.startswith("initial-"):
+        return f"initial-{prefix}-{index}-{key.removeprefix('initial-')}"
+    return f"{prefix}-{index}-{key}"
+
+
 def _inline_formset(
     rf: t.Any, superuser: RevelUser, event: models.Event, model: type[dj_models.Model], edit: dict[str, t.Any]
 ) -> t.Any:
@@ -511,7 +521,8 @@ def _inline_formset(
         initial = _initial(form_class, row)
         initial["id"] = str(row.pk)
         initial["event"] = str(event.pk)
-        data.update({f"{prefix}-{i}-{k}": v for k, v in {**initial, **(edit if i == 0 else {})}.items()})
+        posted = {**initial, **(edit if i == 0 else {})}
+        data.update({_prefixed(prefix, i, k): v for k, v in posted.items()})
     return formset_class(data=data, instance=event, prefix=prefix)
 
 
@@ -628,3 +639,169 @@ def test_an_announcement_save_keeps_a_concurrent_send(
     assert announcement.sent_at is not None
     assert announcement.recipient_count == 5
     assert announcement.title == "Renamed"
+
+
+# --- Optimistic concurrency: a value that changed since the page opened is refused ---
+
+STALE = "This value changed since you opened the page"
+
+
+@pytest.fixture
+def discount_code(organization: models.Organization) -> models.DiscountCode:
+    return models.DiscountCode.objects.create(
+        code="STALE",
+        organization=organization,
+        discount_type=models.DiscountCode.DiscountType.PERCENTAGE,
+        discount_value=Decimal("10.00"),
+        max_uses=10,
+    )
+
+
+def _change_form_after_service_write(
+    rf: t.Any,
+    superuser: RevelUser,
+    obj: t.Any,
+    edit: dict[str, t.Any],
+    service_write: t.Callable[[], object],
+) -> t.Any:
+    """Build the POST data from the page of the GET, let a service write the row, then validate the POST."""
+    model_admin = site._registry[type(obj)]
+    form_class = model_admin.get_form(_request(rf, superuser), obj, change=True)
+    data = {**_initial(form_class, obj), **edit}
+    service_write()
+    form = form_class(data=data, instance=type(obj).objects.get(pk=obj.pk))
+    form.is_valid()
+    return form
+
+
+@pytest.mark.usefixtures("no_manifest_storage")
+def test_the_change_page_renders_the_hidden_initial_values(
+    client: Client, superuser: RevelUser, discount_code: models.DiscountCode
+) -> None:
+    client.force_login(superuser)
+
+    html = client.get(reverse("admin:events_discountcode_change", args=[discount_code.pk])).content.decode()
+
+    assert 'name="initial-is_active"' in html
+    assert 'name="initial-max_uses"' in html
+
+
+@pytest.mark.usefixtures("no_manifest_storage")
+def test_the_event_change_page_renders_the_hidden_initial_values_of_a_tier_row(
+    client: Client, superuser: RevelUser, event: models.Event, event_ticket_tier: models.TicketTier
+) -> None:
+    client.force_login(superuser)
+
+    html = client.get(reverse("admin:events_event_change", args=[event.pk])).content.decode()
+
+    assert 'name="initial-ticket_tiers-0-name"' in html
+
+
+def test_a_field_that_a_service_changed_is_refused(
+    rf: t.Any, superuser: RevelUser, discount_code: models.DiscountCode
+) -> None:
+    form = _change_form_after_service_write(
+        rf,
+        superuser,
+        discount_code,
+        {"max_uses": "20"},
+        lambda: models.DiscountCode.objects.filter(pk=discount_code.pk).update(is_active=False),
+    )
+
+    assert STALE in str(form.errors["is_active"])
+    assert "max_uses" not in form.errors
+    discount_code.refresh_from_db()
+    assert discount_code.is_active is False
+    assert discount_code.max_uses == 10
+
+
+def test_a_ticket_field_that_a_service_changed_is_refused(
+    rf: t.Any, superuser: RevelUser, event: models.Event, event_ticket_tier: models.TicketTier, member_user: RevelUser
+) -> None:
+    ticket = models.Ticket.objects.create(
+        event=event, tier=event_ticket_tier, user=member_user, status=models.Ticket.TicketStatus.ACTIVE
+    )
+
+    form = _change_form_after_service_write(
+        rf,
+        superuser,
+        ticket,
+        {"guest_name": "Guest"},
+        lambda: models.Ticket.objects.filter(pk=ticket.pk).update(guest_name="Box office"),
+    )
+
+    assert STALE in str(form.errors["guest_name"])
+
+
+def test_a_missing_hidden_initial_is_refused(
+    rf: t.Any, superuser: RevelUser, discount_code: models.DiscountCode
+) -> None:
+    form_class = site._registry[models.DiscountCode].get_form(_request(rf, superuser), discount_code, change=True)
+    data = {k: v for k, v in _initial(form_class, discount_code).items() if k != "initial-max_uses"}
+
+    form = form_class(data=data, instance=discount_code)
+
+    assert not form.is_valid()
+    assert STALE in str(form.errors["max_uses"])
+
+
+def test_an_untouched_change_form_saves(rf: t.Any, superuser: RevelUser, discount_code: models.DiscountCode) -> None:
+    form = _change_form_after_service_write(rf, superuser, discount_code, {"max_uses": "20"}, lambda: None)
+
+    assert form.is_valid(), form.errors
+    form.save()
+    discount_code.refresh_from_db()
+    assert discount_code.max_uses == 20
+
+
+def test_a_refused_form_keeps_the_hidden_initial_of_the_page(
+    rf: t.Any, superuser: RevelUser, discount_code: models.DiscountCode
+) -> None:
+    form = _change_form_after_service_write(
+        rf,
+        superuser,
+        discount_code,
+        {"max_uses": "20"},
+        lambda: models.DiscountCode.objects.filter(pk=discount_code.pk).update(is_active=False),
+    )
+
+    hidden = str(form["is_active"].as_hidden(only_initial=True))
+
+    assert 'name="initial-is_active"' in hidden
+    assert "checked" in hidden or 'value="True"' in hidden
+
+
+@pytest.fixture
+def two_tiers(event: models.Event, event_ticket_tier: models.TicketTier) -> tuple[models.TicketTier, models.TicketTier]:
+    other = models.TicketTier.objects.create(
+        event=event, name="Other", price=Decimal("5.00"), payment_method=models.TicketTier.PaymentMethod.ONLINE
+    )
+    return event_ticket_tier, other
+
+
+def test_an_untouched_inline_row_that_a_service_changed_is_not_saved(
+    rf: t.Any, superuser: RevelUser, event: models.Event, two_tiers: tuple[models.TicketTier, models.TicketTier]
+) -> None:
+    formset = _inline_formset(rf, superuser, event, models.TicketTier, {"name": "Renamed", "category_prices": "{}"})
+    first, second = formset.get_queryset()[:2]
+    models.TicketTier.objects.filter(pk=second.pk).update(name="Service")
+
+    assert formset.is_valid(), formset.errors
+    formset.save()
+
+    assert models.TicketTier.objects.get(pk=first.pk).name == "Renamed"
+    assert models.TicketTier.objects.get(pk=second.pk).name == "Service"
+
+
+def test_an_inline_row_that_a_service_changed_and_the_admin_edited_is_refused(
+    rf: t.Any, superuser: RevelUser, event: models.Event, two_tiers: tuple[models.TicketTier, models.TicketTier]
+) -> None:
+    formset = _inline_formset(
+        rf, superuser, event, models.TicketTier, {"description": "Edited", "category_prices": "{}"}
+    )
+    first, _ = formset.get_queryset()[:2]
+    models.TicketTier.objects.filter(pk=first.pk).update(name="Service")
+
+    assert not formset.is_valid()
+    assert STALE in str(formset.forms[0].errors["name"])
+    assert models.TicketTier.objects.get(pk=first.pk).name == "Service"

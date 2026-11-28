@@ -11,6 +11,7 @@ from unfold.contrib.filters.admin import AutocompleteSelectFilter
 from events import models
 from events.admin.base import (
     CreatedByDefaultMixin,
+    EditGuardForm,
     EventLinkMixin,
     OrganizationLinkMixin,
     SaveEditedFieldsMixin,
@@ -26,6 +27,8 @@ class AnnouncementAdmin(
     EventLinkMixin,
 ):
     """Admin for Announcement model."""
+
+    form = EditGuardForm
 
     def get_queryset(self, request: t.Any) -> t.Any:
         """Optimize queryset to avoid N+1 queries in list view."""

@@ -17,6 +17,7 @@ from unfold.contrib.filters.admin import AutocompleteSelectFilter
 from events import models
 from events.admin.base import (
     CreateOnlyFieldsMixin,
+    EditGuardForm,
     EventLinkMixin,
     GrantsTemporaryTierMixin,
     SaveEditedFieldsMixin,
@@ -36,6 +37,8 @@ class TicketTierAdmin(
     VenueLinkMixin,
 ):
     """Admin view for TicketTier."""
+
+    form = EditGuardForm
 
     create_only_fields = ("event",)
     # Only the ticket services change the count, with F() updates. An editable field would write back the count
@@ -107,6 +110,7 @@ class TicketAdmin(
     # Event, tier and status change only in the ticket services, which keep the tier capacity (#1594, #1619). The
     # admin cannot add a ticket, so these fields are always disabled; they stay on the form for its unique checks.
     create_only_fields = ("event", "tier", "status")
+    form = EditGuardForm
 
     list_display = [
         "id",

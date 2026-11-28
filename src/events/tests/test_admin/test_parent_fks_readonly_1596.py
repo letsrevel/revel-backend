@@ -5,6 +5,7 @@ would pay or issue against the new parent with the old fee split, so the admin c
 series, a series to another organization, or a tier to another event.
 """
 
+import json
 import typing as t
 from decimal import Decimal
 
@@ -109,8 +110,10 @@ def _initial(form_class: t.Any, obj: dj_models.Model) -> dict[str, t.Any]:
         data[name] = (
             [str(v.pk if hasattr(v, "pk") else v) for v in value]
             if isinstance(value, (list, tuple))
-            else (str(value.pk) if hasattr(value, "pk") else value)
+            else (str(value.pk) if hasattr(value, "pk") else json.dumps(value) if isinstance(value, dict) else value)
         )
+        if field.show_hidden_initial:  # the value of the GET, which the edit guard compares with the stored one
+            data[f"initial-{name}"] = data[name]
     return data
 
 

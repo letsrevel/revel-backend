@@ -96,6 +96,60 @@ def edited_fields(form: forms.BaseForm, skip: str | None = None) -> list[str]:
     return names
 
 
+class EditGuardForm(forms.ModelForm):  # type: ignore[type-arg]
+    """Refuse a save that would revert a value which changed after the page opened (optimistic concurrency).
+
+    Django reloads the object at ``POST``, but the posted values come from the page of the ``GET``. A service write
+    in between (for example ``is_active`` set by a service, or a seat moved by the box office) would be put back
+    silently. Each enabled field of an existing row renders a hidden ``initial-<name>`` input with the value of the
+    ``GET`` (``show_hidden_initial``). On save, a field whose stored value differs from that hidden value is a form
+    error, and the admin reloads the page. A missing hidden input counts as stale. A form that is re-rendered after
+    an error keeps the old hidden value, so the baseline stays the one of the first ``GET`` until a reload.
+
+    A digest of ``updated_at`` does not work here: services write with ``QuerySet.update`` and ``update_fields``,
+    often without ``updated_at``. An inline row is checked only when the user changed it, so an untouched row that a
+    service changed is not saved and the service write stays.
+
+    Limits: ``save_m2m`` still replaces the whole set of a many-to-many field, and the race between the load and the
+    save inside one request remains (see :class:`SaveEditedFieldsMixin` for the columns it writes).
+    """
+
+    def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Ask each guarded field to render its hidden initial value."""
+        super().__init__(*args, **kwargs)
+        for field in self._guarded_fields().values():
+            field.show_hidden_initial = True
+
+    def _guarded_fields(self) -> dict[str, forms.Field]:
+        """The enabled, non-file fields of an existing row. ``disabled`` is read here, as it can change after init."""
+        if self.instance._state.adding:
+            return {}
+        return {
+            name: field
+            for name, field in self.fields.items()
+            if not field.disabled and not isinstance(field, forms.FileField)
+        }
+
+    def clean(self) -> dict[str, t.Any] | None:
+        cleaned_data = super().clean()
+        # An inline row (it has a prefix) is checked only when the user changed it.
+        if self.prefix is not None and not self.has_changed():
+            return cleaned_data
+        for name, field in self._guarded_fields().items():
+            if not field.show_hidden_initial:
+                continue
+            bound_field = self[name]
+            posted_initial = self._widget_data_value(  # type: ignore[attr-defined]
+                field.hidden_widget(), bound_field.html_initial_name
+            )
+            if field.has_changed(bound_field.initial, posted_initial):
+                self.add_error(
+                    name,
+                    _("This value changed since you opened the page. Reload the page and make your change again."),
+                )
+        return cleaned_data
+
+
 class SaveEditedFieldsMixin:
     """On a change save, write only the columns that the form edits.
 
@@ -355,6 +409,7 @@ class GrantsTemporaryTierMixin:
 class TicketTierInline(GrantsTemporaryTierMixin, TabularInline):  # type: ignore[misc]
     model = models.TicketTier
     formset = TicketTierFormSet
+    form = EditGuardForm
     extra = 1
     # No inline delete: it would call ``obj.delete()`` and skip ``ticket_service.delete_ticket_tier`` (#1499).
     can_delete = False
@@ -398,6 +453,7 @@ class TicketInlineFormSet(SaveEditedFieldsFormSetMixin, forms.BaseInlineFormSet)
 class TicketInline(TabularInline):  # type: ignore[misc]
     model = models.Ticket
     formset = TicketInlineFormSet
+    form = EditGuardForm
     extra = 0
     autocomplete_fields = ["user"]
     # raw_id: these rendered as plain <select>s over EVERY seat/venue/sector/discount

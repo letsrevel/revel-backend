@@ -8,6 +8,7 @@ from unfold.admin import ModelAdmin
 from events import models
 from events.admin.base import (
     CreateOnlyFieldsMixin,
+    EditGuardForm,
     EventLinkMixin,
     SaveEditedFieldsMixin,
     SeriesPassTierLinkInline,
@@ -19,6 +20,8 @@ from events.admin.subscription import NoOwnDeleteMixin
 @admin.register(models.SeriesPass)
 class SeriesPassAdmin(SaveEditedFieldsMixin, CreateOnlyFieldsMixin, ModelAdmin):  # type: ignore[misc]
     """Admin view for SeriesPass (season-ticket product on an EventSeries)."""
+
+    form = EditGuardForm
 
     create_only_fields = ("event_series",)
     readonly_fields = ["quantity_sold"]  # only the series pass services change the count (#1594)
@@ -63,6 +66,7 @@ class HeldSeriesPassAdmin(SaveEditedFieldsMixin, NoOwnDeleteMixin, CreateOnlyFie
     # A held pass never moves to another pass or person, and only the services change its status. The admin cannot
     # add one, so these fields are always disabled; they stay on the form for its unique checks.
     create_only_fields = ("series_pass", "user", "status")
+    form = EditGuardForm
 
     list_display = ["id", "series_pass", "user_link", "status", "price_paid", "created_at"]
     list_select_related = ["series_pass", "user"]

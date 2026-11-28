@@ -8771,3 +8771,6 @@ msgstr "Um passe de série cobre este evento, por isso tem de continuar público
 
 msgid "A series pass covers this event, so it must stay in its series."
 msgstr "Um passe de série cobre este evento, por isso tem de continuar na sua série."
+
+msgid "This value changed since you opened the page. Reload the page and make your change again."
+msgstr "Este valor mudou desde que abriste a página. Recarrega a página e faz a tua alteração outra vez."

@@ -6,7 +6,7 @@ from unfold.admin import ModelAdmin
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
-from events.admin.base import OrganizationLinkMixin, SaveEditedFieldsMixin
+from events.admin.base import EditGuardForm, OrganizationLinkMixin, SaveEditedFieldsMixin
 
 
 @admin.register(models.DiscountCode)
@@ -16,6 +16,7 @@ class DiscountCodeAdmin(SaveEditedFieldsMixin, ModelAdmin, OrganizationLinkMixin
     ``SaveEditedFieldsMixin`` writes only form fields: ``code`` must stay one, because ``clean()`` upper-cases it.
     """
 
+    form = EditGuardForm
     list_display = [
         "code",
         "organization_link",
