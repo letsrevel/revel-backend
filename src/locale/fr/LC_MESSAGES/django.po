@@ -9095,3 +9095,6 @@ msgstr "Un pass de série couvre cet événement, il doit donc rester public."
 
 msgid "A series pass covers this event, so it must stay in its series."
 msgstr "Un pass de série couvre cet événement, il doit donc rester dans sa série."
+
+msgid "This value changed since you opened the page. Reload the page and make your change again."
+msgstr "Cette valeur a changé depuis l'ouverture de la page. Recharge la page et refais ta modification."

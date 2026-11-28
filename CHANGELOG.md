@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Django admin: the organization of an event and the series pass of a held pass are fixed after creation, so that an open checkout cannot pay against a new parent.
+- Django admin: the admin can no longer change ticket or series pass capacity behind the services.
+  - Tickets and held series passes cannot be added in the admin. Their status and tier (or pass) are read-only.
+  - The holder of a held series pass is read-only, and its own delete page is refused. A user delete still removes it.
+  - The sold count of a ticket tier and of a series pass is read-only, so a save no longer writes back the count shown when the page opened.
+  - A save of a ticket, ticket tier, series pass, held series pass, discount code or announcement writes only the fields of the form. A sold count, ticket status, check-in, code use count or send status that a service writes during the save is kept. The cancellation reason of a ticket is read-only.
+  - On these admin pages, a save is refused when a value on the page changed in the database after the page opened. The staff user reloads the page and makes the change again.
+  - Before, an admin add, status edit or held pass delete left the sold count wrong, so a tier or pass could oversell or lose places.
+- Django admin: membership payments and customer profiles are protected like membership subscriptions.
+  - Membership payments cannot be added in the admin, and an existing payment is view-only.
+  - Customer profiles cannot be added in the admin. The user and organization of an existing profile are read-only, and its own delete page is refused. A user or organization delete still removes the profile.
+
 ## [3.3.0] - 2026-11-28
 
 ### Deployment notes

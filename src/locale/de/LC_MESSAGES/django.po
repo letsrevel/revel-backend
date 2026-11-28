@@ -9072,3 +9072,6 @@ msgstr "Ein Serienpass deckt dieses Event ab, daher muss es öffentlich bleiben.
 
 msgid "A series pass covers this event, so it must stay in its series."
 msgstr "Ein Serienpass deckt dieses Event ab, daher muss es in seiner Serie bleiben."
+
+msgid "This value changed since you opened the page. Reload the page and make your change again."
+msgstr "Dieser Wert hat sich geändert, seit du die Seite geöffnet hast. Lade die Seite neu und nimm deine Änderung noch einmal vor."

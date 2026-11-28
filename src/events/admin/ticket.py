@@ -17,8 +17,10 @@ from unfold.contrib.filters.admin import AutocompleteSelectFilter
 from events import models
 from events.admin.base import (
     CreateOnlyFieldsMixin,
+    EditGuardForm,
     EventLinkMixin,
     GrantsTemporaryTierMixin,
+    SaveEditedFieldsMixin,
     UserLinkMixin,
     VenueLinkMixin,
 )
@@ -26,10 +28,22 @@ from events.service import pending_checkout, ticket_service
 
 
 @admin.register(models.TicketTier)
-class TicketTierAdmin(CreateOnlyFieldsMixin, GrantsTemporaryTierMixin, ModelAdmin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
+class TicketTierAdmin(
+    SaveEditedFieldsMixin,
+    CreateOnlyFieldsMixin,
+    GrantsTemporaryTierMixin,
+    ModelAdmin,  # type: ignore[misc]
+    EventLinkMixin,
+    VenueLinkMixin,
+):
     """Admin view for TicketTier."""
 
+    form = EditGuardForm
+
     create_only_fields = ("event",)
+    # Only the ticket services change the count, with F() updates. An editable field would write back the count
+    # shown when the page opened, over the sales made since (#1594).
+    readonly_fields = ["quantity_sold"]
 
     list_display = [
         "__str__",
@@ -85,7 +99,19 @@ class TicketTierAdmin(CreateOnlyFieldsMixin, GrantsTemporaryTierMixin, ModelAdmi
 
 
 @admin.register(models.Ticket)
-class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
+class TicketAdmin(
+    SaveEditedFieldsMixin,
+    CreateOnlyFieldsMixin,
+    ModelAdmin,  # type: ignore[misc]
+    UserLinkMixin,
+    EventLinkMixin,
+    VenueLinkMixin,
+):
+    # Event, tier and status change only in the ticket services, which keep the tier capacity (#1594, #1619). The
+    # admin cannot add a ticket, so these fields are always disabled; they stay on the form for its unique checks.
+    create_only_fields = ("event", "tier", "status")
+    form = EditGuardForm
+
     list_display = [
         "id",
         "event_link",
@@ -129,6 +155,7 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  #
         "cancelled_at",
         "cancelled_by",
         "cancellation_source",
+        "cancellation_reason",  # written with the cancel by the cancellation service, like the fields above
         "file_content_hash",
         "created_at",
         "updated_at",
@@ -172,6 +199,10 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  #
     @admin.display(description="Seat")
     def seat_label(self, obj: models.Ticket) -> str | None:
         return obj.seat.label if obj.seat else "—"
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Tickets are created by the checkout and box office services only: they count the place on the tier."""
+        return False
 
     def delete_model(self, request: HttpRequest, obj: models.Ticket) -> None:
         ticket_service.delete_tickets(models.Ticket.objects.filter(pk=obj.pk))

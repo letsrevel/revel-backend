@@ -175,10 +175,31 @@ class MembershipPaymentAdmin(NoOwnDeleteMixin, ViewOnlyHistoryMixin, GuardedHist
     ]
     date_hierarchy = "created_at"
 
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Payments are recorded by the subscription service only: it writes the fee split and checks the period."""
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: models.MembershipPayment | None = None) -> bool:
+        """Existing rows are view-only: refunds, voids and ledger moves go through the service layer (#1597)."""
+        if obj is not None:
+            return False
+        return bool(super().has_change_permission(request, obj))
+
 
 @admin.register(models.CustomerProfile)
-class CustomerProfileAdmin(ViewOnlyHistoryMixin, GuardedHistoryAdmin, ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
-    """Admin for the per-(user, organization) Stripe Customer reference."""
+class CustomerProfileAdmin(
+    NoOwnDeleteMixin,
+    ViewOnlyHistoryMixin,
+    GuardedHistoryAdmin,
+    ModelAdmin,  # type: ignore[misc]
+    UserLinkMixin,
+    OrganizationLinkMixin,
+):
+    """Admin for the per-(user, organization) Stripe Customer reference.
+
+    ``user`` and ``organization`` are fixed on an existing profile, and its own delete is refused: moving or
+    dropping a profile hands the saved payment methods of one person to another checkout (#1597).
+    """
 
     list_display = ["__str__", "user_link", "organization_link", "stripe_customer_id", "created_at"]
     list_filter = ["organization__name"]
@@ -186,3 +207,12 @@ class CustomerProfileAdmin(ViewOnlyHistoryMixin, GuardedHistoryAdmin, ModelAdmin
     search_fields = ["user__username", "user__email", "organization__name", "stripe_customer_id"]
     autocomplete_fields = ["user", "organization"]
     readonly_fields = ["stripe_customer_id", "created_at", "updated_at"]
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Profiles are created by ``ensure_customer_profile`` only, together with their Stripe customer."""
+        return False
+
+    def get_readonly_fields(self, request: HttpRequest, obj: models.CustomerProfile | None = None) -> t.Any:
+        """Lock the owner of an existing profile."""
+        fields = list(super().get_readonly_fields(request, obj))
+        return [*fields, "user", "organization"] if obj is not None else fields

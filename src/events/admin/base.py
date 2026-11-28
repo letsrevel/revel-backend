@@ -80,6 +80,136 @@ class CreateOnlyFieldsMixin:
         return form
 
 
+def edited_fields(form: forms.BaseForm, skip: str | None = None) -> list[str]:
+    """Names of the model columns that a saved ``form`` may write.
+
+    These are the enabled form fields that are concrete, non-primary-key fields of the model, minus ``skip`` (the
+    inline foreign key), plus every ``auto_now`` field (``updated_at``). All enabled fields are used, not only
+    ``form.changed_data``: a model ``clean()`` can fill a field from another one (for example the venue and sector
+    of a ticket from its seat), and such a field is on the form too. Readonly and disabled fields are never listed.
+    """
+    instance = form.instance  # type: ignore[attr-defined]
+    concrete = {f.name for f in instance._meta.concrete_fields if not f.primary_key}
+    names = [name for name, field in form.fields.items() if not field.disabled and name in concrete and name != skip]
+    # Django stamps an ``auto_now`` field only when it is in ``update_fields``; a sweep finds changed rows by it.
+    names += [f.name for f in instance._meta.concrete_fields if getattr(f, "auto_now", False) and f.name not in names]
+    return names
+
+
+def _one_line_break_style(value: t.Any) -> str:
+    """The text with every CRLF and CR changed to LF (a browser posts every line break as CRLF)."""
+    return ("" if value is None else str(value)).replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _is_stale(field: forms.Field, initial: t.Any, posted_initial: t.Any) -> bool:
+    """Whether the stored value differs from the hidden value of the page."""
+    # A text field that keeps the default ``has_changed`` is cleaned on both sides, so the strip of the field and the
+    # CRLF of the browser match. A field that overrides ``has_changed`` (for example ``JSONField``) keeps its own.
+    if isinstance(field, forms.CharField) and type(field).has_changed is forms.Field.has_changed:
+        clean = field.to_python
+        try:
+            return bool(
+                clean(_one_line_break_style(field.prepare_value(initial)))
+                != clean(_one_line_break_style(posted_initial))
+            )
+        except ValidationError:  # as ``Field.has_changed``: a value that does not parse counts as a change
+            return True
+    return field.has_changed(initial, posted_initial)
+
+
+class EditGuardForm(forms.ModelForm):  # type: ignore[type-arg]
+    """Refuse a save that would revert a value which changed after the page opened (optimistic concurrency).
+
+    Django reloads the object at ``POST``, but the posted values come from the page of the ``GET``. A service write
+    in between (for example ``is_active`` set by a service, or a seat moved by the box office) would be put back
+    silently. Each enabled field of an existing row renders a hidden ``initial-<name>`` input with the value of the
+    ``GET`` (``show_hidden_initial``). On save, a field whose stored value differs from that hidden value is a form
+    error, and the staff user must reload the page and make the change again. A missing hidden input is compared as
+    an empty value, so it is stale when the field sees a change from the stored value. A form that is re-rendered
+    after an error keeps the old hidden value, so the baseline stays the one of the first ``GET`` until a reload.
+
+    Text fields are compared after the same clean-up on both sides: every line break style becomes LF, then the
+    field's own ``to_python`` runs (it strips when the field strips). A browser changes every LF to CRLF on submit,
+    and ``has_changed`` cleans only the posted side, so a plain comparison would refuse every save of a value with a
+    line break or a space at an end.
+
+    A digest of ``updated_at`` does not work here: services write with ``QuerySet.update`` and ``update_fields``,
+    often without ``updated_at``. An inline row is checked only when the user changed it, so an untouched row that a
+    service changed is not saved and the service write stays.
+
+    Limits: on a ``POST``, ``changed_data`` runs ``to_python`` on each hidden initial value, so each guarded
+    foreign key and many-to-many field of a form costs one more query (on the event page, for each inline row).
+    ``save_m2m`` still replaces the whole set of a many-to-many field, and the race between the load and the save
+    inside one request remains (see :class:`SaveEditedFieldsMixin` for the columns it writes).
+    """
+
+    def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Ask each guarded field to render its hidden initial value."""
+        super().__init__(*args, **kwargs)
+        for field in self._guarded_fields().values():
+            field.show_hidden_initial = True
+
+    def _guarded_fields(self) -> dict[str, forms.Field]:
+        """The enabled, non-file fields of an existing row. ``disabled`` is read here, as it can change after init."""
+        if self.instance._state.adding:
+            return {}
+        return {
+            name: field
+            for name, field in self.fields.items()
+            if not field.disabled and not isinstance(field, forms.FileField)
+        }
+
+    def clean(self) -> dict[str, t.Any] | None:
+        cleaned_data = super().clean()
+        # An inline row (it has a prefix) is checked only when the user changed it.
+        if self.prefix is not None and not self.has_changed():
+            return cleaned_data
+        for name, field in self._guarded_fields().items():
+            if not field.show_hidden_initial:
+                continue
+            bound_field = self[name]
+            posted_initial = self._widget_data_value(  # type: ignore[attr-defined]
+                field.hidden_widget(), bound_field.html_initial_name
+            )
+            if _is_stale(field, bound_field.initial, posted_initial):
+                self.add_error(
+                    name,
+                    _("This value changed since you opened the page. Reload the page and make your change again."),
+                )
+        return cleaned_data
+
+
+class SaveEditedFieldsMixin:
+    """On a change save, write only the columns that the form edits.
+
+    A plain ``obj.save()`` writes every column, also the ones that services change at the same time (counters such
+    as ``quantity_sold``, ``status``, ``cancelled_at``). Such a write would put back the values that were read when
+    the page opened. With ``update_fields`` the readonly and disabled fields are never written. PostgreSQL locks
+    the row for the ``UPDATE``: it waits for a service write that is not yet committed, and then sets only the
+    listed columns.
+
+    Do not use it for a model whose ``save()`` writes columns that are not form fields (for example the end and
+    location of an ``Event``, or a slug and an image).
+    """
+
+    def save_model(self, request: HttpRequest, obj: t.Any, form: t.Any, change: bool) -> None:
+        if change:
+            obj.save(update_fields=edited_fields(form))
+        else:
+            super().save_model(request, obj, form, change)  # type: ignore[misc]
+
+
+class SaveEditedFieldsFormSetMixin:
+    """Inline formset that saves an existing row with ``update_fields``; see :class:`SaveEditedFieldsMixin`."""
+
+    def save_existing(self, form: t.Any, obj: t.Any, commit: bool = True) -> t.Any:
+        obj = form.save(commit=False)
+        if commit:
+            obj.save(update_fields=edited_fields(form, skip=self.fk.name))  # type: ignore[attr-defined]
+            form.save_m2m()
+        return obj
+
+
 class UserLinkMixin:
     """Mixin to add a link to a user."""
 
@@ -285,7 +415,7 @@ class VenueSeatInline(TabularInline):  # type: ignore[misc]
     ordering = ["row_order", "adjacency_index", "label"]
 
 
-class TicketTierFormSet(forms.BaseInlineFormSet):  # type: ignore[type-arg]
+class TicketTierFormSet(SaveEditedFieldsFormSetMixin, forms.BaseInlineFormSet):  # type: ignore[type-arg]
     """Rejects new tiers when the parent Event is RSVP-only, incl. on the add page (#1295)."""
 
     def clean(self) -> None:
@@ -308,9 +438,11 @@ class GrantsTemporaryTierMixin:
 class TicketTierInline(GrantsTemporaryTierMixin, TabularInline):  # type: ignore[misc]
     model = models.TicketTier
     formset = TicketTierFormSet
+    form = EditGuardForm
     extra = 1
     # No inline delete: it would call ``obj.delete()`` and skip ``ticket_service.delete_ticket_tier`` (#1499).
     can_delete = False
+    readonly_fields = ["quantity_sold"]  # only the ticket services change the count (#1594)
     # raw_id: plain <select>s here enumerate every venue/sector/membership-tier in the DB
     # and fire one __str__ query per <option>, per row + empty form (#880).
     raw_id_fields = [
@@ -343,10 +475,16 @@ class EventRSVPInline(TabularInline):  # type: ignore[misc]
     autocomplete_fields = ["user"]
 
 
+class TicketInlineFormSet(SaveEditedFieldsFormSetMixin, forms.BaseInlineFormSet):  # type: ignore[type-arg]
+    """Saves an existing ticket with ``update_fields``, so a service write to the status or a check-in is kept."""
+
+
 class TicketInline(TabularInline):  # type: ignore[misc]
     model = models.Ticket
+    formset = TicketInlineFormSet
+    form = EditGuardForm
     extra = 0
-    autocomplete_fields = ["user", "tier"]
+    autocomplete_fields = ["user"]
     # raw_id: these rendered as plain <select>s over EVERY seat/venue/sector/discount
     # code/held pass in the DB, with one __str__ query per <option>, per ticket row +
     # empty form — thousands of queries on a seated event's change page (#880).
@@ -364,12 +502,37 @@ class TicketInline(TabularInline):  # type: ignore[misc]
         "cancelled_at",
         "cancelled_by",
         "cancellation_source",
+        "cancellation_reason",
         "checked_in_by",
         "discount_code",
         "held_pass",
         "file_content_hash",
+        # Only the ticket services move a ticket to another tier (#1594). Readonly, not disabled: no unique
+        # constraint reads it, and a form field would query the tier again for each row (#880).
+        "tier",
     ]
     can_delete = False
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[models.Ticket]:
+        """Load what the readonly columns and ``Ticket.__str__`` show, so a row costs no extra query (#880)."""
+        queryset: QuerySet[models.Ticket] = super().get_queryset(request)
+        return queryset.select_related(
+            "event", "tier__event", "user", "discount_code", "held_pass", "cancelled_by", "checked_in_by"
+        )
+
+    def has_add_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
+        """Tickets are created by the checkout and box office services only (#1594)."""
+        return False
+
+    def get_formset(self, request: HttpRequest, obj: t.Any = None, **kwargs: t.Any) -> t.Any:
+        """Disable status: only the ticket services change it, which keep the tier capacity (#1594).
+
+        Disabled, not readonly, so the form still checks the unique constraints whose condition reads ``status``.
+        """
+        formset = super().get_formset(request, obj, **kwargs)
+        if "status" in formset.form.base_fields:  # a user without change permission gets a form with no fields
+            formset.form.base_fields["status"].disabled = True
+        return formset
 
 
 class EventWaitListInline(TabularInline):  # type: ignore[misc]

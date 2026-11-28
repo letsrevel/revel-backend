@@ -9055,3 +9055,6 @@ msgstr "Un pass stagionale copre questo evento, quindi deve restare pubblico."
 
 msgid "A series pass covers this event, so it must stay in its series."
 msgstr "Un pass stagionale copre questo evento, quindi deve restare nella sua serie."
+
+msgid "This value changed since you opened the page. Reload the page and make your change again."
+msgstr "Questo valore è cambiato da quando hai aperto la pagina. Ricarica la pagina e rifai la modifica."
