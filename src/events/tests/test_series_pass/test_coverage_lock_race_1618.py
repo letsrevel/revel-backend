@@ -12,10 +12,17 @@ import typing as t
 from datetime import timedelta
 from decimal import Decimal
 
+import orjson
 import pytest
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import connection, transaction
+from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
 from django.utils import timezone
+from ninja_jwt.tokens import RefreshToken
+
+from accounts.models import RevelUser
 
 from events.exceptions import SeriesPassCoverageError
 from events.models import Event, SeriesPass, SeriesPassTierLink, TicketTier
@@ -167,3 +174,33 @@ def test_a_link_waits_for_a_concurrent_change_and_is_then_refused(
     status, exc = runner.outcome["link"]
     assert status == "err" and isinstance(exc, refusal), runner.outcome["link"]
     assert not SeriesPassTierLink.objects.filter(event=event).exists()
+
+
+def test_an_event_edit_with_new_links_locks_the_pass_and_the_tier_before_the_event(
+    series_pass: SeriesPass, organization_owner_user: RevelUser
+) -> None:
+    """The global lock order is SeriesPass -> TicketTier -> Event. The event save locks the event row, so the edit
+    must lock the pass and the tier of its new links first, or it can deadlock with ``add_tier_links``."""
+    event, tier = _uncovered(series_pass)
+    client = Client(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(organization_owner_user).access_token!s}")  # type: ignore[attr-defined]
+    body = {"name": event.name, "series_pass_links": [{"series_pass_id": str(series_pass.pk), "tier_id": str(tier.pk)}]}
+
+    with CaptureQueriesContext(connection) as ctx:
+        response = client.put(
+            reverse("api:edit_event", kwargs={"event_id": event.pk}),
+            data=orjson.dumps(body),
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200, response.content
+    sqls = [q["sql"] for q in ctx.captured_queries]
+    first = {
+        name: next(i for i, sql in enumerate(sqls) if match(sql))
+        for name, match in (
+            ("pass", _row_lock_on("events_seriespass")),
+            ("tier", _row_lock_on("events_tickettier")),
+            ("event_write", lambda sql: sql.startswith('UPDATE "events_event"')),
+        )
+    }
+    assert first["pass"] < first["tier"] < first["event_write"], first
+    assert SeriesPassTierLink.objects.filter(event=event, tier=tier).exists()
