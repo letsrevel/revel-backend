@@ -9,6 +9,7 @@ from events import models
 from events.admin.base import (
     CreateOnlyFieldsMixin,
     EventLinkMixin,
+    SaveEditedFieldsMixin,
     SeriesPassTierLinkInline,
     UserLinkMixin,
 )
@@ -16,7 +17,7 @@ from events.admin.subscription import NoOwnDeleteMixin
 
 
 @admin.register(models.SeriesPass)
-class SeriesPassAdmin(CreateOnlyFieldsMixin, ModelAdmin):  # type: ignore[misc]
+class SeriesPassAdmin(SaveEditedFieldsMixin, CreateOnlyFieldsMixin, ModelAdmin):  # type: ignore[misc]
     """Admin view for SeriesPass (season-ticket product on an EventSeries)."""
 
     create_only_fields = ("event_series",)
@@ -51,7 +52,7 @@ class SeriesPassTierLinkAdmin(ModelAdmin, EventLinkMixin):  # type: ignore[misc]
 
 
 @admin.register(models.HeldSeriesPass)
-class HeldSeriesPassAdmin(NoOwnDeleteMixin, CreateOnlyFieldsMixin, ModelAdmin, UserLinkMixin):  # type: ignore[misc]
+class HeldSeriesPassAdmin(SaveEditedFieldsMixin, NoOwnDeleteMixin, CreateOnlyFieldsMixin, ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     """Admin view for HeldSeriesPass (a user's purchased series pass).
 
     The admin cannot add, move or delete a held pass: only the series pass services create one, change its status

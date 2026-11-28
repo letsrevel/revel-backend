@@ -12,9 +12,11 @@ from decimal import Decimal
 import pytest
 from django.contrib.admin.sites import site
 from django.contrib.auth.models import Permission
+from django.db import connection
 from django.db import models as dj_models
 from django.db.models import F
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -370,3 +372,208 @@ def test_a_held_pass_delete_page_is_refused_but_a_user_delete_cascades(
     member_user.delete()
 
     assert not models.HeldSeriesPass.objects.filter(pk=held_pass.pk).exists()
+
+
+# --- A change save writes only the edited columns (lost updates) ---
+
+
+def _save_with_concurrent_write(
+    rf: t.Any,
+    superuser: RevelUser,
+    obj: t.Any,
+    edit: dict[str, t.Any],
+    concurrent: t.Callable[[], object],
+) -> None:
+    """Validate a change form, let a service write the row, then run the admin's ``save_model``."""
+    request = _request(rf, superuser)
+    model_admin = site._registry[type(obj)]
+    form_class = model_admin.get_form(request, obj, change=True)
+    form = form_class(data={**_initial(form_class, obj), **edit}, instance=obj)
+    assert form.is_valid(), form.errors
+    saved = form.save(commit=False)
+    concurrent()
+    model_admin.save_model(request, saved, form, change=True)
+
+
+def test_a_tier_save_keeps_a_concurrent_sale(
+    rf: t.Any, superuser: RevelUser, event_ticket_tier: models.TicketTier
+) -> None:
+    models.TicketTier.objects.filter(pk=event_ticket_tier.pk).update(updated_at=timezone.now() - timedelta(days=1))
+    event_ticket_tier.refresh_from_db()
+    before = event_ticket_tier.updated_at
+
+    _save_with_concurrent_write(
+        rf,
+        superuser,
+        event_ticket_tier,
+        {"name": "Renamed", "category_prices": "{}"},
+        lambda: models.TicketTier.objects.filter(pk=event_ticket_tier.pk).update(quantity_sold=F("quantity_sold") + 3),
+    )
+
+    event_ticket_tier.refresh_from_db()
+    assert event_ticket_tier.quantity_sold == 3
+    assert event_ticket_tier.name == "Renamed"
+    assert event_ticket_tier.updated_at > before
+
+
+def test_a_series_pass_save_keeps_a_concurrent_sale(
+    rf: t.Any, superuser: RevelUser, held_pass: models.HeldSeriesPass
+) -> None:
+    series_pass = held_pass.series_pass
+
+    _save_with_concurrent_write(
+        rf,
+        superuser,
+        series_pass,
+        {"name": "Renamed"},
+        lambda: models.SeriesPass.objects.filter(pk=series_pass.pk).update(quantity_sold=F("quantity_sold") + 3),
+    )
+
+    series_pass.refresh_from_db()
+    assert series_pass.quantity_sold == 3
+    assert series_pass.name == "Renamed"
+
+
+def test_a_ticket_save_keeps_a_concurrent_status_change_and_stamps_updated_at(
+    rf: t.Any, superuser: RevelUser, event: models.Event, event_ticket_tier: models.TicketTier, member_user: RevelUser
+) -> None:
+    ticket = models.Ticket.objects.create(
+        event=event, tier=event_ticket_tier, user=member_user, status=models.Ticket.TicketStatus.ACTIVE
+    )
+    models.Ticket.objects.filter(pk=ticket.pk).update(updated_at=timezone.now() - timedelta(days=1))
+    ticket.refresh_from_db()
+    before = ticket.updated_at
+
+    _save_with_concurrent_write(
+        rf,
+        superuser,
+        ticket,
+        {"guest_name": "Guest"},
+        lambda: models.Ticket.objects.filter(pk=ticket.pk).update(status=models.Ticket.TicketStatus.CANCELLED),
+    )
+
+    ticket.refresh_from_db()
+    assert ticket.status == models.Ticket.TicketStatus.CANCELLED
+    assert ticket.guest_name == "Guest"
+    assert ticket.updated_at > before
+
+
+def test_a_held_pass_save_keeps_a_concurrent_status_change(
+    rf: t.Any, superuser: RevelUser, held_pass: models.HeldSeriesPass
+) -> None:
+    cancelled = models.HeldSeriesPass.Status.CANCELLED if hasattr(models.HeldSeriesPass, "Status") else "cancelled"
+    other = models.HeldSeriesPass.objects.get(pk=held_pass.pk).status
+    assert other != cancelled
+
+    _save_with_concurrent_write(
+        rf,
+        superuser,
+        held_pass,
+        {},
+        lambda: models.HeldSeriesPass.objects.filter(pk=held_pass.pk).update(status=cancelled),
+    )
+
+    held_pass.refresh_from_db()
+    assert held_pass.status == cancelled
+
+
+def test_a_tier_add_still_saves(rf: t.Any, superuser: RevelUser, event: models.Event) -> None:
+    request = _request(rf, superuser)
+    model_admin = site._registry[models.TicketTier]
+    tier = models.TicketTier(event=event, name="Added", price=Decimal("0"), currency="EUR")
+    form = model_admin.get_form(request, None, change=False)(instance=tier)
+
+    model_admin.save_model(request, tier, form, change=False)
+
+    assert models.TicketTier.objects.filter(event=event, name="Added").exists()
+
+
+def _inline_formset(
+    rf: t.Any, superuser: RevelUser, event: models.Event, model: type[dj_models.Model], edit: dict[str, t.Any]
+) -> t.Any:
+    """A bound inline formset of ``event`` with the first row edited by ``edit``."""
+    request = _request(rf, superuser)
+    inline = next(i for i in site._registry[models.Event].get_inline_instances(request, event) if i.model is model)
+    formset_class = inline.get_formset(request, event)
+    prefix = formset_class.get_default_prefix()
+    rows = list(formset_class(instance=event, prefix=prefix).get_queryset())
+    data = {
+        f"{prefix}-TOTAL_FORMS": str(len(rows)),
+        f"{prefix}-INITIAL_FORMS": str(len(rows)),
+        f"{prefix}-MIN_NUM_FORMS": "0",
+        f"{prefix}-MAX_NUM_FORMS": "1000",
+    }
+    for i, row in enumerate(rows):
+        form_class = formset_class(instance=event, prefix=prefix).form
+        initial = _initial(form_class, row)
+        initial["id"] = str(row.pk)
+        initial["event"] = str(event.pk)
+        data.update({f"{prefix}-{i}-{k}": v for k, v in {**initial, **(edit if i == 0 else {})}.items()})
+    return formset_class(data=data, instance=event, prefix=prefix)
+
+
+def test_the_tier_inline_save_keeps_a_concurrent_sale(
+    rf: t.Any, superuser: RevelUser, event: models.Event, event_ticket_tier: models.TicketTier
+) -> None:
+    models.TicketTier.objects.filter(pk=event_ticket_tier.pk).update(updated_at=timezone.now() - timedelta(days=1))
+    event_ticket_tier.refresh_from_db()
+    before = event_ticket_tier.updated_at
+    formset = _inline_formset(rf, superuser, event, models.TicketTier, {"name": "Renamed", "category_prices": "{}"})
+    assert formset.is_valid(), formset.errors
+
+    models.TicketTier.objects.filter(pk=event_ticket_tier.pk).update(quantity_sold=F("quantity_sold") + 3)
+    formset.save()
+
+    event_ticket_tier.refresh_from_db()
+    assert event_ticket_tier.quantity_sold == 3
+    assert event_ticket_tier.name == "Renamed"
+    assert event_ticket_tier.updated_at > before
+
+
+def test_the_ticket_inline_save_keeps_a_concurrent_status_change(
+    rf: t.Any, superuser: RevelUser, event: models.Event, event_ticket_tier: models.TicketTier, member_user: RevelUser
+) -> None:
+    ticket = models.Ticket.objects.create(
+        event=event, tier=event_ticket_tier, user=member_user, status=models.Ticket.TicketStatus.ACTIVE
+    )
+    models.Ticket.objects.filter(pk=ticket.pk).update(updated_at=timezone.now() - timedelta(days=1))
+    ticket.refresh_from_db()
+    before = ticket.updated_at
+    formset = _inline_formset(rf, superuser, event, models.Ticket, {"guest_name": "Guest"})
+    assert formset.is_valid(), formset.errors
+
+    models.Ticket.objects.filter(pk=ticket.pk).update(status=models.Ticket.TicketStatus.CANCELLED)
+    formset.save()
+
+    ticket.refresh_from_db()
+    assert ticket.status == models.Ticket.TicketStatus.CANCELLED
+    assert ticket.guest_name == "Guest"
+    assert ticket.updated_at > before
+
+
+@pytest.mark.usefixtures("no_manifest_storage")
+def test_the_event_change_page_loads_the_ticket_relations_in_one_query(
+    client: Client,
+    superuser: RevelUser,
+    event: models.Event,
+    event_ticket_tier: models.TicketTier,
+    revel_user_factory: t.Any,
+) -> None:
+    """The readonly ticket columns and ``Ticket.__str__`` cost no event or tier query per row (#880).
+
+    The ``user`` autocomplete widget still reads one user per row, so the total is not constant.
+    """
+    client.force_login(superuser)
+    url = reverse("admin:events_event_change", args=[event.pk])
+
+    def queries_on(table: str, count: int) -> int:
+        for _ in range(count):
+            models.Ticket.objects.create(
+                event=event, tier=event_ticket_tier, user=revel_user_factory(), status=models.Ticket.TicketStatus.ACTIVE
+            )
+        with CaptureQueriesContext(connection) as ctx:
+            assert client.get(url).status_code == 200
+        return sum(f'FROM "{table}"' in q["sql"] for q in ctx.captured_queries)
+
+    for table in ("events_event", "events_tickettier"):
+        assert queries_on(table, 5) == queries_on(table, 5)  # 5 rows, then 10 rows

@@ -80,6 +80,53 @@ class CreateOnlyFieldsMixin:
         return form
 
 
+def edited_fields(form: forms.BaseForm, skip: str | None = None) -> list[str]:
+    """Names of the model columns that a saved ``form`` may write.
+
+    These are the enabled form fields that are concrete, non-primary-key fields of the model, minus ``skip`` (the
+    inline foreign key), plus every ``auto_now`` field (``updated_at``). All enabled fields are used, not only
+    ``form.changed_data``: a model ``clean()`` can fill a field from another one (for example the venue and sector
+    of a ticket from its seat), and such a field is on the form too. Readonly and disabled fields are never listed.
+    """
+    instance = form.instance  # type: ignore[attr-defined]
+    concrete = {f.name for f in instance._meta.concrete_fields if not f.primary_key}
+    names = [name for name, field in form.fields.items() if not field.disabled and name in concrete and name != skip]
+    # Django stamps an ``auto_now`` field only when it is in ``update_fields``; a sweep finds changed rows by it.
+    names += [f.name for f in instance._meta.concrete_fields if getattr(f, "auto_now", False) and f.name not in names]
+    return names
+
+
+class SaveEditedFieldsMixin:
+    """On a change save, write only the columns that the form edits.
+
+    A plain ``obj.save()`` writes every column, also the ones that services change at the same time (counters such
+    as ``quantity_sold``, ``status``, ``cancelled_at``). Such a write would put back the values that were read when
+    the page opened. With ``update_fields`` the readonly and disabled fields are never written. PostgreSQL locks
+    the row for the ``UPDATE``: it waits for a service write that is not yet committed, and then sets only the
+    listed columns.
+
+    Do not use it for a model whose ``save()`` writes columns that are not form fields (for example the end and
+    location of an ``Event``, or a slug and an image).
+    """
+
+    def save_model(self, request: HttpRequest, obj: t.Any, form: t.Any, change: bool) -> None:
+        if change:
+            obj.save(update_fields=edited_fields(form))
+        else:
+            super().save_model(request, obj, form, change)  # type: ignore[misc]
+
+
+class SaveEditedFieldsFormSetMixin:
+    """Inline formset that saves an existing row with ``update_fields``; see :class:`SaveEditedFieldsMixin`."""
+
+    def save_existing(self, form: t.Any, obj: t.Any, commit: bool = True) -> t.Any:
+        obj = form.save(commit=False)
+        if commit:
+            obj.save(update_fields=edited_fields(form, skip=self.fk.name))  # type: ignore[attr-defined]
+            form.save_m2m()
+        return obj
+
+
 class UserLinkMixin:
     """Mixin to add a link to a user."""
 
@@ -285,7 +332,7 @@ class VenueSeatInline(TabularInline):  # type: ignore[misc]
     ordering = ["row_order", "adjacency_index", "label"]
 
 
-class TicketTierFormSet(forms.BaseInlineFormSet):  # type: ignore[type-arg]
+class TicketTierFormSet(SaveEditedFieldsFormSetMixin, forms.BaseInlineFormSet):  # type: ignore[type-arg]
     """Rejects new tiers when the parent Event is RSVP-only, incl. on the add page (#1295)."""
 
     def clean(self) -> None:
@@ -344,8 +391,13 @@ class EventRSVPInline(TabularInline):  # type: ignore[misc]
     autocomplete_fields = ["user"]
 
 
+class TicketInlineFormSet(SaveEditedFieldsFormSetMixin, forms.BaseInlineFormSet):  # type: ignore[type-arg]
+    """Saves an existing ticket with ``update_fields``, so a service write to the status or a check-in is kept."""
+
+
 class TicketInline(TabularInline):  # type: ignore[misc]
     model = models.Ticket
+    formset = TicketInlineFormSet
     extra = 0
     autocomplete_fields = ["user"]
     # raw_id: these rendered as plain <select>s over EVERY seat/venue/sector/discount
@@ -374,6 +426,13 @@ class TicketInline(TabularInline):  # type: ignore[misc]
         "tier",
     ]
     can_delete = False
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[models.Ticket]:
+        """Load what the readonly columns and ``Ticket.__str__`` show, so a row costs no extra query (#880)."""
+        queryset: QuerySet[models.Ticket] = super().get_queryset(request)
+        return queryset.select_related(
+            "event", "tier__event", "user", "discount_code", "held_pass", "cancelled_by", "checked_in_by"
+        )
 
     def has_add_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
         """Tickets are created by the checkout and box office services only (#1594)."""
