@@ -16,6 +16,7 @@ from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
 from events.admin.base import (
+    CreateOnlyFieldsMixin,
     EventLinkMixin,
     GrantsTemporaryTierMixin,
     UserLinkMixin,
@@ -25,8 +26,10 @@ from events.service import pending_checkout, ticket_service
 
 
 @admin.register(models.TicketTier)
-class TicketTierAdmin(GrantsTemporaryTierMixin, ModelAdmin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
+class TicketTierAdmin(CreateOnlyFieldsMixin, GrantsTemporaryTierMixin, ModelAdmin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
     """Admin view for TicketTier."""
+
+    create_only_fields = ("event",)
 
     list_display = [
         "__str__",

@@ -6,6 +6,7 @@ from unfold.admin import ModelAdmin
 
 from events import models
 from events.admin.base import (
+    CreateOnlyFieldsMixin,
     EventLinkMixin,
     SeriesPassTierLinkInline,
     UserLinkMixin,
@@ -13,8 +14,10 @@ from events.admin.base import (
 
 
 @admin.register(models.SeriesPass)
-class SeriesPassAdmin(ModelAdmin):  # type: ignore[misc]
+class SeriesPassAdmin(CreateOnlyFieldsMixin, ModelAdmin):  # type: ignore[misc]
     """Admin view for SeriesPass (season-ticket product on an EventSeries)."""
+
+    create_only_fields = ("event_series",)
 
     list_display = [
         "name",

@@ -61,6 +61,25 @@ class InclusiveRangeDateFilter(RangeDateFilter):  # type: ignore[misc]
 
 
 # --- Helper Mixins for Reusable Link Fields ---
+class CreateOnlyFieldsMixin:
+    """Disable ``create_only_fields`` on the change page; they stay editable on the add page (#1596).
+
+    A disabled field ignores a posted value and keeps the stored one. It stays on the form, unlike
+    ``readonly_fields``, so the form still checks the unique constraints that include it: a duplicate name is a
+    form error, not a 500 from ``save()``.
+    """
+
+    create_only_fields: t.ClassVar[tuple[str, ...]] = ()
+
+    def get_form(self, request: HttpRequest, obj: t.Any = None, change: bool = False, **kwargs: t.Any) -> t.Any:
+        form = super().get_form(request, obj, change=change, **kwargs)  # type: ignore[misc]
+        if obj is not None:
+            for name in self.create_only_fields:
+                if name in form.base_fields:  # a user without change permission gets a form with no fields
+                    form.base_fields[name].disabled = True
+        return form
+
+
 class UserLinkMixin:
     """Mixin to add a link to a user."""
 

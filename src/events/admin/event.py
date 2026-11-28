@@ -21,6 +21,7 @@ from common.exception_handlers import format_validation_error
 from common.thumbnails.admin_mixins import ImageSourceAdminMixin
 from events import models
 from events.admin.base import (
+    CreateOnlyFieldsMixin,
     EventInvitationInline,
     EventLinkMixin,
     EventRSVPInline,
@@ -267,7 +268,9 @@ class EventAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # t
 
 
 @admin.register(models.EventSeries)
-class EventSeriesAdmin(ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+class EventSeriesAdmin(CreateOnlyFieldsMixin, ImageSourceAdminMixin, ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+    create_only_fields = ("organization",)
+
     list_display = [
         "name",
         "slug",
