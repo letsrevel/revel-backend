@@ -9,7 +9,7 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 from ninja import Field, FilterLookup, FilterSchema, Schema
-from pydantic import AwareDatetime
+from pydantic import AwareDatetime, model_validator
 
 from common.models import Tag
 from events.models import (
@@ -40,6 +40,17 @@ class CalendarParamsSchema(Schema):
     week: int | None = Field(None, description="ISO week number (1-53)", ge=1, le=53)
     month: int | None = Field(None, description="Month number (1-12)", ge=1, le=12)
     year: int | None = Field(None, description="Year (e.g., 2025)", ge=2025, le=2100)
+
+    @model_validator(mode="after")
+    def validate_iso_week(self) -> t.Self:
+        """Validate the ISO week against the target year."""
+        if self.week is not None:
+            target_year = self.year or timezone.now().year
+            max_week = datetime.date(target_year, 12, 28).isocalendar().week
+            if self.week > max_week:
+                raise ValueError(f"Year {target_year} has only {max_week} ISO weeks.")
+            self.year = target_year
+        return self
 
 
 class CityFilterMixin(FilterSchema):

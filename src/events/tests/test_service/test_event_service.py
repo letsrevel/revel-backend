@@ -12,6 +12,7 @@ from freezegun import freeze_time
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from events.filters import CalendarParamsSchema
 from events.models import (
     AdditionalResource,
     Event,
@@ -338,6 +339,17 @@ class TestCalculateCalendarDateRange:
             assert start.year == 2025
             assert end.year == 2025
             assert (end - start).days == 7
+
+    def test_week_view_preserves_validated_year_across_rollover(self) -> None:
+        """Keep the validated ISO year when the clock crosses into January."""
+        with freeze_time("2026-12-31 23:59:59"):
+            params = CalendarParamsSchema(week=53)
+
+        with freeze_time("2027-01-01 00:00:00"):
+            start, end = event_service.calculate_calendar_date_range(**params.model_dump())
+
+        assert start == datetime(2026, 12, 28, tzinfo=ZoneInfo("UTC"))
+        assert end == datetime(2027, 1, 4, tzinfo=ZoneInfo("UTC"))
 
     def test_week_52_spans_correctly(self) -> None:
         """Test that week 52 calculation works correctly."""
