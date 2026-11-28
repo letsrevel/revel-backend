@@ -273,7 +273,9 @@ same row, `FOR NO KEY UPDATE`, so the second one waits and then reads the commit
   change reads the links again after the tier lock and locks that pass then, after the tier. Postgres stops a
   deadlock with it; the rule check stays correct. The event admin change view has the same case. The API answers a
   deadlock (SQLSTATE `40P01`, any path) with a retryable 409 and the code `concurrent_change`
-  (`api.exception_handlers.handle_operational_error`); any other `OperationalError` stays a logged 500.
+  (`api.exception_handlers.handle_operational_error`); any other `OperationalError` stays a logged 500. Ninja
+  handles the error inside the view, so the `ATOMIC_REQUESTS` block would still commit; the handler calls
+  `transaction.set_rollback(True)`, so the earlier writes of the request and its `on_commit` callbacks are dropped.
 - The event admin change view locks only for a user with change permission on the event.
 - The Django admin event change view (`EventAdmin.changeform_view`) locks the event's passes, its tiers and the
   event before it validates a submit, because the submit writes the event and then its tier inlines.
