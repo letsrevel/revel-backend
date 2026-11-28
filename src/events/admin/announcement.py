@@ -13,11 +13,18 @@ from events.admin.base import (
     CreatedByDefaultMixin,
     EventLinkMixin,
     OrganizationLinkMixin,
+    SaveEditedFieldsMixin,
 )
 
 
 @admin.register(models.Announcement)
-class AnnouncementAdmin(CreatedByDefaultMixin, ModelAdmin, OrganizationLinkMixin, EventLinkMixin):  # type: ignore[misc]
+class AnnouncementAdmin(
+    CreatedByDefaultMixin,
+    SaveEditedFieldsMixin,
+    ModelAdmin,  # type: ignore[misc]
+    OrganizationLinkMixin,
+    EventLinkMixin,
+):
     """Admin for Announcement model."""
 
     def get_queryset(self, request: t.Any) -> t.Any:

@@ -417,6 +417,7 @@ class TicketInline(TabularInline):  # type: ignore[misc]
         "cancelled_at",
         "cancelled_by",
         "cancellation_source",
+        "cancellation_reason",
         "checked_in_by",
         "discount_code",
         "held_pass",

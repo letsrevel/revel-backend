@@ -151,6 +151,7 @@ class TicketAdmin(
         "cancelled_at",
         "cancelled_by",
         "cancellation_source",
+        "cancellation_reason",  # written with the cancel by the cancellation service, like the fields above
         "file_content_hash",
         "created_at",
         "updated_at",

@@ -6,11 +6,11 @@ from unfold.admin import ModelAdmin
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
-from events.admin.base import OrganizationLinkMixin
+from events.admin.base import OrganizationLinkMixin, SaveEditedFieldsMixin
 
 
 @admin.register(models.DiscountCode)
-class DiscountCodeAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+class DiscountCodeAdmin(SaveEditedFieldsMixin, ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for DiscountCode model."""
 
     list_display = [

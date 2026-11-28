@@ -449,11 +449,14 @@ def test_a_ticket_save_keeps_a_concurrent_status_change_and_stamps_updated_at(
         superuser,
         ticket,
         {"guest_name": "Guest"},
-        lambda: models.Ticket.objects.filter(pk=ticket.pk).update(status=models.Ticket.TicketStatus.CANCELLED),
+        lambda: models.Ticket.objects.filter(pk=ticket.pk).update(
+            status=models.Ticket.TicketStatus.CANCELLED, cancellation_reason="sick"
+        ),
     )
 
     ticket.refresh_from_db()
     assert ticket.status == models.Ticket.TicketStatus.CANCELLED
+    assert ticket.cancellation_reason == "sick"
     assert ticket.guest_name == "Guest"
     assert ticket.updated_at > before
 
@@ -461,7 +464,7 @@ def test_a_ticket_save_keeps_a_concurrent_status_change_and_stamps_updated_at(
 def test_a_held_pass_save_keeps_a_concurrent_status_change(
     rf: t.Any, superuser: RevelUser, held_pass: models.HeldSeriesPass
 ) -> None:
-    cancelled = models.HeldSeriesPass.Status.CANCELLED if hasattr(models.HeldSeriesPass, "Status") else "cancelled"
+    cancelled = models.HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
     other = models.HeldSeriesPass.objects.get(pk=held_pass.pk).status
     assert other != cancelled
 
@@ -577,3 +580,51 @@ def test_the_event_change_page_loads_the_ticket_relations_in_one_query(
 
     for table in ("events_event", "events_tickettier"):
         assert queries_on(table, 5) == queries_on(table, 5)  # 5 rows, then 10 rows
+
+
+def test_a_discount_code_save_keeps_a_concurrent_redemption(
+    rf: t.Any, superuser: RevelUser, organization: models.Organization
+) -> None:
+    code = models.DiscountCode.objects.create(
+        code="RACE",
+        organization=organization,
+        discount_type=models.DiscountCode.DiscountType.PERCENTAGE,
+        discount_value=Decimal("10.00"),
+        max_uses=10,
+    )
+
+    _save_with_concurrent_write(
+        rf,
+        superuser,
+        code,
+        {"max_uses": "20"},
+        lambda: models.DiscountCode.objects.filter(pk=code.pk).update(times_used=F("times_used") + 2),
+    )
+
+    code.refresh_from_db()
+    assert code.times_used == 2
+    assert code.max_uses == 20
+
+
+def test_an_announcement_save_keeps_a_concurrent_send(
+    rf: t.Any, superuser: RevelUser, organization: models.Organization
+) -> None:
+    announcement = models.Announcement.objects.create(
+        organization=organization, title="Hi", body="Hello", created_by=superuser
+    )
+
+    _save_with_concurrent_write(
+        rf,
+        superuser,
+        announcement,
+        {"title": "Renamed"},
+        lambda: models.Announcement.objects.filter(pk=announcement.pk).update(
+            status=models.Announcement.AnnouncementStatus.SENT, sent_at=timezone.now(), recipient_count=5
+        ),
+    )
+
+    announcement.refresh_from_db()
+    assert announcement.status == models.Announcement.AnnouncementStatus.SENT
+    assert announcement.sent_at is not None
+    assert announcement.recipient_count == 5
+    assert announcement.title == "Renamed"
