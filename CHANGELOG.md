@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-11-28
+
+### Deployment notes
+
+- **Deploy order from production v3.1.0:** do not deploy this release in one jump.
+  1. Deploy the `3.2.0` image tag first, and let it run for about one day. If the v3.1.0 Stripe webhook step is not done yet, do it before this deploy. Use the 3.2.0 checks: `showmigrations` lists `accounts` 0042, `common` 0027, `events` 0158 and `oauth` 0003; the three new beat rows exist; the image sweep has `dry_run: true`.
+  2. Then deploy 3.3.0 directly. 3.2.1 needs no separate step.
+- This release has one migration, `events` 0159. It changes only `on_delete` and emits no SQL.
+- After the deploy, check that:
+  - `manage.py showmigrations events` lists 0159 as applied.
+  - The Celery worker lists the new task `events.link_blacklist_entries_for_user`.
+  - The web and Celery logs show no "unregistered task" errors. During the rollout, an old worker drops this task; the ban still applies, because every check matches the entry identifiers.
+- In the first hour, look for these events in Loki: `blacklist_entries_linked`, `blacklist_link_task_not_queued`, `blacklist_link_after_verification_failed`. A blacklist create answers 201 or 400, and no longer 500.
+- A rollback to 3.2.0 needs no reverse migration.
+
 ### Changed
 
 - Django admin: the parent of a product is now fixed after creation, so that an open checkout cannot pay or issue tickets against a new parent.
@@ -37,7 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - An identifier that another unlinked entry of the organization already holds stays on that entry.
   - The other identifiers move to that entry when it has no value for them.
   - The entry is deleted only when no identifier is left.
-  - A new account with the same phone number or Telegram username is linked to it again. A new account with the same email is linked at registration when its email is verified, or else when it verifies the email.
+  - A new account that matches a kept entry is blacklisted at once.
+  - Each organization links one matching entry to the new account, the oldest one. A match by email counts only when the email is verified, at registration or later.
   - A save of a blacklist entry in the Django admin now waits for the organization lock.
 - Blacklist: a manual entry with the phone number or the Telegram handle of an existing entry now answers 400 with a clear message. Before, it answered 500. When the account already has an entry, or the linked entry of another (erased) account holds its email, quick mode and manual mode now refuse with "This user is already blacklisted.". When an unlinked entry holds the account's verified email, that entry is linked to the account and no second entry is created. A phone number or Telegram handle typed in manual mode is added to that entry. The response of a linked entry now shows its real creator.
 - Blacklist: a registration or a Telegram connect no longer fails when two entries of one organization match the person, or when the account already has a linked entry there. Each organization links at most one entry to the account, and the ban applies in every matched organization, also when the only match is the entry of an erased account. Verifying an email, converting a guest account or changing to a new verified email now also links the matching entries. A registration links an entry by email only when the email is verified and the account is not a guest.
