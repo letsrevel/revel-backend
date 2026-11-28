@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tickets and held series passes cannot be added in the admin. Their status and tier (or pass) are read-only.
   - The holder of a held series pass is read-only, and its own delete page is refused. A user delete still removes it.
   - The sold count of a ticket tier and of a series pass is read-only, so a save no longer writes back the count shown when the page opened.
+  - A save of a ticket, ticket tier, series pass or held series pass writes only the fields of the form. A sale, cancel or check-in that happens during the save is kept.
   - Before, an admin add, status edit or held pass delete left the sold count wrong, so a tier or pass could oversell or lose places.
 - Django admin: membership payments and customer profiles are protected like membership subscriptions.
   - Membership payments cannot be added in the admin, and an existing payment is view-only.
