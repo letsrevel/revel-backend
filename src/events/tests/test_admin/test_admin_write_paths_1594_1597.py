@@ -214,6 +214,12 @@ def test_a_profile_delete_page_is_refused_but_a_user_delete_cascades(
     assert response.status_code == 403
     assert "delete_selected" not in admin_obj.get_actions(_request(rf, superuser))
 
+    # The user delete page checks has_delete_permission on the admin of every cascaded row: it must not block.
+    user_delete = client.get(reverse("admin:accounts_reveluser_delete", args=[member_user.pk]))
+    assert user_delete.status_code == 200
+    assert not user_delete.context["perms_lacking"]
+    assert not user_delete.context["protected"]
+
     member_user.delete()
 
     assert not models.CustomerProfile.objects.filter(pk=profile.pk).exists()
