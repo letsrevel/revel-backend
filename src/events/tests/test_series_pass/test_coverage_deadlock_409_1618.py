@@ -16,7 +16,7 @@ from django.urls import reverse
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
-from events.models import SeriesPass, TicketTier
+from events.models import MembershipTier, Organization, SeriesPass, TicketTier
 from events.tests.test_series_pass.covered_events import cover
 
 pytestmark = pytest.mark.django_db
@@ -47,7 +47,6 @@ def test_a_deadlock_answers_a_retryable_409(series_pass: SeriesPass, organizatio
     assert response.status_code == 409, response.content
     assert response.json()["code"] == "concurrent_change"
     assert "try again" in response.json()["detail"]
-    assert TicketTier.objects.get(pk=tier.pk).purchasable_by == TicketTier.PurchasableBy.PUBLIC
 
 
 def test_another_database_error_stays_a_500(series_pass: SeriesPass, organization_owner_user: RevelUser) -> None:
@@ -55,3 +54,26 @@ def test_another_database_error_stays_a_500(series_pass: SeriesPass, organizatio
 
     assert response.status_code == 500, response.content
     assert "code" not in response.json()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_deadlock_saves_nothing_of_the_request(
+    series_pass: SeriesPass, organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """``update_ticket_tier`` writes a first membership-tier restriction before its coverage check. A deadlock at
+    that check must roll the write back. ``transaction=True``: the request must commit or roll back for real, which
+    the rollback-wrapped default ``django_db`` transaction hides."""
+    _, tier = cover(series_pass, "deadlock-rollback", days=3)
+    gold = MembershipTier.objects.create(organization=organization, name="Gold")
+    client = Client(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(organization_owner_user).access_token}")  # type: ignore[attr-defined]
+    url = reverse("api:update_ticket_tier", kwargs={"event_id": tier.event_id, "tier_id": tier.id})
+
+    with patch("events.models.ticket.lock_rows", side_effect=_error(psycopg.errors.DeadlockDetected())):
+        response = client.put(
+            url,
+            data=orjson.dumps({"restricted_to_membership_tiers_ids": [str(gold.pk)]}),
+            content_type="application/json",
+        )
+
+    assert response.status_code == 409, response.content
+    assert not TicketTier.objects.get(pk=tier.pk).restricted_to_membership_tiers.exists()
