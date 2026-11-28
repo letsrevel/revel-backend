@@ -763,6 +763,16 @@ class Event(
             )
         )
 
+    def clean_fields(self, exclude: t.Collection[str] | None = None) -> None:
+        """Also refuse a change that takes a covered event outside the series pass coverage gate (#1598).
+
+        Here, not in ``clean()``: only this step gets ``exclude``, so a save that does not write the fields skips it.
+        """
+        super().clean_fields(exclude=exclude)
+        from .series_pass import assert_event_change_keeps_coverage  # series_pass imports this module
+
+        assert_event_change_keeps_coverage(self, exclude=exclude or ())
+
     def clean(self) -> None:
         """Enforce same ownership of organization and validate time windows."""
         super().clean()

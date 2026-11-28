@@ -9037,3 +9037,9 @@ msgid ""
 "or unlink the tier first."
 msgstr ""
 "Un pass stagionale con una regola di acquisto meno restrittiva copre questo livello; modifica prima il pass stagionale o scollega il livello."
+
+msgid "A series pass covers this event, so it must stay public."
+msgstr "Un pass stagionale copre questo evento, quindi deve restare pubblico."
+
+msgid "A series pass covers this event, so it must stay in its series."
+msgstr "Un pass stagionale copre questo evento, quindi deve restare nella sua serie."

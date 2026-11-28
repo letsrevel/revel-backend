@@ -9077,3 +9077,9 @@ msgid ""
 "or unlink the tier first."
 msgstr ""
 "Un pass de série avec une règle d'achat moins stricte couvre cette catégorie ; modifiez d'abord le pass ou dissociez la catégorie."
+
+msgid "A series pass covers this event, so it must stay public."
+msgstr "Un pass de série couvre cet événement, il doit donc rester public."
+
+msgid "A series pass covers this event, so it must stay in its series."
+msgstr "Un pass de série couvre cet événement, il doit donc rester dans sa série."
