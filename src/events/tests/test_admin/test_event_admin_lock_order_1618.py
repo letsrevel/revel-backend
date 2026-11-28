@@ -90,7 +90,7 @@ def _post_data_of(form: t.Any, data: dict[str, t.Any]) -> None:
         name = bound.html_name
         widget = bound.field.widget
         if isinstance(widget, MultiWidget):
-            for i, part in enumerate(widget.decompress(value)):
+            for i, part in enumerate(widget.decompress(value) or ()):
                 if part is not None:
                     data[f"{name}_{i}"] = part
         elif isinstance(value, (list, tuple)):
