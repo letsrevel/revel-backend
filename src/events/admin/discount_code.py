@@ -11,7 +11,10 @@ from events.admin.base import OrganizationLinkMixin, SaveEditedFieldsMixin
 
 @admin.register(models.DiscountCode)
 class DiscountCodeAdmin(SaveEditedFieldsMixin, ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
-    """Admin for DiscountCode model."""
+    """Admin for DiscountCode model.
+
+    ``SaveEditedFieldsMixin`` writes only form fields: ``code`` must stay one, because ``clean()`` upper-cases it.
+    """
 
     list_display = [
         "code",
