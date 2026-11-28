@@ -89,14 +89,8 @@ class SeriesPass(TimeStampedModel, VisibilityMixin):
             old = SeriesPass.objects.filter(pk=self.pk).values("currency", "payment_method", "purchasable_by").first()
             if old is None:
                 return
-            # Tier links are validated against the pass currency at link time;
-            # changing it afterwards would silently break that contract.
             if self.currency != old["currency"]:
-                lock_row(SeriesPass, self.pk)  # as below, for a concurrent add_tier_links (#1618)
-                if self.tier_links.exists():
-                    raise DjangoValidationError(
-                        {"currency": _("Currency cannot be changed once the pass covers events.")}
-                    )
+                self._assert_currency_change_allowed()
             # Only when the rule changes, so existing mismatched links do not block unrelated edits.
             # Reads the links as stored: an admin submit that also deletes the offending inline row still fails
             # here (inline deletes run after the parent saves); saving twice works around it.
@@ -127,6 +121,15 @@ class SeriesPass(TimeStampedModel, VisibilityMixin):
                 raise DjangoValidationError(
                     {"payment_method": _("Payment method cannot be changed while the pass has holders.")}
                 )
+
+    def _assert_currency_change_allowed(self) -> None:
+        """Tier links are validated against the pass currency at link time; a later change would break that.
+
+        It first locks the pass row, as ``add_tier_links`` does, so a new link and this change cannot both pass (#1618).
+        """
+        lock_row(SeriesPass, self.pk)
+        if self.tier_links.exists():
+            raise DjangoValidationError({"currency": _("Currency cannot be changed once the pass covers events.")})
 
 
 class SeriesPassTierLink(TimeStampedModel):
