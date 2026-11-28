@@ -294,6 +294,12 @@ class TestCalendarEndpoint:
         assert data[0]["id"] == str(event_early.id)
         assert data[1]["id"] == str(event_late.id)
 
+    @pytest.mark.parametrize("year, expected_status", [(2025, 422), (2026, 200)])
+    def test_calendar_iso_week_53(self, client: Client, year: int, expected_status: int) -> None:
+        """Validate week 53 against the number of ISO weeks in the year."""
+        response = client.get(reverse("api:calendar_events"), {"week": 53, "year": year})
+        assert response.status_code == expected_status
+
     def test_calendar_invalid_week_number(self, client: Client) -> None:
         """Test that invalid week number returns validation error."""
         url = reverse("api:calendar_events")
